@@ -55,8 +55,8 @@ ToolObservation facts
 - diagnostics:
   - `runtime_interruption_code = missing_terminal_event`
   - `recoverable = true`
-  - `semantic_terminal = false`
-  - `interrupted_turn_continuation_pending = true`
+  - `agent_decision_terminal = false`
+  - interrupted turn lifecycle closed and memory package ready
 
 事件链证明工具执行本身完成：
 
@@ -313,8 +313,8 @@ Frontend restore must not require live execution attachment to display a recover
 
 - `live_reconnectable = execution_attached && not terminal`
 - `replay_available = event_log_id exists && latest_event_offset >= 0`
-- `recoverable_interruption = diagnostics.recoverable && semantic_terminal is false`
-- `continuation_available = continuation selector has interrupted_turn or continuation record`
+- `recoverable_interruption = diagnostics.recoverable && agent_decision_terminal is false`
+- `continuation_available = task continuation record exists; ordinary interrupted turns are exposed through prior work memory on the next turn`
 - 删除旧 live 兼容字段；live 重连接入只允许读取 `live_reconnectable`。
 
 ### Phase 5: 前端刷新恢复接入 replay / continuation

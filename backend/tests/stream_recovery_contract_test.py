@@ -13,7 +13,7 @@ from runtime.model_gateway.stream_recovery import (
     model_selection_for_visible_prefix_recovery,
     should_recover_partial_visible_stream,
 )
-from runtime.model_gateway.model_request import ModelRequestBuilder
+from runtime.model_gateway.provider_request import ProviderRequestBuilder
 from runtime.prompt_accounting.serializer import CanonicalPromptSerializer
 
 
@@ -165,8 +165,8 @@ def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages(
         recovery_attempt=1,
         source="test.visible_prefix_recovery",
     )
-    model_request = ModelRequestBuilder().build(
-        request_id="modelreq:visible-prefix-recovery",
+    provider_request = ProviderRequestBuilder().build(
+        request_id="providerreq:visible-prefix-recovery",
         messages=recovery_messages,
         tools=[],
         provider="deepseek",
@@ -174,13 +174,13 @@ def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages(
         segment_plan=recovery_segment_plan,
     )
     segment_map = CanonicalPromptSerializer().build_segment_map(
-        request_id="modelreq:visible-prefix-recovery",
+        request_id="providerreq:visible-prefix-recovery",
         messages=recovery_messages,
         tools=[],
         provider="deepseek",
         model="deepseek-v4-pro",
         segment_plan=recovery_segment_plan,
-        model_request=model_request,
+        provider_request=provider_request,
     )
     kinds = [str(item.get("kind") or "") for item in recovery_segment_plan["segments"]]
 
@@ -190,7 +190,7 @@ def test_visible_prefix_recovery_segment_plan_covers_appended_recovery_messages(
         "partial_stream_recovery_instruction",
         "partial_stream_recovery_visible_prefix",
     ]
-    assert model_request.diagnostics["unplanned_message_count"] == 0
+    assert provider_request.diagnostics["unplanned_message_count"] == 0
     assert all(segment.kind != "unknown_unplanned" for segment in segment_map.segments)
     assert segment_map.segments[-2].cache_role == "volatile"
     assert segment_map.segments[-1].cache_role == "volatile"

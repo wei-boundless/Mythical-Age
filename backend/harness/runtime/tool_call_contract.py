@@ -15,7 +15,7 @@ _CONTROL_ACTION_TYPES = {
     "block",
     "request_task_run",
     "active_work_control",
-    "resume_recoverable_work",
+    "resume_task_recovery",
     "pause_for_user_steer",
 }
 
@@ -29,7 +29,6 @@ class ToolCallContract:
     control_action_submission: ControlActionSubmission = "none"
     provider_tools_enabled: bool = False
     provider_control_tools_enabled: bool = False
-    action_object_tool_fallback_enabled: bool = False
     multi_tool_calls_allowed: bool = False
     agent_visible_instruction: dict[str, Any] = field(default_factory=dict)
     hidden_transport_policy: dict[str, Any] = field(default_factory=dict)
@@ -70,7 +69,6 @@ class ToolCallContract:
             "control_action_submission": self.control_action_submission,
             "provider_tools_enabled": self.provider_tools_enabled,
             "provider_control_tools_enabled": self.provider_control_tools_enabled,
-            "action_object_tool_fallback_enabled": self.action_object_tool_fallback_enabled,
             "multi_tool_calls_allowed": self.multi_tool_calls_allowed,
             "hidden_transport_policy": dict(self.hidden_transport_policy or {}),
             "cache_policy": dict(self.cache_policy or {}),
@@ -101,11 +99,6 @@ def build_tool_call_contract(
     )
     provider_tools_enabled = ordinary_submission == "provider_tool_selection"
     provider_control_tools_enabled = control_submission == "provider_tool_selection"
-    action_object_fallback = bool(
-        ordinary_submission == "action_object"
-        or explicit_policy.get("action_object_tool_fallback_enabled") is True
-        or explicit_policy.get("tool_fallback_enabled") is True
-    )
     multi_tool_calls_allowed = bool(tool_call_allowed and explicit_policy.get("multi_tool_calls_allowed") is not False)
     identity = {
         "invocation_kind": str(invocation_kind or ""),
@@ -127,7 +120,6 @@ def build_tool_call_contract(
         "control_action_submission": control_submission,
         "provider_tools_enabled": provider_tools_enabled,
         "provider_control_tools_enabled": provider_control_tools_enabled,
-        "action_object_tool_fallback_enabled": action_object_fallback,
         "mounted_tool_names": list(mounted_tool_names),
         "tool_plan_ref": _tool_plan_ref(tool_plan),
         "policy_source": str(explicit_policy.get("source") or "default_provider_tool_selection"),
@@ -140,7 +132,6 @@ def build_tool_call_contract(
         control_action_submission=control_submission,
         provider_tools_enabled=provider_tools_enabled,
         provider_control_tools_enabled=provider_control_tools_enabled,
-        action_object_tool_fallback_enabled=action_object_fallback,
         multi_tool_calls_allowed=multi_tool_calls_allowed,
         agent_visible_instruction=_agent_visible_instruction(
             tool_call_allowed=tool_call_allowed,

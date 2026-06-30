@@ -16,6 +16,19 @@ TaskRunStatus = Literal[
     "aborted",
 ]
 
+TurnRunStatus = Literal[
+    "created",
+    "admitted",
+    "running",
+    "waiting_executor",
+    "waiting_approval",
+    "blocked",
+    "completed",
+    "failed",
+    "aborted",
+    "interrupted",
+]
+
 CANONICAL_TASK_RUN_STATUSES = frozenset(
     {
         "created",
@@ -27,6 +40,21 @@ CANONICAL_TASK_RUN_STATUSES = frozenset(
         "completed",
         "failed",
         "aborted",
+    }
+)
+
+CANONICAL_TURN_RUN_STATUSES = frozenset(
+    {
+        "created",
+        "admitted",
+        "running",
+        "waiting_executor",
+        "waiting_approval",
+        "blocked",
+        "completed",
+        "failed",
+        "aborted",
+        "interrupted",
     }
 )
 
@@ -59,6 +87,7 @@ RuntimeTerminalReason = Literal[
     "tool_loop_budget_exceeded",
     "commit_failed",
     "user_aborted",
+    "runtime_interruption_closed",
     "blocked_expired",
     "runtime_retention_expired",
     "approval_expired",
@@ -92,7 +121,7 @@ class TaskRun:
     task_run_id: str
     session_id: str
     task_id: str
-    task_contract_ref: str = ""
+    task_run_contract_ref: str = ""
     owner_agent_seat_id: str = "main"
     agent_id: str = "agent:0"
     agent_profile_id: str = "main_interactive_agent"
@@ -135,7 +164,7 @@ class TurnRun:
     turn_id: str
     agent_profile_id: str = "main_interactive_agent"
     execution_runtime_kind: str = "single_agent_turn"
-    status: TaskRunStatus = "running"
+    status: TurnRunStatus = "running"
     created_at: float = 0.0
     updated_at: float = 0.0
     latest_event_offset: int = -1
@@ -152,7 +181,7 @@ class TurnRun:
             raise ValueError("TurnRun requires session_id")
         if not self.turn_id:
             raise ValueError("TurnRun requires turn_id")
-        if self.status not in CANONICAL_TASK_RUN_STATUSES:
+        if self.status not in CANONICAL_TURN_RUN_STATUSES:
             raise ValueError(f"TurnRun status must be canonical: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:

@@ -616,7 +616,7 @@ async def _inspect_session_memory(runtime: Any, session_id: str, *, query: str =
         note_limit=limit,
         memory_request_profile=memory_profile,
     )
-    result = await runtime.memory_facade.bundle_service.abuild_memory_context_package_result(
+    result = await runtime.memory_facade.bundle_service.abuild_turn_memory_context_package_result(
         session_id=session_id,
         query=query.strip() or None,
         memory_intent=intent,
@@ -896,7 +896,6 @@ def _govern_existing_note(
         "filename": result["filename"],
         "header": _header_payload(result["header"]) if result.get("header") else None,
     }
-
 
 
 

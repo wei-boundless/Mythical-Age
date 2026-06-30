@@ -5,11 +5,11 @@ from typing import Any
 
 
 RECOVERY_BOUNDARY_RECEIPT_AUTHORITY = "harness.continuation.recovery_boundary_receipt"
-RECOVERY_RESUME_DECISION = "resume_recoverable_work"
+TASK_RECOVERY_RESUME_DECISION = "resume_task_recovery"
 
 
 @dataclass(frozen=True, slots=True)
-class RecoveryResumeAvailability:
+class TaskRecoveryResumeAvailability:
     observed: bool
     available: bool
     reason: str
@@ -34,11 +34,11 @@ class RecoveryResumeAvailability:
         }
 
 
-def recovery_resume_availability_from_receipt(receipt: dict[str, Any] | Any | None) -> RecoveryResumeAvailability:
+def task_recovery_resume_availability_from_receipt(receipt: dict[str, Any] | Any | None) -> TaskRecoveryResumeAvailability:
     payload = _payload_from_receipt(receipt)
     operations = dict(payload.get("operation_availability") or {})
-    observed = "resume_recoverable_work" in operations
-    requested_available = operations.get("resume_recoverable_work") is True
+    observed = "resume_task_recovery" in operations
+    requested_available = operations.get("resume_task_recovery") is True
     receipt_id = str(payload.get("receipt_id") or "").strip()
     decision_id = str(payload.get("decision_id") or "").strip()
     boundary_decision = str(payload.get("boundary_decision") or "").strip()
@@ -49,12 +49,12 @@ def recovery_resume_availability_from_receipt(receipt: dict[str, Any] | Any | No
     route = str(payload.get("resume_execution_route") or "").strip()
     reason = ""
     if not observed:
-        reason = "resume_recoverable_work_not_observed"
+        reason = "resume_task_recovery_not_observed"
     elif not requested_available:
-        reason = "resume_recoverable_work_not_available"
+        reason = "resume_task_recovery_not_available"
     elif authority != RECOVERY_BOUNDARY_RECEIPT_AUTHORITY:
         reason = "recovery_receipt_authority_invalid"
-    elif boundary_decision != RECOVERY_RESUME_DECISION:
+    elif boundary_decision != TASK_RECOVERY_RESUME_DECISION:
         reason = "recovery_receipt_boundary_decision_not_resumable"
     elif not receipt_id:
         reason = "recovery_receipt_id_missing"
@@ -69,10 +69,10 @@ def recovery_resume_availability_from_receipt(receipt: dict[str, Any] | Any | No
     elif not route:
         reason = "recovery_receipt_resume_route_missing"
     else:
-        reason = "resume_recoverable_work_available"
-    return RecoveryResumeAvailability(
+        reason = "resume_task_recovery_available"
+    return TaskRecoveryResumeAvailability(
         observed=observed,
-        available=reason == "resume_recoverable_work_available",
+        available=reason == "resume_task_recovery_available",
         reason=reason,
         receipt_id=receipt_id,
         decision_id=decision_id,
@@ -83,15 +83,15 @@ def recovery_resume_availability_from_receipt(receipt: dict[str, Any] | Any | No
     )
 
 
-def recovery_boundary_receipt_allows_resume(receipt: dict[str, Any] | Any | None) -> bool:
-    return recovery_resume_availability_from_receipt(receipt).available
+def task_recovery_boundary_receipt_allows_resume(receipt: dict[str, Any] | Any | None) -> bool:
+    return task_recovery_resume_availability_from_receipt(receipt).available
 
 
-def recovery_operation_availability_from_receipt(receipt: dict[str, Any] | Any | None) -> dict[str, Any]:
+def task_recovery_operation_availability_from_receipt(receipt: dict[str, Any] | Any | None) -> dict[str, Any]:
     payload = _payload_from_receipt(receipt)
     operations = dict(payload.get("operation_availability") or {})
-    if "resume_recoverable_work" in operations:
-        operations["resume_recoverable_work"] = recovery_boundary_receipt_allows_resume(payload)
+    if "resume_task_recovery" in operations:
+        operations["resume_task_recovery"] = task_recovery_boundary_receipt_allows_resume(payload)
     return operations
 
 

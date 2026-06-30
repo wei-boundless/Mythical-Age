@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 
-CONTEXT_RECOVERY_PACKAGE_SCHEMA_VERSION = "runtime-context-recovery-package.v1"
+CONTEXT_RECOVERY_PACKAGE_SCHEMA_ID = "runtime-context-recovery-package"
 
 
 CONTEXT_RECOVERY_LIST_FIELDS: tuple[str, ...] = (
@@ -157,11 +157,11 @@ class ContextRecoveryPackage:
     coverage: ContextRecoveryCoverage = field(default_factory=ContextRecoveryCoverage)
     freshness: ContextRecoveryFreshness = field(default_factory=ContextRecoveryFreshness)
     source: str = ""
-    schema_version: str = CONTEXT_RECOVERY_PACKAGE_SCHEMA_VERSION
+    package_schema_id: str = CONTEXT_RECOVERY_PACKAGE_SCHEMA_ID
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "schema_version": self.schema_version or CONTEXT_RECOVERY_PACKAGE_SCHEMA_VERSION,
+            "package_schema_id": self.package_schema_id or CONTEXT_RECOVERY_PACKAGE_SCHEMA_ID,
             "current_task": _text(self.current_task),
             "coverage": self.coverage.to_dict(),
             "freshness": self.freshness.to_dict(),
@@ -176,7 +176,7 @@ class ContextRecoveryPackage:
     def from_dict(cls, payload: dict[str, Any] | None) -> "ContextRecoveryPackage":
         data = dict(payload or {})
         kwargs: dict[str, Any] = {
-            "schema_version": _text(data.get("schema_version")) or CONTEXT_RECOVERY_PACKAGE_SCHEMA_VERSION,
+            "package_schema_id": _text(data.get("package_schema_id")) or CONTEXT_RECOVERY_PACKAGE_SCHEMA_ID,
             "current_task": _text(data.get("current_task")),
             "coverage": ContextRecoveryCoverage.from_dict(data.get("coverage") if isinstance(data.get("coverage"), dict) else {}),
             "freshness": ContextRecoveryFreshness.from_dict(data.get("freshness") if isinstance(data.get("freshness"), dict) else {}),

@@ -125,7 +125,7 @@ class TaskResult:
 def build_task_run_ledger(
     *,
     task_run_id: str,
-    task_contract_ref: str,
+    task_system_contract_ref: str,
     task_spec: TaskSpec,
     selected_recipe: ExecutionRecipe,
     status: TaskRunLedgerStatus = "running",
@@ -145,7 +145,7 @@ def build_task_run_ledger(
         requested_outputs=tuple(task_spec.requested_outputs),
         step_runs=initial_step_runs,
         refs={
-            "task_contract_ref": task_contract_ref,
+            "task_system_contract_ref": task_system_contract_ref,
             "recipe_id": selected_recipe.recipe_id,
         },
         diagnostics=dict(diagnostics or {}),

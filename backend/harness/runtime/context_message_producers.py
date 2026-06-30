@@ -10,6 +10,7 @@ from runtime.context_management.context_segment_policy import DYNAMIC_TAIL
 from runtime.context_management.tool_transcript import TOOL_TRANSCRIPT_DELTA_KIND
 
 from .dynamic_context import DynamicContextProjection
+from .dynamic_context.evidence_acquisition_horizon import build_evidence_acquisition_horizon
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +32,9 @@ class ContextMessageProjection:
     session_history_payload: dict[str, Any] = field(default_factory=dict)
     attachment_context_payload: dict[str, Any] = field(default_factory=dict)
     turn_state_attention_context_payload: dict[str, Any] = field(default_factory=dict)
+    active_execution_lease_payload: dict[str, Any] = field(default_factory=dict)
     evidence_index_cursor_payload: dict[str, Any] = field(default_factory=dict)
+    evidence_acquisition_horizon_payload: dict[str, Any] = field(default_factory=dict)
     editor_context_payload: dict[str, Any] = field(default_factory=dict)
     tool_observation_context_payload: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -101,7 +104,9 @@ def build_context_message_projection(
     payloads = {
         "attachment_context": normalized.attachment_context_payload,
         "turn_state_attention": normalized.turn_state_attention_context_payload,
+        "active_execution_lease": normalized.active_execution_lease_payload,
         "evidence_index_cursor": normalized.evidence_index_cursor_payload,
+        "evidence_acquisition_horizon": normalized.evidence_acquisition_horizon_payload,
         "read_evidence_context": dict(read_evidence_prompt_payload or {}),
         "editor_context": normalized.editor_context_payload,
         "tool_observation_context": normalized.tool_observation_context_payload,
@@ -126,7 +131,9 @@ def build_context_message_projection(
         session_history_payload=normalized.session_history_payload,
         attachment_context_payload=normalized.attachment_context_payload,
         turn_state_attention_context_payload=normalized.turn_state_attention_context_payload,
+        active_execution_lease_payload=normalized.active_execution_lease_payload,
         evidence_index_cursor_payload=normalized.evidence_index_cursor_payload,
+        evidence_acquisition_horizon_payload=normalized.evidence_acquisition_horizon_payload,
         editor_context_payload=normalized.editor_context_payload,
         tool_observation_context_payload=normalized.tool_observation_context_payload,
         diagnostics={
@@ -143,7 +150,9 @@ def build_default_context_message_producer_registry() -> ContextMessageProducerR
     for producer in (
         _AttachmentContextProducer(),
         _TurnStateAttentionContextProducer(),
+        _ActiveExecutionLeaseProducer(),
         _EvidenceIndexCursorProducer(),
+        _EvidenceAcquisitionHorizonProducer(),
         _ReadEvidenceContextProducer(),
         _EditorContextProducer(),
         _ToolObservationContextProducer(),
@@ -163,7 +172,9 @@ class _NormalizedContextPayloads:
     session_history_payload: dict[str, Any] = field(default_factory=dict)
     attachment_context_payload: dict[str, Any] = field(default_factory=dict)
     turn_state_attention_context_payload: dict[str, Any] = field(default_factory=dict)
+    active_execution_lease_payload: dict[str, Any] = field(default_factory=dict)
     evidence_index_cursor_payload: dict[str, Any] = field(default_factory=dict)
+    evidence_acquisition_horizon_payload: dict[str, Any] = field(default_factory=dict)
     editor_context_payload: dict[str, Any] = field(default_factory=dict)
     tool_observation_context_payload: dict[str, Any] = field(default_factory=dict)
 
@@ -178,6 +189,7 @@ def _normalize_context_message_payloads(
     invocation = str(invocation_kind or "").strip()
     if invocation == "single_agent_turn":
         evidence_index_cursor_payload, dynamic_payload = _extract_evidence_index_cursor_payload(dynamic_payload)
+        evidence_acquisition_horizon_payload, dynamic_payload = _extract_evidence_acquisition_horizon_payload(dynamic_payload)
         file_evidence_scope_payload = dynamic_payload.pop("file_evidence_scope", None)
         if evidence_index_cursor_payload and isinstance(file_evidence_scope_payload, dict):
             evidence_index_cursor_payload = {
@@ -189,6 +201,7 @@ def _normalize_context_message_payloads(
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
         turn_state_attention_context_payload, current_request_payload = _extract_turn_state_attention_context_payload(current_request_payload)
+        active_execution_lease_payload, current_request_payload = _extract_active_execution_lease_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         return _NormalizedContextPayloads(
             dynamic_payload=_drop_empty_payload(dynamic_payload),
@@ -196,13 +209,17 @@ def _normalize_context_message_payloads(
             session_history_payload=session_history_payload,
             attachment_context_payload=attachment_context_payload,
             turn_state_attention_context_payload=turn_state_attention_context_payload,
+            active_execution_lease_payload=active_execution_lease_payload,
             evidence_index_cursor_payload=evidence_index_cursor_payload,
+            evidence_acquisition_horizon_payload=evidence_acquisition_horizon_payload,
             editor_context_payload=editor_context_payload,
         )
     if invocation == "task_execution":
         attachment_context_payload, inherited_start_context_payload = _extract_attachment_context_payload(inherited_start_context_payload)
         turn_state_attention_context_payload, volatile_payload = _extract_turn_state_attention_context_payload(volatile_payload)
+        active_execution_lease_payload, volatile_payload = _extract_active_execution_lease_payload(volatile_payload)
         evidence_index_cursor_payload, volatile_payload = _extract_evidence_index_cursor_payload(volatile_payload)
+        evidence_acquisition_horizon_payload, volatile_payload = _extract_evidence_acquisition_horizon_payload(volatile_payload)
         editor_context_payload, volatile_payload = _extract_editor_context_payload(volatile_payload)
         return _NormalizedContextPayloads(
             dynamic_payload=_drop_empty_payload(dynamic_payload),
@@ -210,13 +227,16 @@ def _normalize_context_message_payloads(
             inherited_start_context_payload=inherited_start_context_payload,
             attachment_context_payload=attachment_context_payload,
             turn_state_attention_context_payload=turn_state_attention_context_payload,
+            active_execution_lease_payload=active_execution_lease_payload,
             evidence_index_cursor_payload=evidence_index_cursor_payload,
+            evidence_acquisition_horizon_payload=evidence_acquisition_horizon_payload,
             editor_context_payload=editor_context_payload,
         )
     if invocation == "tool_observation_followup":
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
         attachment_context_payload, current_request_payload = _extract_attachment_context_payload(current_request_payload)
         turn_state_attention_context_payload, current_request_payload = _extract_turn_state_attention_context_payload(current_request_payload)
+        active_execution_lease_payload, current_request_payload = _extract_active_execution_lease_payload(current_request_payload)
         editor_context_payload, current_request_payload = _extract_editor_context_payload(current_request_payload)
         tool_observation_context_payload, current_request_payload = _extract_tool_observation_context_payload(current_request_payload)
         return _NormalizedContextPayloads(
@@ -225,6 +245,7 @@ def _normalize_context_message_payloads(
             session_history_payload=session_history_payload,
             attachment_context_payload=attachment_context_payload,
             turn_state_attention_context_payload=turn_state_attention_context_payload,
+            active_execution_lease_payload=active_execution_lease_payload,
             editor_context_payload=editor_context_payload,
             tool_observation_context_payload=tool_observation_context_payload,
         )
@@ -241,7 +262,9 @@ def _producer_order_for_invocation(invocation_kind: str) -> tuple[str, ...]:
         return (
             "attachment_context",
             "turn_state_attention_context",
+            "active_execution_lease",
             "evidence_index_cursor",
+            "evidence_acquisition_horizon",
             "read_evidence_context",
             "editor_context",
             "task_state_replay_context",
@@ -250,18 +273,21 @@ def _producer_order_for_invocation(invocation_kind: str) -> tuple[str, ...]:
         return (
             "attachment_context",
             "turn_state_attention_context",
+            "active_execution_lease",
             "editor_context",
             "tool_observation_context",
             "read_evidence_context",
-            "session_history_context",
+            "session_history",
         )
     return (
         "attachment_context",
         "turn_state_attention_context",
+        "active_execution_lease",
         "evidence_index_cursor",
+        "evidence_acquisition_horizon",
         "editor_context",
         "read_evidence_context",
-        "session_history_context",
+        "session_history",
     )
 
 
@@ -285,7 +311,6 @@ class _AttachmentContextProducer:
                 compression_role="ref_only",
                 metadata={
                     **_dynamic_context_segment_metadata(request.dynamic_context, source="attachment_context_index"),
-                    "authority_class": "attachment_context_index",
                     "content_source": "harness.runtime.dynamic_context.attachment_context_index",
                     "runtime_fragment_role": "attachment_context_index",
                     "cache_impact": "provider_visible_context_prefix_attachment_index_snapshot",
@@ -319,10 +344,59 @@ class _EvidenceIndexCursorProducer:
                 compression_role="ref_only",
                 metadata={
                     **_dynamic_context_segment_metadata(request.dynamic_context, source="evidence_index_cursor"),
-                    "authority_class": "evidence_index_cursor",
                     "content_source": "harness.runtime.dynamic_context.evidence_index_cursor",
                     "runtime_fragment_role": "evidence_index_cursor",
                     "cache_impact": "provider_visible_context_prefix_evidence_cursor_snapshot",
+                },
+            ),
+        )
+
+
+class _EvidenceAcquisitionHorizonProducer:
+    producer_id = "evidence_acquisition_horizon"
+
+    def collect(self, request: ContextMessageProducerRequest) -> tuple[dict[str, Any], ...]:
+        existing_payload = dict(request.payloads.get("evidence_acquisition_horizon") or {})
+        generated_payload = build_evidence_acquisition_horizon(
+            evidence_index_cursor_payload=dict(request.payloads.get("evidence_index_cursor") or {}),
+            read_evidence_prompt_payload=dict(request.payloads.get("read_evidence_context") or {}),
+            editor_context_payload=dict(request.payloads.get("editor_context") or {}),
+        )
+        horizon = dict(generated_payload.get("evidence_acquisition_horizon") or existing_payload.get("evidence_acquisition_horizon") or {})
+        if not horizon:
+            return ()
+        return (
+            build_runtime_payload_message_spec(
+                role="system",
+                title="Evidence acquisition horizon",
+                payload={"evidence_acquisition_horizon": horizon},
+                kind="evidence_acquisition_horizon",
+                source_ref=f"{request.source_ref_prefix}:evidence_acquisition_horizon:{_short_hash(str(horizon.get('horizon_id') or _stable_json_hash(horizon)), prefix_chars=16)}",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="ref_only",
+                metadata={
+                    **_optional_dynamic_context_segment_metadata(request.dynamic_context, source="evidence_acquisition_horizon"),
+                    "content_source": "harness.runtime.dynamic_context.evidence_acquisition_horizon",
+                    "runtime_fragment_role": "evidence_acquisition_horizon",
+                    "cache_impact": "current_dynamic_tail_only",
+                    "context_cache_section": DYNAMIC_TAIL,
+                    "context_capability_group": "evidence_context",
+                    "context_capability_slot": "evidence_acquisition_horizon",
+                    "context_capability_member": "contract",
+                    "context_semantic_slot": "evidence_acquisition_horizon",
+                    "context_semantic_slot_rank": 36,
+                    "context_prefix_cache_scope": "none",
+                    "context_prefix_cache_role": "volatile",
+                    "context_prefix_tier": "volatile",
+                    "context_commit_policy": "never_commit",
+                    "context_replay_policy": "current_dynamic_tail_only",
+                    "context_identity_policy": "current_invocation_only",
+                    "semantic_commit_class": "current_evidence_acquisition_boundary",
+                    "stability_rule": (
+                        "Evidence acquisition horizon is a current invocation read-before-judgment boundary; "
+                        "it is rebuilt from evidence refs/ranges/freshness and must not be sealed into history."
+                    ),
                 },
             ),
         )
@@ -362,7 +436,6 @@ class _ReadEvidenceContextProducer:
                     compression_role="ref_only",
                     metadata={
                         **_optional_dynamic_context_segment_metadata(request.dynamic_context, source="read_evidence_context"),
-                        "authority_class": "append_only_read_evidence_context",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
                         "runtime_fragment_role": "read_evidence_ref",
                         "cache_impact": "append_only_provider_visible_context_prefix",
@@ -389,7 +462,6 @@ class _TurnStateAttentionContextProducer:
             {
                 "key": "task_goal_context",
                 "title": "turn goal resource context",
-                "authority_class": "turn_goal_resource_context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_goal_context",
                 "runtime_fragment_role": "turn_goal_resource_context",
                 "semantic_slot": "turn_goal_resource_context",
@@ -398,7 +470,6 @@ class _TurnStateAttentionContextProducer:
             {
                 "key": "task_plan_context",
                 "title": "turn plan cursor context",
-                "authority_class": "turn_plan_cursor_context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_plan_context",
                 "runtime_fragment_role": "turn_plan_cursor_context",
                 "semantic_slot": "turn_plan_cursor_context",
@@ -407,7 +478,6 @@ class _TurnStateAttentionContextProducer:
             {
                 "key": "task_todo_context",
                 "title": "turn todo cursor context",
-                "authority_class": "turn_todo_cursor_context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_todo_context",
                 "runtime_fragment_role": "turn_todo_cursor_context",
                 "semantic_slot": "turn_todo_cursor_context",
@@ -430,7 +500,6 @@ class _TurnStateAttentionContextProducer:
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(request.dynamic_context, source=key),
-                        "authority_class": str(descriptor["authority_class"]),
                         "content_source": str(descriptor["content_source"]),
                         "runtime_fragment_role": str(descriptor["runtime_fragment_role"]),
                         "cache_impact": "dynamic_tail_only",
@@ -450,6 +519,54 @@ class _TurnStateAttentionContextProducer:
                 )
             )
         return tuple(specs)
+
+
+class _ActiveExecutionLeaseProducer:
+    producer_id = "active_execution_lease"
+
+    def collect(self, request: ContextMessageProducerRequest) -> tuple[dict[str, Any], ...]:
+        payload = dict(request.payloads.get("active_execution_lease") or {})
+        active_execution_lease = payload.get("active_execution_lease")
+        if not active_execution_lease:
+            return ()
+        lease = dict(active_execution_lease or {}) if isinstance(active_execution_lease, dict) else {}
+        if str(lease.get("lease_state") or "").strip() not in {"active", "recoverable", "suspended"}:
+            return ()
+        return (
+            build_runtime_payload_message_spec(
+                role="system",
+                title="Active execution lease",
+                payload={"active_execution_lease": lease},
+                kind="active_execution_lease",
+                source_ref=f"{request.source_ref_prefix}:active_execution_lease:{_short_hash(str(lease.get('lease_id') or _stable_json_hash(lease)), prefix_chars=16)}",
+                cache_scope="none",
+                cache_role="volatile",
+                compression_role="ref_only",
+                metadata={
+                    **_optional_dynamic_context_segment_metadata(request.dynamic_context, source="active_execution_lease"),
+                    "content_source": "harness.runtime.dynamic_context.active_execution_lease",
+                    "runtime_fragment_role": "active_execution_lease",
+                    "cache_impact": "current_dynamic_tail_only",
+                    "context_cache_section": DYNAMIC_TAIL,
+                    "context_capability_group": "turn_state_control",
+                    "context_capability_slot": "active_execution_lease",
+                    "context_capability_member": "control",
+                    "context_semantic_slot": "active_execution_lease",
+                    "context_semantic_slot_rank": 24,
+                    "context_prefix_cache_scope": "none",
+                    "context_prefix_cache_role": "volatile",
+                    "context_prefix_tier": "volatile",
+                    "context_commit_policy": "never_commit",
+                    "context_replay_policy": "current_dynamic_tail_only",
+                    "context_identity_policy": "current_invocation_only",
+                    "semantic_commit_class": "current_active_execution_lease",
+                    "stability_rule": (
+                        "Active execution lease is a short-lived current work boundary. "
+                        "Completed, canceled, released, or superseded leases must not be injected."
+                    ),
+                },
+            ),
+        )
 
 
 class _EditorContextProducer:
@@ -472,7 +589,6 @@ class _EditorContextProducer:
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(request.dynamic_context, source="editor_context_index"),
-                        "authority_class": "editor_context_index",
                         "content_source": "harness.runtime.dynamic_context.editor_context_index",
                         "runtime_fragment_role": "editor_context_index",
                         "cache_impact": "provider_visible_context_prefix_editor_context_index_snapshot",
@@ -493,7 +609,6 @@ class _EditorContextProducer:
                     compression_role="preserve",
                     metadata={
                         **_dynamic_context_segment_metadata(request.dynamic_context, source="editor_exact_evidence_delta"),
-                        "authority_class": "editor_evidence_delta",
                         "content_source": "harness.runtime.dynamic_context.current_editor_evidence_delta",
                         "runtime_fragment_role": "current_editor_evidence_delta",
                     },
@@ -533,7 +648,6 @@ class _ToolObservationContextProducer:
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(request.dynamic_context, source="current_request"),
-                        "authority_class": "append_only_tool_transcript_delta",
                         "source_route": "observation_followup_projector",
                         "canonical_kind": TOOL_TRANSCRIPT_DELTA_KIND,
                         "semantic_title": "Current turn tool result",
@@ -561,7 +675,7 @@ class _ToolObservationContextProducer:
 
 
 class _SessionHistoryContextProducer:
-    producer_id = "session_history_context"
+    producer_id = "session_history"
 
     def collect(self, request: ContextMessageProducerRequest) -> tuple[dict[str, Any], ...]:
         payload = _drop_empty_payload(dict(request.payloads.get("session_history") or {}))
@@ -584,7 +698,6 @@ class _SessionHistoryContextProducer:
                     compression_role="summarize",
                     metadata={
                         **metadata,
-                        "authority_class": "natural_history_pinned_facts",
                         "cache_impact": "context_append_then_sealed_prefix",
                         "stability_rule": "pinned facts are rememberable context; changes append as new context rather than living in the dynamic tail",
                         "session_history_component": "pinned_facts_context",
@@ -606,7 +719,6 @@ class _SessionHistoryContextProducer:
                     compression_role="summarize",
                     metadata={
                         **metadata,
-                        "authority_class": "natural_history_tail_context",
                         "cache_impact": "volatile_suffix_only",
                         "volatility_reason": (
                             "recent work outcome may be refreshed independently of append-only history, "
@@ -641,7 +753,6 @@ class _TaskStateReplayContextProducer:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "runtime_state",
                         "cache_impact": "append_only_provider_visible_context_prefix",
                         "stability_rule": "replay entries are append-only historical evidence; current invocation deltas remain in volatile task state",
                         "dynamic_context_report_ref": "task_state_replay_entries",
@@ -698,6 +809,16 @@ def _extract_turn_state_attention_context_payload(payload: dict[str, Any] | None
     return task_mode_payload, _drop_empty_payload(current)
 
 
+def _extract_active_execution_lease_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    lease_payload = _drop_empty_payload(
+        {
+            "active_execution_lease": current.pop("active_execution_lease", None),
+        }
+    )
+    return lease_payload, _drop_empty_payload(current)
+
+
 def _extract_tool_observation_context_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
     current = dict(payload or {})
     observations_payload = (
@@ -735,6 +856,16 @@ def _extract_evidence_index_cursor_payload(payload: dict[str, Any] | None) -> tu
         }
     )
     return evidence_payload, _drop_empty_payload(current)
+
+
+def _extract_evidence_acquisition_horizon_payload(payload: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = dict(payload or {})
+    horizon_payload = _drop_empty_payload(
+        {
+            "evidence_acquisition_horizon": current.pop("evidence_acquisition_horizon", None),
+        }
+    )
+    return horizon_payload, _drop_empty_payload(current)
 
 
 def _read_evidence_context_projection_policy(value: Any) -> dict[str, Any]:

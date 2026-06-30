@@ -11,11 +11,11 @@ from .record import ContinuationRecord, continuation_record_from_payload
 
 
 RecoveryBoundaryAction = Literal[
-    "no_recoverable_work",
-    "recoverable_work_available",
-    "resume_recoverable_work",
-    "confirm_recoverable_work",
-    "recoverable_work_unavailable",
+    "no_task_recovery",
+    "task_recovery_available",
+    "resume_task_recovery",
+    "confirm_task_recovery",
+    "task_recovery_unavailable",
     "recent_work_read_only",
     "block",
 ]
@@ -107,9 +107,9 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
     policy = str(boundary_input.recovery_input_policy or "auto").strip().lower() or "auto"
     current_receipt = dict(boundary_input.current_work_boundary_receipt or {})
     if current_work_boundary_receipt_allows_active_work_control(current_receipt):
-        return _decision(boundary_input, "no_recoverable_work", reason="live_active_work_has_priority")
+        return _decision(boundary_input, "no_task_recovery", reason="live_active_work_has_priority")
     if record is None:
-        return _decision(boundary_input, "no_recoverable_work", reason="continuation_record_missing")
+        return _decision(boundary_input, "no_task_recovery", reason="continuation_record_missing")
     if record.state == "terminal_read_only":
         return _decision(
             boundary_input,
@@ -121,15 +121,15 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
     if policy != "resume":
         return _decision(
             boundary_input,
-            "recoverable_work_available",
+            "task_recovery_available",
             record=record,
-            reason="recoverable_work_requires_explicit_resume_policy",
+            reason="task_recovery_requires_explicit_resume_policy",
             response=_status_response(record),
         )
     if not boundary_input.expected_task_run_id or not boundary_input.expected_continuation_id:
         return _decision(
             boundary_input,
-            "confirm_recoverable_work",
+            "confirm_task_recovery",
             record=record,
             reason="expected_recovery_handle_missing",
             response="检测到可恢复任务，但本次请求缺少 continuation_id 或 task_run_id，未执行续跑。",
@@ -137,7 +137,7 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
     if boundary_input.expected_task_run_id != record.task_run_id:
         return _decision(
             boundary_input,
-            "recoverable_work_unavailable",
+            "task_recovery_unavailable",
             record=record,
             reason="expected_task_run_mismatch",
             response="可恢复任务状态已经变化，本次续跑请求没有执行。",
@@ -145,7 +145,7 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
     if boundary_input.expected_continuation_id != record.continuation_id:
         return _decision(
             boundary_input,
-            "recoverable_work_unavailable",
+            "task_recovery_unavailable",
             record=record,
             reason="expected_continuation_mismatch",
             response="可恢复任务状态已经刷新，本次续跑请求没有执行。",
@@ -153,14 +153,14 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
     if record.resume_allowed is not True:
         return _decision(
             boundary_input,
-            "confirm_recoverable_work",
+            "confirm_task_recovery",
             record=record,
             reason="continuation_not_directly_resumable",
             response=_status_response(record),
         )
     return _decision(
         boundary_input,
-        "resume_recoverable_work",
+        "resume_task_recovery",
         record=record,
         reason="recovery_boundary_ready",
         response="已接入恢复断点，我会从原任务进度继续调度。",
@@ -168,7 +168,7 @@ def decide_recovery_boundary(boundary_input: RecoveryBoundaryInput) -> RecoveryB
 
 
 def recovery_boundary_receipt_from_decision(decision: RecoveryBoundaryDecision) -> RecoveryBoundaryReceipt:
-    can_resume = decision.action == "resume_recoverable_work"
+    can_resume = decision.action == "resume_task_recovery"
     return RecoveryBoundaryReceipt(
         receipt_id=f"rbreceipt:{decision.turn_id}:{decision.decision_id.rsplit(':', 1)[-1]}",
         decision_id=decision.decision_id,
@@ -176,7 +176,7 @@ def recovery_boundary_receipt_from_decision(decision: RecoveryBoundaryDecision) 
         continuation_ref=decision.continuation_id,
         task_run_ref=decision.task_run_id,
         operation_availability={
-            "resume_recoverable_work": can_resume,
+            "resume_task_recovery": can_resume,
         },
         resume_execution_route="task_executor_controller.schedule" if can_resume else "",
         expected_continuation_id=decision.expected_continuation_id,
@@ -212,7 +212,7 @@ def _decision(
         resume_strategy=str(record.resume_strategy if record is not None else "unavailable"),
         reason=reason,
         evidence=str(record.model_visible_summary if record is not None else ""),
-        public_response_obligation="direct_response_required" if action in {"confirm_recoverable_work", "recoverable_work_unavailable"} else "runtime_status",
+        public_response_obligation="direct_response_required" if action in {"confirm_task_recovery", "task_recovery_unavailable"} else "runtime_status",
         response=response,
         continuation_record=record.to_dict() if record is not None else {},
         diagnostics={

@@ -132,7 +132,7 @@ def file_evidence_decisions_from_evidence_index_cursor(payload: dict[str, Any] |
     return drop_empty(
         {
             "kind": "file_evidence_contract",
-            "contract_version": "file_evidence_contract.v2",
+            "contract_id": "file_evidence_contract",
             "authority_boundary": "observation_projection_only",
             "authority": EVIDENCE_INDEX_AUTHORITY,
             "files": files,

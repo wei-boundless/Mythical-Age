@@ -192,6 +192,7 @@ const ACTIVE_TASK_GATE_RELEASE_STATES = new Set([
   "stopped",
   "stop_requested",
   "aborted",
+  "interrupted",
   "cancelled",
   "canceled",
 ]);
@@ -209,6 +210,8 @@ const ACTIVE_TASK_GATE_RELEASE_REASONS = new Set([
   "user_stopped",
   "stopped",
   "aborted",
+  "interrupted",
+  "runtime_interruption_closed",
   "cancelled",
   "canceled",
 ]);
@@ -362,9 +365,6 @@ function stageStatusForRuntimeEvent(eventType: string) {
   if (!eventType) {
     return "";
   }
-  if (eventType === "task_contract_built") {
-    return "理解任务";
-  }
   if (eventType === "memory_runtime_view_built") {
     return "读取记忆";
   }
@@ -468,7 +468,7 @@ function eventNodeId(event: string) {
   if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "stream_recovery" || event === "debug") {
+  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "stream_recovery" || event === "stream_recoverable_interruption" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error" || event === TURN_COMPLETED_EVENT) {
@@ -570,6 +570,7 @@ function publicStreamEventLabel(event: string) {
     prompt_manifest: "上下文已整理",
     retrieval: "检索证据",
     stream_recovery: "正在恢复输出",
+    stream_recoverable_interruption: "连接恢复后待续跑",
     worker_end: "子任务已完成",
     worker_start: "子任务已开始",
   };
@@ -594,7 +595,6 @@ function runtimeControlWarningLabel(warning: string) {
 
 function runtimeEventToUiEvent(eventType: string) {
   if (eventType === "loop_terminal") return TURN_COMPLETED_EVENT;
-  if (eventType === "task_contract_built") return "harness_plan";
   if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") return "harness_loop_event";
   if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") return "context_management";
   if (eventType === "memory_runtime_view_built") return "memory_context";
@@ -1022,6 +1022,14 @@ function chatStreamConnectionStatusFromEvent(
   }
   if (event === "stopped") {
     return { state: "stopped", reason: stringValue(data.reason), updatedAt };
+  }
+  if (event === "stream_recoverable_interruption") {
+    return {
+      state: "paused",
+      reason: "runtime_restart_waiting_resume",
+      lastEventOffset: finiteNumber(data.event_offset),
+      updatedAt,
+    };
   }
   if (event === "done" || event === TURN_COMPLETED_EVENT) {
     return { state: "idle", updatedAt };

@@ -13,6 +13,7 @@ from ..shared.models import (
     AgentRunResult,
     CANONICAL_AGENT_RUN_STATUSES,
     CANONICAL_TASK_RUN_STATUSES,
+    CANONICAL_TURN_RUN_STATUSES,
     ProjectProgressLedger,
     ProjectRuntimeStatus,
     SupervisionRecord,
@@ -1446,7 +1447,7 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         task_run_id=str(payload.get("task_run_id") or ""),
         session_id=str(payload.get("session_id") or ""),
         task_id=str(payload.get("task_id") or ""),
-        task_contract_ref=str(payload.get("task_contract_ref") or ""),
+        task_run_contract_ref=str(payload.get("task_run_contract_ref") or ""),
         owner_agent_seat_id=str(payload.get("owner_agent_seat_id") or "main"),
         agent_id=str(payload.get("agent_id") or "agent:0"),
         agent_profile_id=str(payload.get("agent_profile_id") or "main_interactive_agent"),
@@ -1468,6 +1469,13 @@ def _canonical_task_run_status(value: Any) -> str:
     return status
 
 
+def _canonical_turn_run_status(value: Any) -> str:
+    status = str(value or "running").strip()
+    if status not in CANONICAL_TURN_RUN_STATUSES:
+        raise ValueError(f"TurnRun status is not canonical: {status}")
+    return status
+
+
 def _canonical_agent_run_status(value: Any) -> str:
     status = str(value or "pending").strip()
     if status not in CANONICAL_AGENT_RUN_STATUSES:
@@ -1481,7 +1489,7 @@ def _task_run_monitor_summary_payload(payload: dict[str, Any]) -> dict[str, Any]
         "task_run_id": str(payload.get("task_run_id") or ""),
         "session_id": str(payload.get("session_id") or ""),
         "task_id": str(payload.get("task_id") or ""),
-        "task_contract_ref": str(payload.get("task_contract_ref") or ""),
+        "task_run_contract_ref": str(payload.get("task_run_contract_ref") or ""),
         "owner_agent_seat_id": str(payload.get("owner_agent_seat_id") or "main"),
         "agent_id": str(payload.get("agent_id") or "agent:0"),
         "agent_profile_id": str(payload.get("agent_profile_id") or "main_interactive_agent"),
@@ -1627,7 +1635,7 @@ def _turn_run_from_payload(payload: dict[str, Any]) -> TurnRun:
         turn_id=str(payload.get("turn_id") or ""),
         agent_profile_id=str(payload.get("agent_profile_id") or "main_interactive_agent"),
         execution_runtime_kind=str(payload.get("execution_runtime_kind") or "single_agent_turn"),
-        status=payload.get("status", "running"),
+        status=_canonical_turn_run_status(payload.get("status", "running")),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
         latest_event_offset=int(payload.get("latest_event_offset", -1)),

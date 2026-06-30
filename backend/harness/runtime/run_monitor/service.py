@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any
 
-from .contract import build_envelope
+from .contract import MONITOR_SESSION_TASK_SUMMARY_AUTHORITY, build_envelope
 from .management import RunMonitorManagementProjector
 from .projector import RunMonitorProjector
 from .retention_store import RunMonitorRetentionStore
@@ -270,7 +270,7 @@ class RunMonitorService:
         )
         if not task_runs:
             return {
-                "authority": "harness.run_monitor.v1.session_task_summary",
+                "authority": MONITOR_SESSION_TASK_SUMMARY_AUTHORITY,
                 "available": False,
                 "task_run_count": 0,
                 "latest_task_run_id": "",
@@ -295,7 +295,7 @@ class RunMonitorService:
         )
         selected = active or items[0]
         return {
-            "authority": "harness.run_monitor.v1.session_task_summary",
+            "authority": MONITOR_SESSION_TASK_SUMMARY_AUTHORITY,
             "available": True,
             "selection": "active" if active else "latest",
             "task_run_count": len(items),
@@ -459,5 +459,4 @@ class RunMonitorService:
 
     def _session_task_run_summaries(self, session_id: str, *, limit: int | None = None) -> list[Any]:
         return list(self.runtime_host.state_index.list_session_task_run_summaries(session_id, limit=limit) or [])
-
 

@@ -15,7 +15,7 @@ export function hydrateSessionRuntimeProjection(
   let hydratedState = state;
   for (const attachment of attachments ?? []) {
     for (const slice of attachment.projection_slices ?? []) {
-      if (slice.schema_version !== "chronological_projection") continue;
+      if (slice.projection_schema_id !== "chronological_projection") continue;
       if (!projectionSliceCanHydrate(slice)) continue;
       for (const record of slice.frames ?? []) {
         const frame = projectionFrameFromRecord(record);

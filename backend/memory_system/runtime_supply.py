@@ -504,7 +504,7 @@ def build_memory_bundle(
     *,
     request: MemoryRequest,
     runtime_view: MemoryRuntimeView,
-    context_policy_result: Any | None = None,
+    turn_context_policy_result: Any | None = None,
 ) -> MemoryBundle:
     context_package = {}
     diagnostics = {
@@ -513,11 +513,15 @@ def build_memory_bundle(
         "restore_candidate_count": len(runtime_view.restore_candidates),
         "selected_layer_count": len(request.requested_memory_layers),
     }
-    if context_policy_result is not None:
-        context_package = context_policy_result.to_dict() if hasattr(context_policy_result, "to_dict") else dict(context_policy_result)
-        diagnostics["context_policy_attached"] = True
+    if turn_context_policy_result is not None:
+        context_package = (
+            turn_context_policy_result.to_dict()
+            if hasattr(turn_context_policy_result, "to_dict")
+            else dict(turn_context_policy_result)
+        )
+        diagnostics["turn_context_policy_attached"] = True
     else:
-        diagnostics["context_policy_attached"] = False
+        diagnostics["turn_context_policy_attached"] = False
     return MemoryBundle(
         bundle_id=f"membundle:{request.task_id}:{request.session_id}:{request.agent_id}",
         request_id=request.request_id,
@@ -585,5 +589,4 @@ def _safe_limit(value: Any, *, default: int) -> int:
         return max(1, min(int(value or default), 1000))
     except (TypeError, ValueError):
         return default
-
 

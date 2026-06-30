@@ -3,9 +3,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from runtime.context_management.context_segment_registry import (
+    ACTION_CONTRACTS,
+    EVIDENCE_ALIGNMENT,
+    REPAIR_FEEDBACK,
+    RUNTIME_CONTRACTS,
+    TASK_RUN_CONTRACTS,
+    TOOL_CONTEXT,
+    TURN_STATE_CONTROL,
+    context_segment_kind_capability,
+)
 from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix
 
 from .models import PromptSegment
+
+
+_EXPECTED_READ_PHYSICAL_LANES = {
+    "global_static_prefix",
+    "provider_tool_schema_prefix",
+    "provider_visible_context_prefix",
+}
+_HARD_REQUIRED_CAPABILITY_GROUPS = {
+    ACTION_CONTRACTS,
+    EVIDENCE_ALIGNMENT,
+    REPAIR_FEEDBACK,
+    RUNTIME_CONTRACTS,
+    TASK_RUN_CONTRACTS,
+    TOOL_CONTEXT,
+    TURN_STATE_CONTROL,
+}
+_HARD_REQUIRED_CAPABILITY_MEMBERS = {"contract", "control", "feedback"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,23 +142,13 @@ class CompressionBudgetPlanner:
         )
 
     def _is_hard_required(self, segment: PromptSegment) -> bool:
-        authority_class = str(getattr(segment, "authority_class", "") or dict(getattr(segment, "metadata", {}) or {}).get("authority_class") or "")
-        if authority_class in {
-            "contract",
-            "permission",
-            "current_user_intent",
-            "runtime_state",
-            "evidence_ref",
-        }:
-            return True
         if segment.compression_role == "preserve":
             return True
-        if str(segment.cache_role or "").strip() == "session_stable":
+        if _is_expected_read_prefix_segment(segment):
             return True
-        if is_cache_eligible_prefix(
-            cache_role=segment.cache_role,
-            prefix_tier=getattr(segment, "prefix_tier", ""),
-        ):
+        if _has_hard_required_capability(segment):
+            return True
+        if _has_explicit_contract_or_recovery_slot(segment):
             return True
         return False
 
@@ -178,4 +195,74 @@ class CompressionBudgetPlanner:
         ceiling = max(160, min(1400, int(compressible_budget * 0.35)))
         floor = 120 if hard_required_tokens else 80
         return max(floor, min(ceiling, compressible_tokens))
+
+
+def _is_expected_read_prefix_segment(segment: PromptSegment) -> bool:
+    metadata = _segment_metadata(segment)
+    lane = _first_text(
+        getattr(segment, "physical_prefix_lane", ""),
+        metadata.get("physical_prefix_lane"),
+    )
+    cache_expectation = _first_text(
+        dict(getattr(segment, "prefix_identity", {}) or {}).get("cache_read_expectation"),
+        metadata.get("cache_expectation"),
+        metadata.get("context_cache_expectation"),
+    )
+    if cache_expectation == "expected_read":
+        return True
+    if lane not in _EXPECTED_READ_PHYSICAL_LANES:
+        return False
+    boundary = _first_text(
+        getattr(segment, "boundary_participation", ""),
+        metadata.get("boundary_participation"),
+    )
+    if boundary == "included":
+        return True
+    return is_cache_eligible_prefix(
+        cache_role=getattr(segment, "cache_role", ""),
+        prefix_tier=getattr(segment, "prefix_tier", ""),
+    )
+
+
+def _has_hard_required_capability(segment: PromptSegment) -> bool:
+    metadata = _segment_metadata(segment)
+    group = _first_text(
+        metadata.get("context_capability_group"),
+        getattr(segment, "context_capability_group", ""),
+    )
+    member = _first_text(
+        metadata.get("context_capability_member"),
+        getattr(segment, "context_capability_member", ""),
+    )
+    kind = str(getattr(segment, "kind", "") or "").strip()
+    if not group or not member:
+        capability = context_segment_kind_capability(kind)
+        if capability:
+            group = group or str(capability[0] or "")
+            member = member or str(capability[2] or "")
+    return group in _HARD_REQUIRED_CAPABILITY_GROUPS and member in _HARD_REQUIRED_CAPABILITY_MEMBERS
+
+
+def _has_explicit_contract_or_recovery_slot(segment: PromptSegment) -> bool:
+    metadata = _segment_metadata(segment)
+    return bool(
+        _first_text(
+            metadata.get("context_contract_slot"),
+            metadata.get("runtime_contract_slot"),
+            metadata.get("context_repair_feedback_slot"),
+            metadata.get("repair_feedback_slot"),
+        )
+    )
+
+
+def _segment_metadata(segment: PromptSegment) -> dict[str, Any]:
+    return dict(getattr(segment, "metadata", {}) or {})
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 

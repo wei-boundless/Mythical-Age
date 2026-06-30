@@ -37,7 +37,7 @@ def test_compact_preview_does_not_mutate_session_messages(tmp_path: Path, monkey
     assert old_assistant_prose in before[1]["content"]
 
 
-def test_compact_run_rewrites_runtime_history_and_preserves_api_transcript(tmp_path: Path, monkeypatch) -> None:
+def test_compact_run_rewrites_runtime_history_and_preserves_provider_protocol_timeline(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, old_assistant_prose = _runtime_with_session(tmp_path)
     monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
 
@@ -52,7 +52,7 @@ def test_compact_run_rewrites_runtime_history_and_preserves_api_transcript(tmp_p
     )
 
     stored = runtime.session_manager.load_session(session_id)
-    api_transcript = runtime.session_manager.load_session_for_api(session_id)
+    provider_protocol_timeline = runtime.session_manager.load_provider_protocol_timeline(session_id)
 
     assert response["mode"] == "run"
     assert response["applied"] is True
@@ -60,7 +60,7 @@ def test_compact_run_rewrites_runtime_history_and_preserves_api_transcript(tmp_p
     assert response["compact_boundary_receipt"]["trigger"] == "manual"
     assert stored[1]["meta"]["kind"] == "low_authority_text_compressed"
     assert old_assistant_prose not in stored[1]["content"]
-    assert api_transcript[1]["content"] == old_assistant_prose
+    assert provider_protocol_timeline[1]["content"] == old_assistant_prose
 
 
 def test_microcompact_run_preserves_existing_full_compact_boundary(tmp_path: Path, monkeypatch) -> None:
@@ -109,7 +109,7 @@ def test_full_compact_run_stores_summary_as_compressed_context(tmp_path: Path, m
     )
 
     record = runtime.session_manager.get_history(session_id)
-    api_transcript = runtime.session_manager.load_session_for_api(session_id)
+    provider_protocol_timeline = runtime.session_manager.load_provider_protocol_timeline(session_id)
 
     assert response["applied"] is True
     assert response["did_full_compact"] is True
@@ -118,8 +118,8 @@ def test_full_compact_run_stores_summary_as_compressed_context(tmp_path: Path, m
     assert record["provider_protocol_compaction_created_at"] > 0
     assert all(item["role"] != "system" for item in record["messages"])
     assert len(record["messages"]) <= 2
-    assert api_transcript[1]["content"] == old_assistant_prose
-    assert api_transcript[1]["created_at"] > 0
+    assert provider_protocol_timeline[1]["content"] == old_assistant_prose
+    assert provider_protocol_timeline[1]["created_at"] > 0
 
 
 def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path, monkeypatch) -> None:
@@ -150,9 +150,9 @@ def test_session_tokens_exposes_context_meter_and_billing_totals(tmp_path: Path,
     assert response["context_meter"]["replacement_threshold_tokens"] == 850_000
     assert response["context_meter"]["compaction_remaining_tokens"] <= response["context_meter"]["replacement_threshold_tokens"]
     assert response["compaction_readiness"]["compaction_pressure_tokens"] == response["context_meter"]["compaction_pressure_tokens"]
-    assert response["cumulative_transcript_message_count"] == 4
-    assert response["cumulative_transcript_tokens"] >= response["raw_history_tokens"]
-    assert response["compression_saved_tokens"] == response["cumulative_transcript_tokens"] - response["history_tokens"]
+    assert response["provider_protocol_timeline_message_count"] == 4
+    assert response["provider_protocol_timeline_tokens"] >= response["raw_history_tokens"]
+    assert response["compression_saved_tokens"] == response["provider_protocol_timeline_tokens"] - response["history_tokens"]
     assert 0 < response["compression_ratio"] <= 1
     assert response["history_did_compact"] is True
     assert response["history_compaction_strategy"] in {"microcompact", "full_compact"}
@@ -174,8 +174,8 @@ def test_session_tokens_current_context_uses_session_pressure_not_model_accounti
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:assembled:local_prediction",
-            request_id="modelreq:assembled",
+            usage_id="tokuse:providerreq:assembled:local_prediction",
+            request_id="providerreq:assembled",
             session_id=session_id,
             provider="deepseek",
             model="deepseek-v4-pro",
@@ -227,8 +227,8 @@ def test_session_tokens_adds_pending_messages_after_local_prediction(tmp_path: P
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:pending:local_prediction",
-            request_id="modelreq:pending",
+            usage_id="tokuse:providerreq:pending:local_prediction",
+            request_id="providerreq:pending",
             session_id=session_id,
             provider="deepseek",
             model="deepseek-v4-pro",
@@ -273,8 +273,8 @@ def test_session_tokens_adds_pending_provider_protocol_after_local_prediction(tm
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:pending-protocol:local_prediction",
-            request_id="modelreq:pending-protocol",
+            usage_id="tokuse:providerreq:pending-protocol:local_prediction",
+            request_id="providerreq:pending-protocol",
             session_id=session_id,
             provider="deepseek",
             model="deepseek-v4-pro",
@@ -285,7 +285,7 @@ def test_session_tokens_adds_pending_provider_protocol_after_local_prediction(tm
             diagnostics={"cache_metric_scope": "agent_runtime", "packet_ref": "rtpacket:pending-protocol"},
         )
     )
-    runtime.session_manager.append_api_messages(
+    runtime.session_manager.append_provider_protocol_messages(
         session_id,
         [
             {
@@ -350,8 +350,8 @@ def test_session_tokens_cache_invalidates_when_prompt_accounting_changes(tmp_pat
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:cache-invalidates:local_prediction",
-            request_id="modelreq:cache-invalidates",
+            usage_id="tokuse:providerreq:cache-invalidates:local_prediction",
+            request_id="providerreq:cache-invalidates",
             session_id=session_id,
             provider="deepseek",
             model="deepseek-v4-pro",
@@ -456,7 +456,7 @@ def test_session_tokens_does_not_use_recent_usage_as_current_context_when_scoped
 def test_session_tokens_counts_only_provider_protocol_messages_as_protocol_pressure(tmp_path: Path, monkeypatch) -> None:
     runtime, session_id, _old_assistant_prose = _runtime_with_session(tmp_path)
     monkeypatch.setattr(tokens_api, "require_runtime", lambda: runtime)
-    runtime.session_manager.append_api_messages(
+    runtime.session_manager.append_provider_protocol_messages(
         session_id,
         [
             {

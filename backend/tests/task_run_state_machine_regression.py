@@ -59,7 +59,7 @@ def test_task_result_is_projected_from_runtime_ledger() -> None:
     )
     ledger = build_task_run_ledger(
         task_run_id="taskrun:test",
-        task_contract_ref="task:test",
+        task_system_contract_ref="task:test",
         task_spec=_task_spec(),
         selected_recipe=recipe,
         status="running",
@@ -115,7 +115,7 @@ def test_terminal_finalize_does_not_complete_or_skip_unfinished_steps() -> None:
     )
     ledger = build_task_run_ledger(
         task_run_id="taskrun:test-verify",
-        task_contract_ref="task:test-verify",
+        task_system_contract_ref="task:test-verify",
         task_spec=_task_spec(),
         selected_recipe=recipe,
         status="running",
@@ -153,7 +153,7 @@ def test_failure_marks_running_step_failed() -> None:
     )
     ledger = build_task_run_ledger(
         task_run_id="taskrun:test-fail",
-        task_contract_ref="task:test-fail",
+        task_system_contract_ref="task:test-fail",
         task_spec=_task_spec(),
         selected_recipe=recipe,
         status="running",

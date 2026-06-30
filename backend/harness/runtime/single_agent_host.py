@@ -361,7 +361,7 @@ class SingleAgentRuntimeHost:
         if turn_run is not None:
             latest = self.state_index.get_turn_run(turn_run.turn_run_id) or turn_run
             existing_diagnostics = dict(getattr(latest, "diagnostics", {}) or {})
-            if not str(existing_diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip():
+            if not str(existing_diagnostics.get("interrupted_turn_memory_package_event_id") or "").strip():
                 turn_interruption_event = self.event_log.append(
                     turn_run.turn_run_id,
                     "turn_runtime_interruption_recorded",
@@ -369,9 +369,9 @@ class SingleAgentRuntimeHost:
                         "turn_id": str(getattr(latest, "turn_id", "") or ""),
                         "stream_run_id": current.stream_run_id,
                         "runtime_interruption": dict(diagnostics),
-                        "recovery_entry": {
-                            "state": "interrupted_continuation_context",
-                            "handoff_to_agent": True,
+                        "interruption_closure": {
+                            "state": "interrupted_turn_closed",
+                            "memory_package_ready": True,
                             "system_authored_terminal": False,
                         },
                     },
@@ -389,31 +389,41 @@ class SingleAgentRuntimeHost:
                 latest_event_offset = max(latest_event_offset, int(getattr(turn_interruption_event, "offset", -1) or -1))
                 diagnostics = {
                     **diagnostics,
-                    "interrupted_turn_recovery_entry_event_id": str(getattr(turn_interruption_event, "event_id", "") or ""),
-                    "interrupted_turn_recovery_entry_offset": int(getattr(turn_interruption_event, "offset", -1) or -1),
+                    "interrupted_turn_memory_package_event_id": str(getattr(turn_interruption_event, "event_id", "") or ""),
+                    "interrupted_turn_memory_package_offset": int(getattr(turn_interruption_event, "offset", -1) or -1),
                 }
-            elif str(existing_diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip():
+            elif str(existing_diagnostics.get("interrupted_turn_memory_package_event_id") or "").strip():
                 diagnostics = {
                     **diagnostics,
-                    "interrupted_turn_recovery_entry_event_id": str(existing_diagnostics.get("interrupted_turn_recovery_entry_event_id") or ""),
-                    "interrupted_turn_recovery_entry_offset": int(existing_diagnostics.get("interrupted_turn_recovery_entry_offset", -1) or -1),
+                    "interrupted_turn_memory_package_event_id": str(existing_diagnostics.get("interrupted_turn_memory_package_event_id") or ""),
+                    "interrupted_turn_memory_package_offset": int(existing_diagnostics.get("interrupted_turn_memory_package_offset", -1) or -1),
                 }
             diagnostics = {
                 **diagnostics,
-                "interrupted_turn_continuation_pending": True,
+                "interrupted_turn_closed": True,
+                "interrupted_turn_memory_package_ready": True,
             }
             self.state_index.upsert_turn_run(
                 replace(
                     latest,
+                    status="interrupted",
                     updated_at=time.time(),
                     latest_event_offset=latest_event_offset,
+                    terminal_reason="runtime_interruption_closed",
                     diagnostics={
                         **dict(latest.diagnostics or {}),
                         **diagnostics,
+                        "terminal_status": "interrupted",
+                        "terminal_reason_detail": "runtime_interruption_closed",
+                        "turn_lifecycle_closed_by": "runtime_interruption",
                     },
                 )
             )
-            self._mark_turn_memory_interrupted_handoff(
+            self._complete_active_turn_interrupted(
+                session_id=str(getattr(latest, "session_id", "") or current.session_id),
+                turn_id=str(getattr(latest, "turn_id", "") or ""),
+            )
+            self._close_turn_memory_with_interruption_package(
                 session_id=str(getattr(latest, "session_id", "") or current.session_id),
                 turn_id=str(getattr(latest, "turn_id", "") or ""),
                 turn_run_id=turn_run.turn_run_id,
@@ -434,7 +444,7 @@ class SingleAgentRuntimeHost:
             "authority": "single_agent_runtime_host.chat_turn_runtime_interruption",
             "stream_run_id": current.stream_run_id,
             "turn_run_id": str(getattr(turn_run, "turn_run_id", "") or ""),
-            "turn_run_closed": False,
+            "turn_run_closed": turn_run_recorded,
             "turn_run_interruption_recorded": turn_run_recorded,
             "turn_runtime_interruption_event_recorded": turn_interruption_event is not None,
             "public_terminal_event_appended": False,
@@ -442,7 +452,17 @@ class SingleAgentRuntimeHost:
             "failure_code": failure_code,
         }
 
-    def _mark_turn_memory_interrupted_handoff(
+    def _complete_active_turn_interrupted(self, *, session_id: str, turn_id: str) -> None:
+        registry = getattr(self, "active_turn_registry", None)
+        complete = getattr(registry, "complete_interrupted", None)
+        if not callable(complete):
+            return
+        try:
+            complete(session_id=session_id, expected_turn_id=turn_id, terminal_reason="runtime_interruption_closed")
+        except Exception:
+            logger.debug("failed to complete interrupted active turn", exc_info=True)
+
+    def _close_turn_memory_with_interruption_package(
         self,
         *,
         session_id: str,
@@ -467,9 +487,10 @@ class SingleAgentRuntimeHost:
         summary = {
             "runtime_interruption_code": str(failure_code or ""),
             "runtime_interruption_reason": str(failure_reason or ""),
-            "interrupted_turn_recovery_entry_event_id": event_ref,
-            "interrupted_turn_recovery_entry_offset": event_offset,
-            "authority": "single_agent_runtime_host.turn_memory_interrupted_handoff",
+            "interrupted_turn_memory_package_event_id": event_ref,
+            "interrupted_turn_memory_package_offset": event_offset,
+            "turn_lifecycle_closed_by": "runtime_interruption",
+            "authority": "single_agent_runtime_host.turn_memory_interruption_package",
         }
         try:
             if callable(create):
@@ -482,16 +503,17 @@ class SingleAgentRuntimeHost:
             patch(
                 normalized_session,
                 normalized_turn,
-                status="handoff_ready",
-                phase="recovering",
+                status="terminal",
+                phase="terminal",
                 recovery_state=str(failure_code or "runtime_stream_interrupted"),
+                handoff_state="interrupted_turn_memory_package",
                 pending_commit_summary=summary,
             )
             if callable(checkpoint):
                 checkpoint(
                     session_id=normalized_session,
                     turn_id=normalized_turn,
-                    checkpoint_kind="turn_interrupted_handoff",
+                    checkpoint_kind="turn_interrupted_memory_package",
                     payload=summary,
                 )
         except Exception:
@@ -854,10 +876,10 @@ def _orphaned_chat_run_needs_interruption_record(run: RuntimeRun) -> bool:
         return False
     diagnostics = dict(run.diagnostics or {})
     reason = str(diagnostics.get("reason") or "").strip()
-    if diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
+    if diagnostics.get("agent_decision_terminal") is False and diagnostics.get("recoverable") is True:
         return not (
-            bool(str(diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip())
-            and diagnostics.get("interrupted_turn_continuation_pending") is True
+            bool(str(diagnostics.get("interrupted_turn_memory_package_event_id") or "").strip())
+            and diagnostics.get("interrupted_turn_memory_package_ready") is True
         )
     return reason in _RECOVERABLE_RUNTIME_INTERRUPTION_CODES or diagnostics.get("cancelled") is True
 
@@ -906,7 +928,7 @@ def _runtime_interruption_diagnostics(
         "orphaned_by": str(orphaned_by or "").strip(),
         "reason": code,
         "recoverable": True,
-        "semantic_terminal": False,
+        "agent_decision_terminal": False,
     }
 
 

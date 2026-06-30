@@ -5,7 +5,7 @@ from typing import Any
 
 
 @dataclass(slots=True)
-class ContextProjection:
+class TurnContextProjection:
     main_context: dict[str, Any] = field(default_factory=dict)
     task_summary_refs: list[dict[str, Any]] = field(default_factory=list)
     bundle_summary_refs: list[dict[str, Any]] = field(default_factory=list)
@@ -14,15 +14,15 @@ class ContextProjection:
     subset_handle_ids: list[str] = field(default_factory=list)
     memory_policy: str = "session_context_only"
     prompt_visibility: dict[str, Any] = field(default_factory=dict)
-    authority: str = "context.execution_projection"
+    authority: str = "context_system.turn_context_projection"
 
     def __post_init__(self) -> None:
-        if self.authority != "context.execution_projection":
-            raise ValueError("ContextProjection authority must be context.execution_projection")
+        if self.authority != "context_system.turn_context_projection":
+            raise ValueError("TurnContextProjection authority must be context_system.turn_context_projection")
 
-    def merge(self, other: "ContextProjection") -> "ContextProjection":
+    def merge(self, other: "TurnContextProjection") -> "TurnContextProjection":
         main_context = _merge_main_context(self.main_context, other.main_context)
-        return ContextProjection(
+        return TurnContextProjection(
             main_context=main_context,
             task_summary_refs=_dedupe_dicts([*self.task_summary_refs, *other.task_summary_refs], "task_id"),
             bundle_summary_refs=_dedupe_dicts([*self.bundle_summary_refs, *other.bundle_summary_refs], "task_id"),
@@ -42,12 +42,12 @@ def projection_from_file_work(
     task_summary_refs: list[dict[str, Any]] | None,
     *,
     bundle_items: list[dict[str, Any]] | None = None,
-) -> ContextProjection:
+) -> TurnContextProjection:
     context = dict(main_context or {})
     summaries = [_normalize_task_summary_ref(item) for item in list(task_summary_refs or []) if isinstance(item, dict)]
     bundle_refs = _bundle_refs_from_summaries(summaries, bundle_items=bundle_items)
     active_constraints = dict(context.get("active_constraints") or {})
-    return ContextProjection(
+    return TurnContextProjection(
         main_context=context,
         task_summary_refs=summaries,
         bundle_summary_refs=bundle_refs,
@@ -69,10 +69,10 @@ def projection_from_bundle_answer(
     existing_task_summary_refs: list[dict[str, Any]] | None = None,
     existing_main_context: dict[str, Any] | None = None,
     executed_ordinals: list[int] | None = None,
-) -> ContextProjection:
+) -> TurnContextProjection:
     items = [dict(item) for item in list(bundle_items or []) if isinstance(item, dict)]
     if not items:
-        return ContextProjection()
+        return TurnContextProjection()
     sections = _extract_answer_sections(content, len(items))
     allowed_ordinals = {value for value in list(executed_ordinals or []) if _safe_int(value) > 0}
     single_allowed_ordinal = next(iter(allowed_ordinals)) if len(allowed_ordinals) == 1 else 0
@@ -130,7 +130,7 @@ def projection_from_bundle_answer(
             **dict(main_context.get("active_constraints") or {}),
             "bundle_item_count": len(refs),
         }
-    return ContextProjection(
+    return TurnContextProjection(
         main_context=main_context,
         task_summary_refs=[*list(existing_task_summary_refs or []), *refs],
         bundle_summary_refs=refs,

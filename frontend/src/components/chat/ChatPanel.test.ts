@@ -183,7 +183,7 @@ describe("ChatPanel", () => {
         compaction_remaining_ratio: 825748 / 900000,
         pressure_level: "normal",
       },
-      cumulative_transcript_tokens: 38370,
+      provider_protocol_timeline_tokens: 38370,
     }))).toEqual({
       usedPercent: 8,
       usedTokenText: "74.3K",

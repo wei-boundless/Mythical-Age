@@ -62,7 +62,7 @@ Claude Code 的核心要求是：prefix 必须字节级一致。多一个空格�
 - 用 `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` 把 system prompt 分成静态段和动态段。
 - boundary 前的核心静态内容可用 global cache。
 - boundary 后的用户/session 动态内容不进入 global cache。
-- 消息历史只放一个消息级 cache breakpoint。
+- 消息历史只放一个消息级 cache anomalypoint。
 - fork/side question 使用 `CacheSafeParams`，必须保持 system prompt、tools、model、messages prefix、thinking config 一致。
 - 不随意修改 `maxOutputTokens`，因为它可能改变 thinking budget，从而使 cache key 变化。
 
@@ -70,7 +70,7 @@ Claude Code 标准可以概括为：
 
 ```text
 static prefix before dynamic boundary
-+ one cache breakpoint
++ one cache anomalypoint
 + dynamic content after boundary
 + fork uses identical cache-safe params
 ```

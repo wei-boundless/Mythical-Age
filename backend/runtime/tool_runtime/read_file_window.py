@@ -11,7 +11,7 @@ from runtime.shared.file_observation_policy import (
 )
 
 
-READ_FILE_WINDOW_AUTHORITY = "runtime.tool_result.read_file_window.v1"
+READ_FILE_WINDOW_AUTHORITY = "runtime.tool_result.read_file_window"
 
 
 @dataclass(frozen=True, slots=True)

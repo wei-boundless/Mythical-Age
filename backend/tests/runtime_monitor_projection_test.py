@@ -1758,7 +1758,7 @@ def test_global_monitor_filters_child_runs_and_applies_per_bucket_limit():
         task_run(
             task_run_id="taskrun:child",
             task_id="taskinst:turn:session-a:child",
-            task_contract_ref="taskinst:turn:session-a:child",
+            task_run_contract_ref="taskinst:turn:session-a:child",
             updated_at=150.0,
             diagnostics={
                 "coordination_stage_id": "chapter_draft",
@@ -1865,7 +1865,7 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
     run = task_run(
         task_run_id="taskrun:turn:session-a:1:formal-task",
         task_id="taskinst:turn:session-a:1:formal-task",
-        task_contract_ref="rtobj:task_run_contract:formal-task",
+        task_run_contract_ref="rtobj:task_run_contract:formal-task",
         execution_runtime_kind="single_agent_task",
         diagnostics={
             "turn_id": "turn:session-a:1",

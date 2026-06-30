@@ -19,14 +19,14 @@ def test_contract_issuer_builds_runtime_and_loop_request_specs() -> None:
     )
 
     assert contract.authority == "task_system.task_contract"
-    assert contract.schema_version == "task_contract.v1"
+    assert "schema_version" not in contract.to_dict()
     assert contract.status == "issued"
     assert contract.environment_id == "env.coding.vibe_workspace"
     assert contract.objective == "Polish the task editor."
     assert contract.runtime_assembly_plan["kind"] == "runtime_assembly_request"
-    assert contract.runtime_assembly_plan["schema_version"] == "runtime_assembly_plan.request.v1"
+    assert "schema_version" not in contract.runtime_assembly_plan
     assert contract.loop_plan["kind"] == "loop_request"
-    assert contract.loop_plan["schema_version"] == "loop_plan.request.v1"
+    assert "schema_version" not in contract.loop_plan
     assert "extension_slots" in contract.to_dict()
     assert "task_run_id" not in contract.to_dict()
     assert "loop_state" not in contract.to_dict()
@@ -47,8 +47,9 @@ def test_contract_issuer_emits_graph_request_specs_for_graph_task() -> None:
 
     assert contract.graph_contract["graph_ref"] == "graph:writing-review"
     assert contract.graph_runtime_assembly_plan["kind"] == "graph_config_request"
-    assert contract.graph_runtime_assembly_plan["schema_version"] == "graph_config_request.v1"
+    assert "schema_version" not in contract.graph_runtime_assembly_plan
     assert contract.graph_loop_plan["kind"] == "graph_loop_request"
+    assert "schema_version" not in contract.graph_loop_plan
 
 
 def test_contract_issuer_uses_configured_task_environment(tmp_path: Path) -> None:
@@ -85,5 +86,4 @@ def test_contract_issuer_uses_configured_task_environment(tmp_path: Path) -> Non
 
     assert contract.environment_id == "env.custom.contract"
     assert contract.metadata["environment_spec_id"] == "envspec.custom.contract.v1"
-
 

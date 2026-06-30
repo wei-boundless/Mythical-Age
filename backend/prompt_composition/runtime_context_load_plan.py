@@ -55,7 +55,6 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
                     source_ref=slot.source_ref,
                     prefix_tier=slot.prefix_tier,
                     dynamic_tier=slot.dynamic_tier,
-                    authority_class=slot.authority_class,
                     render_contract=dict(slot.render_contract),
                     message_spec=dict(slot.message_spec),
                     metadata={
@@ -85,7 +84,6 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
                 source_ref=entry.source_ref,
                 prefix_tier=entry.prefix_tier,
                 dynamic_tier=entry.dynamic_tier,
-                authority_class=entry.authority_class,
                 render_contract=dict(entry.render_contract),
                 message_spec=dict(entry.message_spec),
                 metadata=dict(entry.metadata),
@@ -122,7 +120,6 @@ def materialize_runtime_context_load_plan(load_plan: RuntimeContextLoadPlan) -> 
                 "slot_source_kind": entry.source_kind,
                 "slot_prefix_tier": entry.prefix_tier,
                 "slot_dynamic_tier": entry.dynamic_tier,
-                "slot_authority_class": entry.authority_class,
                 "slot_render_contract": dict(entry.render_contract),
                 "runtime_context_load_plan_id": load_plan.plan_id,
                 "runtime_context_load_entry_id": entry.load_entry_id,

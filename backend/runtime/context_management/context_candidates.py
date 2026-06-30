@@ -9,6 +9,8 @@ from .context_segment_policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     CURRENT_CONTROL_TAIL_KINDS,
+    context_segment_policy_for_spec,
+    context_segment_policy_is_provider_visible_sealable,
 )
 
 
@@ -97,14 +99,14 @@ class ContextCommitCandidate:
     def from_provider_payload_segment(cls, segment: dict[str, Any]) -> "ContextCommitCandidate | None":
         payload = dict(segment or {})
         metadata = dict(payload.get("metadata") or {})
-        if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") != "provider_success_required":
+        if str(metadata.get("provider_visible_append_commit_stage") or "") != "provider_success_required":
             return None
         if not _provider_payload_segment_commit_eligible(payload, metadata=metadata):
             return None
-        scope = str(metadata.get("provider_visible_context_ledger_scope") or "").strip()
-        item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
+        scope = str(metadata.get("provider_visible_append_ledger_scope") or "").strip()
+        item_key = str(metadata.get("provider_visible_append_item_key") or "").strip()
         provider_hash = str(metadata.get("provider_visible_hash") or "").strip()
-        provider_message = dict(metadata.get("provider_visible_context_candidate_message") or {})
+        provider_message = dict(metadata.get("provider_visible_append_candidate_message") or {})
         if not scope or not item_key or not provider_hash or not provider_message:
             return None
         seed = {
@@ -119,12 +121,12 @@ class ContextCommitCandidate:
             provider_visible_hash=provider_hash,
             adapter_contract=str(metadata.get("provider_adapter_contract") or ""),
             scope=scope,
-            storage_root=str(metadata.get("provider_visible_context_ledger_storage_root") or "").strip(),
-            kind=str(metadata.get("provider_visible_context_candidate_kind") or "").strip(),
-            semantic_commit_class=str(metadata.get("provider_visible_context_candidate_semantic_commit_class") or "").strip(),
-            source_ref=str(metadata.get("provider_visible_context_candidate_source_ref") or "").strip(),
-            provider=str(metadata.get("provider_visible_context_candidate_provider") or "").strip(),
-            model=str(metadata.get("provider_visible_context_candidate_model") or "").strip(),
+            storage_root=str(metadata.get("provider_visible_append_ledger_storage_root") or "").strip(),
+            kind=str(metadata.get("provider_visible_append_candidate_kind") or "").strip(),
+            semantic_commit_class=str(metadata.get("provider_visible_append_candidate_semantic_commit_class") or "").strip(),
+            source_ref=str(metadata.get("provider_visible_append_candidate_source_ref") or "").strip(),
+            provider=str(metadata.get("provider_visible_append_candidate_provider") or "").strip(),
+            model=str(metadata.get("provider_visible_append_candidate_model") or "").strip(),
             physical_lane_before_commit=str(metadata.get("physical_prefix_lane") or "").strip(),
             semantic_visibility=str(metadata.get("semantic_visibility") or "").strip(),
             validity_scope=str(metadata.get("validity_scope") or "").strip(),
@@ -185,8 +187,10 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
 
 
 def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metadata: dict[str, Any]) -> bool:
+    if not context_segment_policy_is_provider_visible_sealable(context_segment_policy_for_spec(payload)):
+        return False
     kind = str(
-        metadata.get("provider_visible_context_candidate_kind")
+        metadata.get("provider_visible_append_candidate_kind")
         or payload.get("kind")
         or metadata.get("kind")
         or ""
@@ -217,7 +221,7 @@ def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metada
         return False
 
     semantic_commit_class = str(
-        metadata.get("provider_visible_context_candidate_semantic_commit_class")
+        metadata.get("provider_visible_append_candidate_semantic_commit_class")
         or metadata.get("semantic_commit_class")
         or ""
     ).strip()

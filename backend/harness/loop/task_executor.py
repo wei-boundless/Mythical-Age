@@ -59,7 +59,7 @@ from harness.runtime.tool_batch_planner import ToolBatchGroup, build_tool_batch_
 from harness.runtime.tool_plan import build_runtime_tool_plan
 from harness.runtime.environment_storage import ensure_environment_storage_dirs
 from harness.runtime.artifact_scope import (
-    canonicalize_task_contract_artifacts,
+    canonicalize_task_run_contract_artifacts,
     runtime_artifact_scope_from_environment,
 )
 from harness.runtime.sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
@@ -102,10 +102,10 @@ from .task_run_execution_control import (
     register_executor_epoch,
     request_executor_control_signal,
 )
-from .task_contract_revision import (
+from .task_run_contract_revision import (
     apply_contract_revision_decisions,
     ensure_revision_for_steer,
-    list_active_task_contract_revisions,
+    list_active_task_run_contract_revisions,
 )
 from .task_steering import (
     create_active_task_steer,
@@ -1312,15 +1312,19 @@ async def execute_task_run(
             runtime_host,
             task_run=task_run,
             status="failed",
-            terminal_reason="task_contract_missing",
+            terminal_reason="task_run_contract_missing",
         )
-        return {"ok": False, "task_run": failed_task.to_dict(), "event": event, "error": "task_contract_missing"}
+        return {"ok": False, "task_run": failed_task.to_dict(), "event": event, "error": "task_run_contract_missing"}
 
     agent_profile = services.agent_runtime_profile
     diagnostics = dict(task_run.diagnostics or {})
     turn_id = str(diagnostics.get("turn_id") or task_run.task_id or task_run.task_run_id)
     model_selection = _task_model_selection(task_run, agent_profile=agent_profile)
-    runtime_permission_mode = _task_runtime_permission_mode(task_run, runtime_host=runtime_host)
+    runtime_permission_mode = _task_runtime_permission_mode(
+        task_run,
+        runtime_host=runtime_host,
+        task_run_contract=contract,
+    )
     runtime_assembly = assemble_runtime(
         backend_dir=services.backend_dir,
         session_id=task_run.session_id,
@@ -2348,7 +2352,7 @@ async def _execute_claimed_task_run(
             )
             for steer in list_pending_task_steers(runtime_host, current_task.task_run_id):
                 ensure_revision_for_steer(runtime_host, current_task.task_run_id, steer)
-            active_revisions = list_active_task_contract_revisions(runtime_host, current_task.task_run_id)
+            active_revisions = list_active_task_run_contract_revisions(runtime_host, current_task.task_run_id)
             if unconsumed_steer_ids or active_revisions:
                 repair_observation = _active_steer_completion_repair_observation(
                     task_run_id=current_task.task_run_id,
@@ -4299,7 +4303,7 @@ async def _invoke_task_model_action(
     effective_model_selection = _model_selection_with_json_object_contract(model_selection)
     timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection=effective_model_selection)
     accounting_context = {
-        "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
+        "request_id": f"providerreq:{packet.packet_id}:{invocation_index}",
         "session_id": session_id,
         "task_run_id": task_run_id,
         "turn_id": task_run_id,
@@ -4321,7 +4325,7 @@ async def _invoke_task_model_action(
     )
     protocol_result = model_response_protocol_from_response(
         response,
-        request_id=f"modelreq:{packet.packet_id}:{invocation_index}",
+        request_id=f"providerreq:{packet.packet_id}:{invocation_index}",
         turn_id=task_run_id,
         require_json_action=True,
         allow_native_tool_calls=False,
@@ -4783,13 +4787,14 @@ async def _execute_task_tool_call(
 
 
 def _load_contract(runtime_host: Any, task_run: Any) -> dict[str, Any]:
+    contract_ref = str(getattr(task_run, "task_run_contract_ref", "") or "").strip()
+    if not contract_ref:
+        return {}
     try:
-        contract = runtime_host.runtime_objects.get_object(task_run.task_contract_ref)
+        contract = runtime_host.runtime_objects.get_object(contract_ref)
     except Exception:
         contract = {}
-    if contract:
-        return dict(contract)
-    return dict(dict(task_run.diagnostics or {}).get("contract") or {})
+    return dict(contract or {})
 
 
 def _publish_packet_evidence_projection_event(
@@ -4828,6 +4833,7 @@ def _task_runtime_permission_mode(
     *,
     runtime_host: Any | None = None,
     runtime_assembly: dict[str, Any] | None = None,
+    task_run_contract: dict[str, Any] | None = None,
 ) -> str:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     candidates = [
@@ -4837,7 +4843,7 @@ def _task_runtime_permission_mode(
     assembly = dict(runtime_assembly or diagnostics.get("runtime_assembly") or {})
     if assembly:
         candidates.append(assembly.get("permission_mode"))
-    contract = dict(diagnostics.get("contract") or {})
+    contract = dict(task_run_contract or {})
     if contract:
         permission_requirements = dict(contract.get("permission_requirements") or {})
         candidates.extend([
@@ -5234,7 +5240,7 @@ def _verify_completion(
 ) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     artifact_scope = runtime_artifact_scope_from_environment(environment)
-    contract = canonicalize_task_contract_artifacts(
+    contract = canonicalize_task_run_contract_artifacts(
         contract,
         environment_payload=environment,
         artifact_root=artifact_scope.artifact_root,
@@ -7739,7 +7745,7 @@ def _load_lifecycle(runtime_host: Any, task_run: Any) -> TaskLifecycleRecord:
     if payload:
         return TaskLifecycleRecord(
             task_run_id=str(payload.get("task_run_id") or task_run.task_run_id),
-            contract_ref=str(payload.get("contract_ref") or task_run.task_contract_ref),
+            contract_ref=str(payload.get("contract_ref") or task_run.task_run_contract_ref),
             status=str(payload.get("status") or "running"),  # type: ignore[arg-type]
             created_at=float(payload.get("created_at") or task_run.created_at or time.time()),
             updated_at=float(payload.get("updated_at") or task_run.updated_at or time.time()),
@@ -7749,7 +7755,7 @@ def _load_lifecycle(runtime_host: Any, task_run: Any) -> TaskLifecycleRecord:
         )
     return TaskLifecycleRecord(
         task_run_id=task_run.task_run_id,
-        contract_ref=task_run.task_contract_ref,
+        contract_ref=task_run.task_run_contract_ref,
         status="running",
         created_at=float(task_run.created_at or time.time()),
         updated_at=float(task_run.updated_at or time.time()),
@@ -8059,7 +8065,7 @@ def _observations_for_packet(
     pending_steers = list_pending_task_steers(runtime_host, task_run_id)
     for steer in pending_steers:
         ensure_revision_for_steer(runtime_host, task_run_id, steer)
-    active_revisions = list_active_task_contract_revisions(runtime_host, task_run_id)
+    active_revisions = list_active_task_run_contract_revisions(runtime_host, task_run_id)
     if pending_steers:
         projection = {
             **projection,
@@ -8390,7 +8396,7 @@ def _contract_revision_for_projection(revision: dict[str, Any]) -> dict[str, Any
             if str(item)
         ],
         "impact": dict(revision.get("impact") or {}),
-        "authority": "harness.loop.task_contract_revision.model_projection",
+        "authority": "harness.loop.task_run_contract_revision.model_projection",
     }
 
 
@@ -8467,8 +8473,6 @@ def _has_non_empty_sequence(value: Any) -> bool:
 def _contract_revision_decisions(action_request: AnyModelActionRequest) -> list[dict[str, Any]]:
     diagnostics = dict(action_request.diagnostics or {})
     raw = diagnostics.get("contract_revision_decisions")
-    if raw is None:
-        raw = diagnostics.get("task_contract_revision_decisions")
     return [dict(item) for item in list(raw or []) if isinstance(item, dict)]
 
 

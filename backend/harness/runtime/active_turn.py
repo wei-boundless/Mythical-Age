@@ -184,6 +184,22 @@ class ActiveTurnRegistry:
             return record
         return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
 
+    def complete_interrupted(
+        self,
+        *,
+        session_id: str,
+        expected_turn_id: str = "",
+        terminal_reason: str = "runtime_interruption_closed",
+    ) -> ActiveTurnRecord | None:
+        payload = self._read_session_payload(session_id)
+        record = _record_from_payload(payload) if payload else None
+        if record is None:
+            return None
+        expected = str(expected_turn_id or "").strip()
+        if expected and record.turn_id != expected:
+            raise ActiveTurnMismatch(expected=expected, actual=record.turn_id)
+        return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "runtime_interruption_closed"))
+
     def mark_interrupting(
         self,
         *,

@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from context_system.projection.projection import ContextProjection
+from context_system.projection.projection import TurnContextProjection
 
 
 @dataclass(slots=True)
 class ObservationAggregation:
-    projection: ContextProjection = field(default_factory=ContextProjection)
+    projection: TurnContextProjection = field(default_factory=TurnContextProjection)
     tool_result_count: int = 0
     tool_names: list[str] = field(default_factory=list)
     evidence_items: list[dict[str, Any]] = field(default_factory=list)
@@ -24,7 +24,7 @@ class ObservationAggregator:
 
     def add_projection(
         self,
-        projection: ContextProjection,
+        projection: TurnContextProjection,
         *,
         tool_name: str = "",
     ) -> ObservationAggregation:

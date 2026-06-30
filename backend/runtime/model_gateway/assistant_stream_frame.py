@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-ASSISTANT_STREAM_FRAME_SCHEMA_VERSION = "assistant_stream_frame.v1"
+ASSISTANT_STREAM_FRAME_SCHEMA_ID = "assistant_stream_frame"
 ASSISTANT_TEXT_DELTA_EVENT = "assistant_text_delta"
 ASSISTANT_TEXT_FINAL_EVENT = "assistant_text_final"
 ASSISTANT_STREAM_REPAIR_EVENT = "assistant_stream_repair"
@@ -30,7 +30,7 @@ def content_sha256(value: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class AssistantStreamFrame:
-    frame_schema_version: str
+    frame_schema_id: str
     event_type: str
     frame_id: str
     stream_ref: str
@@ -53,7 +53,7 @@ class AssistantStreamFrame:
     def to_event(self) -> dict[str, Any]:
         return {
             "type": self.event_type,
-            "frame_schema_version": self.frame_schema_version,
+            "frame_schema_id": self.frame_schema_id,
             "event_type": self.event_type,
             "frame_id": self.frame_id,
             "stream_ref": self.stream_ref,
@@ -98,7 +98,7 @@ def assistant_text_final_event(
     text = str(content or "")
     return {
         "type": ASSISTANT_TEXT_FINAL_EVENT,
-        "frame_schema_version": ASSISTANT_STREAM_FRAME_SCHEMA_VERSION,
+        "frame_schema_id": ASSISTANT_STREAM_FRAME_SCHEMA_ID,
         "event_type": ASSISTANT_TEXT_FINAL_EVENT,
         "stream_ref": str(stream_ref or ""),
         "message_ref": str(message_ref or ""),
@@ -132,7 +132,7 @@ def assistant_stream_repair_event(
     text = str(replacement_content or "")
     return {
         "type": ASSISTANT_STREAM_REPAIR_EVENT,
-        "frame_schema_version": ASSISTANT_STREAM_FRAME_SCHEMA_VERSION,
+        "frame_schema_id": ASSISTANT_STREAM_FRAME_SCHEMA_ID,
         "event_type": ASSISTANT_STREAM_REPAIR_EVENT,
         "stream_ref": str(stream_ref or ""),
         "message_ref": str(message_ref or ""),

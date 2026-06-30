@@ -18,19 +18,24 @@ from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 from prompt_library import SESSION_TITLE_GENERATION_PROMPT
 from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
+    CacheAnomalyDetector,
+    CacheAnomalyRecord,
     ModelTokenUsageRecord,
     PromptAccountingLedger,
-    PromptCacheBaselineTracker,
-    PromptCacheBreakRecord,
-    PromptCacheBreakDetector,
     PromptCachePlanner,
-    PromptStabilityReporter,
+    PrefixStateDiffReporter,
+    PrefixStateReporter,
     extract_provider_usage,
+    prefix_state_to_diff_report,
     publish_provider_cache_usage,
+    resolve_previous_prefix_state,
 )
 from runtime.prompt_accounting.provider_lane import (
+    PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
+    PROVIDER_LANE_AGENT_TOOL_LOOP,
+    PROVIDER_LANE_UTILITY,
     physical_payload_family_components,
-    physical_payload_family_hash_for_model_request,
+    physical_payload_family_hash_for_provider_request,
     provider_lane_from_accounting_context,
 )
 from runtime.prompt_accounting.serializer import canonical_json
@@ -39,14 +44,14 @@ from runtime.context_management.context_candidates import ContextCommitCandidate
 from runtime.context_management.physical_prefix_frame_ledger import (
     append_physical_prefix_frame_from_provider_success,
 )
-from runtime.context_management.provider_visible_context_ledger import (
-    confirm_provider_visible_context_entries,
-    latest_provider_visible_context_success_anchor,
+from runtime.context_management.provider_visible_append_ledger import (
+    confirm_provider_visible_append_entries,
+    latest_provider_visible_append_success_anchor,
 )
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 from .lightweight_chat_model import LightweightChatModel, LightweightConversationAgent, provider_message_payloads
-from .model_request import ModelRequestBuilder
+from .provider_request import ProviderRequestBuilder
 from .providers import ProviderRequestProfile, build_provider_adapter_result
 
 if TYPE_CHECKING:
@@ -152,10 +157,10 @@ class ModelRuntime:
         self.prompt_accounting_ledger = prompt_accounting_ledger
         self._prompt_serializer = CanonicalPromptSerializer()
         self._prompt_cache_planner = PromptCachePlanner()
-        self._prompt_cache_baseline_tracker = PromptCacheBaselineTracker()
-        self._prompt_cache_break_detector = PromptCacheBreakDetector()
-        self._prompt_stability_reporter = PromptStabilityReporter()
-        self._model_request_builder = ModelRequestBuilder()
+        self._cache_anomaly_detector = CacheAnomalyDetector()
+        self._prefix_state_diff_reporter = PrefixStateDiffReporter()
+        self._prefix_state_reporter = PrefixStateReporter()
+        self._provider_request_builder = ProviderRequestBuilder()
         self.runtime_observability: Any | None = None
         self.turn_memory_store: Any | None = None
 
@@ -938,7 +943,7 @@ class ModelRuntime:
         )
         request_id = str(context.get("request_id") or "").strip()
         if not request_id:
-            request_id = f"modelreq:{uuid.uuid4().hex}"
+            request_id = f"providerreq:{uuid.uuid4().hex}"
         if attempt > 1:
             request_id = f"{request_id}:attempt:{attempt}"
         raw_run_id = str(context.get("run_id") or context.get("task_run_id") or "").strip()
@@ -947,8 +952,8 @@ class ModelRuntime:
         session_id = str(context.get("session_id") or "")
         created_at = time.time()
         prompt_manifest = _prompt_accounting_manifest_refs(context.get("prompt_manifest"))
-        tool_catalog_manifest = _tool_catalog_manifest_for_model_request(context.get("prompt_manifest"))
-        provider_lane = provider_lane_from_accounting_context(context, call_kind=call_kind)
+        tool_catalog_manifest = _tool_catalog_manifest_for_provider_request(context.get("prompt_manifest"))
+        provider_lane = provider_lane_from_accounting_context(context)
         metadata = {
             "source": str(context.get("source") or call_kind),
             "call_kind": call_kind,
@@ -969,11 +974,11 @@ class ModelRuntime:
         }
         segment_plan = dict(context.get("segment_plan") or {})
         local_prediction_usage_id = f"tokuse:{request_id}:local_prediction"
-        model_request = None
+        provider_request = None
         physical_payload_family: dict[str, Any] = {}
         physical_payload_family_hash = ""
         try:
-            model_request = self._model_request_builder.build(
+            provider_request = self._provider_request_builder.build(
                 request_id=request_id,
                 messages=list(messages or []),
                 tools=list(tools or []),
@@ -990,18 +995,18 @@ class ModelRuntime:
                 provider=spec.provider,
                 model=spec.model,
                 provider_lane=provider_lane,
-                model_request=model_request,
+                provider_request=provider_request,
             )
-            physical_payload_family_hash = physical_payload_family_hash_for_model_request(
+            physical_payload_family_hash = physical_payload_family_hash_for_provider_request(
                 provider=spec.provider,
                 model=spec.model,
                 provider_lane=provider_lane,
-                model_request=model_request,
+                provider_request=provider_request,
             )
             metadata["physical_payload_family_hash"] = physical_payload_family_hash
             metadata["physical_payload_family"] = dict(physical_payload_family)
         except Exception:
-            logger.debug("Failed to build model request accounting projection", exc_info=True)
+            logger.debug("Failed to build provider request accounting projection", exc_info=True)
         trace_span_context = self._start_model_trace_span(
             context=context,
             request_id=request_id,
@@ -1031,8 +1036,8 @@ class ModelRuntime:
             "physical_payload_family_hash": physical_payload_family_hash,
             "physical_payload_family": dict(physical_payload_family),
         }
-        if model_request is not None:
-            base_accounting["model_request"] = model_request
+        if provider_request is not None:
+            base_accounting["provider_request"] = provider_request
             pending_commit = self._record_provider_request_context_commit(
                 base_accounting,
                 status="pending",
@@ -1040,14 +1045,14 @@ class ModelRuntime:
             )
             if pending_commit:
                 base_accounting["provider_request_context_commit_pending"] = pending_commit
-                base_accounting["provider_visible_ledger_anchor_before"] = dict(
-                    pending_commit.get("provider_visible_ledger_anchor_before") or {}
+                base_accounting["provider_visible_append_anchor_before"] = dict(
+                    pending_commit.get("provider_visible_append_anchor_before") or {}
                 )
         self._record_turn_memory_provider_request(base_accounting, status="pending")
-        if ledger is None or model_request is None:
+        if ledger is None or provider_request is None:
             return base_accounting
         try:
-            cache_policy = model_request.cache_policy
+            cache_policy = provider_request.cache_policy
             segment_map = self._prompt_serializer.build_segment_map(
                 request_id=request_id,
                 messages=list(messages or []),
@@ -1060,14 +1065,14 @@ class ModelRuntime:
                 created_at=created_at,
                 metadata={
                     **metadata,
-                    "model_request_ref": model_request.request_id,
+                    "provider_request_ref": provider_request.request_id,
                     "provider_cache_policy": cache_policy.to_dict(),
-                    "stable_prefix_hash": model_request.stable_prefix_hash,
-                    "provider_global_prefix_hash": model_request.provider_global_prefix_hash,
-                    "session_prefix_hash": model_request.session_prefix_hash,
+                    "stable_prefix_hash": provider_request.stable_prefix_hash,
+                    "provider_global_prefix_hash": provider_request.provider_global_prefix_hash,
+                    "session_prefix_hash": provider_request.session_prefix_hash,
                 },
                 segment_plan=segment_plan,
-                model_request=model_request,
+                provider_request=provider_request,
             )
             ledger.record_segment_map(segment_map)
             prediction = ModelTokenUsageRecord(
@@ -1086,10 +1091,10 @@ class ModelRuntime:
                 diagnostics={
                     "segment_count": len(segment_map.segments),
                     "canonical_hash": segment_map.canonical_hash,
-                    "model_request_canonical_hash": model_request.canonical_hash,
-                    "stable_prefix_hash": model_request.stable_prefix_hash,
-                    "provider_global_prefix_hash": model_request.provider_global_prefix_hash,
-                    "session_prefix_hash": model_request.session_prefix_hash,
+                    "provider_request_canonical_hash": provider_request.canonical_hash,
+                    "stable_prefix_hash": provider_request.stable_prefix_hash,
+                    "provider_global_prefix_hash": provider_request.provider_global_prefix_hash,
+                    "session_prefix_hash": provider_request.session_prefix_hash,
                     "provider_cache_policy": cache_policy.to_dict(),
                     **metadata,
                 },
@@ -1100,76 +1105,77 @@ class ModelRuntime:
                 request_started_at=created_at,
                 observed_at=created_at,
             )
-            cache_record = self._prompt_cache_planner.plan(
+            cache_plan = self._prompt_cache_planner.plan(
                 segment_map,
                 provider=spec.provider,
                 model=spec.model,
-                model_request=model_request,
+                provider_request=provider_request,
                 created_at=created_at,
             )
-            model_request_diagnostics = dict(model_request.diagnostics or {})
-            prefix_key_tier = str(dict(cache_record.diagnostics or {}).get("prefix_key_tier") or "")
-            expected_prefix_hash = _model_request_prefix_hash_for_tier(
-                model_request,
+            provider_request_diagnostics = dict(provider_request.diagnostics or {})
+            prefix_key_tier = str(dict(cache_plan.diagnostics or {}).get("prefix_key_tier") or "")
+            expected_prefix_hash = _provider_request_prefix_hash_for_tier(
+                provider_request,
                 prefix_key_tier=prefix_key_tier,
             )
-            prefix_hash_matches_model_request = bool(cache_record.prefix_hash) and cache_record.prefix_hash == expected_prefix_hash
-            cache_record_diagnostics = {
-                **dict(cache_record.diagnostics or {}),
+            prefix_hash_matches_provider_request = bool(cache_plan.prefix_hash) and cache_plan.prefix_hash == expected_prefix_hash
+            cache_plan_diagnostics = {
+                **dict(cache_plan.diagnostics or {}),
                 "provider_cache_policy": cache_policy.to_dict(),
-                "model_request_prefix_key_tier": prefix_key_tier,
-                "model_request_selected_prefix_hash": expected_prefix_hash,
-                "model_request_stable_prefix_hash": model_request.stable_prefix_hash,
-                "model_request_provider_global_prefix_hash": model_request.provider_global_prefix_hash,
-                "model_request_session_prefix_hash": model_request.session_prefix_hash,
-                "model_request_provider_payload_prefix_hash": model_request.provider_payload_prefix_hash,
-                "model_request_tool_catalog_hash": model_request.tool_catalog_hash,
-                "model_request_stable_tool_catalog_hash": model_request.stable_tool_catalog_hash,
-                "model_request_cache_sensitive_params_hash": model_request.cache_sensitive_params_hash,
+                "provider_request_prefix_key_tier": prefix_key_tier,
+                "provider_request_selected_prefix_hash": expected_prefix_hash,
+                "provider_request_stable_prefix_hash": provider_request.stable_prefix_hash,
+                "provider_request_provider_global_prefix_hash": provider_request.provider_global_prefix_hash,
+                "provider_request_session_prefix_hash": provider_request.session_prefix_hash,
+                "provider_request_provider_payload_prefix_hash": provider_request.provider_payload_prefix_hash,
+                "provider_request_tool_catalog_hash": provider_request.tool_catalog_hash,
+                "provider_request_stable_tool_catalog_hash": provider_request.stable_tool_catalog_hash,
+                "provider_request_cache_sensitive_params_hash": provider_request.cache_sensitive_params_hash,
                 "provider_lane": provider_lane,
                 "physical_payload_family_hash": physical_payload_family_hash,
                 "physical_payload_family": dict(physical_payload_family),
-                "model_request_provider_transport_payload": dict(
-                    model_request_diagnostics.get("provider_transport_payload") or {}
+                "provider_request_transport_payload": dict(
+                    provider_request_diagnostics.get("provider_transport_payload") or {}
                 ),
-                "prefix_hash_matches_model_request": prefix_hash_matches_model_request,
-                "unplanned_message_count": int(model_request_diagnostics.get("unplanned_message_count") or 0),
-                "bound_segment_count": int(model_request_diagnostics.get("bound_segment_count") or 0),
-                "planned_segment_count": int(model_request_diagnostics.get("planned_segment_count") or 0),
+                "prefix_hash_matches_provider_request": prefix_hash_matches_provider_request,
+                "unplanned_message_count": int(provider_request_diagnostics.get("unplanned_message_count") or 0),
+                "bound_segment_count": int(provider_request_diagnostics.get("bound_segment_count") or 0),
+                "planned_segment_count": int(provider_request_diagnostics.get("planned_segment_count") or 0),
             }
-            if cache_policy.mode == "disabled" and cache_record.status != "bypassed":
-                cache_record = replace(
-                    cache_record,
+            if cache_policy.mode == "disabled" and cache_plan.status != "bypassed":
+                cache_plan = replace(
+                    cache_plan,
                     scope="none",
                     status="bypassed",
                     cache_safety_reasons=(
-                        *tuple(cache_record.cache_safety_reasons or ()),
+                        *tuple(cache_plan.cache_safety_reasons or ()),
                         cache_policy.reason or "provider_cache_disabled",
                     ),
-                    diagnostics=cache_record_diagnostics,
+                    diagnostics=cache_plan_diagnostics,
                 )
             else:
-                cache_record = replace(
-                    cache_record,
-                    diagnostics=cache_record_diagnostics,
+                cache_plan = replace(
+                    cache_plan,
+                    diagnostics=cache_plan_diagnostics,
                 )
-            ledger.record_prompt_cache(cache_record)
+            ledger.record_cache_plan(cache_plan)
             if unplanned_reason:
-                ledger.record_prompt_cache_break(
-                    PromptCacheBreakRecord(
-                        break_id=f"pcbreak:{request_id}:unplanned:{uuid.uuid4().hex[:8]}",
+                ledger.record_cache_anomaly(
+                    CacheAnomalyRecord(
+                        anomaly_id=f"cacheanomaly:{request_id}:unplanned:{uuid.uuid4().hex[:8]}",
                         request_id=request_id,
                         run_id=run_id,
                         task_run_id=task_run_id,
                         session_id=session_id,
                         provider=spec.provider,
                         model=spec.model,
-                        cache_key=cache_record.cache_key,
-                        prefix_hash=cache_record.prefix_hash,
+                        cache_key=cache_plan.cache_key,
+                        prefix_hash=cache_plan.prefix_hash,
                         reason="unplanned_model_call",
                         created_at=created_at,
                         diagnostics={
-                            "severity": "high" if _agent_runtime_like_call(call_kind=call_kind, context=context) else "medium",
+                            "severity": _unplanned_model_call_severity(provider_lane),
+                            "severity_authority": "runtime.prompt_accounting.provider_lane",
                             "call_kind": call_kind,
                             "source": str(context.get("source") or ""),
                             "provider_lane": provider_lane,
@@ -1181,46 +1187,48 @@ class ModelRuntime:
                         },
                     )
                 )
-            previous_stability_reports = _previous_prompt_stability_reports(
+            previous_prefix_states = _previous_prefix_state_records(
                 ledger,
                 run_id=run_id,
                 task_run_id=task_run_id,
                 session_id=session_id,
             )
-            previous_stability_report = _previous_stability_report(
-                previous_stability_reports,
+            previous_prefix_state, previous_prefix_generation = resolve_previous_prefix_state(
+                previous_prefix_states,
                 invocation_kind=str(metadata.get("source") or metadata.get("call_kind") or ""),
                 provider=spec.provider,
                 model=spec.model,
+                provider_lane=provider_lane,
+                physical_payload_family_hash=physical_payload_family_hash,
             )
-            stability_report = self._prompt_stability_reporter.build(
+            previous_diff_report = (
+                prefix_state_to_diff_report(previous_prefix_state)
+                if previous_prefix_state is not None
+                else None
+            )
+            diff_report = self._prefix_state_diff_reporter.build(
                 segment_map=segment_map,
-                previous_report=previous_stability_report,
-                model_request=model_request,
-                cache_record=cache_record,
+                previous_report=previous_diff_report,
+                provider_request=provider_request,
+                cache_plan=cache_plan,
                 created_at=created_at,
             )
-            ledger.record_prompt_stability(stability_report)
-            previous_baselines = _previous_prompt_cache_baselines(
-                ledger,
-                run_id=run_id,
-                task_run_id=task_run_id,
-                session_id=session_id,
-            )
-            baseline_record = self._prompt_cache_baseline_tracker.build_active_record(
+            prefix_state_record = self._prefix_state_reporter.build(
                 segment_map=segment_map,
-                model_request=model_request,
-                previous_records=previous_baselines,
+                diff_report=diff_report,
+                cache_plan=cache_plan,
+                provider_request=provider_request,
+                previous_state=previous_prefix_state,
+                previous_generation=previous_prefix_generation,
                 created_at=created_at,
             )
-            ledger.record_prompt_cache_baseline(baseline_record)
+            ledger.record_prefix_state(prefix_state_record)
             return {
                 **base_accounting,
-                "cache_record": cache_record,
-                "model_request": model_request,
+                "cache_plan": cache_plan,
+                "provider_request": provider_request,
                 "segment_map": segment_map,
-                "stability_report": stability_report,
-                "cache_baseline_record": baseline_record,
+                "prefix_state_record": prefix_state_record,
             }
         except Exception:
             logger.debug("Failed to record prompt accounting prediction", exc_info=True)
@@ -1351,24 +1359,24 @@ class ModelRuntime:
             self._record_turn_memory_provider_result(accounting, status="failed", error=error)
             self._finish_model_trace_span(accounting, provider_usage=None, error=error)
             return
-        provider_visible_confirmation = self._confirm_provider_visible_context_success(accounting, response=response)
+        provider_visible_append_confirmation = self._confirm_provider_visible_append_success(accounting, response=response)
         physical_prefix_frame_confirmation = self._confirm_physical_prefix_frame_success(
             accounting,
             response=response,
-            provider_visible_confirmation=provider_visible_confirmation,
+            provider_visible_append_confirmation=provider_visible_append_confirmation,
         )
         if physical_prefix_frame_confirmation:
             accounting["physical_prefix_frame_confirmation"] = dict(physical_prefix_frame_confirmation)
         if physical_prefix_frame_confirmation:
-            provider_visible_confirmation = {
-                **dict(provider_visible_confirmation or {}),
+            provider_visible_append_confirmation = {
+                **dict(provider_visible_append_confirmation or {}),
                 "physical_prefix_frame": physical_prefix_frame_confirmation,
             }
         self._record_provider_request_context_commit(
             accounting,
             status="succeeded",
             response=response,
-            provider_visible_confirmation=provider_visible_confirmation,
+            provider_visible_append_confirmation=provider_visible_append_confirmation,
             reason="provider_request_succeeded",
         )
         self._record_turn_memory_provider_result(
@@ -1392,18 +1400,18 @@ class ModelRuntime:
             )
             if provider_usage is None:
                 return
-            cache_record = accounting.get("cache_record")
+            cache_plan = accounting.get("cache_plan")
             finished_at = time.time()
             started_at = float(accounting.get("started_at") or finished_at)
             duration_seconds = max(0.0, finished_at - started_at)
-            previous_cache_records = _previous_prompt_cache_records(
+            previous_cache_plans = _previous_cache_plan_records(
                 ledger,
                 run_id=str(accounting.get("run_id") or accounting.get("task_run_id") or ""),
                 task_run_id=str(accounting.get("task_run_id") or ""),
                 session_id=str(accounting.get("session_id") or ""),
             )
-            model_request = accounting.get("model_request")
-            cache_policy = getattr(model_request, "cache_policy", None)
+            provider_request = accounting.get("provider_request")
+            cache_policy = getattr(provider_request, "cache_policy", None)
             physical_prefix_frame_diagnostics = _physical_prefix_frame_diagnostics_from_accounting(accounting)
             if cache_policy is not None:
                 provider_usage = replace(
@@ -1411,14 +1419,14 @@ class ModelRuntime:
                     diagnostics={
                         **dict(provider_usage.diagnostics or {}),
                         "provider_cache_policy": cache_policy.to_dict(),
-                        "model_request_ref": str(getattr(model_request, "request_id", "") or ""),
-                        "stable_prefix_hash": str(getattr(model_request, "stable_prefix_hash", "") or ""),
-                        "provider_global_prefix_hash": str(getattr(model_request, "provider_global_prefix_hash", "") or ""),
-                        "session_prefix_hash": str(getattr(model_request, "session_prefix_hash", "") or ""),
-                        "provider_payload_prefix_hash": str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
-                        "tool_catalog_hash": str(getattr(model_request, "tool_catalog_hash", "") or ""),
-                        "stable_tool_catalog_hash": str(getattr(model_request, "stable_tool_catalog_hash", "") or ""),
-                        "cache_sensitive_params_hash": str(getattr(model_request, "cache_sensitive_params_hash", "") or ""),
+                        "provider_request_ref": str(getattr(provider_request, "request_id", "") or ""),
+                        "stable_prefix_hash": str(getattr(provider_request, "stable_prefix_hash", "") or ""),
+                        "provider_global_prefix_hash": str(getattr(provider_request, "provider_global_prefix_hash", "") or ""),
+                        "session_prefix_hash": str(getattr(provider_request, "session_prefix_hash", "") or ""),
+                        "provider_payload_prefix_hash": str(getattr(provider_request, "provider_payload_prefix_hash", "") or ""),
+                        "tool_catalog_hash": str(getattr(provider_request, "tool_catalog_hash", "") or ""),
+                        "stable_tool_catalog_hash": str(getattr(provider_request, "stable_tool_catalog_hash", "") or ""),
+                        "cache_sensitive_params_hash": str(getattr(provider_request, "cache_sensitive_params_hash", "") or ""),
                         "provider_lane": str(accounting.get("provider_lane") or ""),
                         "physical_payload_family_hash": str(accounting.get("physical_payload_family_hash") or ""),
                         "physical_payload_family": dict(accounting.get("physical_payload_family") or {}),
@@ -1432,10 +1440,10 @@ class ModelRuntime:
                 request_started_at=started_at,
                 observed_at=finished_at,
             )
-            if cache_record is not None:
-                updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
+            if cache_plan is not None:
+                updated_cache_plan = self._prompt_cache_planner.with_provider_usage(cache_plan, provider_usage)
                 physical_cache_spine_predicted_tokens = int(
-                    dict(updated_cache_record.diagnostics or {}).get("physical_cache_spine_predicted_tokens")
+                    dict(updated_cache_plan.diagnostics or {}).get("physical_cache_spine_predicted_tokens")
                     or 0
                 )
                 cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
@@ -1452,10 +1460,10 @@ class ModelRuntime:
                     if physical_cache_spine_predicted_tokens > 0
                     else 0.0
                 )
-                updated_cache_record = replace(
-                    updated_cache_record,
+                updated_cache_plan = replace(
+                    updated_cache_plan,
                     diagnostics={
-                        **dict(updated_cache_record.diagnostics or {}),
+                        **dict(updated_cache_plan.diagnostics or {}),
                         "duration_seconds": duration_seconds,
                         "provider_prompt_tokens": int(provider_usage.prompt_tokens or 0),
                         "provider_total_tokens": int(provider_usage.total_tokens or 0),
@@ -1466,83 +1474,76 @@ class ModelRuntime:
                         **physical_prefix_frame_diagnostics,
                     },
                 )
-                ledger.record_prompt_cache(updated_cache_record)
                 publish_provider_cache_usage(
                     ledger=ledger,
-                    cache_record=updated_cache_record,
+                    cache_plan=updated_cache_plan,
                     provider_usage=provider_usage,
-                    previous_cache_records=previous_cache_records,
+                    previous_cache_plans=previous_cache_plans,
                     created_at=finished_at,
                 )
-                break_record = self._prompt_cache_break_detector.detect(
-                    cache_record=updated_cache_record,
+                anomaly_record = self._cache_anomaly_detector.detect(
+                    cache_plan=updated_cache_plan,
                     provider_usage=provider_usage,
-                    previous_cache_records=previous_cache_records,
+                    previous_cache_plans=previous_cache_plans,
                     created_at=time.time(),
                 )
-                if break_record is not None:
-                    ledger.record_prompt_cache_break(break_record)
-            stability_report = accounting.get("stability_report")
-            if stability_report is not None:
-                updated_stability_report = self._prompt_stability_reporter.with_provider_usage(
-                    stability_report,
-                    provider_usage,
-                    cache_record=updated_cache_record if cache_record is not None else None,
-                )
-                ledger.record_prompt_stability(updated_stability_report)
+                if anomaly_record is not None:
+                    ledger.record_cache_anomaly(anomaly_record)
         except Exception:
             logger.debug("Failed to record provider token usage", exc_info=True)
         finally:
             self._finish_model_trace_span(accounting, provider_usage=provider_usage, error=None)
 
-    def _confirm_provider_visible_context_success(self, accounting: dict[str, Any], *, response: Any) -> dict[str, Any]:
-        candidates = _provider_visible_context_commit_candidates_from_accounting(accounting)
+    def _confirm_provider_visible_append_success(self, accounting: dict[str, Any], *, response: Any) -> dict[str, Any]:
+        candidates = _provider_visible_append_commit_candidates_from_accounting(accounting)
         if not candidates:
             return {}
-        model_request = dict(accounting or {}).get("model_request")
-        model_request_diagnostics = dict(getattr(model_request, "diagnostics", {}) or {})
-        provider_transport_payload = dict(model_request_diagnostics.get("provider_transport_payload") or {})
+        provider_request = dict(accounting or {}).get("provider_request")
+        accounting_context = dict(dict(accounting or {}).get("accounting_context") or {})
+        provider_request_diagnostics = dict(getattr(provider_request, "diagnostics", {}) or {})
+        provider_transport_payload = dict(provider_request_diagnostics.get("provider_transport_payload") or {})
         try:
-            return confirm_provider_visible_context_entries(
+            return confirm_provider_visible_append_entries(
                 candidates,
                 provider=str(dict(accounting or {}).get("provider") or ""),
                 model=str(dict(accounting or {}).get("model") or ""),
                 request_id=str(dict(accounting or {}).get("request_id") or ""),
+                turn_id=str(accounting_context.get("turn_id") or ""),
                 response_ref=_provider_response_ref(response),
-                provider_payload_prefix_hash=str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
+                provider_payload_prefix_hash=str(getattr(provider_request, "provider_payload_prefix_hash", "") or ""),
                 provider_payload_messages_hash=str(
                     provider_transport_payload.get("messages_hash")
-                    or getattr(model_request, "canonical_hash", "")
+                    or getattr(provider_request, "canonical_hash", "")
                     or ""
                 ),
-                physical_cache_spine_message_subtotal_hash=str(getattr(model_request, "physical_cache_spine_message_subtotal_hash", "") or ""),
-                transport_contract_hash=str(getattr(model_request, "transport_contract_hash", "") or ""),
-                request_message_count=len(tuple(getattr(model_request, "messages", ()) or ())),
+                physical_cache_spine_message_subtotal_hash=str(getattr(provider_request, "physical_cache_spine_message_subtotal_hash", "") or ""),
+                transport_contract_hash=str(getattr(provider_request, "transport_contract_hash", "") or ""),
+                request_message_count=len(tuple(getattr(provider_request, "messages", ()) or ())),
             )
         except Exception:
             logger.debug("Failed to confirm provider-visible context ledger entries", exc_info=True)
-            return {"status": "failed", "authority": "runtime.model_gateway.model_runtime.provider_visible_context_confirm"}
+            return {"status": "failed", "authority": "runtime.model_gateway.model_runtime.provider_visible_append_confirm"}
 
     def _confirm_physical_prefix_frame_success(
         self,
         accounting: dict[str, Any],
         *,
         response: Any,
-        provider_visible_confirmation: dict[str, Any] | None,
+        provider_visible_append_confirmation: dict[str, Any] | None,
     ) -> dict[str, Any]:
         payload = dict(accounting or {})
-        model_request = payload.get("model_request")
-        request_id = str(payload.get("request_id") or getattr(model_request, "request_id", "") or "").strip()
+        provider_request = payload.get("provider_request")
+        request_id = str(payload.get("request_id") or getattr(provider_request, "request_id", "") or "").strip()
         session_id = str(payload.get("session_id") or "").strip()
         storage_root = _context_commit_storage_root_from_accounting(payload)
         scope = _context_commit_scope_from_accounting(payload) or session_id
-        if not model_request or not request_id or not storage_root or not scope:
+        if not provider_request or not request_id or not storage_root or not scope:
             return {}
-        model_request_diagnostics = dict(getattr(model_request, "diagnostics", {}) or {})
-        provider_transport_payload = dict(model_request_diagnostics.get("provider_transport_payload") or {})
+        provider_request_diagnostics = dict(getattr(provider_request, "diagnostics", {}) or {})
+        provider_transport_payload = dict(provider_request_diagnostics.get("provider_transport_payload") or {})
         confirmations = [
             dict(item)
-            for item in list(dict(provider_visible_confirmation or {}).get("confirmations") or [])
+            for item in list(dict(provider_visible_append_confirmation or {}).get("confirmations") or [])
             if isinstance(item, dict)
         ]
         current_append_entry_indexes = [
@@ -1555,24 +1556,24 @@ class ModelRuntime:
             return append_physical_prefix_frame_from_provider_success(
                 storage_root=storage_root,
                 scope=scope,
-                provider=str(payload.get("provider") or getattr(model_request, "provider", "") or ""),
-                model=str(payload.get("model") or getattr(model_request, "model", "") or ""),
+                provider=str(payload.get("provider") or getattr(provider_request, "provider", "") or ""),
+                model=str(payload.get("model") or getattr(provider_request, "model", "") or ""),
                 provider_lane=str(payload.get("provider_lane") or ""),
                 request_id=request_id,
                 run_id=str(payload.get("run_id") or ""),
                 task_run_id=str(payload.get("task_run_id") or ""),
                 session_id=session_id,
                 turn_id=str(dict(payload.get("accounting_context") or {}).get("turn_id") or ""),
-                provider_payload_manifest=getattr(model_request, "provider_payload_manifest", None),
+                provider_payload_manifest=getattr(provider_request, "provider_payload_manifest", None),
                 provider_payload_messages_hash=str(
                     provider_transport_payload.get("messages_hash")
-                    or getattr(model_request, "canonical_hash", "")
+                    or getattr(provider_request, "canonical_hash", "")
                     or ""
                 ),
                 physical_payload_family_hash=str(payload.get("physical_payload_family_hash") or ""),
                 current_append_entry_indexes=current_append_entry_indexes,
-                provider_visible_confirmation=dict(provider_visible_confirmation or {}),
-                provider_messages=list(tuple(getattr(model_request, "messages", ()) or ())),
+                provider_visible_append_confirmation=dict(provider_visible_append_confirmation or {}),
+                provider_messages=list(tuple(getattr(provider_request, "messages", ()) or ())),
                 response_ref=_provider_response_ref(response),
                 reason="provider_request_succeeded",
             )
@@ -1589,22 +1590,22 @@ class ModelRuntime:
         *,
         status: str,
         response: Any | None = None,
-        provider_visible_confirmation: dict[str, Any] | None = None,
+        provider_visible_append_confirmation: dict[str, Any] | None = None,
         error: BaseException | dict[str, Any] | str | None = None,
         reason: str,
     ) -> dict[str, Any]:
         payload = dict(accounting or {})
-        model_request = payload.get("model_request")
-        request_id = str(payload.get("request_id") or getattr(model_request, "request_id", "") or "").strip()
+        provider_request = payload.get("provider_request")
+        request_id = str(payload.get("request_id") or getattr(provider_request, "request_id", "") or "").strip()
         session_id = str(payload.get("session_id") or "").strip()
         storage_root = _context_commit_storage_root_from_accounting(payload)
-        if not model_request or not request_id or not session_id or not storage_root:
+        if not provider_request or not request_id or not session_id or not storage_root:
             return {}
-        anchor_before = dict(payload.get("provider_visible_ledger_anchor_before") or {})
+        anchor_before = dict(payload.get("provider_visible_append_anchor_before") or {})
         if not anchor_before:
             scope = _context_commit_scope_from_accounting(payload) or session_id
             try:
-                anchor_before = latest_provider_visible_context_success_anchor(
+                anchor_before = latest_provider_visible_append_success_anchor(
                     storage_root=storage_root,
                     scope=scope,
                 )
@@ -1617,9 +1618,9 @@ class ModelRuntime:
                 session_id=session_id,
                 request_id=request_id,
                 status=str(status or ""),
-                model_request=model_request,
-                provider_visible_anchor_before=anchor_before,
-                provider_visible_confirmation=dict(provider_visible_confirmation or {}),
+                provider_request=provider_request,
+                provider_visible_append_anchor_before=anchor_before,
+                provider_visible_append_confirmation=dict(provider_visible_append_confirmation or {}),
                 response_ref=_provider_response_ref(response) if response is not None else "",
                 error=error,
                 reason=reason,
@@ -1895,10 +1896,10 @@ class ModelRuntime:
         if ledger is None:
             return
         context = dict(accounting_context or {})
-        request_id = str(context.get("request_id") or f"modelreq:{uuid.uuid4().hex}")
+        request_id = str(context.get("request_id") or f"providerreq:{uuid.uuid4().hex}")
         timestamp = time.time()
-        record = PromptCacheBreakRecord(
-            break_id=f"pcbreak:{request_id}:candidate-switch:{uuid.uuid4().hex[:8]}",
+        record = CacheAnomalyRecord(
+            anomaly_id=f"cacheanomaly:{request_id}:candidate-switch:{uuid.uuid4().hex[:8]}",
             request_id=request_id,
             run_id=str(context.get("run_id") or context.get("task_run_id") or ""),
             task_run_id=str(context.get("task_run_id") or ""),
@@ -1924,7 +1925,7 @@ class ModelRuntime:
             },
             created_at=timestamp,
         )
-        ledger.record_prompt_cache_break(record)
+        ledger.record_cache_anomaly(record)
 
     def _map_error(self, exc: Exception, spec: ModelSpec) -> ModelRuntimeError:
         if isinstance(exc, ModelRuntimeError):
@@ -2074,7 +2075,7 @@ def _turn_memory_provider_checkpoint_payload(
 ) -> dict[str, Any]:
     payload = dict(accounting or {})
     context = dict(payload.get("accounting_context") or {})
-    model_request = payload.get("model_request")
+    provider_request = payload.get("provider_request")
     frame = dict(physical_prefix_frame_confirmation or {})
     return {
         "request_id": str(payload.get("request_id") or ""),
@@ -2089,8 +2090,8 @@ def _turn_memory_provider_checkpoint_payload(
         "provider_lane": str(payload.get("provider_lane") or ""),
         "provider_payload_manifest_ref": _turn_memory_prompt_manifest_ref(manifest_refs),
         "prompt_manifest": dict(manifest_refs or {}),
-        "model_request_ref": str(getattr(model_request, "request_id", "") or ""),
-        "provider_payload_prefix_hash": str(getattr(model_request, "provider_payload_prefix_hash", "") or ""),
+        "provider_request_ref": str(getattr(provider_request, "request_id", "") or ""),
+        "provider_payload_prefix_hash": str(getattr(provider_request, "provider_payload_prefix_hash", "") or ""),
         "physical_payload_family_hash": str(payload.get("physical_payload_family_hash") or ""),
         "physical_prefix_frame": {
             "status": str(frame.get("status") or ""),
@@ -2148,7 +2149,7 @@ def _prompt_accounting_manifest_refs(value: Any) -> dict[str, Any]:
     )
 
 
-def _tool_catalog_manifest_for_model_request(value: Any) -> dict[str, Any]:
+def _tool_catalog_manifest_for_provider_request(value: Any) -> dict[str, Any]:
     manifest = dict(value or {}) if isinstance(value, dict) else {}
     catalog = dict(manifest.get("tool_catalog_manifest") or {})
     return _drop_empty_refs(
@@ -2269,11 +2270,11 @@ def _normalize_tool_call_options(
     return None
 
 
-def _provider_visible_context_commit_candidates_from_accounting(accounting: dict[str, Any]) -> list[ContextCommitCandidate]:
-    model_request = dict(accounting or {}).get("model_request")
+def _provider_visible_append_commit_candidates_from_accounting(accounting: dict[str, Any]) -> list[ContextCommitCandidate]:
+    provider_request = dict(accounting or {}).get("provider_request")
     candidates: list[ContextCommitCandidate] = []
     seen: set[tuple[str, str, str, str, str, str]] = set()
-    for segment in _provider_visible_context_ref_segments(model_request):
+    for segment in _provider_visible_append_ref_segments(provider_request):
         candidate = ContextCommitCandidate.from_provider_payload_segment(segment)
         if candidate is None:
             continue
@@ -2295,12 +2296,12 @@ def _provider_visible_context_commit_candidates_from_accounting(accounting: dict
 def _context_commit_storage_root_from_accounting(accounting: dict[str, Any]) -> str:
     payload = dict(accounting or {})
     context = dict(payload.get("accounting_context") or {})
-    for candidate in _provider_visible_context_commit_candidates_from_accounting(payload):
+    for candidate in _provider_visible_append_commit_candidates_from_accounting(payload):
         value = str(candidate.storage_root or "").strip()
         if value:
             return value
     for key in (
-        "provider_visible_context_ledger_storage_root",
+        "provider_visible_append_ledger_storage_root",
         "context_commit_storage_root",
         "storage_root",
         "runtime_state_root",
@@ -2314,31 +2315,31 @@ def _context_commit_storage_root_from_accounting(accounting: dict[str, Any]) -> 
 def _context_commit_scope_from_accounting(accounting: dict[str, Any]) -> str:
     payload = dict(accounting or {})
     context = dict(payload.get("accounting_context") or {})
-    for candidate in _provider_visible_context_commit_candidates_from_accounting(payload):
+    for candidate in _provider_visible_append_commit_candidates_from_accounting(payload):
         value = str(candidate.scope or "").strip()
         if value:
             return value
-    for key in ("provider_visible_context_ledger_scope", "provider_visible_context_scope", "provider_cache_scope_id", "session_id"):
+    for key in ("provider_visible_append_ledger_scope", "provider_visible_append_scope", "provider_cache_scope_id", "session_id"):
         value = str(context.get(key) or payload.get(key) or "").strip()
         if value:
             return value
     return ""
 
 
-def _provider_visible_context_ref_segments(model_request: Any) -> list[dict[str, Any]]:
+def _provider_visible_append_ref_segments(provider_request: Any) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
-    manifest = getattr(model_request, "provider_payload_manifest", None)
-    if isinstance(model_request, dict):
-        manifest = model_request.get("provider_payload_manifest", manifest)
+    manifest = getattr(provider_request, "provider_payload_manifest", None)
+    if isinstance(provider_request, dict):
+        manifest = provider_request.get("provider_payload_manifest", manifest)
     manifest_payload = manifest.to_dict() if hasattr(manifest, "to_dict") else dict(manifest or {}) if isinstance(manifest, dict) else {}
     for item in list(manifest_payload.get("segments") or []):
         if isinstance(item, dict):
             segments.append(dict(item))
     if segments:
         return segments
-    bindings = getattr(model_request, "segment_bindings", None)
-    if isinstance(model_request, dict):
-        bindings = model_request.get("segment_bindings", bindings)
+    bindings = getattr(provider_request, "segment_bindings", None)
+    if isinstance(provider_request, dict):
+        bindings = provider_request.get("segment_bindings", bindings)
     for item in list(bindings or []):
         if hasattr(item, "to_dict"):
             segments.append(dict(item.to_dict()))
@@ -2346,9 +2347,9 @@ def _provider_visible_context_ref_segments(model_request: Any) -> list[dict[str,
             segments.append(dict(item))
     if segments:
         return segments
-    segment_plan = getattr(model_request, "segment_plan", None)
-    if isinstance(model_request, dict):
-        segment_plan = model_request.get("segment_plan", segment_plan)
+    segment_plan = getattr(provider_request, "segment_plan", None)
+    if isinstance(provider_request, dict):
+        segment_plan = provider_request.get("segment_plan", segment_plan)
     for item in list(dict(segment_plan or {}).get("segments") or []):
         if isinstance(item, dict):
             segments.append(dict(item))
@@ -2414,7 +2415,7 @@ def _cache_relevant_tool_call_options(
     return options.bind_kwargs()
 
 
-def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_id: str) -> dict[str, str]:
+def _previous_prefix_state_filter(*, run_id: str, task_run_id: str, session_id: str) -> dict[str, str]:
     if task_run_id:
         return {"task_run_id": task_run_id}
     if run_id:
@@ -2424,9 +2425,9 @@ def _previous_stability_report_filter(*, run_id: str, task_run_id: str, session_
     return {}
 
 
-def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
-    filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
-    list_recent = getattr(ledger, "list_recent_prompt_cache_baselines", None)
+def _previous_prefix_state_records(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
+    filters = _previous_prefix_state_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
+    list_recent = getattr(ledger, "list_recent_prefix_state", None)
     scoped_reads_expensive = _prompt_accounting_scoped_reads_are_expensive(ledger)
     use_recent = scoped_reads_expensive and callable(list_recent)
     if use_recent:
@@ -2436,48 +2437,25 @@ def _previous_prompt_cache_baselines(ledger: Any, *, run_id: str, task_run_id: s
     elif scoped_reads_expensive:
         records = []
     else:
-        records = list(ledger.list_prompt_cache_baselines(**filters))
+        list_prefix_state = getattr(ledger, "list_prefix_state", None)
+        if not callable(list_prefix_state):
+            return []
+        records = list(list_prefix_state(**filters))
         if session_id and filters.get("task_run_id"):
-            records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
+            records.extend(list_prefix_state(session_id=session_id))
         if session_id and filters.get("run_id"):
-            records.extend(ledger.list_prompt_cache_baselines(session_id=session_id))
+            records.extend(list_prefix_state(session_id=session_id))
     deduped: dict[str, Any] = {}
     for record in records:
-        key = str(getattr(record, "baseline_id", "") or f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}")
+        key = str(getattr(record, "state_id", "") or f"{getattr(record, 'request_id', '')}:{getattr(record, 'status', '')}:{getattr(record, 'created_at', '')}")
         previous = deduped.get(key)
         if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
             deduped[key] = record
     return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
 
 
-def _previous_prompt_stability_reports(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
-    filters = _previous_stability_report_filter(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
-    list_recent = getattr(ledger, "list_recent_prompt_stability", None)
-    scoped_reads_expensive = _prompt_accounting_scoped_reads_are_expensive(ledger)
-    use_recent = scoped_reads_expensive and callable(list_recent)
-    if use_recent:
-        records = list(list_recent(**filters, limit=128))
-        if session_id and (filters.get("task_run_id") or filters.get("run_id")):
-            records.extend(list_recent(session_id=session_id, limit=128))
-    elif scoped_reads_expensive:
-        records = []
-    else:
-        records = list(ledger.list_prompt_stability(**filters))
-        if session_id and filters.get("task_run_id"):
-            records.extend(ledger.list_prompt_stability(session_id=session_id))
-        if session_id and filters.get("run_id"):
-            records.extend(ledger.list_prompt_stability(session_id=session_id))
-    deduped: dict[str, Any] = {}
-    for record in records:
-        key = str(getattr(record, "report_id", "") or f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}")
-        previous = deduped.get(key)
-        if previous is None or float(getattr(record, "created_at", 0.0) or 0.0) >= float(getattr(previous, "created_at", 0.0) or 0.0):
-            deduped[key] = record
-    return sorted(deduped.values(), key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
-
-
-def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
-    list_recent = getattr(ledger, "list_recent_prompt_cache", None)
+def _previous_cache_plan_records(ledger: Any, *, run_id: str, task_run_id: str, session_id: str) -> list[Any]:
+    list_recent = getattr(ledger, "list_recent_cache_plans", None)
     if callable(list_recent):
         try:
             records = list(
@@ -2491,18 +2469,18 @@ def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str
             )
             if session_id and (run_id or task_run_id):
                 records.extend(list_recent(session_id=session_id, limit=128) or [])
-            return _dedupe_prompt_cache_records(records)
+            return _dedupe_cache_plan_records(records)
         except Exception:
-            logger.debug("Failed to read recent prompt cache records.", exc_info=True)
+            logger.debug("Failed to read recent cache plan records.", exc_info=True)
             return []
     if _prompt_accounting_scoped_reads_are_expensive(ledger):
         return []
-    list_prompt_cache = getattr(ledger, "list_prompt_cache", None)
-    if not callable(list_prompt_cache):
+    list_cache_plans = getattr(ledger, "list_cache_plans", None)
+    if not callable(list_cache_plans):
         return []
     try:
         records = list(
-            list_prompt_cache(
+            list_cache_plans(
                 run_id=run_id,
                 task_run_id=task_run_id,
                 session_id=session_id,
@@ -2510,17 +2488,17 @@ def _previous_prompt_cache_records(ledger: Any, *, run_id: str, task_run_id: str
             or []
         )
         if session_id and (run_id or task_run_id):
-            records.extend(list_prompt_cache(session_id=session_id) or [])
-        return _dedupe_prompt_cache_records(records)
+            records.extend(list_cache_plans(session_id=session_id) or [])
+        return _dedupe_cache_plan_records(records)
     except Exception:
-        logger.debug("Failed to read prompt cache records.", exc_info=True)
+        logger.debug("Failed to read cache plan records.", exc_info=True)
         return []
 
 
-def _dedupe_prompt_cache_records(records: list[Any]) -> list[Any]:
+def _dedupe_cache_plan_records(records: list[Any]) -> list[Any]:
     deduped: dict[str, Any] = {}
     for record in list(records or []):
-        key = str(getattr(record, "cache_record_id", "") or getattr(record, "record_id", "") or "")
+        key = str(getattr(record, "cache_plan_id", "") or getattr(record, "record_id", "") or "")
         if not key:
             key = f"{getattr(record, 'request_id', '')}:{getattr(record, 'created_at', '')}"
         previous = deduped.get(key)
@@ -2556,37 +2534,16 @@ def _prompt_accounting_scoped_reads_are_expensive(ledger: Any) -> bool:
         return True
 
 
-def _previous_stability_report(
-    reports: list[Any],
-    *,
-    invocation_kind: str,
-    provider: str,
-    model: str,
-) -> Any | None:
-    target_invocation = str(invocation_kind or "").strip()
-    target_provider = str(provider or "").strip()
-    target_model = str(model or "").strip()
-    for report in reversed(list(reports or [])):
-        if target_invocation and str(getattr(report, "invocation_kind", "") or "") != target_invocation:
-            continue
-        if target_provider and str(getattr(report, "provider", "") or "") != target_provider:
-            continue
-        if target_model and str(getattr(report, "model", "") or "") != target_model:
-            continue
-        return report
-    return None
-
-
-def _model_request_prefix_hash_for_tier(model_request: Any, *, prefix_key_tier: str) -> str:
+def _provider_request_prefix_hash_for_tier(provider_request: Any, *, prefix_key_tier: str) -> str:
     tier = str(prefix_key_tier or "").strip()
     if tier == "physical_cache_spine":
-        return str(getattr(model_request, "provider_payload_prefix_hash", "") or "")
+        return str(getattr(provider_request, "provider_payload_prefix_hash", "") or "")
     if tier == "session":
-        return str(getattr(model_request, "session_prefix_hash", "") or "")
+        return str(getattr(provider_request, "session_prefix_hash", "") or "")
     if tier == "provider_global":
-        return str(getattr(model_request, "provider_global_prefix_hash", "") or "")
+        return str(getattr(provider_request, "provider_global_prefix_hash", "") or "")
     if tier in {"stable", "provider_payload"}:
-        return str(getattr(model_request, "provider_payload_prefix_hash", "") or getattr(model_request, "stable_prefix_hash", "") or "")
+        return str(getattr(provider_request, "provider_payload_prefix_hash", "") or getattr(provider_request, "stable_prefix_hash", "") or "")
     return ""
 
 
@@ -2814,10 +2771,12 @@ def _utility_accounting_context(
     return {
         "source": source,
         "call_purpose": purpose,
+        "provider_lane": PROVIDER_LANE_UTILITY,
         "cache_metric_scope": "utility_minimal_plan",
         "segment_plan": segment_plan,
         "prompt_manifest": {
             "invocation_kind": "utility_model_call",
+            "provider_lane": PROVIDER_LANE_UTILITY,
             "cache_metric_scope": "utility_minimal_plan",
             "utility_purpose": purpose,
             "primary_prompt_ref": primary_prompt_ref,
@@ -2951,16 +2910,10 @@ def _normalize_accounting_context_for_prompt_plan(
     return normalized, "missing_segment_plan"
 
 
-def _agent_runtime_like_call(*, call_kind: str, context: dict[str, Any]) -> bool:
-    scope = str(dict(context or {}).get("cache_metric_scope") or "")
-    if scope == "agent_runtime":
-        return True
-    source = str(dict(context or {}).get("source") or "")
-    return source.startswith("harness.") or str(call_kind or "") in {
-        "astream_conversation",
-        "astream_messages",
-        "astream_messages_with_tools",
-    }
+def _unplanned_model_call_severity(provider_lane: str) -> str:
+    if str(provider_lane or "").strip() in {PROVIDER_LANE_AGENT_TOOL_LOOP, PROVIDER_LANE_AGENT_CONTROL_NO_TOOL}:
+        return "high"
+    return "medium"
 
 
 def _optional_float(value: Any) -> float | None:

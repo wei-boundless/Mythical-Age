@@ -11,7 +11,7 @@ RevisionStatus = Literal["pending_agent_triage", "accepted", "needs_user", "reje
 
 
 @dataclass(frozen=True, slots=True)
-class TaskContractRevision:
+class TaskRunContractRevision:
     revision_id: str
     task_run_id: str
     submission_ref: str
@@ -24,15 +24,15 @@ class TaskContractRevision:
     impact: dict[str, Any] | None = None
     created_at: float = 0.0
     decided_action_ref: str = ""
-    authority: str = "harness.loop.task_contract_revision"
+    authority: str = "harness.loop.task_run_contract_revision"
 
     def __post_init__(self) -> None:
-        if self.authority != "harness.loop.task_contract_revision":
-            raise ValueError("TaskContractRevision authority must be harness.loop.task_contract_revision")
+        if self.authority != "harness.loop.task_run_contract_revision":
+            raise ValueError("TaskRunContractRevision authority must be harness.loop.task_run_contract_revision")
         if not self.revision_id:
-            raise ValueError("TaskContractRevision requires revision_id")
+            raise ValueError("TaskRunContractRevision requires revision_id")
         if not self.task_run_id:
-            raise ValueError("TaskContractRevision requires task_run_id")
+            raise ValueError("TaskRunContractRevision requires task_run_id")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -48,8 +48,8 @@ def ensure_revision_for_steer(runtime_host: Any, task_run_id: str, steer: dict[s
     existing = _revision_for_steer(runtime_host, task_run_id, steer_id)
     if existing:
         return existing
-    revision = TaskContractRevision(
-        revision_id=f"taskrev:{task_run_id}:{uuid.uuid4().hex[:10]}",
+    revision = TaskRunContractRevision(
+        revision_id=f"taskrunrev:{task_run_id}:{uuid.uuid4().hex[:10]}",
         task_run_id=task_run_id,
         submission_ref=str(steer.get("submission_ref") or ""),
         steer_ref=steer_id,
@@ -64,10 +64,10 @@ def ensure_revision_for_steer(runtime_host: Any, task_run_id: str, steer: dict[s
         },
     )
     payload = revision.to_dict()
-    runtime_host.runtime_objects.put_object("task_contract_revision", revision.revision_id, payload)
+    runtime_host.runtime_objects.put_object("task_run_contract_revision", revision.revision_id, payload)
     runtime_host.event_log.append(
         task_run_id,
-        "task_contract_revision_recorded",
+        "task_run_contract_revision_recorded",
         payload={"revision": payload},
         refs={
             "task_run_ref": task_run_id,
@@ -80,20 +80,20 @@ def ensure_revision_for_steer(runtime_host: Any, task_run_id: str, steer: dict[s
     return payload
 
 
-def list_task_contract_revisions(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
+def list_task_run_contract_revisions(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
     revisions: dict[str, dict[str, Any]] = {}
     for event in runtime_host.event_log.list_events(task_run_id):
         payload = dict(getattr(event, "payload", {}) or {})
-        revision = payload.get("revision") or payload.get("task_contract_revision")
+        revision = payload.get("revision")
         if isinstance(revision, dict) and str(revision.get("revision_id") or ""):
             revisions[str(revision.get("revision_id"))] = dict(revision)
     return sorted(revisions.values(), key=lambda item: float(item.get("created_at") or 0.0))
 
 
-def list_active_task_contract_revisions(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
+def list_active_task_run_contract_revisions(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
     return [
         revision
-        for revision in list_task_contract_revisions(runtime_host, task_run_id)
+        for revision in list_task_run_contract_revisions(runtime_host, task_run_id)
         if str(revision.get("status") or "") == "pending_agent_triage"
     ]
 
@@ -109,7 +109,7 @@ def apply_contract_revision_decisions(
         return []
     current_by_id = {
         str(item.get("revision_id") or ""): dict(item)
-        for item in list_task_contract_revisions(runtime_host, task_run_id)
+        for item in list_task_run_contract_revisions(runtime_host, task_run_id)
     }
     current_by_steer = {
         str(item.get("steer_ref") or ""): dict(item)
@@ -142,13 +142,13 @@ def apply_contract_revision_decisions(
                     for item in list(raw_decision.get("proposed_acceptance_criteria") or revision.get("proposed_acceptance_criteria") or [])
                     if str(item)
                 ],
-                "authority": "harness.loop.task_contract_revision.decision",
+                "authority": "harness.loop.task_run_contract_revision.decision",
             },
         }
-        runtime_host.runtime_objects.put_object("task_contract_revision", str(updated.get("revision_id") or ""), updated)
+        runtime_host.runtime_objects.put_object("task_run_contract_revision", str(updated.get("revision_id") or ""), updated)
         runtime_host.event_log.append(
             task_run_id,
-            "task_contract_revision_decided",
+            "task_run_contract_revision_decided",
             payload={"revision": updated},
             refs={
                 "task_run_ref": task_run_id,
@@ -163,7 +163,7 @@ def apply_contract_revision_decisions(
 
 
 def _revision_for_steer(runtime_host: Any, task_run_id: str, steer_id: str) -> dict[str, Any]:
-    for revision in list_task_contract_revisions(runtime_host, task_run_id):
+    for revision in list_task_run_contract_revisions(runtime_host, task_run_id):
         if str(revision.get("steer_ref") or "") == steer_id:
             return dict(revision)
     return {}
@@ -182,7 +182,7 @@ def _refresh_revision_diagnostics(runtime_host: Any, task_run_id: str) -> None:
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return
-    active = list_active_task_contract_revisions(runtime_host, task_run_id)
+    active = list_active_task_run_contract_revisions(runtime_host, task_run_id)
     latest_revision_ref = str(active[-1].get("revision_id") or "") if active else ""
     runtime_host.state_index.upsert_task_run(
         replace(

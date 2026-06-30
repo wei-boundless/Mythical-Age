@@ -207,6 +207,9 @@ class TurnMemoryStore:
         if not changes:
             return self.get_turn(session_id, turn_id) or self.create_or_get_turn(session_id=session_id, turn_id=turn_id)
         self.create_or_get_turn(session_id=session_id, turn_id=turn_id)
+        current = self.get_turn(session_id, turn_id)
+        if current is not None and _turn_memory_write_closed(current):
+            return current
         return self.patch_turn(session_id, turn_id, **changes)
 
     def record_assistant_final(
@@ -397,6 +400,8 @@ class TurnMemoryStore:
         for turn_ref in payload["superseded_turn_refs"]:
             current = self.get_turn(normalized_session, turn_ref)
             if current is None or current.status in {"released", "superseded"}:
+                continue
+            if current.status == "terminal" and current.handoff_state == "interrupted_turn_memory_package":
                 continue
             self.patch_turn(
                 normalized_session,
@@ -630,7 +635,7 @@ def _turn_memory_requires_replacement(record: TurnMemoryRecord) -> bool:
 
 
 def _turn_memory_write_closed(record: TurnMemoryRecord) -> bool:
-    return record.status in {"released", "superseded"}
+    return record.status in {"released", "superseded", "terminal"}
 
 
 def _safe_segment(value: str, *, limit: int = 180) -> str:
@@ -639,7 +644,7 @@ def _safe_segment(value: str, *, limit: int = 180) -> str:
 
 
 def _clean_changes(changes: dict[str, Any]) -> dict[str, Any]:
-    allowed = set(TurnMemoryRecord.__dataclass_fields__) - {"session_id", "turn_id", "created_at", "authority", "schema_version"}
+    allowed = set(TurnMemoryRecord.__dataclass_fields__) - {"session_id", "turn_id", "created_at", "authority", "record_schema_revision"}
     cleaned: dict[str, Any] = {}
     for key, value in dict(changes or {}).items():
         if key not in allowed:

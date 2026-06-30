@@ -130,15 +130,15 @@ def provider_tool_protocol_from_entry(entry: dict[str, Any] | None) -> dict[str,
 def provider_tool_protocol_order(metadata: dict[str, Any] | None, *, fallback_entry_index: int = 0) -> tuple[int, int, int]:
     protocol = provider_tool_protocol_from_metadata(metadata)
     if not protocol:
-        entry_index = _safe_int(dict(metadata or {}).get("provider_visible_context_ledger_entry_index") or fallback_entry_index)
+        entry_index = _safe_int(dict(metadata or {}).get("provider_visible_append_entry_index") or fallback_entry_index)
         return (entry_index, 0, entry_index)
     round_start = _safe_int(protocol.get("round_start_entry_index"))
     if round_start <= 0:
-        round_start = _safe_int(dict(metadata or {}).get("provider_visible_context_ledger_entry_index") or fallback_entry_index)
+        round_start = _safe_int(dict(metadata or {}).get("provider_visible_append_entry_index") or fallback_entry_index)
     return (
         round_start,
         _safe_int(protocol.get("round_order")),
-        _safe_int(dict(metadata or {}).get("provider_visible_context_ledger_entry_index") or fallback_entry_index),
+        _safe_int(dict(metadata or {}).get("provider_visible_append_entry_index") or fallback_entry_index),
     )
 
 

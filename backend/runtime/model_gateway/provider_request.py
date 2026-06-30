@@ -15,7 +15,7 @@ from .provider_payload import ProviderPayloadManifest
 
 
 @dataclass(frozen=True, slots=True)
-class ModelRequestSegmentBinding:
+class ProviderRequestSegmentBinding:
     planned_segment_id: str
     kind: str
     ordinal: int
@@ -31,7 +31,7 @@ class ModelRequestSegmentBinding:
     request_content_hash: str = ""
     byte_length: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.model_gateway.model_request_segment_binding"
+    authority: str = "runtime.model_gateway.provider_request_segment_binding"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -40,7 +40,7 @@ class ModelRequestSegmentBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelRequestPacket:
+class ProviderRequestPacket:
     request_id: str
     provider: str
     model: str
@@ -48,7 +48,7 @@ class ModelRequestPacket:
     base_url: str = ""
     tools: tuple[dict[str, Any], ...] = ()
     segment_plan: dict[str, Any] = field(default_factory=dict)
-    segment_bindings: tuple[ModelRequestSegmentBinding, ...] = ()
+    segment_bindings: tuple[ProviderRequestSegmentBinding, ...] = ()
     canonical_hash: str = ""
     stable_prefix_hash: str = ""
     provider_global_prefix_hash: str = ""
@@ -64,7 +64,7 @@ class ModelRequestPacket:
     cache_policy: ProviderCachePolicy = field(default_factory=lambda: ProviderCachePolicy(provider=""))
     provider_payload_manifest: ProviderPayloadManifest | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.model_gateway.model_request_packet"
+    authority: str = "runtime.model_gateway.provider_request_packet"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -83,7 +83,7 @@ class ModelRequestPacket:
         return payload
 
 
-class ModelRequestBuilder:
+class ProviderRequestBuilder:
     def __init__(self, *, cache_policy_resolver: ProviderCachePolicyResolver | None = None) -> None:
         self.cache_policy_resolver = cache_policy_resolver or ProviderCachePolicyResolver()
 
@@ -98,7 +98,7 @@ class ModelRequestBuilder:
         base_url: str = "",
         segment_plan: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> ModelRequestPacket:
+    ) -> ProviderRequestPacket:
         raw_messages = list(messages or [])
         raw_tools = list(tools or [])
         plan = dict(segment_plan or {})
@@ -154,7 +154,7 @@ class ModelRequestBuilder:
         if provider_payload_manifest is None:
             raise ValueError("provider payload plan did not produce a manifest")
         provider_payload_boundary = dict(provider_payload_manifest.cache_boundary or {})
-        return ModelRequestPacket(
+        return ProviderRequestPacket(
             request_id=str(request_id or ""),
             provider=str(provider or ""),
             model=str(model or ""),
@@ -220,8 +220,8 @@ class ModelRequestBuilder:
 def _bindings_from_plan(
     segment_plan: dict[str, Any],
     normalized_messages: tuple[dict[str, Any], ...],
-) -> list[ModelRequestSegmentBinding]:
-    result: list[ModelRequestSegmentBinding] = []
+) -> list[ProviderRequestSegmentBinding]:
+    result: list[ProviderRequestSegmentBinding] = []
     for raw_segment in list(segment_plan.get("segments") or []):
         if not isinstance(raw_segment, dict):
             continue
@@ -231,7 +231,7 @@ def _bindings_from_plan(
         message = normalized_messages[message_index]
         message_payload = canonical_json(message)
         result.append(
-            ModelRequestSegmentBinding(
+            ProviderRequestSegmentBinding(
                 planned_segment_id=str(raw_segment.get("segment_id") or ""),
                 kind=str(raw_segment.get("kind") or "unknown_unplanned"),
                 ordinal=_int(raw_segment.get("ordinal"), default=len(result) + 1),
@@ -295,7 +295,7 @@ def _provider_reasoning_contract_diagnostics(
             "DeepSeek V4 thinking tool-call assistant history must preserve provider-visible reasoning_content "
             "together with tool_calls and subsequent tool observations"
         ),
-        "authority": "runtime.model_gateway.model_request.provider_reasoning_contract",
+        "authority": "runtime.model_gateway.provider_request.provider_reasoning_contract",
     }
 
 
@@ -308,7 +308,7 @@ def _has_provider_reasoning_content(message: dict[str, Any]) -> bool:
     return str(value) != ""
 
 
-def _stable_prefix_hash(bindings: tuple[ModelRequestSegmentBinding, ...]) -> str:
+def _stable_prefix_hash(bindings: tuple[ProviderRequestSegmentBinding, ...]) -> str:
     parts: list[str] = []
     expected_index = 0
     for binding in sorted(bindings, key=lambda item: item.ordinal):
@@ -324,7 +324,7 @@ def _stable_prefix_hash(bindings: tuple[ModelRequestSegmentBinding, ...]) -> str
     return _stable_text_hash("|".join(parts))
 
 
-def _prefix_tier_hashes(bindings: tuple[ModelRequestSegmentBinding, ...]) -> dict[str, str]:
+def _prefix_tier_hashes(bindings: tuple[ProviderRequestSegmentBinding, ...]) -> dict[str, str]:
     tiers = {
         "provider_global": {"provider_global"},
         "session": {"provider_global", "session"},
@@ -347,7 +347,7 @@ def _prefix_tier_hashes(bindings: tuple[ModelRequestSegmentBinding, ...]) -> dic
 
 
 def _binding_diagnostics(
-    bindings: tuple[ModelRequestSegmentBinding, ...],
+    bindings: tuple[ProviderRequestSegmentBinding, ...],
     normalized_messages: tuple[dict[str, Any], ...],
 ) -> dict[str, Any]:
     mismatched_bindings = [

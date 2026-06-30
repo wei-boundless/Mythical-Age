@@ -179,7 +179,7 @@ function archiveDetail(blocks: ActivityArchiveChildBlock[]) {
 function archiveState(blocks: ActivityArchiveChildBlock[]) {
   const states = blocks.map((block) => String(block.state ?? "").toLowerCase());
   if (states.some((state) => ["failed", "error", "blocked"].includes(state))) return "failed";
-  if (states.some((state) => ["stopped", "aborted", "cancelled", "canceled"].includes(state))) return "stopped";
+  if (states.some((state) => ["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state))) return "stopped";
   if (states.some((state) => ["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state))) return "waiting";
   return "done";
 }

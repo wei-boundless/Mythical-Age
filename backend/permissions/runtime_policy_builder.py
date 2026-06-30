@@ -46,11 +46,11 @@ def build_model_response_runtime_admission(
     registry = operation_registry
     context = approval_context or RuntimeApprovalContext()
     mode = normalize_permission_mode(permission_mode)
-    task_contract = dict(task_operation.get("task_contract") or {})
+    task_system_contract = dict(task_operation.get("task_system_contract") or {})
     task_execution_assembly = dict(task_operation.get("task_execution_assembly") or {})
     task_body_assembly = dict(task_operation.get("task_body_assembly") or {})
     agent_runtime_spec = dict(task_operation.get("agent_runtime_spec") or {})
-    task_id = str(task_contract.get("task_id") or "task-runtime")
+    task_id = str(task_system_contract.get("task_id") or "task-runtime")
     policy_ref = f"respol:{task_id}:model-response:runtime"
     decisions = _build_runtime_decisions(
         task_operation,
@@ -138,8 +138,8 @@ def build_model_response_runtime_admission(
         executor_type="model",
         adopted_resource_policy_ref=policy_ref,
         operation_refs=operation_refs,
-        input_contract_ref=str(agent_runtime_spec.get("input_contract_ref") or task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
-        output_contract_ref=str(agent_runtime_spec.get("output_contract_ref") or task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
+        input_contract_ref=str(agent_runtime_spec.get("input_contract_ref") or task_execution_assembly.get("input_contract_id") or task_system_contract.get("input_contract_id") or ""),
+        output_contract_ref=str(agent_runtime_spec.get("output_contract_ref") or task_execution_assembly.get("output_contract_id") or task_system_contract.get("output_contract_id") or ""),
         execution_graph_ref=f"execgraph:{task_id}:runtime",
         runtime_executable=True,
         diagnostics={
@@ -470,4 +470,3 @@ def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-

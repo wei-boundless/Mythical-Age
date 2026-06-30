@@ -36,14 +36,14 @@ def test_blocked_runtime_commits_visible_fail_closed_message(monkeypatch) -> Non
 
     events = asyncio.run(_collect())
     messages = runtime.session_manager.load_session("session-blocked-runtime")
-    api_messages = runtime.session_manager.load_session_for_api("session-blocked-runtime")
+    provider_protocol_messages = runtime.session_manager.load_provider_protocol_timeline("session-blocked-runtime")
 
     assert any(event.get("type") == "error" and event.get("code") == "blocked_runtime" for event in events)
     assert messages[-1]["role"] == "assistant"
     assert messages[-1]["turn_id"] == "turn:session-blocked-runtime:1"
     assert "当前运行环境未能完成装配" in messages[-1]["content"]
-    assert api_messages[-1]["role"] == "assistant"
-    assert api_messages[-1]["turn_id"] == "turn:session-blocked-runtime:1"
+    assert provider_protocol_messages[-1]["role"] == "assistant"
+    assert provider_protocol_messages[-1]["turn_id"] == "turn:session-blocked-runtime:1"
     assert runtime.single_agent_runtime_host.active_turn_registry.snapshot("session-blocked-runtime") is None
     commit_events = runtime.single_agent_runtime_host.event_log.list_events("turn:session-blocked-runtime:1")
     commit_event_types = [event.event_type for event in commit_events]
@@ -199,7 +199,7 @@ def test_single_agent_turn_auto_compacts_session_before_model_turn(tmp_path: Pat
     assert old_context not in [str(item.get("content") or "") for item in record["messages"]]
     assert old_context not in payload
     assert "Conversation history was compacted into a checkpoint" in payload
-    assert session_manager.load_session_for_api(session_id)[1]["content"] == old_context
+    assert session_manager.load_provider_protocol_timeline(session_id)[1]["content"] == old_context
 
 def test_single_agent_turn_receives_recent_terminal_task_outcome_from_state_index() -> None:
     class RecordingModelRuntime(SingleMessageModelRuntimeStub):
@@ -332,4 +332,3 @@ def test_explicit_capability_boundary_uses_single_agent_turn() -> None:
         event.get("type") == "task_run_lifecycle_started"
         for event in events
     )
-

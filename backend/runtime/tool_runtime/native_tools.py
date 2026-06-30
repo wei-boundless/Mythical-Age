@@ -91,6 +91,9 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "memory_search",
 }
 
+READ_OBSERVATION_ARTIFACT_AUTHORITY = "runtime_objects.read_observation_artifact"
+STRUCTURED_FILE_SIDECAR_AUTHORITY = "runtime.tool_result.read_file.structured_sidecar"
+
 _PATH_SEARCH_SCAN_LIMIT = 25000
 _PATH_SEARCH_TIME_BUDGET_SECONDS = 5.0
 
@@ -901,7 +904,7 @@ def _read_artifact_tool_result_fields(artifact: dict[str, Any], *, visible_exact
         "exact_artifact_ref": artifact_ref,
         "artifact_ref_status": "exact",
         "visible_exact": bool(visible_exact),
-        "read_observation_authority": str(artifact.get("authority") or "runtime_objects.read_observation_artifact.v1"),
+        "read_observation_authority": str(artifact.get("authority") or READ_OBSERVATION_ARTIFACT_AUTHORITY),
         "text_sha256": str(artifact.get("text_sha256") or ""),
     }
     mtime_ns = _native_int_or_none(artifact.get("mtime_ns"))
@@ -3256,7 +3259,7 @@ def _structured_file_sidecar(
                 "repository_id": str(repository_id or "").strip(),
                 "managed_file_ref": dict(managed_file_ref or {}) or None,
                 "error": str(exc),
-                "authority": "runtime.tool_result.read_file.structured_sidecar.v1",
+                "authority": STRUCTURED_FILE_SIDECAR_AUTHORITY,
             }
         )
     summary = _summarize(data)
@@ -3271,7 +3274,7 @@ def _structured_file_sidecar(
             "root_type": type(data).__name__,
             "data": data,
             "summary": summary,
-            "authority": "runtime.tool_result.read_file.structured_sidecar.v1",
+            "authority": STRUCTURED_FILE_SIDECAR_AUTHORITY,
         },
         keep_keys={"data"},
     )

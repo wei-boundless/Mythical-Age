@@ -123,7 +123,7 @@ def _task_run_contract_seed_for_mode(*, mode_kind: str, body: str, command: str)
     primary_mode = "goal" if mode_kind == "goal" else "plan"
     items = _split_command_items(body) or [title]
     return {
-        "contract_shape": "compact_task_start_intent_v3",
+        "contract_shape": "compact_task_start_intent",
         "primary_mode": primary_mode,
         "task_shape": "standard",
         "minimum_viable_next_step": _minimum_next_step(mode_kind),

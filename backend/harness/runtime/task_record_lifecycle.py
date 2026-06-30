@@ -70,7 +70,7 @@ class TaskRecordLifecycleManager:
             "authority": f"{self.authority}.cleanup",
             "task_run_id": task_run_id,
         }
-        contract_ref = str(getattr(task_run, "task_contract_ref", "") or "")
+        contract_ref = str(getattr(task_run, "task_run_contract_ref", "") or "")
         if contract_ref.startswith("rtobj:"):
             try:
                 effects["contract_ref_deleted"] = self.host.runtime_objects.delete_ref(contract_ref)
@@ -229,5 +229,4 @@ def _graph_run_id(diagnostics: dict[str, Any]) -> str:
     origin = dict(diagnostics.get("origin") or {})
     runtime_scope = dict(diagnostics.get("runtime_scope") or {})
     return str(diagnostics.get("graph_run_id") or origin.get("graph_run_id") or runtime_scope.get("graph_run_id") or "").strip()
-
 

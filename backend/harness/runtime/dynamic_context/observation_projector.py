@@ -11,7 +11,7 @@ from .structured_error_projection import structured_error_projection
 from .tool_result_projector import ToolResultProjector
 
 
-PROJECTOR_VERSION = "observation_projector.v3"
+PROJECTOR_ID = "harness.runtime.dynamic_context.observation_projector"
 
 
 class ObservationProjector:
@@ -140,7 +140,7 @@ class ObservationProjector:
             task_run_id=task_run_id,
             content=source,
             projection_policy=projection_policy,
-            projector_version=PROJECTOR_VERSION,
+            projector_id=PROJECTOR_ID,
             projection=projection,
         )
         if tool_record:

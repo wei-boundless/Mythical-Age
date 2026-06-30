@@ -283,7 +283,7 @@ provider payload 的 cache-spine hash 已经按 provider payload segment 和 phy
 
 - 权威缓存 prefix 是物理 prefix lane 里的 provider-visible bytes。
 - `kind`、`source_ref` 这类语义字段可以用于诊断和身份辅助。
-- 除非它们改变了实际 provider-visible prefix 字节、物理 lane 或物理顺序，否则不能成为 provider cache-spine break reason。
+- 除非它们改变了实际 provider-visible prefix 字节、物理 lane 或物理顺序，否则不能成为 provider cache-spine anomaly reason。
 
 ## 代码证据
 

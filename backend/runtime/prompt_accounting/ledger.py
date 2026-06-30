@@ -8,21 +8,19 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
-from .cache_baseline import PromptCacheBaselineRecord, PromptCacheBaselineTracker
-from .cache_break_detector import PromptCacheBreakRecord
-from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
-from .provider_cache_ledger import ProviderCacheLedgerRecord
+from .cache_anomaly_detector import CacheAnomalyRecord
+from .models import ModelTokenUsageRecord, CachePlanRecord, PromptSegment, PromptSegmentMap
+from .prefix_state import PrefixStateRecord, PrefixStateReporter
+from .provider_cache_bus_record import ProviderCacheBusRecord
 from .provider_lane import PROVIDER_LANE_AGENT_TOOL_LOOP, normalize_provider_lane
-from .stability_models import PromptStabilityReport
 
 
 PROMPT_MANIFESTS_FILE = "prompt_manifests.jsonl"
 TOKEN_OBSERVATIONS_FILE = "token_observations.jsonl"
-PROMPT_CACHE_FILE = "prompt_cache.jsonl"
+CACHE_PLANS_FILE = "cache_plans.jsonl"
+PREFIX_STATE_FILE = "prefix_state.jsonl"
 PROVIDER_CACHE_BUS_FILE = "provider_cache_bus.jsonl"
-PROMPT_CACHE_BASELINES_FILE = "prompt_cache_baselines.jsonl"
-PROMPT_CACHE_BREAKS_FILE = "prompt_cache_breaks.jsonl"
-PROMPT_STABILITY_FILE = "prompt_stability.jsonl"
+CACHE_ANOMALIES_FILE = "cache_anomalies.jsonl"
 
 PROMPT_ACCOUNTING_LEDGER_CHANNELS: dict[str, dict[str, str]] = {
     PROMPT_MANIFESTS_FILE: {
@@ -35,9 +33,14 @@ PROMPT_ACCOUNTING_LEDGER_CHANNELS: dict[str, dict[str, str]] = {
         "phase": "local_prediction_or_provider_usage",
         "public_surface": "token_summary",
     },
-    PROMPT_CACHE_FILE: {
-        "layer": "cache_analysis",
-        "phase": "preflight_and_provider_result_until_cache_plan_split",
+    CACHE_PLANS_FILE: {
+        "layer": "cache_plan",
+        "phase": "preflight",
+        "public_surface": "internal",
+    },
+    PREFIX_STATE_FILE: {
+        "layer": "prefix_state",
+        "phase": "preflight",
         "public_surface": "internal",
     },
     PROVIDER_CACHE_BUS_FILE: {
@@ -45,19 +48,9 @@ PROMPT_ACCOUNTING_LEDGER_CHANNELS: dict[str, dict[str, str]] = {
         "phase": "provider_result",
         "public_surface": "api_frontend",
     },
-    PROMPT_CACHE_BASELINES_FILE: {
-        "layer": "prefix_state_legacy_component",
-        "phase": "preflight",
-        "public_surface": "internal",
-    },
-    PROMPT_CACHE_BREAKS_FILE: {
+    CACHE_ANOMALIES_FILE: {
         "layer": "cache_anomaly",
         "phase": "provider_result",
-        "public_surface": "internal",
-    },
-    PROMPT_STABILITY_FILE: {
-        "layer": "prefix_state_legacy_component",
-        "phase": "preflight_and_provider_result_until_prefix_state_merge",
         "public_surface": "internal",
     },
 }
@@ -96,10 +89,9 @@ class PromptAccountingLedger:
         ] = {}
         self._retained_token_stats_cache: tuple[tuple[int, int], dict[str, Any]] | None = None
         self._recent_token_usage: list[ModelTokenUsageRecord] = []
-        self._recent_prompt_cache: list[PromptCacheRecord] = []
-        self._recent_provider_cache_bus: list[ProviderCacheLedgerRecord] = []
-        self._recent_prompt_cache_baselines: list[PromptCacheBaselineRecord] = []
-        self._recent_prompt_stability: list[PromptStabilityReport] = []
+        self._recent_cache_plans: list[CachePlanRecord] = []
+        self._recent_prefix_state: list[PrefixStateRecord] = []
+        self._recent_provider_cache_bus: list[ProviderCacheBusRecord] = []
         self._bootstrap_context_usage_latest_from_summary_index()
 
     def record_segment_map(self, segment_map: PromptSegmentMap) -> None:
@@ -164,25 +156,21 @@ class PromptAccountingLedger:
             payload = self._read_context_usage_snapshot_path(self._context_usage_snapshot_path(normalized))
         return dict(payload or {})
 
-    def record_prompt_cache(self, record: PromptCacheRecord) -> None:
-        self._append_jsonl(PROMPT_CACHE_FILE, record.to_dict())
-        self._remember_recent(self._recent_prompt_cache, record)
+    def record_cache_plan(self, record: CachePlanRecord) -> None:
+        self._append_jsonl(CACHE_PLANS_FILE, record.to_dict())
+        self._remember_recent(self._recent_cache_plans, record)
         self._upsert_cache_summary(record)
 
-    def record_provider_cache_bus(self, record: ProviderCacheLedgerRecord) -> None:
+    def record_prefix_state(self, record: PrefixStateRecord) -> None:
+        self._append_jsonl(PREFIX_STATE_FILE, record.to_dict())
+        self._remember_recent(self._recent_prefix_state, record)
+
+    def record_provider_cache_bus(self, record: ProviderCacheBusRecord) -> None:
         self._append_jsonl(PROVIDER_CACHE_BUS_FILE, record.to_dict())
         self._remember_recent(self._recent_provider_cache_bus, record)
 
-    def record_prompt_cache_baseline(self, record: PromptCacheBaselineRecord) -> None:
-        self._append_jsonl(PROMPT_CACHE_BASELINES_FILE, record.to_dict())
-        self._remember_recent(self._recent_prompt_cache_baselines, record)
-
-    def record_prompt_cache_break(self, record: PromptCacheBreakRecord) -> None:
-        self._append_jsonl(PROMPT_CACHE_BREAKS_FILE, record.to_dict())
-
-    def record_prompt_stability(self, report: PromptStabilityReport) -> None:
-        self._append_jsonl(PROMPT_STABILITY_FILE, report.to_dict())
-        self._remember_recent(self._recent_prompt_stability, report)
+    def record_cache_anomaly(self, record: CacheAnomalyRecord) -> None:
+        self._append_jsonl(CACHE_ANOMALIES_FILE, record.to_dict())
 
     def _remember_recent(self, records: list[Any], record: Any) -> None:
         with self._lock:
@@ -254,43 +242,146 @@ class PromptAccountingLedger:
             key_fn=lambda record: record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}",
         )
 
-    def list_prompt_cache(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
-        records: dict[str, PromptCacheRecord] = {}
-        for row in self._read_jsonl(PROMPT_CACHE_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
+    def list_cache_plans(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[CachePlanRecord]:
+        records: dict[str, CachePlanRecord] = {}
+        for row in self._read_jsonl(CACHE_PLANS_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
                 continue
-            record = PromptCacheRecord.from_dict(row)
-            key = record.cache_record_id or f"{record.request_id}:{record.created_at}"
+            record = CachePlanRecord.from_dict(row)
+            key = record.cache_plan_id or f"{record.request_id}:{record.created_at}"
             previous = records.get(key)
             if previous is None or record.created_at >= previous.created_at:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
 
-    def list_recent_prompt_cache(
+    def list_recent_cache_plans(
         self,
         *,
         run_id: str = "",
         task_run_id: str = "",
         session_id: str = "",
         limit: int = 128,
-    ) -> list[PromptCacheRecord]:
+    ) -> list[CachePlanRecord]:
         with self._lock:
-            records = list(self._recent_prompt_cache)
+            records = list(self._recent_cache_plans)
         return _recent_records(
             records,
             run_id=run_id,
             task_run_id=task_run_id,
             session_id=session_id,
             limit=limit,
-            key_fn=lambda record: record.cache_record_id or f"{record.request_id}:{record.created_at}",
+            key_fn=lambda record: record.cache_plan_id or f"{record.request_id}:{record.created_at}",
         )
 
-    def list_provider_cache_bus(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[ProviderCacheLedgerRecord]:
-        records: dict[str, ProviderCacheLedgerRecord] = {}
+    def list_prefix_state(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        status: str = "",
+    ) -> list[PrefixStateRecord]:
+        records: dict[str, PrefixStateRecord] = {}
+        for row in self._read_jsonl(PREFIX_STATE_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
+            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
+                continue
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            if status and str(row.get("status") or "") != status:
+                continue
+            record = PrefixStateRecord.from_dict(row)
+            key = record.state_id or f"{record.request_id}:{record.status}:{record.created_at}"
+            previous = records.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                records[key] = record
+        return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_recent_prefix_state(
+        self,
+        *,
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        status: str = "",
+        limit: int = 128,
+    ) -> list[PrefixStateRecord]:
+        with self._lock:
+            records = list(self._recent_prefix_state)
+        filtered = _recent_records(
+            records,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=self.RECENT_RECORD_LIMIT,
+            key_fn=lambda record: record.state_id or f"{record.request_id}:{record.status}:{record.created_at}",
+        )
+        normalized_status = str(status or "")
+        if normalized_status:
+            filtered = [record for record in filtered if str(getattr(record, "status", "") or "") == normalized_status]
+        return filtered[-max(1, int(limit or 128)) :]
+
+    def reset_prefix_state(
+        self,
+        *,
+        request_id: str = "",
+        run_id: str = "",
+        task_run_id: str = "",
+        session_id: str = "",
+        invocation_kind: str = "",
+        provider: str = "",
+        model: str = "",
+        provider_lane: str = "",
+        physical_payload_family_hash: str = "",
+        reason: str,
+        reset_ref: str = "",
+        diagnostics: dict[str, Any] | None = None,
+        created_at: float | None = None,
+    ) -> PrefixStateRecord:
+        if self.scoped_reads_are_expensive():
+            previous = self.list_recent_prefix_state(
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+                limit=self.RECENT_RECORD_LIMIT,
+            )
+            previous_records_source = "recent"
+        else:
+            previous = self.list_prefix_state(
+                run_id=run_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+            )
+            previous_records_source = "ledger"
+        next_diagnostics = dict(diagnostics or {})
+        next_diagnostics.setdefault("previous_records_source", previous_records_source)
+        next_diagnostics.setdefault("previous_record_count", len(previous))
+        record = PrefixStateReporter().build_invalidation_record(
+            previous_records=previous,
+            request_id=request_id,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            invocation_kind=invocation_kind,
+            provider=provider,
+            model=model,
+            provider_lane=provider_lane,
+            physical_payload_family_hash=physical_payload_family_hash,
+            reason=reason,
+            reset_ref=reset_ref,
+            diagnostics=next_diagnostics,
+            created_at=created_at,
+        )
+        self.record_prefix_state(record)
+        return record
+
+    def list_provider_cache_bus(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[ProviderCacheBusRecord]:
+        records: dict[str, ProviderCacheBusRecord] = {}
         for row in self._read_jsonl(PROVIDER_CACHE_BUS_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
@@ -298,8 +389,8 @@ class PromptAccountingLedger:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
                 continue
-            record = ProviderCacheLedgerRecord.from_dict(row)
-            key = record.ledger_id or f"{record.request_id}:{record.created_at}"
+            record = ProviderCacheBusRecord.from_dict(row)
+            key = record.bus_record_id or f"{record.request_id}:{record.created_at}"
             previous = records.get(key)
             if previous is None or record.created_at >= previous.created_at:
                 records[key] = record
@@ -312,7 +403,7 @@ class PromptAccountingLedger:
         task_run_id: str = "",
         session_id: str = "",
         limit: int = 128,
-    ) -> list[ProviderCacheLedgerRecord]:
+    ) -> list[ProviderCacheBusRecord]:
         with self._lock:
             records = list(self._recent_provider_cache_bus)
         return _recent_records(
@@ -321,158 +412,24 @@ class PromptAccountingLedger:
             task_run_id=task_run_id,
             session_id=session_id,
             limit=limit,
-            key_fn=lambda record: record.ledger_id or f"{record.request_id}:{record.created_at}",
+            key_fn=lambda record: record.bus_record_id or f"{record.request_id}:{record.created_at}",
         )
 
-    def list_prompt_cache_baselines(
-        self,
-        *,
-        run_id: str = "",
-        task_run_id: str = "",
-        session_id: str = "",
-        status: str = "",
-    ) -> list[PromptCacheBaselineRecord]:
-        records: dict[str, PromptCacheBaselineRecord] = {}
-        for row in self._read_jsonl(PROMPT_CACHE_BASELINES_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
+    def list_cache_anomalies(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[CacheAnomalyRecord]:
+        records: dict[str, CacheAnomalyRecord] = {}
+        for row in self._read_jsonl(CACHE_ANOMALIES_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
             if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
                 continue
             if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
                 continue
             if session_id and str(row.get("session_id") or "") != session_id:
                 continue
-            if status and str(row.get("status") or "") != status:
-                continue
-            record = PromptCacheBaselineRecord.from_dict(row)
-            key = record.baseline_id or f"{record.request_id}:{record.status}:{record.created_at}"
+            record = CacheAnomalyRecord.from_dict(row)
+            key = record.anomaly_id or f"{record.request_id}:{record.created_at}"
             previous = records.get(key)
             if previous is None or record.created_at >= previous.created_at:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
-
-    def list_recent_prompt_cache_baselines(
-        self,
-        *,
-        run_id: str = "",
-        task_run_id: str = "",
-        session_id: str = "",
-        status: str = "",
-        limit: int = 128,
-    ) -> list[PromptCacheBaselineRecord]:
-        with self._lock:
-            records = list(self._recent_prompt_cache_baselines)
-        filtered = _recent_records(
-            records,
-            run_id=run_id,
-            task_run_id=task_run_id,
-            session_id=session_id,
-            limit=self.RECENT_RECORD_LIMIT,
-            key_fn=lambda record: record.baseline_id or f"{record.request_id}:{record.status}:{record.created_at}",
-        )
-        normalized_status = str(status or "")
-        if normalized_status:
-            filtered = [record for record in filtered if str(getattr(record, "status", "") or "") == normalized_status]
-        return filtered[-max(1, int(limit or 128)) :]
-
-    def reset_prompt_cache_baseline(
-        self,
-        *,
-        request_id: str = "",
-        run_id: str = "",
-        task_run_id: str = "",
-        session_id: str = "",
-        invocation_kind: str = "",
-        provider: str = "",
-        model: str = "",
-        reason: str,
-        reset_ref: str = "",
-        diagnostics: dict[str, Any] | None = None,
-        created_at: float | None = None,
-    ) -> PromptCacheBaselineRecord:
-        if self.scoped_reads_are_expensive():
-            previous = self.list_recent_prompt_cache_baselines(
-                run_id=run_id,
-                task_run_id=task_run_id,
-                session_id=session_id,
-                limit=self.RECENT_RECORD_LIMIT,
-            )
-            previous_records_source = "recent"
-        else:
-            previous = self.list_prompt_cache_baselines(
-                run_id=run_id,
-                task_run_id=task_run_id,
-                session_id=session_id,
-            )
-            previous_records_source = "ledger"
-        next_diagnostics = dict(diagnostics or {})
-        next_diagnostics.setdefault("previous_records_source", previous_records_source)
-        next_diagnostics.setdefault("previous_record_count", len(previous))
-        record = PromptCacheBaselineTracker().build_invalidation_record(
-            previous_records=previous,
-            request_id=request_id,
-            run_id=run_id,
-            task_run_id=task_run_id,
-            session_id=session_id,
-            invocation_kind=invocation_kind,
-            provider=provider,
-            model=model,
-            reason=reason,
-            reset_ref=reset_ref,
-            diagnostics=next_diagnostics,
-            created_at=created_at,
-        )
-        self.record_prompt_cache_baseline(record)
-        return record
-
-    def list_prompt_cache_breaks(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptCacheBreakRecord]:
-        records: dict[str, PromptCacheBreakRecord] = {}
-        for row in self._read_jsonl(PROMPT_CACHE_BREAKS_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
-            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
-                continue
-            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
-                continue
-            if session_id and str(row.get("session_id") or "") != session_id:
-                continue
-            record = PromptCacheBreakRecord.from_dict(row)
-            key = record.break_id or f"{record.request_id}:{record.created_at}"
-            previous = records.get(key)
-            if previous is None or record.created_at >= previous.created_at:
-                records[key] = record
-        return sorted(records.values(), key=lambda item: item.created_at)
-
-    def list_prompt_stability(self, *, run_id: str = "", task_run_id: str = "", session_id: str = "") -> list[PromptStabilityReport]:
-        records: dict[str, PromptStabilityReport] = {}
-        for row in self._read_jsonl(PROMPT_STABILITY_FILE, run_id=run_id, task_run_id=task_run_id, session_id=session_id):
-            if run_id and str(row.get("run_id") or row.get("task_run_id") or "") != run_id:
-                continue
-            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
-                continue
-            if session_id and str(row.get("session_id") or "") != session_id:
-                continue
-            report = PromptStabilityReport.from_dict(row)
-            key = report.report_id or f"{report.request_id}:{report.created_at}"
-            previous = records.get(key)
-            if previous is None or report.created_at >= previous.created_at:
-                records[key] = report
-        return sorted(records.values(), key=lambda item: item.created_at)
-
-    def list_recent_prompt_stability(
-        self,
-        *,
-        run_id: str = "",
-        task_run_id: str = "",
-        session_id: str = "",
-        limit: int = 128,
-    ) -> list[PromptStabilityReport]:
-        with self._lock:
-            records = list(self._recent_prompt_stability)
-        return _recent_records(
-            records,
-            run_id=run_id,
-            task_run_id=task_run_id,
-            session_id=session_id,
-            limit=limit,
-            key_fn=lambda record: record.report_id or f"{record.request_id}:{record.created_at}",
-        )
 
     def summarize_task(self, task_run_id: str) -> dict[str, Any]:
         indexed = self._summary_for_key(task_run_id)
@@ -482,7 +439,7 @@ class PromptAccountingLedger:
             return _empty_usage_summary()
         return summarize_usage_records(
             self.list_token_usage(task_run_id=task_run_id),
-            cache_records=self.list_prompt_cache(task_run_id=task_run_id),
+            cache_plans=self.list_cache_plans(task_run_id=task_run_id),
         )
 
     def summarize_tasks(self, task_run_ids: list[str] | tuple[str, ...] | set[str]) -> dict[str, dict[str, Any]]:
@@ -504,7 +461,7 @@ class PromptAccountingLedger:
                 indexed[task_run_id] = _empty_usage_summary()
             return indexed
         usage_by_task: dict[str, list[ModelTokenUsageRecord]] = {task_run_id: [] for task_run_id in targets}
-        cache_by_task: dict[str, list[PromptCacheRecord]] = {task_run_id: [] for task_run_id in targets}
+        cache_by_task: dict[str, list[CachePlanRecord]] = {task_run_id: [] for task_run_id in targets}
         latest_usage: dict[tuple[str, str], ModelTokenUsageRecord] = {}
         for row in self._read_jsonl(TOKEN_OBSERVATIONS_FILE):
             task_run_id = str(row.get("task_run_id") or row.get("run_id") or "")
@@ -517,13 +474,13 @@ class PromptAccountingLedger:
                 latest_usage[key] = record
         for (task_run_id, _key), record in latest_usage.items():
             usage_by_task.setdefault(task_run_id, []).append(record)
-        latest_cache: dict[tuple[str, str], PromptCacheRecord] = {}
-        for row in self._read_jsonl(PROMPT_CACHE_FILE):
+        latest_cache: dict[tuple[str, str], CachePlanRecord] = {}
+        for row in self._read_jsonl(CACHE_PLANS_FILE):
             task_run_id = str(row.get("task_run_id") or row.get("run_id") or "")
             if task_run_id not in targets:
                 continue
-            record = PromptCacheRecord.from_dict(row)
-            key = (task_run_id, record.cache_record_id or f"{record.request_id}:{record.created_at}")
+            record = CachePlanRecord.from_dict(row)
+            key = (task_run_id, record.cache_plan_id or f"{record.request_id}:{record.created_at}")
             previous = latest_cache.get(key)
             if previous is None or record.created_at >= previous.created_at:
                 latest_cache[key] = record
@@ -532,7 +489,7 @@ class PromptAccountingLedger:
         scanned = {
             task_run_id: summarize_usage_records(
                 sorted(usage_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
-                cache_records=sorted(cache_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
+                cache_plans=sorted(cache_by_task.get(task_run_id) or [], key=lambda item: item.created_at),
             )
             for task_run_id in targets
         }
@@ -547,7 +504,7 @@ class PromptAccountingLedger:
             return _empty_usage_summary()
         return summarize_usage_records(
             self.list_token_usage(run_id=run_id),
-            cache_records=self.list_prompt_cache(run_id=run_id),
+            cache_plans=self.list_cache_plans(run_id=run_id),
         )
 
     def summarize_session(self, session_id: str) -> dict[str, Any]:
@@ -561,13 +518,13 @@ class PromptAccountingLedger:
             return _empty_usage_summary()
         return summarize_usage_records(
             self.list_token_usage(session_id=normalized),
-            cache_records=self.list_prompt_cache(session_id=normalized),
+            cache_plans=self.list_cache_plans(session_id=normalized),
         )
 
     def summarize_all(self) -> dict[str, Any]:
         return summarize_usage_records(
             self.list_token_usage(),
-            cache_records=self.list_prompt_cache(),
+            cache_plans=self.list_cache_plans(),
         )
 
     def list_run_summaries(self, *, limit: int = 100) -> list[dict[str, Any]]:
@@ -675,18 +632,18 @@ class PromptAccountingLedger:
                 usage_records[usage_key] = _compact_usage_record(record)
             payload["usage_records"] = usage_records
             usage_count += 1
-        for row in self._iter_jsonl_rows(PROMPT_CACHE_FILE):
-            record = PromptCacheRecord.from_dict(row)
+        for row in self._iter_jsonl_rows(CACHE_PLANS_FILE):
+            record = CachePlanRecord.from_dict(row)
             key = _summary_key_for_cache(record)
             if not key:
                 continue
             payload = payloads.setdefault(key, _new_summary_payload(key))
-            cache_records = dict(payload.get("cache_records") or {})
-            cache_key = record.cache_record_id or f"{record.request_id}:{record.created_at}"
-            previous = cache_records.get(cache_key)
+            cache_plans = dict(payload.get("cache_plans") or {})
+            cache_key = record.cache_plan_id or f"{record.request_id}:{record.created_at}"
+            previous = cache_plans.get(cache_key)
             if previous is None or float(record.created_at or 0.0) >= float(dict(previous).get("created_at") or 0.0):
-                cache_records[cache_key] = _compact_cache_record(record)
-            payload["cache_records"] = cache_records
+                cache_plans[cache_key] = _compact_cache_plan(record)
+            payload["cache_plans"] = cache_plans
             cache_count += 1
         with self._lock:
             for existing in self.summary_index_dir.glob("*.json"):
@@ -701,7 +658,7 @@ class PromptAccountingLedger:
             "authority": "runtime.prompt_accounting.summary_index_rebuild",
             "summary_key_count": len(payloads),
             "token_usage_rows_scanned": usage_count,
-            "prompt_cache_rows_scanned": cache_count,
+            "cache_plan_rows_scanned": cache_count,
         }
 
     def prune_task_runs(self, task_run_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, Any]:
@@ -715,11 +672,10 @@ class PromptAccountingLedger:
         deleted_counts = {
             "prompt_manifests": self._rewrite_without_tasks(PROMPT_MANIFESTS_FILE, targets),
             "token_observations": self._rewrite_without_tasks(TOKEN_OBSERVATIONS_FILE, targets),
-            "prompt_cache": self._rewrite_without_tasks(PROMPT_CACHE_FILE, targets),
+            "cache_plans": self._rewrite_without_tasks(CACHE_PLANS_FILE, targets),
+            "prefix_state": self._rewrite_without_tasks(PREFIX_STATE_FILE, targets),
             "provider_cache_bus": self._rewrite_without_tasks(PROVIDER_CACHE_BUS_FILE, targets),
-            "prompt_cache_baselines": self._rewrite_without_tasks(PROMPT_CACHE_BASELINES_FILE, targets),
-            "prompt_cache_breaks": self._rewrite_without_tasks(PROMPT_CACHE_BREAKS_FILE, targets),
-            "prompt_stability": self._rewrite_without_tasks(PROMPT_STABILITY_FILE, targets),
+            "cache_anomalies": self._rewrite_without_tasks(CACHE_ANOMALIES_FILE, targets),
             "summary_index": self._delete_summary_keys(targets),
         }
         return {
@@ -741,11 +697,10 @@ class PromptAccountingLedger:
         deleted_counts = {
             "prompt_manifests": self._rewrite_without_session_or_tasks(PROMPT_MANIFESTS_FILE, normalized, targets),
             "token_observations": self._rewrite_without_session_or_tasks(TOKEN_OBSERVATIONS_FILE, normalized, targets),
-            "prompt_cache": self._rewrite_without_session_or_tasks(PROMPT_CACHE_FILE, normalized, targets),
+            "cache_plans": self._rewrite_without_session_or_tasks(CACHE_PLANS_FILE, normalized, targets),
+            "prefix_state": self._rewrite_without_session_or_tasks(PREFIX_STATE_FILE, normalized, targets),
             "provider_cache_bus": self._rewrite_without_session_or_tasks(PROVIDER_CACHE_BUS_FILE, normalized, targets),
-            "prompt_cache_baselines": self._rewrite_without_session_or_tasks(PROMPT_CACHE_BASELINES_FILE, normalized, targets),
-            "prompt_cache_breaks": self._rewrite_without_session_or_tasks(PROMPT_CACHE_BREAKS_FILE, normalized, targets),
-            "prompt_stability": self._rewrite_without_session_or_tasks(PROMPT_STABILITY_FILE, normalized, targets),
+            "cache_anomalies": self._rewrite_without_session_or_tasks(CACHE_ANOMALIES_FILE, normalized, targets),
             "summary_index": self._delete_summary_session_or_tasks(normalized, targets),
             "context_usage_latest": self._delete_context_usage_snapshot(normalized),
         }
@@ -851,7 +806,7 @@ class PromptAccountingLedger:
 
     def _build_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]], now: float) -> dict[str, Any]:
         usage_plan = self._token_usage_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection)
-        cache_plan = self._prompt_cache_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection)
+        cache_plan = self._cache_plan_retention_plan(cutoff_timestamp=cutoff_timestamp, protection=protection)
         retained_request_ids = set(usage_plan.get("retained_request_ids") or set()) | set(cache_plan.get("retained_request_ids") or set())
         cold_stats = self._cold_token_stats_from_plans(
             usage_by_key=dict(usage_plan.get("usage_by_key") or {}),
@@ -861,7 +816,7 @@ class PromptAccountingLedger:
         )
         generic_files: dict[str, dict[str, Any]] = {}
         for filename in self.RETENTION_DETAIL_FILES:
-            if filename in {TOKEN_OBSERVATIONS_FILE, PROMPT_CACHE_FILE}:
+            if filename in {TOKEN_OBSERVATIONS_FILE, CACHE_PLANS_FILE}:
                 continue
             generic_files[filename] = self._generic_detail_retention_plan(
                 filename,
@@ -871,7 +826,7 @@ class PromptAccountingLedger:
             )
         files = {
             TOKEN_OBSERVATIONS_FILE: dict(usage_plan.get("preview") or {}),
-            PROMPT_CACHE_FILE: dict(cache_plan.get("preview") or {}),
+            CACHE_PLANS_FILE: dict(cache_plan.get("preview") or {}),
             **{filename: dict(plan.get("preview") or {}) for filename, plan in generic_files.items()},
         }
         compactable_rows = sum(int(item.get("compactable_rows") or 0) for item in files.values())
@@ -883,7 +838,7 @@ class PromptAccountingLedger:
                 "cutoff_timestamp": cutoff_timestamp,
                 "requires_token_stats_before_detail_prune": True,
                 "detail_files": list(self.RETENTION_DETAIL_FILES),
-                "state_files_retained": [PROMPT_CACHE_BASELINES_FILE],
+                "state_files_retained": [PREFIX_STATE_FILE],
                 "protected_task_run_ids": sorted(protection.get("keys") or set()),
                 "protected_session_ids": sorted(protection.get("sessions") or set()),
             },
@@ -1006,8 +961,8 @@ class PromptAccountingLedger:
             },
         }
 
-    def _prompt_cache_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]]) -> dict[str, Any]:
-        filename = PROMPT_CACHE_FILE
+    def _cache_plan_retention_plan(self, *, cutoff_timestamp: float, protection: dict[str, set[str]]) -> dict[str, Any]:
+        filename = CACHE_PLANS_FILE
         paths = self._jsonl_paths(filename)
         groups: dict[str, dict[str, Any]] = {}
         rows_scanned = 0
@@ -1027,9 +982,9 @@ class PromptAccountingLedger:
                         malformed_rows += 1
                         continue
                     rows_scanned += 1
-                    record = PromptCacheRecord.from_dict(row)
+                    record = CachePlanRecord.from_dict(row)
                     summary_key = _summary_key_for_cache(record)
-                    group_id = _retention_group_id(row, primary_fields=("request_id", "cache_record_id"))
+                    group_id = _retention_group_id(row, primary_fields=("request_id", "cache_plan_id"))
                     group = groups.setdefault(
                         group_id,
                         {
@@ -1044,7 +999,7 @@ class PromptAccountingLedger:
                         },
                     )
                     group["row_count"] = int(group["row_count"]) + 1
-                    group["rows"].append(_compact_cache_record(record))
+                    group["rows"].append(_compact_cache_plan(record))
                     if summary_key:
                         group["summary_keys"].add(summary_key)
                     else:
@@ -1185,11 +1140,11 @@ class PromptAccountingLedger:
             entry = _summary_entry_from_compact_records(
                 key,
                 usage_records=list(usage_by_key.get(key) or []),
-                cache_records=list(cache_by_key.get(key) or []),
+                cache_plans=list(cache_by_key.get(key) or []),
                 authority="runtime.prompt_accounting.retained_token_summary",
             )
             summary = dict(entry.get("summary") or {})
-            if int(summary.get("record_count") or 0) <= 0 and int(summary.get("cache_record_count") or 0) <= 0:
+            if int(summary.get("record_count") or 0) <= 0 and int(summary.get("cache_plan_count") or 0) <= 0:
                 continue
             entries.append(entry)
         summary = _aggregate_summary_entries(entries)
@@ -1247,10 +1202,10 @@ class PromptAccountingLedger:
                 drop_group_ids=set(dict(plan.get("usage_plan") or {}).get("drop_group_ids") or set()),
                 primary_fields=("request_id", "usage_id"),
             ),
-            PROMPT_CACHE_FILE: self._rewrite_jsonl_dropping_groups(
-                PROMPT_CACHE_FILE,
+            CACHE_PLANS_FILE: self._rewrite_jsonl_dropping_groups(
+                CACHE_PLANS_FILE,
                 drop_group_ids=set(dict(plan.get("cache_plan") or {}).get("drop_group_ids") or set()),
-                primary_fields=("request_id", "cache_record_id"),
+                primary_fields=("request_id", "cache_plan_id"),
             ),
         }
         for filename in dict(plan.get("generic_files") or {}):
@@ -1524,18 +1479,18 @@ class PromptAccountingLedger:
             payload["usage_records"] = usage_records
             self._rewrite_summary_payload(key, payload)
 
-    def _upsert_cache_summary(self, record: PromptCacheRecord) -> None:
+    def _upsert_cache_summary(self, record: CachePlanRecord) -> None:
         key = _summary_key_for_cache(record)
         if not key:
             return
         with self._lock:
             payload = self._read_summary_payload(key) or _new_summary_payload(key)
-            cache_records = dict(payload.get("cache_records") or {})
-            cache_key = record.cache_record_id or f"{record.request_id}:{record.created_at}"
-            previous = cache_records.get(cache_key)
+            cache_plans = dict(payload.get("cache_plans") or {})
+            cache_key = record.cache_plan_id or f"{record.request_id}:{record.created_at}"
+            previous = cache_plans.get(cache_key)
             if previous is None or float(record.created_at or 0.0) >= float(dict(previous).get("created_at") or 0.0):
-                cache_records[cache_key] = _compact_cache_record(record)
-            payload["cache_records"] = cache_records
+                cache_plans[cache_key] = _compact_cache_plan(record)
+            payload["cache_plans"] = cache_plans
             self._rewrite_summary_payload(key, payload)
 
     def _rewrite_summary_payload(self, key: str, payload: dict[str, Any], *, update_manifest: bool = True) -> None:
@@ -1546,16 +1501,16 @@ class PromptAccountingLedger:
             ModelTokenUsageRecord.from_dict(dict(item))
             for item in dict(payload.get("usage_records") or {}).values()
         ]
-        cache_records = [
-            PromptCacheRecord.from_dict(dict(item))
-            for item in dict(payload.get("cache_records") or {}).values()
+        cache_plans = [
+            CachePlanRecord.from_dict(dict(item))
+            for item in dict(payload.get("cache_plans") or {}).values()
         ]
         sorted_usage = sorted(usage_records, key=lambda item: float(item.created_at or 0.0))
-        sorted_cache = sorted(cache_records, key=lambda item: float(item.created_at or 0.0))
+        sorted_cache = sorted(cache_plans, key=lambda item: float(item.created_at or 0.0))
         timeline = list(sorted_usage) + list(sorted_cache)
         first = min(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
         last = max(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
-        summary = summarize_usage_records(sorted_usage, cache_records=sorted_cache)
+        summary = summarize_usage_records(sorted_usage, cache_plans=sorted_cache)
         payload = {
             "authority": "runtime.prompt_accounting.summary_index",
             "version": self.SUMMARY_INDEX_VERSION,
@@ -1565,8 +1520,8 @@ class PromptAccountingLedger:
                 record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}": _compact_usage_record(record)
                 for record in sorted_usage
             },
-            "cache_records": {
-                record.cache_record_id or f"{record.request_id}:{record.created_at}": _compact_cache_record(record)
+            "cache_plans": {
+                record.cache_plan_id or f"{record.request_id}:{record.created_at}": _compact_cache_plan(record)
                 for record in sorted_cache
             },
             "record_count": int(summary.get("record_count") or 0),
@@ -1714,7 +1669,7 @@ class PromptAccountingLedger:
 
     def _summary_scan_allowed(self) -> bool:
         total = 0
-        for filename in (TOKEN_OBSERVATIONS_FILE, PROMPT_CACHE_FILE, PROMPT_MANIFESTS_FILE):
+        for filename in (TOKEN_OBSERVATIONS_FILE, CACHE_PLANS_FILE, PROMPT_MANIFESTS_FILE):
             total += self._jsonl_size_bytes(filename)
             if total > self.SUMMARY_SCAN_MAX_BYTES:
                 return False
@@ -1964,7 +1919,7 @@ class PromptAccountingLedger:
 def summarize_usage_records(
     records: list[ModelTokenUsageRecord],
     *,
-    cache_records: list[PromptCacheRecord] | None = None,
+    cache_plans: list[CachePlanRecord] | None = None,
 ) -> dict[str, Any]:
     totals = {
         "exact_total_tokens": 0,
@@ -2012,8 +1967,8 @@ def summarize_usage_records(
         )
         if selected is not None:
             effective += int(selected.total_tokens or 0)
-    for cache_record in list(cache_records or []):
-        totals["cache_savings_tokens"] += int(cache_record.cache_savings_tokens or 0)
+    for cache_plan in list(cache_plans or []):
+        totals["cache_savings_tokens"] += int(cache_plan.cache_savings_tokens or 0)
     totals["effective_total_tokens"] = effective
     totals["total_tokens"] = effective
     totals["billing_truth_available"] = totals["provider_usage_record_count"] > 0
@@ -2031,7 +1986,7 @@ def _new_summary_payload(key: str) -> dict[str, Any]:
         "key": str(key or ""),
         "summary": _empty_usage_summary(),
         "usage_records": {},
-        "cache_records": {},
+        "cache_plans": {},
         "record_count": 0,
         "task_run_id": "",
         "run_id": str(key or ""),
@@ -2047,8 +2002,8 @@ def _summary_key_for_usage(record: ModelTokenUsageRecord) -> str:
     return str(record.task_run_id or record.run_id or record.request_id or record.usage_id or "").strip()
 
 
-def _summary_key_for_cache(record: PromptCacheRecord) -> str:
-    return str(record.task_run_id or record.run_id or record.request_id or record.cache_record_id or "").strip()
+def _summary_key_for_cache(record: CachePlanRecord) -> str:
+    return str(record.task_run_id or record.run_id or record.request_id or record.cache_plan_id or "").strip()
 
 
 def _compact_usage_record(record: ModelTokenUsageRecord) -> dict[str, Any]:
@@ -2074,9 +2029,9 @@ def _compact_usage_record(record: ModelTokenUsageRecord) -> dict[str, Any]:
     }
 
 
-def _compact_cache_record(record: PromptCacheRecord) -> dict[str, Any]:
+def _compact_cache_plan(record: CachePlanRecord) -> dict[str, Any]:
     return {
-        "cache_record_id": record.cache_record_id,
+        "cache_plan_id": record.cache_plan_id,
         "request_id": record.request_id,
         "provider": record.provider,
         "model": record.model,
@@ -2220,7 +2175,7 @@ def _summary_manifest_entry(payload: dict[str, Any]) -> dict[str, Any]:
             "cache_miss_tokens": int(summary.get("cache_miss_tokens") or 0),
             "cache_savings_tokens": int(summary.get("cache_savings_tokens") or 0),
             "record_count": int(summary.get("record_count") or 0),
-            "cache_record_count": int(summary.get("cache_record_count") or 0),
+            "cache_plan_count": int(summary.get("cache_plan_count") or 0),
             "provider_usage_record_count": int(summary.get("provider_usage_record_count") or 0),
             "local_prediction_record_count": int(summary.get("local_prediction_record_count") or 0),
             "trace_estimate_record_count": int(summary.get("trace_estimate_record_count") or 0),
@@ -2233,7 +2188,7 @@ def _summary_entry_from_compact_records(
     key: str,
     *,
     usage_records: list[dict[str, Any]],
-    cache_records: list[dict[str, Any]],
+    cache_plans: list[dict[str, Any]],
     authority: str,
 ) -> dict[str, Any]:
     usage = [
@@ -2242,8 +2197,8 @@ def _summary_entry_from_compact_records(
         if isinstance(item, dict)
     ]
     cache = [
-        PromptCacheRecord.from_dict(dict(item))
-        for item in list(cache_records or [])
+        CachePlanRecord.from_dict(dict(item))
+        for item in list(cache_plans or [])
         if isinstance(item, dict)
     ]
     sorted_usage = sorted(usage, key=lambda item: float(item.created_at or 0.0))
@@ -2251,8 +2206,8 @@ def _summary_entry_from_compact_records(
     timeline = [*sorted_usage, *sorted_cache]
     first = min(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
     last = max(timeline, key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0), default=None)
-    summary = summarize_usage_records(sorted_usage, cache_records=sorted_cache)
-    summary["cache_record_count"] = len(sorted_cache)
+    summary = summarize_usage_records(sorted_usage, cache_plans=sorted_cache)
+    summary["cache_plan_count"] = len(sorted_cache)
     payload = {
         "authority": authority,
         "version": PromptAccountingLedger.SUMMARY_INDEX_VERSION,
@@ -2303,7 +2258,7 @@ def _merge_summary_entry(left: dict[str, Any], right: dict[str, Any]) -> dict[st
         "cache_miss_tokens",
         "cache_savings_tokens",
         "record_count",
-        "cache_record_count",
+        "cache_plan_count",
         "provider_usage_record_count",
         "local_prediction_record_count",
         "trace_estimate_record_count",
@@ -2352,7 +2307,7 @@ def _aggregate_summary_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
         "cache_miss_tokens": 0,
         "cache_savings_tokens": 0,
         "record_count": 0,
-        "cache_record_count": 0,
+        "cache_plan_count": 0,
         "provider_usage_record_count": 0,
         "local_prediction_record_count": 0,
         "trace_estimate_record_count": 0,
@@ -2376,7 +2331,7 @@ def _aggregate_summary_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
             "cache_miss_tokens",
             "cache_savings_tokens",
             "record_count",
-            "cache_record_count",
+            "cache_plan_count",
             "provider_usage_record_count",
             "local_prediction_record_count",
             "trace_estimate_record_count",
@@ -2570,7 +2525,7 @@ def _retention_group_id(row: dict[str, Any], *, primary_fields: tuple[str, ...])
         value = str(row.get(field) or "").strip()
         if value:
             return f"{field}:{value}"
-    for field in ("request_id", "task_run_id", "run_id", "cache_record_id", "usage_id", "report_id", "segment_id"):
+    for field in ("request_id", "task_run_id", "run_id", "cache_plan_id", "usage_id", "report_id", "segment_id"):
         value = str(row.get(field) or "").strip()
         if value:
             return f"{field}:{value}"

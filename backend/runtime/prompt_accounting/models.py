@@ -11,16 +11,6 @@ PromptCacheScope = Literal["global", "org", "session", "none"]
 PromptCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
 PromptPrefixTier = Literal["provider_global", "session", "volatile", "none"]
 CompressionRole = Literal["preserve", "summarize", "drop_if_cold", "ref_only"]
-PromptAuthorityClass = Literal[
-    "contract",
-    "permission",
-    "current_user_intent",
-    "runtime_state",
-    "evidence_ref",
-    "natural_history",
-    "bulk_output",
-    "unknown",
-]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +31,6 @@ class PromptSegment:
     cache_role: PromptCacheRole = "volatile"
     prefix_tier: PromptPrefixTier = "volatile"
     compression_role: CompressionRole = "summarize"
-    authority_class: PromptAuthorityClass = "unknown"
     transport_location: str = ""
     prefix_family: str = ""
     semantic_source: str = ""
@@ -138,8 +127,8 @@ class ModelTokenUsageRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptCacheRecord:
-    cache_record_id: str
+class CachePlanRecord:
+    cache_plan_id: str
     request_id: str
     provider: str = ""
     model: str = ""
@@ -158,7 +147,7 @@ class PromptCacheRecord:
     cache_safety_reasons: tuple[str, ...] = ()
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.prompt_cache_record"
+    authority: str = "runtime.prompt_accounting.cache_plan"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -166,9 +155,9 @@ class PromptCacheRecord:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PromptCacheRecord":
+    def from_dict(cls, payload: dict[str, Any]) -> "CachePlanRecord":
         return cls(
-            cache_record_id=str(payload.get("cache_record_id") or ""),
+            cache_plan_id=str(payload.get("cache_plan_id") or ""),
             request_id=str(payload.get("request_id") or ""),
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
@@ -187,7 +176,7 @@ class PromptCacheRecord:
             cache_safety_reasons=tuple(str(item) for item in list(payload.get("cache_safety_reasons") or [])),
             created_at=float(payload.get("created_at") or 0.0),
             diagnostics=dict(payload.get("diagnostics") or {}),
-            authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_cache_record"),
+            authority=str(payload.get("authority") or "runtime.prompt_accounting.cache_plan"),
         )
 
 

@@ -27,7 +27,7 @@ cache_read_expectation    表达“本次是否要求 provider 命中”
 - OpenAI Prompt Caching 官方文档：Prompt Caching 依赖请求开头相同的前缀，usage 中通过 `cached_tokens` 观测缓存读取。参考：[OpenAI Prompt Caching](https://platform.openai.com/docs/guides/prompt-caching)。
 - Anthropic Prompt Caching 官方文档：缓存断点之前的 `tools -> system -> messages` 累积前缀会被写入/读取，改变 breakpoint 前的 block 会改变缓存前缀。参考：[Anthropic Prompt Caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)。
 - 本地 Codex 参考：`D:/AI应用/openai-codex/codex-rs/core/src/client.rs:368` 默认用 thread id 作为 `prompt_cache_key`；`D:/AI应用/openai-codex/codex-rs/core/tests/suite/prompt_caching.rs:488` 与 `:777` 断言 override / per-turn override 下 `prompt_cache_key` 不应改变；`:494` 与 `:783` 断言前一次请求的完整 prefix 应作为下一次请求 prefix 原样复用。
-- 本地 Claude Code 研究资料：`D:/AI应用/Claude-Code-Source-Study-main/docs/07-Prompt-Cache.md:9` 记录重复前缀是 system prompt、工具定义和消息历史前缀的组合；`:11` 强调字节完全一致；`:24` 说明 cache breakpoint 表达“从请求开头到标记处”的累积前缀。
+- 本地 Claude Code 研究资料：`D:/AI应用/Claude-Code-Source-Study-main/docs/07-Prompt-Cache.md:9` 记录重复前缀是 system prompt、工具定义和消息历史前缀的组合；`:11` 强调字节完全一致；`:24` 说明 cache anomalypoint 表达“从请求开头到标记处”的累积前缀。
 - 本地 Hermes 参考：`D:/AI应用/hermes/hermes-agent-main/AGENTS.md:863` 明确“Prompt Caching Must Not Break”；`:865-875` 禁止中途改变 past context、toolsets、memory/system prompt，要求默认 deferred invalidation。
 
 ### 2.2 本项目本地原则
@@ -350,21 +350,21 @@ Required fix：把 registry 的 semantic slot 用作 `prefix_segment_ref` 的核
 建议新增 canonical prefix identity object，名字可以是：
 
 ```text
-context_prefix_identity.v1
+context_prefix_identity
 ```
 
 ### 5.1 字段格式
 
 ```json
 {
-  "schema": "context_prefix_identity.v1",
+  "schema": "context_prefix_identity",
   "prefix_domain": "provider_prompt_prefix",
   "physical_lane": "global_static_prefix",
   "lifecycle_state": "static_prefix",
   "semantic_slot": "tool_index",
   "origin_authority": "runtime.tool_catalog_manifest",
   "origin_ref": "tool_catalog_manifest:{stable_hash}",
-  "logical_segment_ref": "ctxprefix:v1:global_static_prefix:tool_index:{origin_hash}",
+  "logical_segment_ref": "ctxprefix:global_static_prefix:tool_index:{origin_hash}",
   "content_version_hash": "sha256:...",
   "provider_serialized_hash": "sha256:...",
   "frame_ref": "",
@@ -400,16 +400,16 @@ context_prefix_identity.v1
 为了日志和报告可读，建议同时提供 compact display string：
 
 ```text
-ctxp:v1/{lane}/{state}/{slot}/{origin_hash}/{content_hash8}
+ctxp/{lane}/{state}/{slot}/{origin_hash}/{content_hash8}
 ```
 
 示例：
 
 ```text
-ctxp:v1/global_static_prefix/static_prefix/tool_index/8b2f1a1c/c25b4277
-ctxp:v1/provider_visible_context_prefix/confirmed_frame_replay/tool_transcript/turn5.toolround1/be14ddc5
-ctxp:v1/current_turn_tail/current_append_pending_provider_success/current_user_intent/turn5.user1/b8dfc2dd
-ctxp:v1/never_replay_tail/dynamic_tail_never_replay/turn_operating_contract/run9cf9747f/4d31a880
+ctxp/global_static_prefix/static_prefix/tool_index/8b2f1a1c/c25b4277
+ctxp/provider_visible_context_prefix/confirmed_frame_replay/tool_transcript/turn5.toolround1/be14ddc5
+ctxp/current_turn_tail/current_append_pending_provider_success/current_user_intent/turn5.user1/b8dfc2dd
+ctxp/never_replay_tail/dynamic_tail_never_replay/turn_operating_contract/run9cf9747f/4d31a880
 ```
 
 这类 display string 只用于诊断，不作为唯一存储主键。唯一主键仍是结构化 object。

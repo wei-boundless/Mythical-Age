@@ -220,7 +220,7 @@ def _compile_work_order_packet(*, base_dir: Path, path: Path) -> dict[str, Any]:
         "task_run_id": f"gtask:{_safe_id(work_order.work_order_id)}",
         "session_id": "prompt-cache-real-writing-diagnostic",
         "task_id": work_order.task_ref,
-        "task_contract_ref": contract.get("contract_id") or "",
+        "task_run_contract_ref": contract.get("contract_id") or "",
         "owner_agent_seat_id": work_order.node_id,
         "agent_id": work_order.agent_id or "agent:writing_modular_creator",
         "agent_profile_id": work_order.agent_profile_id or "main_interactive_agent",
@@ -392,7 +392,7 @@ def _packet_recommendations(
         if str(item.get("cache_role") or "") in {"cacheable_prefix", "session_stable"}
     )
     kind_tokens = dict(cache_layer_summary.get("by_kind_tokens") or {})
-    node_local_tokens = int(kind_tokens.get("task_contract_stable") or 0)
+    node_local_tokens = int(kind_tokens.get("task_run_contract_stable") or 0)
     graph_shared_tokens = int(kind_tokens.get("graph_task_shared_stable") or 0)
     volatile_tokens = sum(
         int(item.get("predicted_tokens") or 0)
@@ -404,7 +404,7 @@ def _packet_recommendations(
             {
                 "code": "split_or_summarize_node_local_contract",
                 "detail": "节点本地契约占稳定前缀过半。优先压缩 authorized_inputs、memory、loop、output 中只供当前节点使用的大段文本；共享规则应放在 graph_task_shared_stable。",
-                "task_contract_tokens": node_local_tokens,
+                "task_run_contract_tokens": node_local_tokens,
                 "stable_tokens": stable_tokens,
             }
         )
@@ -492,7 +492,7 @@ def _packet_issues(*, segments: list[dict[str, Any]], provider_rows: list[dict[s
 def _provider_usage_by_task(ledger_dir: Path) -> dict[str, list[dict[str, Any]]]:
     rows = [
         row
-        for row in _read_jsonl(ledger_dir / "token_usage.jsonl")
+        for row in _read_jsonl(ledger_dir / "token_observations.jsonl")
         if str(row.get("source") or "") == "provider_usage"
     ]
     result: dict[str, list[dict[str, Any]]] = defaultdict(list)

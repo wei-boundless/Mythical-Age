@@ -5,8 +5,13 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from .provider_message_replay_contract import (
+    physical_prefix_frame_replay_metadata,
+    provider_protocol_replay_metadata,
+)
 
-CONTEXT_PREFIX_IDENTITY_SCHEMA = "context_prefix_identity.v1"
+
+CONTEXT_PREFIX_IDENTITY_SCHEMA = "context_prefix_identity"
 CONTEXT_PREFIX_IDENTITY_AUTHORITY = "runtime.context_management.context_prefix_identity"
 PROVIDER_PROMPT_PREFIX_DOMAIN = "provider_prompt_prefix"
 
@@ -113,13 +118,9 @@ def _origin_authority(
         metadata.get("context_origin_authority"),
         metadata.get("prefix_origin_authority"),
         metadata.get("origin_authority"),
-        metadata.get("authority_class"),
-        metadata.get("content_source"),
         metadata.get("context_semantic_source"),
         metadata.get("semantic_source"),
         semantic_source,
-        metadata.get("source_kind"),
-        metadata.get("context_source_kind"),
         source_ref,
         kind,
     )
@@ -138,9 +139,9 @@ def _origin_ref(
         metadata.get("prefix_origin_ref"),
         metadata.get("origin_ref"),
         metadata.get("stable_origin_ref"),
-        metadata.get("provider_visible_context_ledger_item_key"),
+        metadata.get("provider_visible_append_item_key"),
         metadata.get("append_only_context_item_key"),
-        metadata.get("provider_visible_context_candidate_source_ref"),
+        metadata.get("provider_visible_append_candidate_source_ref"),
         metadata.get("runtime_contract_ref"),
         metadata.get("context_contract_ref"),
         source_ref,
@@ -165,8 +166,10 @@ def _lifecycle_state(*, lane: str, metadata: dict[str, Any], kind: str) -> str:
     if lane in {"global_static_prefix", "provider_tool_schema_prefix"}:
         return "static_prefix"
     if lane == "provider_visible_context_prefix":
-        if _confirmed_frame_replay(metadata=metadata, kind=kind):
+        if _confirmed_frame_replay(metadata):
             return "confirmed_frame_replay"
+        if _provider_protocol_replay(metadata):
+            return "provider_protocol_replay"
         return "provider_visible_prefix_unconfirmed"
     if lane == "current_turn_tail":
         return "current_append_pending_provider_success"
@@ -179,22 +182,12 @@ def _lifecycle_state(*, lane: str, metadata: dict[str, Any], kind: str) -> str:
     return "request_local_transport_contract"
 
 
-def _confirmed_frame_replay(*, metadata: dict[str, Any], kind: str) -> bool:
-    if _first_text(metadata.get("physical_prefix_frame_id")):
-        return True
-    if str(kind or "").startswith("physical_prefix_frame_"):
-        return True
-    if _first_text(metadata.get("content_source")) == "runtime.context_management.physical_prefix_frame.replay":
-        return True
-    if _first_text(metadata.get("source_kind")) == "runtime_physical_prefix_frame":
-        return True
-    if _first_text(metadata.get("context_source_kind")) == "runtime_physical_prefix_frame":
-        return True
-    history_status = _first_text(metadata.get("provider_visible_history_status"))
-    if history_status in {"sealed_from_physical_prefix_frame", "current_turn_exact_old_context"}:
-        return True
-    replay_policy = _first_text(metadata.get("context_replay_policy"))
-    return replay_policy == "physical_prefix_frame_replay"
+def _confirmed_frame_replay(metadata: dict[str, Any]) -> bool:
+    return physical_prefix_frame_replay_metadata(metadata)
+
+
+def _provider_protocol_replay(metadata: dict[str, Any]) -> bool:
+    return provider_protocol_replay_metadata(metadata)
 
 
 def _cache_read_expectation(*, lane: str, lifecycle_state: str) -> str:
@@ -205,6 +198,8 @@ def _cache_read_expectation(*, lane: str, lifecycle_state: str) -> str:
     if lane == "provider_tool_schema_prefix":
         return "expected_read"
     if lifecycle_state == "confirmed_frame_replay":
+        return "expected_read"
+    if lifecycle_state == "provider_protocol_replay":
         return "expected_read"
     if lifecycle_state in {
         "current_append_pending_provider_success",
@@ -230,7 +225,7 @@ def _logical_segment_ref(
         "origin_ref": str(origin_ref or ""),
     }
     digest = _stable_json_hash(seed).removeprefix("sha256:")[:16]
-    return "ctxprefix:v1:{lane}:{slot}:{digest}".format(
+    return "ctxprefix:{lane}:{slot}:{digest}".format(
         lane=_safe_token(physical_lane) or "unplaced",
         slot=_safe_token(semantic_slot) or "segment",
         digest=digest,

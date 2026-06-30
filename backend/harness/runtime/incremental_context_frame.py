@@ -192,7 +192,6 @@ def incremental_context_frame_segment_spec(message: dict[str, Any], *, tool_iter
         "compression_role": "summarize",
         "metadata": {
             "followup_iteration": max(1, int(tool_iteration or 1)),
-            "authority_class": "incremental_context_frame",
             "runtime_fragment_role": "current_delta_explanation",
             "stability_rule": "tool follow-up incremental frames are append-only context; each new frame is added before the dynamic tail and is reused unchanged by later follow-ups",
             "cache_impact": "append_only_provider_visible_context_prefix",

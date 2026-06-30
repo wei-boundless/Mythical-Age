@@ -1127,7 +1127,7 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert bundle.selected_layers == ("conversation",)
     assert bundle.context_package
     assert bundle.runtime_view.read_only is True
-    assert bundle.diagnostics["context_policy_attached"] is True
+    assert bundle.diagnostics["turn_context_policy_attached"] is True
 
 
 def test_memory_bundle_reuses_single_runtime_view_for_context_package(tmp_path) -> None:
@@ -1158,7 +1158,7 @@ def test_context_budget_provider_failure_is_visible(tmp_path) -> None:
     facade = MemoryFacade(tmp_path, context_budget_provider=_broken_budget)
 
     try:
-        facade.bundle_service.build_memory_context_package_result(
+        facade.bundle_service.build_turn_memory_context_package_result(
             session_id="session-budget-failure",
             memory_request_profile={"requested_memory_layers": ["state"]},
         )
@@ -1182,7 +1182,7 @@ def test_context_package_does_not_read_long_term_without_read_plan(tmp_path) -> 
     facade.memory_manager.save_note(note)
     facade.durable_memory.set_message_invoker(_durable_recall_selector("explicit-long-term-only"))
 
-    result = facade.bundle_service.build_memory_context_package_result(
+    result = facade.bundle_service.build_turn_memory_context_package_result(
         session_id="session-no-implicit-long-term",
         query="记忆规则是什么？",
     )
@@ -1197,7 +1197,7 @@ def test_context_package_requires_explicit_state_read_plan(tmp_path) -> None:
     manager = facade.session_memory.manager(session_id)
     manager.state_manager.overwrite(ProcessState(active_goal="不要默认注入 state"))
 
-    result = facade.bundle_service.build_memory_context_package_result(
+    result = facade.bundle_service.build_turn_memory_context_package_result(
         session_id=session_id,
         query="继续",
     )

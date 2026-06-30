@@ -8,6 +8,7 @@ from capability_system.skills.registry import SkillRegistry
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from runtime.request_signals.frame_access import capability_needs
 from task_system.contracts.capability_requirements import build_operation_requirement
+from task_system.contracts.task_run_signal import task_run_contract_signal_from_context
 
 from task_system.services.assembly_models import TaskExecutionAssembly
 from task_system.services.assembly_support import (
@@ -51,11 +52,12 @@ def build_task_execution_assembly_bundle(
 ) -> dict[str, Any]:
     _ = approval_context
     registry_base_dir = Path(base_dir) if base_dir is not None else _registry_base_dir()
+    current_turn_payload = dict(current_turn_context or {})
     definitions = select_runtime_task_definitions(
         user_goal,
         query_understanding=query_understanding,
+        current_turn_context=current_turn_payload,
     )
-    current_turn_payload = dict(current_turn_context or {})
     flow_registry = TaskFlowRegistry(registry_base_dir)
     task_environment_registry = task_environment_registry_from_backend_dir(registry_base_dir)
     workflow_registry = TaskWorkflowRegistry(registry_base_dir)
@@ -68,8 +70,8 @@ def build_task_execution_assembly_bundle(
         current_turn_payload=current_turn_payload,
         registered_task=registered_task,
     )
-    if not _has_canonical_task_contract(current_turn_payload):
-        raise RuntimeError("Canonical task contract seed must be produced from admitted model action before task assembly")
+    if not _has_task_run_contract_signal(current_turn_payload, dict(query_understanding or {})):
+        raise RuntimeError("Task run contract signal must be produced from admitted model action before task assembly")
     specific_task_record = (
         flow_registry.get_specific_task_record(str(registered_task.get("task_id") or ""))
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
@@ -303,6 +305,7 @@ def build_task_execution_assembly_bundle(
         task_id=binding_task_id or task_contract.task_id,
         task_mode=task_mode,
         query_understanding=dict(query_understanding or {}),
+        current_turn_context=current_turn_payload,
     )
     runtime_limits = dict(task_spec.constraints or {}).get("runtime_limits") or {}
     communication_protocol = _select_communication_protocol(
@@ -395,7 +398,7 @@ def build_task_execution_assembly_bundle(
         },
     )
     return {
-        "task_contract": task_contract_payload,
+        "task_system_contract": task_contract_payload,
         "definitions": [definition.to_dict() for definition in definitions],
         "task_intent_contract": task_intent_contract.to_dict(),
         "execution_shape": execution_shape.to_dict(),
@@ -497,19 +500,17 @@ def _normalize_current_turn_for_registered_task(
     return payload
 
 
-def _has_canonical_task_contract(current_turn_payload: dict[str, Any]) -> bool:
+def _has_task_run_contract_signal(current_turn_payload: dict[str, Any], query_understanding: dict[str, Any]) -> bool:
     payload = dict(current_turn_payload or {})
     if payload.get("task_graph_node_runtime") is True or payload.get("suppress_bundle_projection") is True:
         return True
-    for candidate in (
-        payload.get("task_contract_seed"),
-        dict(payload.get("model_turn_decision") or {}).get("task_contract_seed"),
-        dict(payload.get("agent_turn_action_request") or {}).get("task_contract_seed"),
-        payload.get("task_requirement_contract"),
-    ):
-        if isinstance(candidate, dict) and candidate:
-            return True
-    return False
+    return bool(
+        task_run_contract_signal_from_context(
+            current_turn_context=payload,
+            query_understanding=query_understanding,
+        )
+        or dict(payload.get("task_requirement_contract") or {})
+    )
 
 
 def _apply_specific_task_policy_to_binding(
@@ -603,22 +604,26 @@ def _memory_request_profile_payload(
     task_id: str,
     task_mode: str,
     query_understanding: dict[str, Any],
+    current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
     needs = capability_needs(query_understanding)
-    task_contract_seed = dict(dict(query_understanding or {}).get("task_contract_seed") or {})
-    working_scope = dict(task_contract_seed.get("working_scope") or {})
+    task_run_signal = task_run_contract_signal_from_context(
+        current_turn_context=current_turn_context,
+        query_understanding=query_understanding,
+    )
+    working_scope = dict(task_run_signal.get("working_scope") or {})
     has_canonical_work_scope = bool(
         list(working_scope.get("target_objects") or [])
         or list(working_scope.get("workspace_refs") or [])
         or list(working_scope.get("source_refs") or [])
-        or list(task_contract_seed.get("required_artifacts") or [])
+        or list(task_run_signal.get("required_artifacts") or [])
     )
     if (
         not payload
         and (
             task_mode in {"short_realtime_lookup", "information_search"}
-            or str(task_contract_seed.get("task_goal_type") or "") == "external_research"
+            or str(task_run_signal.get("task_goal_type") or "") == "external_research"
             or bool(needs & {"latest_information", "weather", "gold_price"})
         )
     ):
@@ -893,4 +898,3 @@ def _is_stage_execution_turn(current_turn_payload: dict[str, Any]) -> bool:
     if dict(current_turn_payload.get("task_result_ready_event") or {}):
         return True
     return False
-

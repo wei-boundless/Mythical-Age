@@ -441,6 +441,7 @@ function sessionActivityShouldStayVisible(activity: StoreState["sessionActivity"
     || event === "user_input_queued"
     || event === "user_input_queue_failed"
     || event === "stream_reconnecting"
+    || event === "stream_recoverable_interruption"
     || event === "stream_reconnect_failed";
 }
 

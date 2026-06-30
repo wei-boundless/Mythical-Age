@@ -401,7 +401,7 @@ describe("chronological projection frame reducer contract", () => {
       main_visibility: "hidden",
       retention: "trace",
       item_id: "diagnostic:raw-tool-start",
-      title: "tool_item_started_without_model_request",
+      title: "tool_item_started_without_tool_call_request",
       state: "running",
     });
 

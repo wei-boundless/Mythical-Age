@@ -26,6 +26,8 @@ const PUBLIC_RUNTIME_STATUS_LABELS: Record<string, string> = {
   blocked: "处理遇到阻塞",
   stopped: "运行已停止",
   aborted: "运行已停止",
+  interrupted: "运行已中断",
+  runtime_interruption_closed: "运行已中断",
   cancelled: "运行已停止",
   canceled: "运行已停止",
 };

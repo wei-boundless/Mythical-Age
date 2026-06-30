@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_run_parser = subparsers.add_parser("task-run", help="Execute or inspect TaskRuns")
     task_run_subparsers = task_run_parser.add_subparsers(dest="task_run_command", required=True)
     start_parser = task_run_subparsers.add_parser("start", help="Start a new TaskRun from an explicit contract file")
-    start_parser.add_argument("--contract-file", required=True, help="JSON file containing a runtime_contract or task_contract")
+    start_parser.add_argument("--contract-file", required=True, help="JSON file containing a runtime_contract or task_run_contract")
     start_parser.add_argument("--session", default="")
     start_parser.add_argument("--message", default="")
     start_parser.add_argument("--task-environment-id", default="")
@@ -680,15 +680,15 @@ def _load_json_object_file(path: str) -> dict[str, Any]:
 
 def _runtime_contract_for_task_run_start(payload: dict[str, Any], *, task_environment_id: str = "") -> dict[str, Any]:
     source = dict(payload or {})
-    if any(key in source for key in ("task_contract", "task_contract_seed", "engagement_contract")):
+    if any(key in source for key in ("task_run_contract", "task_run_contract_seed", "engagement_contract")):
         runtime_contract = dict(source)
     else:
-        runtime_contract = {"task_contract": source}
+        runtime_contract = {"task_run_contract": source}
     runtime_contract["system_issued_contract"] = True
     environment_id = str(task_environment_id or runtime_contract.get("task_environment_id") or "").strip()
     if environment_id:
         runtime_contract["task_environment_id"] = environment_id
-    for key in ("task_contract", "task_contract_seed", "engagement_contract"):
+    for key in ("task_run_contract", "task_run_contract_seed", "engagement_contract"):
         value = runtime_contract.get(key)
         if not isinstance(value, dict):
             continue
@@ -713,7 +713,7 @@ def _task_run_start_message(runtime_contract: dict[str, Any]) -> str:
 
 
 def _first_contract_payload(runtime_contract: dict[str, Any]) -> dict[str, Any]:
-    for key in ("task_contract", "task_contract_seed", "engagement_contract"):
+    for key in ("task_run_contract", "task_run_contract_seed", "engagement_contract"):
         value = runtime_contract.get(key)
         if isinstance(value, dict) and value:
             return dict(value)

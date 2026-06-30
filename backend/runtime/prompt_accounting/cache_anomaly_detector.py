@@ -4,13 +4,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .models import ModelTokenUsageRecord, PromptCacheRecord
+from .models import ModelTokenUsageRecord, CachePlanRecord
 from .provider_lane import normalize_provider_lane
 
 
 @dataclass(frozen=True, slots=True)
-class PromptCacheBreakRecord:
-    break_id: str
+class CacheAnomalyRecord:
+    anomaly_id: str
     request_id: str
     provider: str = ""
     model: str = ""
@@ -22,7 +22,7 @@ class PromptCacheBreakRecord:
     reason: str = ""
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.prompt_cache_break"
+    authority: str = "runtime.prompt_accounting.cache_anomaly"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -30,9 +30,9 @@ class PromptCacheBreakRecord:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PromptCacheBreakRecord":
+    def from_dict(cls, payload: dict[str, Any]) -> "CacheAnomalyRecord":
         return cls(
-            break_id=str(payload.get("break_id") or ""),
+            anomaly_id=str(payload.get("anomaly_id") or ""),
             request_id=str(payload.get("request_id") or ""),
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
@@ -44,39 +44,39 @@ class PromptCacheBreakRecord:
             reason=str(payload.get("reason") or ""),
             created_at=float(payload.get("created_at") or 0.0),
             diagnostics=dict(payload.get("diagnostics") or {}),
-            authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_cache_break"),
+            authority=str(payload.get("authority") or "runtime.prompt_accounting.cache_anomaly"),
         )
 
 
-class PromptCacheBreakDetector:
+class CacheAnomalyDetector:
     def detect(
         self,
         *,
-        cache_record: PromptCacheRecord,
+        cache_plan: CachePlanRecord,
         provider_usage: ModelTokenUsageRecord,
-        previous_cache_records: list[PromptCacheRecord],
+        previous_cache_plans: list[CachePlanRecord],
         created_at: float | None = None,
-    ) -> PromptCacheBreakRecord | None:
-        if not cache_record.cache_key or not cache_record.prefix_hash:
+    ) -> CacheAnomalyRecord | None:
+        if not cache_plan.cache_key or not cache_plan.prefix_hash:
             return None
         cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
         comparable_records = [
             record
-            for record in previous_cache_records
-            if record.request_id != cache_record.request_id
+            for record in previous_cache_plans
+            if record.request_id != cache_plan.request_id
             and record.status in {"eligible", "hit", "miss"}
-            and _record_scope_matches(record, cache_record)
+            and _record_scope_matches(record, cache_plan)
         ]
         repeated_prefix = [
             record
             for record in comparable_records
-            if record.cache_key == cache_record.cache_key
+            if record.cache_key == cache_plan.cache_key
         ]
         latest_previous = _latest_record(comparable_records)
-        prefix_cache_health = dict(dict(cache_record.diagnostics or {}).get("provider_prefix_cache_health") or {})
+        prefix_cache_health = dict(dict(cache_plan.diagnostics or {}).get("provider_prefix_cache_health") or {})
         if str(prefix_cache_health.get("verdict") or "") == "provider_under_read" and repeated_prefix:
-            return _build_break_record(
-                cache_record=cache_record,
+            return _build_anomaly_record(
+                cache_plan=cache_plan,
                 provider_usage=provider_usage,
                 previous_repeated_records=repeated_prefix,
                 latest_previous=latest_previous,
@@ -90,10 +90,10 @@ class PromptCacheBreakDetector:
                     ),
                 },
             )
-        uncovered_required = _uncovered_required_segments(cache_record)
-        if uncovered_required and repeated_prefix and _required_coverage_is_authoritative(cache_record):
-            return _build_break_record(
-                cache_record=cache_record,
+        uncovered_required = _uncovered_required_segments(cache_plan)
+        if uncovered_required and repeated_prefix and _required_coverage_is_authoritative(cache_plan):
+            return _build_anomaly_record(
+                cache_plan=cache_plan,
                 provider_usage=provider_usage,
                 previous_repeated_records=repeated_prefix,
                 latest_previous=latest_previous,
@@ -102,28 +102,28 @@ class PromptCacheBreakDetector:
                 extra_diagnostics={
                     "cached_tokens": cached_tokens,
                     "provider_cache_read_required_coverage_status": _diag_value(
-                        dict(cache_record.diagnostics or {}),
+                        dict(cache_plan.diagnostics or {}),
                         "provider_cache_read_required_coverage_status",
                     ),
                     "provider_cache_read_uncovered_required_segments": uncovered_required,
                     "provider_cache_read_required_segment_coverage": _diag_raw(
-                        dict(cache_record.diagnostics or {}),
+                        dict(cache_plan.diagnostics or {}),
                         "provider_cache_read_required_segment_coverage",
                     ),
                 },
             )
-        if cache_record.status != "miss":
+        if cache_plan.status != "miss":
             return None
         if cached_tokens > 0:
             return None
         reason = "provider_reported_miss_for_repeated_provider_payload_prefix" if repeated_prefix else _changed_payload_reason(
             previous=latest_previous,
-            current=cache_record,
+            current=cache_plan,
         )
         if not reason:
             return None
-        return _build_break_record(
-            cache_record=cache_record,
+        return _build_anomaly_record(
+            cache_plan=cache_plan,
             provider_usage=provider_usage,
             previous_repeated_records=repeated_prefix,
             latest_previous=latest_previous,
@@ -132,51 +132,51 @@ class PromptCacheBreakDetector:
         )
 
 
-def _build_break_record(
+def _build_anomaly_record(
     *,
-    cache_record: PromptCacheRecord,
+    cache_plan: CachePlanRecord,
     provider_usage: ModelTokenUsageRecord,
-    previous_repeated_records: list[PromptCacheRecord],
-    latest_previous: PromptCacheRecord | None,
+    previous_repeated_records: list[CachePlanRecord],
+    latest_previous: CachePlanRecord | None,
     reason: str,
     created_at: float | None,
     extra_diagnostics: dict[str, Any] | None = None,
-) -> PromptCacheBreakRecord:
+) -> CacheAnomalyRecord:
     timestamp = time.time() if created_at is None else float(created_at or 0.0)
-    return PromptCacheBreakRecord(
-        break_id=f"pcachebreak:{cache_record.request_id}",
-        request_id=cache_record.request_id,
-        provider=cache_record.provider,
-        model=cache_record.model,
-        run_id=cache_record.run_id,
-        task_run_id=cache_record.task_run_id,
-        session_id=cache_record.session_id,
-        cache_key=cache_record.cache_key,
-        prefix_hash=cache_record.prefix_hash,
+    return CacheAnomalyRecord(
+        anomaly_id=f"cacheanomaly:{cache_plan.request_id}",
+        request_id=cache_plan.request_id,
+        provider=cache_plan.provider,
+        model=cache_plan.model,
+        run_id=cache_plan.run_id,
+        task_run_id=cache_plan.task_run_id,
+        session_id=cache_plan.session_id,
+        cache_key=cache_plan.cache_key,
+        prefix_hash=cache_plan.prefix_hash,
         reason=reason,
         created_at=timestamp,
         diagnostics={
             "provider_usage_ref": provider_usage.usage_id,
-            "provider_lane": _record_provider_lane(cache_record),
-            "physical_payload_family_hash": _record_physical_payload_family_hash(cache_record),
-            "physical_payload_family": dict(dict(cache_record.diagnostics or {}).get("physical_payload_family") or {}),
+            "provider_lane": _record_provider_lane(cache_plan),
+            "physical_payload_family_hash": _record_physical_payload_family_hash(cache_plan),
+            "physical_payload_family": dict(dict(cache_plan.diagnostics or {}).get("physical_payload_family") or {}),
             "previous_request_ids": [record.request_id for record in previous_repeated_records[-5:]],
             "previous_comparable_request_id": latest_previous.request_id if latest_previous is not None else "",
-            "boundary_segment_id": cache_record.boundary_segment_id,
+            "boundary_segment_id": cache_plan.boundary_segment_id,
             "provider_payload": _provider_payload_diagnostics(
                 previous=latest_previous,
-                current=cache_record,
+                current=cache_plan,
             ),
             "prompt_assembly": _prompt_assembly_diagnostics(
                 previous=latest_previous,
-                current=cache_record,
+                current=cache_plan,
             ),
             **dict(extra_diagnostics or {}),
         },
     )
 
 
-def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecord) -> bool:
+def _record_scope_matches(previous: CachePlanRecord, current: CachePlanRecord) -> bool:
     if previous.provider and current.provider and previous.provider != current.provider:
         return False
     if previous.model and current.model and previous.model != current.model:
@@ -204,17 +204,17 @@ def _record_scope_matches(previous: PromptCacheRecord, current: PromptCacheRecor
     return True
 
 
-def _record_provider_lane(record: PromptCacheRecord) -> str:
+def _record_provider_lane(record: CachePlanRecord) -> str:
     diagnostics = dict(record.diagnostics or {})
     return normalize_provider_lane(diagnostics.get("provider_lane"))
 
 
-def _record_physical_payload_family_hash(record: PromptCacheRecord) -> str:
+def _record_physical_payload_family_hash(record: CachePlanRecord) -> str:
     diagnostics = dict(record.diagnostics or {})
     return str(diagnostics.get("physical_payload_family_hash") or "")
 
 
-def _record_cache_scope(record: PromptCacheRecord) -> str:
+def _record_cache_scope(record: CachePlanRecord) -> str:
     diagnostics = dict(record.diagnostics or {})
     return str(
         diagnostics.get("provider_cache_scope_id")
@@ -224,13 +224,13 @@ def _record_cache_scope(record: PromptCacheRecord) -> str:
     ).strip()
 
 
-def _latest_record(records: list[PromptCacheRecord]) -> PromptCacheRecord | None:
+def _latest_record(records: list[CachePlanRecord]) -> CachePlanRecord | None:
     if not records:
         return None
     return sorted(records, key=lambda item: float(item.created_at or 0.0))[-1]
 
 
-def _uncovered_required_segments(record: PromptCacheRecord) -> list[str]:
+def _uncovered_required_segments(record: CachePlanRecord) -> list[str]:
     diagnostics = dict(record.diagnostics or {})
     value = diagnostics.get("provider_cache_read_uncovered_required_segments")
     if isinstance(value, list):
@@ -238,7 +238,7 @@ def _uncovered_required_segments(record: PromptCacheRecord) -> list[str]:
     return []
 
 
-def _required_coverage_is_authoritative(record: PromptCacheRecord) -> bool:
+def _required_coverage_is_authoritative(record: CachePlanRecord) -> bool:
     diagnostics = dict(record.diagnostics or {})
     evidence = str(diagnostics.get("provider_cache_read_required_coverage_evidence") or "").strip()
     return bool(evidence and evidence not in {"estimated_from_local_token_scale", "unmeasured"})
@@ -246,8 +246,8 @@ def _required_coverage_is_authoritative(record: PromptCacheRecord) -> bool:
 
 def _changed_payload_reason(
     *,
-    previous: PromptCacheRecord | None,
-    current: PromptCacheRecord,
+    previous: CachePlanRecord | None,
+    current: CachePlanRecord,
 ) -> str:
     if previous is None:
         return ""
@@ -301,8 +301,8 @@ def _changed_payload_reason(
 
 def _provider_payload_diagnostics(
     *,
-    previous: PromptCacheRecord | None,
-    current: PromptCacheRecord,
+    previous: CachePlanRecord | None,
+    current: CachePlanRecord,
 ) -> dict[str, Any]:
     previous_diag = dict(getattr(previous, "diagnostics", {}) or {}) if previous is not None else {}
     current_diag = dict(current.diagnostics or {})
@@ -341,8 +341,8 @@ def _provider_payload_diagnostics(
 
 def _prompt_assembly_diagnostics(
     *,
-    previous: PromptCacheRecord | None,
-    current: PromptCacheRecord,
+    previous: CachePlanRecord | None,
+    current: CachePlanRecord,
 ) -> dict[str, Any]:
     previous_diag = dict(getattr(previous, "diagnostics", {}) or {}) if previous is not None else {}
     current_diag = dict(current.diagnostics or {})

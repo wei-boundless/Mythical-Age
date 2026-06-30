@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from runtime.context_management.provider_message_replay_contract import provider_message_byte_preservation_required
+
 from .models import PromptCompositionContentFragment
 
 
@@ -53,9 +55,10 @@ def build_content_fragments_from_message_specs(
             continue
         metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
         content_source = str(metadata.get("content_source") or "runtime_sanitized_model_message")
-        spec_message = _message_from_spec(specs[message_index]) if message_index < len(specs) else {}
+        spec = specs[message_index] if message_index < len(specs) else {}
+        spec_message = _message_from_spec(spec) if spec else {}
         fallback_message = dict(fallback_messages[message_index]) if message_index < len(fallback_messages) else {}
-        if spec_message and _prefer_message_spec_source(content_source):
+        if spec_message and _prefer_message_spec_source(spec):
             message = spec_message
             materialized_from = "message_spec"
         elif fallback_message:
@@ -94,15 +97,8 @@ def _message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _prefer_message_spec_source(content_source: str) -> bool:
-    normalized = str(content_source or "")
-    if normalized == "runtime.provider_protocol_replay":
-        return False
-    return (
-        normalized.startswith("prompt_assembly.")
-        or normalized.startswith("prompt_composition.section_renderer.")
-        or normalized.startswith("runtime.")
-    )
+def _prefer_message_spec_source(spec: dict[str, Any]) -> bool:
+    return not provider_message_byte_preservation_required(spec)
 
 
 def _segment_payloads(segment_plan: Any) -> list[dict[str, Any]]:

@@ -53,7 +53,6 @@ def build_single_agent_turn_packet_context(
     model_visible_tools = tuple(dict(item) for item in tool_plan.model_visible_tools)
     surface = _single_agent_turn_model_action_surface(
         control_capabilities=control_capabilities,
-        session_context=session_context_payload,
         model_visible_tools=model_visible_tools,
     )
     effective_capabilities = _single_agent_turn_effective_control_capabilities(
@@ -548,7 +547,6 @@ def _stable_hash(payload: Any) -> str:
 def _single_agent_turn_model_action_surface(
     *,
     control_capabilities: dict[str, Any],
-    session_context: dict[str, Any],
     model_visible_tools: tuple[dict[str, Any], ...],
 ) -> RuntimePacketModelActionSurface:
     actions: list[str] = ["respond", "ask_user", "block"]
@@ -556,9 +554,6 @@ def _single_agent_turn_model_action_surface(
         actions.append("request_task_run")
     if bool(control_capabilities.get("may_control_active_work") is True):
         actions.append("active_work_control")
-    resumable_work_action_candidate = _has_resumable_work_action_candidate(session_context)
-    if resumable_work_action_candidate:
-        actions.append("resume_recoverable_work")
     if model_visible_tools:
         actions.append("tool_call")
     allowed_action_types = tuple(dict.fromkeys(actions))
@@ -567,7 +562,6 @@ def _single_agent_turn_model_action_surface(
             "allowed_action_types": list(allowed_action_types),
             "may_request_task_run": bool(control_capabilities.get("may_request_task_run") is True),
             "may_control_active_work": bool(control_capabilities.get("may_control_active_work") is True),
-            "resumable_work_action_candidate": resumable_work_action_candidate,
             "visible_tool_count": len(model_visible_tools),
         }
     )[:20]
@@ -579,7 +573,6 @@ def _single_agent_turn_model_action_surface(
             "source": "runtime_capabilities_and_state_candidates",
             "may_request_task_run": bool(control_capabilities.get("may_request_task_run") is True),
             "may_control_active_work": bool(control_capabilities.get("may_control_active_work") is True),
-            "resumable_work_action_candidate": resumable_work_action_candidate,
             "visible_tool_count": len(model_visible_tools),
         },
     )
@@ -631,19 +624,4 @@ def _single_agent_turn_tool_plan(
         runtime_assembly=assembly_payload,
         invocation_kind="single_agent_turn",
         tool_definitions_by_name={},
-    )
-
-
-def _has_resumable_work_action_candidate(session_context: dict[str, Any] | None) -> bool:
-    payload = dict(session_context or {})
-    record = dict(payload.get("recoverable_work") or {})
-    if not record:
-        return False
-    state = str(record.get("state") or "").strip()
-    return bool(
-        str(record.get("continuation_id") or "").strip()
-        and str(record.get("task_run_id") or "").strip()
-        and record.get("resume_allowed") is True
-        and state
-        and state != "terminal_read_only"
     )

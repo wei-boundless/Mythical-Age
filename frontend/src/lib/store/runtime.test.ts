@@ -182,7 +182,7 @@ function taskProjectionForTest(taskRunId: string, patch: Record<string, unknown>
   const updatedAt = Number(patch.updated_at ?? 1) || 1;
   const currentAction = recordValue(patch.current_action);
   return {
-    authority: "harness.runtime.single_agent_task_projection.v1",
+    authority: "harness.runtime.single_agent_task_projection",
     projection_id: text(patch.projection_id) || `projection:${taskRunId}:${updatedAt}`,
     task_run_id: taskRunId,
     task_id: text(patch.task_id) || "task:turn:session:test:1",
@@ -668,7 +668,7 @@ function runtimeProjectionAttachmentForTest(options: {
     },
     projection_slices: [{
       slice_id: `projection-slice:${options.streamRunId}`,
-      schema_version: "chronological_projection",
+      projection_schema_id: "chronological_projection",
       event_log_id: `chatrun:${options.streamRunId}`,
       start_offset: 10,
       end_offset: 10,
@@ -707,7 +707,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getLatestSessionContinuation.mockResolvedValue({
       session_id: "",
       available: false,
-      reason: "no_recoverable_work",
+      reason: "no_task_recovery",
       authority: "session.continuation.latest",
     });
     api.getRunMonitor.mockReset();
@@ -3206,7 +3206,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
         refs: {},
         authority: "runtime.runtime_event",
-        public_projection_authority: "public_stream.public_projection.v1",
+        public_projection_authority: "public_stream.public_projection",
         public_event_type: "model_action_admission",
         public_projection_envelope: anchoredStatusProjectionEnvelope({
           projectionId: "publicproj:public-delta",
@@ -8189,4 +8189,3 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
-

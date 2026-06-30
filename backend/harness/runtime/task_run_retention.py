@@ -312,7 +312,7 @@ class TaskRunLifecycleRetention:
         payload = {
             **payload,
             "task_run_id": task_run_id,
-            "contract_ref": str(payload.get("contract_ref") or getattr(task_run, "task_contract_ref", "") or ""),
+            "contract_ref": str(payload.get("contract_ref") or getattr(task_run, "task_run_contract_ref", "") or ""),
             "status": "aborted",
             "created_at": float(payload.get("created_at") or getattr(task_run, "created_at", 0.0) or now),
             "updated_at": now,
@@ -671,4 +671,3 @@ def _positive_float(value: Any, default: float) -> float:
     except (TypeError, ValueError):
         parsed = float(default)
     return max(1.0, parsed)
-

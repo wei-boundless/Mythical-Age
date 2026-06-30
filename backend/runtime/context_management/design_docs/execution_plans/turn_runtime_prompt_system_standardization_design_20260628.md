@@ -261,7 +261,7 @@ Prompt 规则必须分层：
 调整：
 
 - provider strict tool/function calling 是控制动作 schema 的主承载。
-- `request_task_run`、`active_work_control`、`resume_recoverable_work` 的字段要求由 schema 表达。
+- `request_task_run`、`active_work_control`、`resume_task_recovery` 的字段要求由 schema 表达。
 - prompt 只说明“选择哪个动作”，不反复讲字段路径。
 
 命名建议：
@@ -365,7 +365,7 @@ Prompt 规则必须分层：
 - `task_run`
 - `request_task_run`
 - `active_work_control`
-- `resume_recoverable_work`
+- `resume_task_recovery`
 
 原因：这些是动作或资源概念，用户已经明确认可 `request_task_run` 方向；后续任务体系重做时再处理 TaskRun 内部模型。
 

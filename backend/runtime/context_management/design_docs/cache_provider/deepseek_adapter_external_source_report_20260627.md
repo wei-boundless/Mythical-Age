@@ -65,7 +65,7 @@ DeepSeek 适配至少有五条硬要求：
 | CC Switch | `D:/AI应用/cc-switch-main/src-tauri/src/proxy/providers/transform_codex_chat.rs:850` | thinking 工具历史无法恢复时，tool-call assistant message 会补 `reasoning_content` placeholder。 |
 | CC Switch | `D:/AI应用/cc-switch-main/src-tauri/src/proxy/providers/transform_codex_chat.rs:1533` | Chat usage 转回 Responses usage 时保留 cached token 字段。 |
 | CC Switch | `D:/AI应用/cc-switch-main/src-tauri/src/proxy/providers/transform.rs:11` | 删除开头动态 Claude Code billing metadata，因为它会破坏 prefix cache reuse。 |
-| CC Switch | `D:/AI应用/cc-switch-main/src-tauri/src/proxy/cache_injector.rs:8` | cache breakpoint 注入到 tools、system、最后一个 non-thinking assistant block；thinking blocks 被跳过。 |
+| CC Switch | `D:/AI应用/cc-switch-main/src-tauri/src/proxy/cache_injector.rs:8` | cache anomalypoint 注入到 tools、system、最后一个 non-thinking assistant block；thinking blocks 被跳过。 |
 
 ## Hermes 源码结论
 

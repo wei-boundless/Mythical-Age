@@ -75,7 +75,7 @@ def build_request_signals(
     text = str(message or "").strip()
     paths = tuple(_dedupe(_extract_paths(text)))
     suffixes = tuple(_dedupe([_suffix(path) for path in paths if _suffix(path)]))
-    explicit_contract = _explicit_task_contract(current_turn)
+    explicit_contract = _explicit_task_run_contract(current_turn)
     signals = _signals_from_observations(paths=paths, suffixes=suffixes, memory_intent=memory_intent)
     return RequestSignals(
         frame_id=f"turn-signals:{_slug(text)[:48] or 'runtime'}",
@@ -119,7 +119,7 @@ def _signals_from_observations(
     )
 
 
-def _explicit_task_contract(current_turn: dict[str, Any]) -> dict[str, Any]:
+def _explicit_task_run_contract(current_turn: dict[str, Any]) -> dict[str, Any]:
     selected_task_id = str(
         current_turn.get("selected_task_id")
         or current_turn.get("task_id")
@@ -129,7 +129,7 @@ def _explicit_task_contract(current_turn: dict[str, Any]) -> dict[str, Any]:
     ).strip()
     if not selected_task_id:
         return {}
-    return {"kind": "explicit_task_contract", "selected_task_id": selected_task_id}
+    return {"kind": "explicit_task_run_contract", "selected_task_id": selected_task_id}
 
 
 def _target_domain_hints(*, suffixes: tuple[str, ...], signals: TurnSignals, current_turn: dict[str, Any]) -> list[str]:
@@ -225,5 +225,4 @@ def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
 

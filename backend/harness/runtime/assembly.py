@@ -184,7 +184,7 @@ _CONTEXT_CAPABILITY_GROUPS = (
     "static_identity",
     "runtime_contracts",
     "action_contracts",
-    "task_contracts",
+    "task_run_contracts",
     "tool_context",
     "context_memory",
     "task_state_context",
@@ -200,7 +200,7 @@ _CONTEXT_CAPABILITY_GROUPS = (
 )
 
 _SYSTEM_GROUP_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
-    "task_contract_intake": ("task_contracts", "runtime_contracts", "turn_state_control", "repair_feedback"),
+    "task_run_contract_intake": ("task_run_contracts", "runtime_contracts", "turn_state_control", "repair_feedback"),
     "react_loop": ("action_contracts", "tool_context", "turn_state_control", "repair_feedback", "current_dynamic_control"),
     "tool_runtime": ("tool_context", "action_contracts", "repair_feedback"),
     "skill_runtime": ("active_skill", "runtime_contracts", "tool_context"),
@@ -236,7 +236,13 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
             "tool.guidance.read_persisted_tool_result",
             "tool.guidance.local_search",
         ),
-        "context_segments": ("tool_index_stable", "read_evidence_context", "evidence_index_cursor", "editor_context_index"),
+        "context_segments": (
+            "tool_index_stable",
+            "read_evidence_context",
+            "evidence_index_cursor",
+            "evidence_acquisition_horizon",
+            "editor_context_index",
+        ),
         "feedback_channels": ("file_read_result", "file_search_result", "file_evidence_repair"),
     },
     "artifact_generation": {
@@ -1024,7 +1030,7 @@ def _build_system_wiring_manifest(
             for tool in tuple(available_tools or ())
         )
     )
-    task_contract_intake_enabled = bool(may_request_task_run and system_group_allowed("task_contract_intake"))
+    task_run_contract_intake_enabled = bool(may_request_task_run and system_group_allowed("task_run_contract_intake"))
     react_loop_enabled = bool(
         (may_call_tools or may_use_subagents or may_control_active_work)
         and system_group_allowed("react_loop")
@@ -1051,13 +1057,13 @@ def _build_system_wiring_manifest(
     recovery_closeout_enabled = system_group_allowed("recovery_closeout")
 
     system_groups = {
-        "task_contract_intake": _system_group_manifest(
-            enabled=task_contract_intake_enabled,
-            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["task_contract_intake"],
+        "task_run_contract_intake": _system_group_manifest(
+            enabled=task_run_contract_intake_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["task_run_contract_intake"],
             config={
-                "accept_task_contract": True,
+                "accept_task_run_contract": True,
                 "request_task_run_enabled": may_request_task_run,
-                "contract_strictness": "compact_task_start_intent_v3",
+                "contract_strictness": "compact_task_start_intent",
                 "task_lifecycle_policy": task_lifecycle_policy,
             },
             prompt_resources=(
@@ -1076,7 +1082,7 @@ def _build_system_wiring_manifest(
                 "requires_json_action_protocol": bool(control.get("requires_json_action_protocol") is True),
             },
             prompt_resources=("runtime.rule.tool_use", "runtime.rule.multi_tool_scheduling"),
-            context_segments=("single_agent_turn_tool_call", "tool_transcript_delta", "single_agent_turn_followup_action_contract"),
+            context_segments=("single_agent_turn_tool_call", "tool_transcript_delta", "single_agent_turn_followup_action_contract", "active_execution_lease"),
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial", "followup_prompt_payload"),
         ),
         "tool_runtime": _system_group_manifest(
@@ -1153,7 +1159,13 @@ def _build_system_wiring_manifest(
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
             config={"exact_read_evidence": evidence_read_enabled},
             prompt_resources=("tool.guidance.read_file", *_environment_guidance_prompt_refs(prompt_mount_payload, "verification_gate")),
-            context_segments=("read_evidence_context", "evidence_index_cursor", "attachment_context_index", "editor_context_index"),
+            context_segments=(
+                "read_evidence_context",
+                "evidence_index_cursor",
+                "evidence_acquisition_horizon",
+                "attachment_context_index",
+                "editor_context_index",
+            ),
             feedback_channels=("evidence_missing", "evidence_recovery"),
         ),
         "evidence_alignment": _system_group_manifest(
@@ -1196,7 +1208,7 @@ def _build_system_wiring_manifest(
                 "resume_replay_required": True,
             },
             prompt_resources=_environment_guidance_prompt_refs(prompt_mount_payload, "active_work_control", "user_steer_contract_revision"),
-            context_segments=("single_agent_turn_user_steer_context", "user_steering_context_append", "runtime_control_signal_tail"),
+            context_segments=("single_agent_turn_user_steer_context", "user_steering_context_append", "runtime_control_signal_tail", "active_execution_lease"),
             feedback_channels=("resume_recovery", "user_steer_repair", "closeout_control"),
         ),
         "output_projection": _system_group_manifest(
@@ -1429,8 +1441,6 @@ def _compiled_prompt_resource_gates(system_groups: dict[str, dict[str, Any]]) ->
             ref = str(prompt_ref or "").strip()
             if not ref:
                 continue
-            if _prompt_resource_gate_is_diagnostic_only(ref):
-                continue
             gate = result.setdefault(
                 ref,
                 {
@@ -1447,11 +1457,6 @@ def _compiled_prompt_resource_gates(system_groups: dict[str, dict[str, Any]]) ->
                     [*list(gate.get("disabled_system_groups") or []), system_group]
                 )
     return result
-
-
-def _prompt_resource_gate_is_diagnostic_only(prompt_ref: str) -> bool:
-    ref = str(prompt_ref or "").strip()
-    return ref.startswith("runtime.")
 
 
 def _compiled_context_segment_gates(system_groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:

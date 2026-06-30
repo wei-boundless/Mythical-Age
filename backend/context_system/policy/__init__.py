@@ -4,34 +4,34 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 __all__ = [
-    "ContextCandidateDecision",
-    "ContextPolicyResult",
     "EvidenceSummary",
     "MainContextState",
-    "MemoryContextPolicy",
-    "SealedContextLedgerEntry",
-    "SealedContextReceipt",
+    "TurnContextCandidateDecision",
+    "TurnContextPolicyResult",
+    "TurnMemoryContextPolicy",
+    "ContextSelectionReceiptEntry",
+    "ContextSelectionReceipt",
     "TaskSummaryRef",
-    "build_context_package_result",
+    "build_turn_context_package_result",
 ]
 
 _EXPORTS = {
-    "ContextCandidateDecision": ("context_system.policy.contracts", "ContextCandidateDecision"),
-    "ContextPolicyResult": ("context_system.policy.contracts", "ContextPolicyResult"),
     "EvidenceSummary": ("context_system.policy.runtime_models", "EvidenceSummary"),
     "MainContextState": ("context_system.policy.runtime_models", "MainContextState"),
-    "MemoryContextPolicy": ("context_system.policy.package_builder", "MemoryContextPolicy"),
-    "SealedContextLedgerEntry": ("context_system.models.context_models", "SealedContextLedgerEntry"),
-    "SealedContextReceipt": ("context_system.models.context_models", "SealedContextReceipt"),
+    "TurnContextCandidateDecision": ("context_system.policy.contracts", "TurnContextCandidateDecision"),
+    "TurnContextPolicyResult": ("context_system.policy.contracts", "TurnContextPolicyResult"),
+    "TurnMemoryContextPolicy": ("context_system.policy.package_builder", "TurnMemoryContextPolicy"),
+    "ContextSelectionReceiptEntry": ("context_system.models.context_models", "ContextSelectionReceiptEntry"),
+    "ContextSelectionReceipt": ("context_system.models.context_models", "ContextSelectionReceipt"),
     "TaskSummaryRef": ("context_system.policy.runtime_models", "TaskSummaryRef"),
-    "build_context_package_result": ("context_system.policy.package_builder", "build_context_package_result"),
+    "build_turn_context_package_result": ("context_system.policy.package_builder", "build_turn_context_package_result"),
 }
 
 if TYPE_CHECKING:
-    from context_system.policy.contracts import ContextCandidateDecision, ContextPolicyResult
-    from context_system.policy.package_builder import MemoryContextPolicy, build_context_package_result
+    from context_system.policy.contracts import TurnContextCandidateDecision, TurnContextPolicyResult
+    from context_system.policy.package_builder import TurnMemoryContextPolicy, build_turn_context_package_result
     from context_system.policy.runtime_models import EvidenceSummary, MainContextState, TaskSummaryRef
-    from context_system.models.context_models import SealedContextLedgerEntry, SealedContextReceipt
+    from context_system.models.context_models import ContextSelectionReceiptEntry, ContextSelectionReceipt
 
 
 def __getattr__(name: str):

@@ -56,7 +56,7 @@ from runtime.shared.queued_user_input_dispatcher import (
     validate_queued_steer,
 )
 from runtime.shared.queued_user_input_store import QueuedUserInput
-from runtime.shared.runtime_run_registry import RuntimeRun, TERMINAL_RUNTIME_RUN_STATUSES
+from runtime.shared.runtime_run_registry import RuntimeRun, TERMINAL_RUNTIME_RUN_STATUSES, is_recoverable_runtime_run_interruption
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
@@ -451,6 +451,7 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
 async def get_latest_chat_run_for_session(
     session_id: str,
     active_only: bool = Query(default=True),
+    restore_only: bool = Query(default=False),
 ):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
@@ -468,6 +469,14 @@ async def get_latest_chat_run_for_session(
             run
             for run in candidates
             if chat_run_execution_attached(host, run, terminal_statuses=TERMINAL_RUN_STATUSES)
+        ]
+    if restore_only:
+        candidates = [
+            run
+            for run in candidates
+            if is_recoverable_runtime_run_interruption(run)
+            and str(run.event_log_id or "").strip()
+            and int(getattr(run, "latest_event_offset", -1) or -1) >= 0
         ]
     if not candidates:
         if active_only:
@@ -490,12 +499,10 @@ async def get_latest_session_continuation(session_id: str):
         context_recovery_status=context_status,
     )
     record = selection.record.to_dict() if selection.record is not None else {}
-    interrupted_turn = selection.interrupted_turn.to_dict() if selection.interrupted_turn is not None else {}
     return {
         "session_id": validated_session_id,
-        "available": bool(record or interrupted_turn),
+        "available": bool(record),
         "record": record,
-        "interrupted_turn": interrupted_turn,
         "context_recovery_status": context_status,
         "reason": selection.reason,
         "authority": "api.chat.session_continuation_projection",
@@ -2172,7 +2179,7 @@ def _session_context_recovery_status(runtime: Any, session_id: str) -> dict[str,
             "present": True,
             "fresh": True,
             "source": str(package.get("source") or "context_recovery_package"),
-            "schema_version": str(package.get("schema_version") or ""),
+            "package_schema_id": str(package.get("package_schema_id") or ""),
             "covered_message_count": int(coverage.get("covered_message_count") or 0),
             "covered_event_run_id": str(coverage.get("covered_event_run_id") or ""),
             "covered_event_offset_end": coverage.get("covered_event_offset_end"),
@@ -2236,7 +2243,7 @@ def _publish_chat_interruption_fact_signal(
         "contract": {
             "system_role": "carry_runtime_facts_and_feedback_only",
             "agent_role": "decide_next_action_from_facts",
-            "semantic_decision_owner": "agent",
+            "decision_owner": "agent",
         },
         "authority": "api.chat.runtime_interruption.signal",
     }
@@ -2337,7 +2344,7 @@ def _run_restore_contract(
     replay_available = bool(str(run.event_log_id or "").strip() and latest_event_offset >= 0)
     recoverable_interruption = bool(
         diagnostics.get("recoverable") is True
-        and diagnostics.get("semantic_terminal") is False
+        and diagnostics.get("agent_decision_terminal") is False
     )
     continuation_ref: dict[str, Any] = {}
     continuation_available = False
@@ -2352,7 +2359,7 @@ def _run_restore_contract(
                 context_recovery_status=context_status,
             )
             continuation_ref = selection.to_dict()
-            continuation_available = bool(selection.record is not None or selection.interrupted_turn is not None)
+            continuation_available = bool(selection.record is not None)
         except Exception:
             logger.debug(
                 "Failed to project chat run continuation contract.",

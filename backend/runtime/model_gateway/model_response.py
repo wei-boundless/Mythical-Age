@@ -684,10 +684,10 @@ def _accounting_context_from_directive(
         or ""
     )
     request_id = str(
-        diagnostics.get("model_request_id")
+        diagnostics.get("provider_request_id")
         or diagnostics.get("runtime_invocation_packet_ref")
         or diagnostics.get("packet_ref")
-        or f"modelreq:{directive.directive_id}"
+        or f"providerreq:{directive.directive_id}"
     )
     source = str(stream_policy.get("source") or "runtime_directive.model_response")
     context = utility_accounting_context(

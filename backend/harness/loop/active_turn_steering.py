@@ -236,9 +236,9 @@ def _persist_queued_user_steer_as_turn_message(
     }
     try:
         append_messages(item.session_id, [payload])
-        append_api = getattr(session_manager, "append_api_messages", None)
-        if callable(append_api):
-            append_api(item.session_id, [payload])
+        append_provider_protocol = getattr(session_manager, "append_provider_protocol_messages", None)
+        if callable(append_provider_protocol):
+            append_provider_protocol(item.session_id, [payload])
     except Exception:
         logger.debug("failed to persist active turn queued user steer message", exc_info=True)
 

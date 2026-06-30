@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from harness.task_contract_normalization import contract_string_tuple
+
 
 class RuntimeBaseDirStub:
     def __init__(self, base_dir: Path) -> None:
@@ -30,7 +32,7 @@ class HarnessRuntimeFacadeMemoryFacadeStub:
         update_runtime_state_from_context_state=lambda *_args, **_kwargs: None,
     )
 
-    def build_memory_context_package(self, *_args, **_kwargs):
+    def build_turn_memory_context_package(self, *_args, **_kwargs):
         return None
 
     def build_memory_runtime_view(self, *_args, **_kwargs):
@@ -72,7 +74,7 @@ class DefaultPermissionStub:
 class InMemorySessionManagerStub:
     def __init__(self) -> None:
         self.messages: list[dict[str, object]] = []
-        self.api_transcript: list[dict[str, object]] = []
+        self.provider_protocol_timeline: list[dict[str, object]] = []
         self.compressed_context = ""
 
     def load_session_record(self, _session_id):
@@ -84,16 +86,16 @@ class InMemorySessionManagerStub:
     def load_session(self, _session_id):
         return list(self.messages)
 
-    def load_session_for_api(self, _session_id):
-        return list(self.api_transcript or self.messages)
+    def load_provider_protocol_timeline(self, _session_id):
+        return list(self.provider_protocol_timeline)
 
     def append_messages(self, _session_id, messages):
         self.messages.extend(messages)
         return list(messages)
 
-    def append_api_messages(self, _session_id, messages):
-        self.api_transcript.extend(messages)
-        return list(self.api_transcript)
+    def append_provider_protocol_messages(self, _session_id, messages):
+        self.provider_protocol_timeline.extend(messages)
+        return list(self.provider_protocol_timeline)
 
 
 class EmptyToolRuntimeStub:
@@ -207,14 +209,11 @@ def agent_turn_context(
     resolved_task_goal_type = str(task_goal_type or "").strip()
     if not resolved_task_goal_type:
         raise ValueError("agent_turn_context requires task_goal_type")
-    artifact_requirements = [
-        {"artifact_kind": "deliverable", "user_visible_name": str(item)}
-        for item in list(deliverables or [])
-        if str(item).strip()
-    ]
-    task_contract_seed = {
-        "user_visible_goal": desired_outcome,
-        "task_run_goal": desired_outcome,
+    task_run_contract_seed = {
+        "contract_shape": "compact_task_start_intent",
+        "primary_mode": "plan" if planning_required or not todo_required else "goal",
+        "task_shape": "standard",
+        "minimum_viable_next_step": desired_outcome,
         "working_scope": {
             "target_objects": list(target_objects or [desired_outcome]),
             "workspace_refs": [],
@@ -222,25 +221,20 @@ def agent_turn_context(
             "excluded_scope": list(forbidden_actions or []),
             "known_constraints": list(constraints or []),
         },
-        "required_artifacts": artifact_requirements,
-        "required_verifications": [],
-        "completion_criteria": list(completion_criteria or []),
-        "capability_intent": {
-            "needed_capability_groups": ["file_work"] if target_objects else ["general_task"],
-            "preferred_tool_namespaces": [],
-            "requires_deferred_tool_loading": True,
-            "reason": "测试桩按任务上下文声明需要的能力服务。",
+        "acceptance": {
+            "mode": "checkpoint",
+            "criteria": list(contract_string_tuple(completion_criteria or deliverables or [desired_outcome])),
+            "final_answer_requirements": [],
         },
-        "skill_intent": {
-            "selected_skill_ids": list(selected_skill_ids or []),
-            "candidate_skill_ids": [],
-            "required_capability_tags": [],
-            "reason": "",
+        "mode_payload": {
+            "summary": desired_outcome,
+            "steps": list(contract_string_tuple(completion_criteria or [desired_outcome])),
+            "success_definition": desired_outcome,
+            "notes": list(contract_string_tuple(deliverables)),
         },
-        "observation_contract": {
-            "evidence_policy": "observation_required",
-            "progress_granularity": "step",
-            "finalization_requires_evidence": True,
+        "todo_tool_contract": {
+            "todo_is_tool": True,
+            "cursor_updates": [],
         },
     }
     action_request = {
@@ -249,14 +243,14 @@ def agent_turn_context(
         "turn_id": "turn:test",
         "action_type": action_type,
         "final_answer": desired_outcome if action_type == "respond" else "",
-        "task_contract_seed": task_contract_seed if action_type == "request_task_run" else {},
+        "task_run_contract_seed": task_run_contract_seed if action_type == "request_task_run" else {},
         "completion_contract": {"completion_criteria": list(completion_criteria or [])},
         "permission_request": {},
         "diagnostics": {"test_stub_action": True},
     }
     result: dict[str, object] = {
         "agent_turn_action_request": action_request,
-        "task_contract_seed": task_contract_seed,
+        "task_run_contract_seed": task_run_contract_seed,
         "runtime_admission": {"authority": "agent_runtime.runtime_admission", "allowed": True},
         "turn_signals": {
             "authority": "turn_signals.structural",
@@ -308,7 +302,7 @@ def _default_agent_turn_action_request(messages: Any) -> dict[str, object]:
             "next_action": "整理最终回复并收口。"
         },
         "final_answer": user_message or "test outcome",
-        "task_contract_seed": {},
+        "task_run_contract_seed": {},
         "completion_contract": {},
         "permission_request": {},
         "diagnostics": {

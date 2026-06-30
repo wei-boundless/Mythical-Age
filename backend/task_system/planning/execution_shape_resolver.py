@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from task_system.contracts.task_run_signal import task_run_contract_signal_from_context
 from task_system.tasks.definitions import TaskDefinition
 from task_system.contracts.match_contracts import TaskIntentContract
 
@@ -43,10 +44,13 @@ def resolve_execution_shape(
     execution_obligation = dict(task_intent_contract.execution_obligation or semantic_contract.get("execution_obligation") or {})
     runtime_policy = dict(task_intent_contract.runtime_policy or {})
     agent_turn_action_request = dict(current_turn.get("agent_turn_action_request") or {})
-    task_contract_seed = dict(current_turn.get("task_contract_seed") or {})
+    task_run_signal = task_run_contract_signal_from_context(
+        current_turn_context=current_turn,
+        query_understanding=query_understanding,
+    )
     task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
     source_kind = _source_kind_from_contract(
-        task_contract_seed=task_contract_seed,
+        task_run_signal=task_run_signal,
         semantic_contract=semantic_contract,
     )
     diagnostics = _shape_diagnostics(
@@ -54,7 +58,7 @@ def resolve_execution_shape(
         source_kind,
         current_turn,
         agent_turn_action_request=agent_turn_action_request,
-        task_contract_seed=task_contract_seed,
+        task_run_signal=task_run_signal,
     )
     if runtime_policy:
         diagnostics["runtime_policy"] = runtime_policy
@@ -94,7 +98,7 @@ def resolve_execution_shape(
             execution_kind="bundle",
             source_kind="mixed_sources",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="task_contract",
+            resolution_source="task_run_contract_signal",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
@@ -106,7 +110,7 @@ def resolve_execution_shape(
             execution_kind="search",
             source_kind="external_web",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="task_contract",
+            resolution_source="task_run_contract_signal",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
@@ -116,19 +120,19 @@ def resolve_execution_shape(
         return _shape_from_recipe_id(
             "runtime.recipe.workspace_patch",
             source_kind=source_kind or "workspace",
-            resolution_source="task_contract",
+            resolution_source="task_run_contract_signal",
             reasons=reasons,
             diagnostics=diagnostics,
         )
 
     if task_goal_type in {"inspection", "code_review", "pdf_analysis"} or source_kind in {"pdf", "dataset", "knowledge", "workspace"}:
-        reasons.append(f"task_contract_source:{source_kind or task_goal_type}")
+        reasons.append(f"task_run_contract_signal_source:{source_kind or task_goal_type}")
         if source_kind == "pdf":
             return _shape_from_source_kind(
                 source_kind,
                 recipe_id="runtime.recipe.pdf_analysis",
                 execution_kind="capability",
-                resolution_source="task_contract",
+                resolution_source="task_run_contract_signal",
                 reasons=reasons,
                 diagnostics=diagnostics,
             )
@@ -137,7 +141,7 @@ def resolve_execution_shape(
                 source_kind,
                 recipe_id="runtime.recipe.structured_data_analysis",
                 execution_kind="capability",
-                resolution_source="task_contract",
+                resolution_source="task_run_contract_signal",
                 reasons=reasons,
                 diagnostics=diagnostics,
             )
@@ -146,7 +150,7 @@ def resolve_execution_shape(
                 "knowledge",
                 recipe_id="runtime.recipe.knowledge_retrieval",
                 execution_kind="retrieval",
-                resolution_source="task_contract",
+                resolution_source="task_run_contract_signal",
                 reasons=reasons,
                 diagnostics=diagnostics,
             )
@@ -155,16 +159,16 @@ def resolve_execution_shape(
             execution_kind="capability",
             source_kind=source_kind or "workspace",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="task_contract",
+            resolution_source="task_run_contract_signal",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
 
-    reasons.append("default_task_contract")
+    reasons.append("default_task_run_contract_signal")
     return _shape_from_recipe_id(
         "runtime.recipe.capability",
         source_kind=source_kind or "runtime_task",
-        resolution_source="task_contract",
+        resolution_source="task_run_contract_signal",
         reasons=reasons,
         diagnostics=diagnostics,
     )
@@ -217,14 +221,14 @@ def _shape_diagnostics(
     current_turn: dict[str, Any],
     *,
     agent_turn_action_request: dict[str, Any],
-    task_contract_seed: dict[str, Any],
+    task_run_signal: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "definition_ids": sorted(definition_ids),
         "source_kind": source_kind,
         "current_turn_execution_mode": str(current_turn.get("execution_mode") or ""),
         "agent_turn_action_request": dict(agent_turn_action_request or {}),
-        "task_contract_seed": dict(task_contract_seed or {}),
+        "task_run_contract_signal": dict(task_run_signal or {}),
     }
 
 
@@ -240,10 +244,10 @@ def _explicit_task_runtime(current_turn: dict[str, Any]) -> bool:
     return False
 
 
-def _source_kind_from_contract(*, task_contract_seed: dict[str, Any], semantic_contract: dict[str, Any]) -> str:
+def _source_kind_from_contract(*, task_run_signal: dict[str, Any], semantic_contract: dict[str, Any]) -> str:
     domain = str(semantic_contract.get("domain") or semantic_contract.get("task_domain") or "").strip()
-    task_goal_type = str(task_contract_seed.get("task_goal_type") or semantic_contract.get("task_goal_type") or "").strip()
-    working_scope = dict(task_contract_seed.get("working_scope") or {})
+    task_goal_type = str(task_run_signal.get("task_goal_type") or semantic_contract.get("task_goal_type") or "").strip()
+    working_scope = dict(task_run_signal.get("working_scope") or {})
     targets = [
         str(item or "").strip().lower()
         for item in list(working_scope.get("target_objects") or [])

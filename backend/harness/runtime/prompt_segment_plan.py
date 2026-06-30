@@ -8,6 +8,9 @@ from typing import Any, Literal
 from prompt_composition.context_envelope import parse_context_fragment_payload
 from runtime.prompt_accounting.serializer import canonical_json, normalize_messages
 
+from .context_contract.authority_rules import classify_context_spec
+from .context_contract.nodes import context_contract_edge_id
+
 
 SegmentCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
 SegmentPrefixTier = Literal["provider_global", "session", "volatile", "none"]
@@ -82,6 +85,8 @@ def build_prompt_segment_plan(
         content_hash = stable_text_hash(content)
         model_message_payload = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {"role": role, "content": content}
         model_message_hash = stable_model_message_hash(model_message_payload)
+        contract_binding = classify_context_spec(dict(spec), index=index)
+        metadata = _segment_contract_metadata(dict(spec.get("metadata") or {}), contract_binding, packet_id=packet_id)
         segment = PromptSegmentPlanSegment(
             segment_id=_segment_id(packet_id=packet_id, ordinal=index + 1, kind=kind, content_hash=content_hash),
             kind=kind,
@@ -96,7 +101,7 @@ def build_prompt_segment_plan(
             content_hash=content_hash,
             model_message_hash=model_message_hash,
             byte_length=len(content.encode("utf-8", errors="ignore")),
-            metadata=dict(spec.get("metadata") or {}),
+            metadata=metadata,
         )
         segments.append(segment)
         if collect_stable_prefix and cache_role in {"cacheable_prefix", "session_stable"}:
@@ -140,6 +145,54 @@ def build_prompt_segment_plan(
         session_prefix_hash=stable_text_hash("|".join(session_hash_parts)) if session_hash_parts else "",
         diagnostics=dict(diagnostics or {}),
     )
+
+
+def _segment_contract_metadata(
+    metadata: dict[str, Any],
+    contract_binding: dict[str, Any],
+    *,
+    packet_id: str,
+) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    for key in (
+        "agent_domain",
+        "control_signal",
+        "connection_contract_ref",
+        "provider_payload_segment_ref",
+        "cache_expectation",
+    ):
+        value = str(dict(contract_binding or {}).get(key) or "").strip()
+        if value and not str(payload.get(key) or "").strip():
+            payload[key] = value
+    node_ref = str(dict(contract_binding or {}).get("node_id") or "").strip()
+    if node_ref and not str(payload.get("context_contract_node_ref") or "").strip():
+        payload["context_contract_node_ref"] = node_ref
+    edge_refs = _context_contract_edge_refs(packet_id=packet_id, node_ref=node_ref, contract_binding=contract_binding)
+    if edge_refs and not payload.get("context_contract_edge_refs"):
+        payload["context_contract_edge_refs"] = list(edge_refs)
+    physical_lane = str(dict(contract_binding or {}).get("physical_lane") or "").strip()
+    if physical_lane and not str(payload.get("physical_prefix_lane") or "").strip():
+        payload["physical_prefix_lane"] = physical_lane
+    return payload
+
+
+def _context_contract_edge_refs(
+    *,
+    packet_id: str,
+    node_ref: str,
+    contract_binding: dict[str, Any],
+) -> tuple[str, ...]:
+    source = str(node_ref or "").strip()
+    if not source:
+        return ()
+    target = f"{packet_id}:l8_provider_transport"
+    refs = [
+        context_contract_edge_id("physical_lane_projection", source, source),
+        context_contract_edge_id("provider_payload_binding", source, target),
+    ]
+    if str(dict(contract_binding or {}).get("cache_expectation") or "").strip():
+        refs.append(context_contract_edge_id("cache_health_binding", source, target))
+    return tuple(refs)
 
 
 def stable_text_hash(text: str) -> str:
@@ -240,7 +293,7 @@ TASK_SEMANTIC_FIELDS = {
     "task_id",
     "contract_id",
     "node_id",
-    "task_contract_ref",
+    "task_run_contract_ref",
     "owner_agent_seat_id",
 }
 

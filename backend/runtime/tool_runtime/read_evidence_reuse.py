@@ -10,7 +10,7 @@ from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.shared.file_observation_policy import select_read_window
 
 
-READ_EVIDENCE_REUSE_AUTHORITY = "runtime.tool_runtime.read_evidence_reuse.v1"
+READ_EVIDENCE_REUSE_AUTHORITY = "runtime.tool_runtime.read_evidence_reuse"
 
 
 @dataclass(frozen=True, slots=True)

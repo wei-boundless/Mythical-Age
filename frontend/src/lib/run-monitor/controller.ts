@@ -532,7 +532,7 @@ export class RunMonitorController {
     const runningNodeIds = Array.isArray(loopState.running_node_ids) ? loopState.running_node_ids : [];
     const status = String(loopState.status || monitor.task_run?.status || monitor.graph_run?.status || "").toLowerCase();
     const activeWorkOrderCount = Number(monitor.active_node_work_order_count ?? (Array.isArray(monitor.active_node_work_orders) ? monitor.active_node_work_orders.length : 0));
-    const terminal = ["completed", "succeeded", "success", "failed", "cancelled", "canceled", "stopped"].includes(status);
+    const terminal = ["completed", "succeeded", "success", "failed", "cancelled", "canceled", "stopped", "interrupted"].includes(status);
     if (terminal || readyNodeIds.length === 0 || runningNodeIds.length > 0 || activeWorkOrderCount > 0) {
       this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
       return;
@@ -672,5 +672,4 @@ function runMonitorErrorMessage(error: unknown, fallback: string) {
   if (/failed to fetch|networkerror|load failed/i.test(message)) return `${fallback}（连接中断）`;
   return message;
 }
-
 

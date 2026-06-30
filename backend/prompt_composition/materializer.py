@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from runtime.shared.protected_context import protected_old_context_spec
+from runtime.context_management.provider_message_replay_contract import provider_message_byte_preservation_required
 
 from .assembly_plan import PromptAssemblyPlan
 
@@ -120,7 +120,7 @@ def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def _must_preserve_model_message(spec: dict[str, Any]) -> bool:
-    return protected_old_context_spec(spec)
+    return provider_message_byte_preservation_required(spec)
 
 
 def _stable_text_hash(text: str) -> str:

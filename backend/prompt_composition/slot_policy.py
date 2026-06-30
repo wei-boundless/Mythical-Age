@@ -14,7 +14,6 @@ from runtime.context_management.context_segment_policy import (
 )
 from runtime.context_management.context_segment_registry import (
     context_segment_dynamic_tier_defaults,
-    context_segment_kind_authority_class,
     context_segment_kind_source_kind,
     context_segment_layer_defaults,
 )
@@ -75,127 +74,20 @@ _KIND_TIER_LAYER = {
         "none": "runtime_delta_tail",
         "default": "task_scope_context",
     },
-    "graph_task_shared_stable": {"default": "task_contract_context"},
+    "graph_task_shared_stable": {"default": "task_run_contract_context"},
     "runtime_baseline_refs": {
         "session": "session_stable_protocol",
         "default": "task_scope_context",
     },
-    "task_contract_stable": {"default": "task_contract_context"},
-    "task_prompt_contract": {"default": "task_contract_context"},
+    "task_run_contract_stable": {"default": "task_run_contract_context"},
+    "task_prompt_contract": {"default": "task_run_contract_context"},
     "tool_index_stable": {
         "session": "session_stable_capability",
         "default": "task_capability_context",
     },
 }
 
-_SOURCE_KIND_LAYER = {
-    "dynamic_context_fragment": "dynamic_context_tail",
-    "runtime_active_skills": "dynamic_context_tail",
-    "runtime_artifact_scope": "task_scope_context",
-    "runtime_attachment_context_index": "attachment_context_index",
-    "runtime_bound_task_context": "file_evidence_cursor",
-    "runtime_capability_catalog": "session_stable_capability",
-    "runtime_dynamic_boundary": "runtime_cursor_prefix",
-    "runtime_editor_context_index": "editor_context_index",
-    "runtime_editor_evidence_delta": "current_exact_evidence",
-    "runtime_environment_boundary": "session_stable_environment",
-    "runtime_evidence_index_cursor": "evidence_index_cursor",
-    "runtime_file_evidence_policy": "session_stable_file_evidence",
-    "runtime_incremental_context_cursor": "dynamic_context_tail",
-    "runtime_incremental_context_frame": "dynamic_context_tail",
-    "runtime_memory_context": "runtime_memory_context",
-    "runtime_project_instructions": "session_stable_project",
-    "runtime_read_evidence": "current_exact_evidence",
-    "runtime_read_evidence_context": "append_only_runtime_evidence",
-    "runtime_task_boundary": "task_scope_context",
-    "runtime_task_goal_context": "dynamic_context_tail",
-    "runtime_task_plan_context": "dynamic_context_tail",
-    "runtime_task_state_replay": "append_only_runtime_evidence",
-    "runtime_task_todo_context": "dynamic_context_tail",
-    "tool_catalog": "task_capability_context",
-}
-
-_SOURCE_KIND_TIER_LAYER = {
-    "runtime_action_schema": {
-        "session": "session_stable_capability",
-        "default": "task_capability_context",
-    },
-    "runtime_baseline_refs": {
-        "session": "session_stable_protocol",
-        "default": "task_scope_context",
-    },
-    "runtime_capability_catalog": {
-        "session": "session_stable_capability",
-        "default": "task_capability_context",
-    },
-    "runtime_contract": {"default": "task_contract_context"},
-    "runtime_protocol": {
-        "session": "session_stable_protocol",
-        "default": "task_scope_context",
-    },
-    "runtime_turn_state": {
-        "session": "session_stable_turn_state",
-        "default": "dynamic_context_tail",
-    },
-    "semantic_compaction_boundary": {
-        "session": "session_stable_turn_state",
-        "default": "dynamic_context_tail",
-    },
-}
-
-_AUTHORITY_CLASS_BY_SOURCE_KIND = {
-    "dynamic_context_fragment": "runtime_dynamic_context",
-    "runtime_action_schema": "runtime_action_schema",
-    "runtime_artifact_scope": "runtime_artifact_scope",
-    "runtime_attachment_context_index": "attachment_context_index",
-    "runtime_baseline_refs": "runtime_baseline_refs",
-    "runtime_bound_task_context": "bound_task_context",
-    "runtime_capability_catalog": "capability_catalog",
-    "runtime_contract": "task_contract",
-    "runtime_dynamic_boundary": "runtime_boundary",
-    "runtime_editor_context_index": "editor_context_index",
-    "runtime_editor_evidence_delta": "editor_evidence_delta",
-    "runtime_environment_boundary": "environment_boundary",
-    "runtime_evidence_index_cursor": "evidence_index_cursor",
-    "runtime_file_evidence_policy": "file_evidence_policy",
-    "runtime_incremental_context_cursor": "incremental_context_cursor",
-    "runtime_incremental_context_frame": "incremental_context_frame",
-    "runtime_memory_context": "runtime_memory_context",
-    "runtime_project_instructions": "project_instruction_boundary",
-    "runtime_protocol": "runtime_protocol",
-    "runtime_read_evidence": "read_evidence",
-    "runtime_read_evidence_context": "read_evidence_context",
-    "runtime_task_boundary": "runtime_boundary",
-    "runtime_task_goal_context": "task_goal_context",
-    "runtime_task_plan_context": "task_plan_context",
-    "runtime_task_state_replay": "runtime_task_state_replay",
-    "runtime_task_todo_context": "task_todo_context",
-    "runtime_turn_state": "turn_state_guidance_protocol",
-    "runtime_unregistered_static_text": "unregistered_static_prompt",
-    "tool_catalog": "tool_catalog",
-}
-
 _REGISTRY_DYNAMIC_TIER_BY_KIND = context_segment_dynamic_tier_defaults()
-
-_CONTEXT_APPEND_DYNAMIC_TIER_BY_KIND = {
-    kind: tier
-    for kind, tier in _REGISTRY_DYNAMIC_TIER_BY_KIND.items()
-    if tier in {"append_only_runtime_evidence", "runtime_memory_context", "user_context_append"}
-}
-
-_DYNAMIC_TAIL_DYNAMIC_TIER_BY_KIND = {
-    kind: tier
-    for kind, tier in _REGISTRY_DYNAMIC_TIER_BY_KIND.items()
-    if tier in {
-        "active_skills",
-        "assistant_completion_prefix",
-        "current_exact_evidence",
-        "dynamic_context_tail",
-        "runtime_cursor_prefix",
-        "runtime_delta_tail",
-        "user_editor_volatile",
-    }
-}
 
 _DYNAMIC_TIER_BY_LAYER = {
     "append_only_runtime_evidence": "append_only_runtime_evidence",
@@ -213,21 +105,6 @@ _DYNAMIC_TIER_BY_LAYER = {
 
 _DYNAMIC_TIER_BY_KIND = _REGISTRY_DYNAMIC_TIER_BY_KIND
 
-_DYNAMIC_TIER_BY_SOURCE_KIND = {
-    "runtime_baseline_refs": "runtime_baseline_refs",
-    "runtime_bound_task_context": "file_evidence_cursor",
-    "runtime_editor_evidence_delta": "current_exact_evidence",
-    "runtime_incremental_context_cursor": "dynamic_context_tail",
-    "runtime_incremental_context_frame": "dynamic_context_tail",
-    "runtime_memory_context": "runtime_memory_context",
-    "runtime_read_evidence": "current_exact_evidence",
-    "runtime_read_evidence_context": "append_only_runtime_evidence",
-    "runtime_task_goal_context": "dynamic_context_tail",
-    "runtime_task_plan_context": "dynamic_context_tail",
-    "runtime_task_state_replay": "append_only_runtime_evidence",
-    "runtime_task_todo_context": "dynamic_context_tail",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class PromptSlotPolicy:
@@ -240,7 +117,6 @@ class PromptSlotPolicy:
     load_phase: str
     phase_order: int
     compression_role: str
-    authority_class: str
     context_policy: ContextSegmentPolicy
     authority: str = "prompt_composition.slot_policy"
 
@@ -277,7 +153,6 @@ def resolve_prompt_slot_policy(
     layer = _layer_for_context_section(
         _base_layer(
             kind=kind,
-            source_kind=resolved_source_kind,
             cache_role=cache_role,
             prefix_tier=prefix_tier,
         ),
@@ -285,7 +160,6 @@ def resolve_prompt_slot_policy(
     )
     dynamic_tier = _dynamic_tier(
         kind=kind,
-        source_kind=resolved_source_kind,
         cache_role=cache_role,
         prefix_tier=prefix_tier,
         layer=layer,
@@ -305,12 +179,6 @@ def resolve_prompt_slot_policy(
         load_phase=load_phase,
         phase_order=phase_order_for_load_phase(load_phase),
         compression_role=normalize_compression_role(payload.get("compression_role")),
-        authority_class=str(
-            metadata.get("authority_class")
-            or context_segment_kind_authority_class(kind)
-            or _AUTHORITY_CLASS_BY_SOURCE_KIND.get(resolved_source_kind)
-            or "runtime_prompt_slot"
-        ),
         context_policy=context_policy,
     )
 
@@ -324,7 +192,6 @@ def prompt_slot_policy_metadata(policy: PromptSlotPolicy) -> dict[str, Any]:
         "prompt_slot_policy_dynamic_tier": policy.dynamic_tier,
         "prompt_slot_policy_load_phase": policy.load_phase,
         "prompt_slot_policy_phase_order": policy.phase_order,
-        "prompt_slot_policy_authority_class": policy.authority_class,
         "prompt_slot_policy_authority": policy.authority,
     }
 
@@ -358,19 +225,13 @@ def normalize_compression_role(value: Any) -> str:
     return "summarize"
 
 
-def _base_layer(*, kind: str, source_kind: str, cache_role: str, prefix_tier: str) -> str:
+def _base_layer(*, kind: str, cache_role: str, prefix_tier: str) -> str:
     if prefix_tier == "provider_global" or cache_role == "cacheable_prefix":
         return "provider_global_stable"
     layer = _tiered_lookup(_KIND_TIER_LAYER.get(kind), prefix_tier)
     if layer:
         return layer
     layer = _KIND_LAYER.get(kind)
-    if layer:
-        return layer
-    layer = _tiered_lookup(_SOURCE_KIND_TIER_LAYER.get(source_kind), prefix_tier)
-    if layer:
-        return layer
-    layer = _SOURCE_KIND_LAYER.get(source_kind)
     if layer:
         return layer
     if cache_role in VOLATILE_CACHE_ROLES or prefix_tier in {"volatile", "none"}:
@@ -398,24 +259,20 @@ def _context_append_layer(layer: str) -> str:
 def _dynamic_tier(
     *,
     kind: str,
-    source_kind: str,
     cache_role: str,
     prefix_tier: str,
     layer: str,
 ) -> str:
+    declared_dynamic_tier = _DYNAMIC_TIER_BY_KIND.get(kind)
+    if declared_dynamic_tier:
+        return declared_dynamic_tier
     if layer == "context_memory_append":
-        return _CONTEXT_APPEND_DYNAMIC_TIER_BY_KIND.get(kind, "context_memory_append")
+        return "context_memory_append"
     if layer == "dynamic_context_tail":
-        return _DYNAMIC_TAIL_DYNAMIC_TIER_BY_KIND.get(kind, "dynamic_context_tail")
+        return "dynamic_context_tail"
     if cache_role in STABLE_CACHE_ROLES and prefix_tier not in {"volatile", "none"}:
         return "stable_prefix"
     dynamic_tier = _DYNAMIC_TIER_BY_LAYER.get(layer)
-    if dynamic_tier:
-        return dynamic_tier
-    dynamic_tier = _DYNAMIC_TIER_BY_KIND.get(kind)
-    if dynamic_tier:
-        return dynamic_tier
-    dynamic_tier = _DYNAMIC_TIER_BY_SOURCE_KIND.get(source_kind)
     if dynamic_tier:
         return dynamic_tier
     return "current_runtime_cursor"

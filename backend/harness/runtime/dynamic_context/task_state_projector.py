@@ -1260,7 +1260,7 @@ def _cursor_file_evidence_decisions_projection(value: dict[str, Any]) -> dict[st
     return drop_empty(
         {
             "kind": str(value.get("kind") or "file_evidence_contract"),
-            "contract_version": str(value.get("contract_version") or ""),
+            "contract_id": str(value.get("contract_id") or ""),
             "authority_boundary": str(value.get("authority_boundary") or ""),
             "authority": str(value.get("authority") or "runtime.memory.file_state_authority.evidence_decision_projection"),
             "files": [item for item in files if item],
@@ -1859,7 +1859,7 @@ def _file_evidence_decisions_projection(file_state: list[dict[str, Any]]) -> dic
     return drop_empty(
         {
             "kind": "file_evidence_contract",
-            "contract_version": "file_evidence_contract.v2",
+            "contract_id": "file_evidence_contract",
             "authority_boundary": "observation_projection_only",
             "policy": {
                 "agent_decides_next_read": True,

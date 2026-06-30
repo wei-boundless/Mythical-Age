@@ -87,7 +87,7 @@ RequestFacts
 
 - `backend/harness/runtime/compiler.py:381`：`compile_single_agent_turn_packet` 是普通 turn prompt 编译入口。
 - `backend/harness/runtime/compiler.py:1059`：仍存在 `compile_task_execution_packet`。
-- `backend/harness/runtime/compiler.py:2897`：`model_action_request_schema` 定义 `respond / ask_user / tool_call / request_task_run / active_work_control / resume_recoverable_work / block`。
+- `backend/harness/runtime/compiler.py:2897`：`model_action_request_schema` 定义 `respond / ask_user / tool_call / request_task_run / active_work_control / resume_task_recovery / block`。
 - `backend/harness/runtime/compiler.py:2999`：`request_task_run_shape_rules` 仍使用旧任务生命周期表述。
 - `backend/harness/runtime/compiler.py:3027`：`request_task_run_intent_contract` 仍要求旧 `entry_reason`。
 - `backend/harness/runtime/compiler.py:3672`：`_single_agent_turn_output_contract`。
@@ -102,7 +102,7 @@ compiler 是模型可见神经反射的主要出口，但当前把普通 turn �
 
 证据：
 
-- `backend/harness/loop/model_action_protocol.py:6`：`ModelActionType` 包含 `respond / ask_user / tool_call / request_task_run / active_work_control / resume_recoverable_work / pause_for_user_steer / block`。
+- `backend/harness/loop/model_action_protocol.py:6`：`ModelActionType` 包含 `respond / ask_user / tool_call / request_task_run / active_work_control / resume_task_recovery / pause_for_user_steer / block`。
 - `backend/harness/loop/model_action_protocol.py:26`：`ModelActionRequest`。
 - `backend/harness/loop/model_action_protocol.py:71`：`TaskExecutionModelActionRequest` 形成第二套 action contract。
 - `backend/harness/loop/model_action_protocol.py:109`：`model_action_request_from_payload` 解析和校验模型动作。
@@ -676,7 +676,7 @@ TurnOutputCommitContract
 目标动作：
 
 - 从独立 task schema 改为 `TurnActionRequest` transport schema；
-- `request_task_run` schema 对齐 TaskStartIntent v3；
+- `request_task_run` schema 对齐 TaskStartIntent；
 - 移除 `entry_reason`；
 - `primary_mode` 只保留 `goal | plan`；
 - 新增 `task_shape` 和可选 `todo_tool_contract`。

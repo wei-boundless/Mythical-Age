@@ -30,6 +30,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "SupervisionRecord": ("runtime.shared.models", "SupervisionRecord"),
     "TaskRun": ("runtime.shared.models", "TaskRun"),
     "TaskRunStatus": ("runtime.shared.models", "TaskRunStatus"),
+    "TurnRunStatus": ("runtime.shared.models", "TurnRunStatus"),
     "ToolCallBindingOptions": ("runtime.tool_runtime.tool_call_policy", "ToolCallBindingOptions"),
     "ToolCallIntent": ("runtime.tool_runtime.tool_call_intent", "ToolCallIntent"),
     "ToolRepetitionGuard": ("runtime.shared.tool_repetition_guard", "ToolRepetitionGuard"),

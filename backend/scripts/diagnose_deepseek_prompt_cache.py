@@ -12,11 +12,11 @@ from typing import Any
 STABLE_CACHE_ROLES = {"cacheable_prefix", "session_stable"}
 DEFAULT_LEDGER_TAIL_MB = 32
 LEDGER_JSONL_FILES = (
-    "token_usage.jsonl",
-    "prompt_cache.jsonl",
-    "segment_maps.jsonl",
-    "prompt_stability.jsonl",
-    "prompt_cache_breaks.jsonl",
+    "token_observations.jsonl",
+    "cache_plans.jsonl",
+    "prompt_manifests.jsonl",
+    "prefix_state.jsonl",
+    "cache_anomalies.jsonl",
 )
 
 
@@ -29,7 +29,7 @@ class Diagnosis:
     volatile_stable_segments: tuple[dict[str, Any], ...] = ()
     top_volatile_segments: tuple[dict[str, Any], ...] = ()
     recent_requests: tuple[dict[str, Any], ...] = ()
-    stability_reports: tuple[dict[str, Any], ...] = ()
+    prefix_state_reports: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -40,7 +40,7 @@ class Diagnosis:
             "volatile_stable_segments": list(self.volatile_stable_segments),
             "top_volatile_segments": list(self.top_volatile_segments),
             "recent_requests": list(self.recent_requests),
-            "stability_reports": list(self.stability_reports),
+            "prefix_state_reports": list(self.prefix_state_reports),
         }
 
 
@@ -98,28 +98,28 @@ def diagnose(
     ledger_tail_mb: int = DEFAULT_LEDGER_TAIL_MB,
 ) -> Diagnosis:
     tail_bytes = _ledger_tail_bytes(ledger_tail_mb)
-    token_usage_rows = _read_ledger_jsonl(ledger_dir, "token_usage.jsonl", tail_bytes=tail_bytes)
-    cache_record_rows = _read_ledger_jsonl(ledger_dir, "prompt_cache.jsonl", tail_bytes=tail_bytes)
-    segment_map_rows = _read_ledger_jsonl(ledger_dir, "segment_maps.jsonl", tail_bytes=tail_bytes)
-    stability_record_rows = _read_ledger_jsonl(ledger_dir, "prompt_stability.jsonl", tail_bytes=tail_bytes)
-    cache_break_rows = _read_ledger_jsonl(ledger_dir, "prompt_cache_breaks.jsonl", tail_bytes=tail_bytes)
+    token_usage_rows = _read_ledger_jsonl(ledger_dir, "token_observations.jsonl", tail_bytes=tail_bytes)
+    cache_plan_rows = _read_ledger_jsonl(ledger_dir, "cache_plans.jsonl", tail_bytes=tail_bytes)
+    segment_map_rows = _read_ledger_jsonl(ledger_dir, "prompt_manifests.jsonl", tail_bytes=tail_bytes)
+    prefix_state_rows = _read_ledger_jsonl(ledger_dir, "prefix_state.jsonl", tail_bytes=tail_bytes)
+    cache_anomaly_rows = _read_ledger_jsonl(ledger_dir, "cache_anomalies.jsonl", tail_bytes=tail_bytes)
     created_at_floor = _tail_window_created_at_floor(
         ledger_dir=ledger_dir,
         tail_bytes=tail_bytes,
         rows_by_name={
-            "token_usage.jsonl": token_usage_rows,
-            "prompt_cache.jsonl": cache_record_rows,
-            "segment_maps.jsonl": segment_map_rows,
-            "prompt_stability.jsonl": stability_record_rows,
-            "prompt_cache_breaks.jsonl": cache_break_rows,
+            "token_observations.jsonl": token_usage_rows,
+            "cache_plans.jsonl": cache_plan_rows,
+            "prompt_manifests.jsonl": segment_map_rows,
+            "prefix_state.jsonl": prefix_state_rows,
+            "cache_anomalies.jsonl": cache_anomaly_rows,
         },
     )
     if created_at_floor:
         token_usage_rows = _filter_created_at_floor(token_usage_rows, created_at_floor)
-        cache_record_rows = _filter_created_at_floor(cache_record_rows, created_at_floor)
+        cache_plan_rows = _filter_created_at_floor(cache_plan_rows, created_at_floor)
         segment_map_rows = _filter_created_at_floor(segment_map_rows, created_at_floor)
-        stability_record_rows = _filter_created_at_floor(stability_record_rows, created_at_floor)
-        cache_break_rows = _filter_created_at_floor(cache_break_rows, created_at_floor)
+        prefix_state_rows = _filter_created_at_floor(prefix_state_rows, created_at_floor)
+        cache_anomaly_rows = _filter_created_at_floor(cache_anomaly_rows, created_at_floor)
     token_usage = _filter_rows(
         _dedupe_latest(token_usage_rows, key_fields=("usage_id",)),
         session_id=session_id,
@@ -127,8 +127,8 @@ def diagnose(
         task_run_id=task_run_id,
         provider=provider,
     )
-    cache_records = _filter_rows(
-        _dedupe_latest(cache_record_rows, key_fields=("cache_record_id",)),
+    cache_plans = _filter_rows(
+        _dedupe_latest(cache_plan_rows, key_fields=("cache_plan_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
@@ -141,15 +141,15 @@ def diagnose(
         task_run_id=task_run_id,
         provider=provider,
     )
-    stability_records = _filter_rows(
-        _dedupe_latest(stability_record_rows, key_fields=("report_id",)),
+    prefix_state_records = _filter_rows(
+        _dedupe_latest(prefix_state_rows, key_fields=("state_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
         provider=provider,
     )
-    cache_breaks = _filter_rows(
-        _dedupe_latest(cache_break_rows, key_fields=("break_id",)),
+    cache_anomalies = _filter_rows(
+        _dedupe_latest(cache_anomaly_rows, key_fields=("anomaly_id",)),
         session_id=session_id,
         run_id=run_id,
         task_run_id=task_run_id,
@@ -159,7 +159,7 @@ def diagnose(
     provider_usage = [row for row in token_usage if str(row.get("source") or "") == "provider_usage"]
     local_predictions = [row for row in token_usage if str(row.get("source") or "") == "local_prediction"]
     usage_by_request = {str(row.get("request_id") or ""): row for row in provider_usage}
-    cache_by_request = {str(row.get("request_id") or ""): row for row in cache_records}
+    cache_by_request = {str(row.get("request_id") or ""): row for row in cache_plans}
 
     cache_metric_scope_counts = Counter(_cache_metric_scope(row) for row in local_predictions)
     scope_by_request = {str(row.get("request_id") or ""): _cache_metric_scope(row) for row in local_predictions}
@@ -172,8 +172,8 @@ def diagnose(
     scoped_usage = _scope_usage_summary(provider_usage=provider_usage, scope_by_request=scope_by_request)
     closeout_phase_cache = _scope_usage_bucket(scoped_usage, scope="agent_runtime.closeout")
     repair_phase_cache = _scope_usage_bucket(scoped_usage, scope="agent_runtime.repair")
-    unplanned_breaks = [row for row in cache_breaks if str(row.get("reason") or "") == "unplanned_model_call"]
-    cache_break_reason_counts = Counter(str(row.get("reason") or "unknown") for row in cache_breaks)
+    unplanned_anomalies = [row for row in cache_anomalies if str(row.get("reason") or "") == "unplanned_model_call"]
+    cache_anomaly_reason_counts = Counter(str(row.get("reason") or "unknown") for row in cache_anomalies)
     prompt_tokens = sum(_int(row.get("prompt_tokens")) for row in provider_usage)
     cached_tokens = sum(_cached_tokens(row) for row in provider_usage)
     provider_returned_usage = [row for row in provider_usage if _provider_returned_hit_miss_available(row)]
@@ -206,11 +206,11 @@ def diagnose(
     agent_post_warm_provider_returned_cache_miss_tokens = sum(
         _provider_returned_miss_tokens(row) for row in agent_post_warm_provider_returned_usage
     )
-    status_counts = Counter(str(row.get("status") or "unknown") for row in cache_records)
-    policy_counts = Counter(_provider_cache_policy_mode(row) for row in cache_records)
+    status_counts = Counter(str(row.get("status") or "unknown") for row in cache_plans)
+    policy_counts = Counter(_provider_cache_policy_mode(row) for row in cache_plans)
 
     prefix_groups = _build_prefix_groups(
-        cache_records=cache_records,
+        cache_plans=cache_plans,
         usage_by_request=usage_by_request,
         scope_by_request=scope_by_request,
         min_repeats=min_prefix_repeats,
@@ -219,27 +219,27 @@ def diagnose(
     volatile_stable_segments = _find_volatile_stable_segments(segment_maps, limit=limit)
     unstable_stable_segments = _find_unstable_stable_segments(segment_maps, limit=limit)
     top_volatile_segments = _top_volatile_segments(segment_maps, limit=limit)
-    stability_by_request = {str(row.get("request_id") or ""): row for row in stability_records}
-    cache_break_by_request = {str(row.get("request_id") or ""): row for row in cache_breaks}
+    prefix_state_by_request = {str(row.get("request_id") or ""): row for row in prefix_state_records}
+    cache_anomaly_by_request = {str(row.get("request_id") or ""): row for row in cache_anomalies}
     recent_requests = _recent_requests(
-        cache_records=cache_records,
+        cache_plans=cache_plans,
         usage_by_request=usage_by_request,
         local_predictions=local_predictions,
-        stability_by_request=stability_by_request,
-        cache_break_by_request=cache_break_by_request,
+        stability_by_request=prefix_state_by_request,
+        cache_anomaly_by_request=cache_anomaly_by_request,
         limit=limit,
     )
-    stability_reports = _recent_stability_reports(stability_records, limit=limit)
+    prefix_state_reports = _recent_prefix_state_reports(prefix_state_records, limit=limit)
     issues = _build_issues(
         provider_usage=provider_usage,
-        cache_records=cache_records,
+        cache_plans=cache_plans,
         prefix_groups=prefix_groups,
         volatile_stable_segments=volatile_stable_segments,
         unstable_stable_segments=unstable_stable_segments,
         top_volatile_segments=top_volatile_segments,
         hit_rate=hit_rate,
         policy_counts=policy_counts,
-        unplanned_breaks=unplanned_breaks,
+        unplanned_anomalies=unplanned_anomalies,
     )
     summary = {
         "provider": provider or "all",
@@ -256,11 +256,11 @@ def diagnose(
         },
         "provider_usage_records": len(provider_usage),
         "local_prediction_records": len(local_predictions),
-        "cache_records": len(cache_records),
-        "segment_maps": len(segment_maps),
-        "stability_reports": len(stability_records),
-        "cache_break_records": len(cache_breaks),
-        "unplanned_model_call_breaks": len(unplanned_breaks),
+        "cache_plans": len(cache_plans),
+        "prompt_manifests": len(segment_maps),
+        "prefix_state_records": len(prefix_state_records),
+        "cache_anomaly_count": len(cache_anomalies),
+        "unplanned_model_call_anomalies": len(unplanned_anomalies),
         "prompt_tokens": prompt_tokens,
         "cached_tokens": cached_tokens,
         "cache_miss_tokens": cache_miss_tokens,
@@ -322,7 +322,7 @@ def diagnose(
         "cache_metric_scope_usage": scoped_usage,
         "cache_status_counts": dict(sorted(status_counts.items())),
         "provider_cache_policy_modes": dict(sorted(policy_counts.items())),
-        "cache_break_reason_counts": dict(sorted(cache_break_reason_counts.items())),
+        "cache_anomaly_reason_counts": dict(sorted(cache_anomaly_reason_counts.items())),
     }
     return Diagnosis(
         summary=summary,
@@ -332,7 +332,7 @@ def diagnose(
         volatile_stable_segments=tuple(volatile_stable_segments),
         top_volatile_segments=tuple(top_volatile_segments),
         recent_requests=tuple(recent_requests),
-        stability_reports=tuple(stability_reports),
+        prefix_state_reports=tuple(prefix_state_reports),
     )
 
 
@@ -475,14 +475,14 @@ def _filter_rows(
 
 def _build_prefix_groups(
     *,
-    cache_records: list[dict[str, Any]],
+    cache_plans: list[dict[str, Any]],
     usage_by_request: dict[str, dict[str, Any]],
     scope_by_request: dict[str, str],
     min_repeats: int,
     limit: int,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in cache_records:
+    for row in cache_plans:
         key = str(row.get("prefix_hash") or row.get("cache_key") or "")
         if key:
             grouped[key].append(row)
@@ -729,22 +729,22 @@ def _top_volatile_segments(segment_maps: list[dict[str, Any]], *, limit: int) ->
 
 def _recent_requests(
     *,
-    cache_records: list[dict[str, Any]],
+    cache_plans: list[dict[str, Any]],
     usage_by_request: dict[str, dict[str, Any]],
     local_predictions: list[dict[str, Any]],
     stability_by_request: dict[str, dict[str, Any]],
-    cache_break_by_request: dict[str, dict[str, Any]],
+    cache_anomaly_by_request: dict[str, dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
     local_by_request = {str(row.get("request_id") or ""): row for row in local_predictions}
-    rows = sorted(cache_records, key=lambda item: _float(item.get("created_at")), reverse=True)[:limit]
+    rows = sorted(cache_plans, key=lambda item: _float(item.get("created_at")), reverse=True)[:limit]
     result: list[dict[str, Any]] = []
     for row in rows:
         request_id = str(row.get("request_id") or "")
         usage = usage_by_request.get(request_id)
         local = local_by_request.get(request_id)
         stability = stability_by_request.get(request_id) or {}
-        cache_break = cache_break_by_request.get(request_id) or {}
+        cache_anomaly = cache_anomaly_by_request.get(request_id) or {}
         cache_diag = dict(row.get("diagnostics") or {})
         cached_tokens = _cached_tokens(usage or {})
         provider_returned_miss_tokens = _provider_returned_miss_tokens(usage or {})
@@ -780,9 +780,9 @@ def _recent_requests(
                 "prompt_composition_violations": _prompt_composition_violation_label(cache_diag),
                 "packet_ref": str(dict((usage or local or {}).get("diagnostics") or {}).get("packet_ref") or ""),
                 "first_changed_section": _changed_section_label(first_changed),
-                "likely_break_reason": str(dict(stability.get("diagnostics") or {}).get("likely_break_reason") or ""),
-                "cache_break_reason": str(cache_break.get("reason") or ""),
-                "cache_break_detail": _cache_break_detail_label(dict(cache_break.get("diagnostics") or {})),
+                "likely_anomaly_reason": str(dict(stability.get("diagnostics") or {}).get("likely_anomaly_reason") or ""),
+                "cache_anomaly_reason": str(cache_anomaly.get("reason") or ""),
+                "cache_anomaly_detail": _cache_anomaly_detail_label(dict(cache_anomaly.get("diagnostics") or {})),
                 "dynamic_param_hash": str(stability.get("dynamic_param_hash") or "")[:19],
                 "dynamic_param_diff": _dynamic_param_diff_label(dict(dict(stability.get("diagnostics") or {}).get("dynamic_param_diff") or {})),
             }
@@ -790,40 +790,36 @@ def _recent_requests(
     return result
 
 
-def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+def _recent_prefix_state_reports(records: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
     rows = sorted(records, key=lambda item: _float(item.get("created_at")), reverse=True)[:limit]
     result: list[dict[str, Any]] = []
     for row in rows:
-        provider_usage = dict(row.get("provider_usage") or {})
         first_changed = dict(row.get("first_changed_section") or {})
         diagnostics = dict(row.get("diagnostics") or {})
-        context_window = dict(diagnostics.get("context_window") or {})
-        provider_payload = dict(diagnostics.get("provider_payload") or {})
+        stability = dict(diagnostics.get("stability") or {})
+        context_window = dict(stability.get("context_window") or {})
+        provider_payload = dict(stability.get("provider_payload") or {})
         result.append(
             {
                 "request_id": str(row.get("request_id") or ""),
-                "session_cache_key": str(row.get("session_cache_key") or ""),
-                "context_window_generation": _int(row.get("context_window_generation")),
-                "compaction_generation": _int(row.get("compaction_generation")),
-                "stable_prefix_tokens": _int(row.get("stable_prefix_tokens")),
-                "provider_global_prefix_tokens": _int(row.get("provider_global_prefix_tokens")),
-                "session_prefix_tokens": _int(row.get("session_prefix_tokens")),
-                "stable_section_count": _int(row.get("stable_section_count")),
+                "state_id": str(row.get("state_id") or ""),
+                "status": str(row.get("status") or ""),
+                "generation": _int(row.get("generation")),
+                "stable_prefix_tokens": _int(row.get("stable_token_count")),
+                "provider_global_prefix_tokens": 0,
+                "session_prefix_tokens": 0,
+                "stable_section_count": len(list(row.get("stable_section_refs") or [])),
                 "volatile_token_count": _int(row.get("volatile_token_count")),
                 "stable_prefix_hash": str(row.get("stable_prefix_hash") or "")[:19],
-                "provider_payload_prefix_hash": _short_hash(provider_payload.get("provider_payload_prefix_hash")),
-                "tool_catalog_hash": _short_hash(provider_payload.get("tool_catalog_hash")),
-                "cache_sensitive_params_hash": _short_hash(provider_payload.get("cache_sensitive_params_hash")),
+                "provider_payload_prefix_hash": _short_hash(row.get("provider_payload_prefix_hash") or provider_payload.get("provider_payload_prefix_hash")),
+                "tool_catalog_hash": _short_hash(row.get("tool_catalog_hash") or provider_payload.get("tool_catalog_hash")),
+                "cache_sensitive_params_hash": _short_hash(row.get("cache_sensitive_params_hash") or provider_payload.get("cache_sensitive_params_hash")),
                 "dynamic_param_hash": str(row.get("dynamic_param_hash") or "")[:19],
                 "context_recovery_package": "yes" if context_window.get("context_recovery_package_present") else "",
                 "active_history_messages": _int(context_window.get("active_history_message_count")),
                 "first_changed_section": _changed_section_label(first_changed),
-                "likely_break_reason": str(diagnostics.get("likely_break_reason") or ""),
-                "dynamic_param_diff": _dynamic_param_diff_label(dict(diagnostics.get("dynamic_param_diff") or {})),
-                "cached_tokens": _int(provider_usage.get("cached_tokens")),
-                "provider_returned_cache_miss_tokens": _provider_returned_miss_tokens(provider_usage),
-                "hit_rate": _float(provider_usage.get("cache_hit_rate")),
-                "provider_returned_cache_hit_rate": _optional_float(provider_usage.get("provider_returned_cache_hit_rate")),
+                "likely_anomaly_reason": str(stability.get("likely_anomaly_reason") or ""),
+                "dynamic_param_diff": _dynamic_param_diff_label(dict(stability.get("dynamic_param_diff") or {})),
             }
         )
     return result
@@ -832,14 +828,14 @@ def _recent_stability_reports(records: list[dict[str, Any]], *, limit: int) -> l
 def _build_issues(
     *,
     provider_usage: list[dict[str, Any]],
-    cache_records: list[dict[str, Any]],
+    cache_plans: list[dict[str, Any]],
     prefix_groups: list[dict[str, Any]],
     volatile_stable_segments: list[dict[str, Any]],
     unstable_stable_segments: list[dict[str, Any]],
     top_volatile_segments: list[dict[str, Any]],
     hit_rate: float,
     policy_counts: Counter,
-    unplanned_breaks: list[dict[str, Any]],
+    unplanned_anomalies: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     if not provider_usage:
@@ -850,7 +846,7 @@ def _build_issues(
                 "message": "没有 provider_usage 记录，无法判断 DeepSeek 真实缓存命中。先确认模型响应 usage 是否被 LangChain 返回并写入账本。",
             }
         )
-    if cache_records and policy_counts.get("disabled", 0):
+    if cache_plans and policy_counts.get("disabled", 0):
         issues.append(
             {
                 "severity": "high",
@@ -859,14 +855,14 @@ def _build_issues(
                 "count": policy_counts.get("disabled", 0),
             }
         )
-    if unplanned_breaks:
-        high_count = sum(1 for row in unplanned_breaks if str(dict(row.get("diagnostics") or {}).get("severity") or "") == "high")
+    if unplanned_anomalies:
+        high_count = sum(1 for row in unplanned_anomalies if str(dict(row.get("diagnostics") or {}).get("severity") or "") == "high")
         issues.append(
             {
                 "severity": "high" if high_count else "medium",
                 "code": "unplanned_model_call",
                 "message": "存在没有 segment_plan 的模型调用。agent 主链路必须通过 RuntimeCompiler 装配；utility 调用也必须显式标注 scope。",
-                "count": len(unplanned_breaks),
+                "count": len(unplanned_anomalies),
                 "high_count": high_count,
             }
         )
@@ -1118,10 +1114,10 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         "records: "
         f"provider_usage={summary['provider_usage_records']} "
         f"local_prediction={summary['local_prediction_records']} "
-        f"cache={summary['cache_records']} "
-        f"cache_breaks={summary['cache_break_records']} "
-        f"segment_maps={summary['segment_maps']} "
-        f"stability={summary['stability_reports']}"
+        f"cache={summary['cache_plans']} "
+        f"cache_anomalies={summary['cache_anomaly_count']} "
+        f"prompt_manifests={summary['prompt_manifests']} "
+        f"prefix_state={summary['prefix_state_records']}"
     )
     print(
         "tokens: "
@@ -1162,10 +1158,10 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
         f"closeout={json.dumps(summary['closeout_phase_cache'], ensure_ascii=False, sort_keys=True)} "
         f"repair={json.dumps(summary['repair_phase_cache'], ensure_ascii=False, sort_keys=True)}"
     )
-    print(f"unplanned_model_call_breaks: {summary['unplanned_model_call_breaks']}")
+    print(f"unplanned_model_call_anomalies: {summary['unplanned_model_call_anomalies']}")
     print(f"cache_status_counts: {json.dumps(summary['cache_status_counts'], ensure_ascii=False, sort_keys=True)}")
     print(f"provider_cache_policy_modes: {json.dumps(summary['provider_cache_policy_modes'], ensure_ascii=False, sort_keys=True)}")
-    print(f"cache_break_reason_counts: {json.dumps(summary['cache_break_reason_counts'], ensure_ascii=False, sort_keys=True)}")
+    print(f"cache_anomaly_reason_counts: {json.dumps(summary['cache_anomaly_reason_counts'], ensure_ascii=False, sort_keys=True)}")
 
     _print_section("issues", payload["issues"], fields=("severity", "code", "message"))
     _print_section(
@@ -1191,12 +1187,12 @@ def _print_report(diagnosis: Diagnosis, *, ledger_dir: Path) -> None:
     _print_section(
         "recent_requests",
         payload["recent_requests"],
-        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "provider_returned_cache_miss_tokens", "hit_rate", "provider_returned_cache_hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "stable_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_break_reason", "cache_break_reason", "cache_break_detail", "packet_ref"),
+        fields=("status", "provider_usage", "cache_metric_scope", "call_purpose", "prompt_tokens", "cached_tokens", "provider_returned_cache_miss_tokens", "hit_rate", "provider_returned_cache_hit_rate", "provider_global_prefix_tokens", "session_prefix_tokens", "stable_prefix_tokens", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "assembly_request_fingerprint", "section_fingerprint", "prompt_composition_status", "prompt_composition_violations", "first_changed_section", "dynamic_param_diff", "likely_anomaly_reason", "cache_anomaly_reason", "cache_anomaly_detail", "packet_ref"),
     )
     _print_section(
-        "prompt_stability_reports",
-        payload["stability_reports"],
-        fields=("request_id", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "hit_rate", "provider_returned_cache_hit_rate", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_window_generation", "compaction_generation", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_break_reason"),
+        "prefix_state_reports",
+        payload["prefix_state_reports"],
+        fields=("request_id", "state_id", "status", "generation", "stable_section_count", "provider_global_prefix_tokens", "session_prefix_tokens", "stable_prefix_tokens", "volatile_token_count", "provider_payload_prefix_hash", "tool_catalog_hash", "cache_sensitive_params_hash", "context_recovery_package", "active_history_messages", "first_changed_section", "dynamic_param_diff", "likely_anomaly_reason"),
     )
 
 
@@ -1295,7 +1291,7 @@ def _prompt_composition_violation_label(cache_diag: dict[str, Any]) -> str:
     return ",".join(parts)
 
 
-def _cache_break_detail_label(diagnostics: dict[str, Any]) -> str:
+def _cache_anomaly_detail_label(diagnostics: dict[str, Any]) -> str:
     changed: list[str] = []
     for group_name in ("prompt_assembly", "provider_payload"):
         group = dict(diagnostics.get(group_name) or {})

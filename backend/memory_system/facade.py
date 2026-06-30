@@ -309,7 +309,7 @@ class MemoryFacade:
             force=bool(payload.get("force", False)),
         )
 
-    def build_memory_context_package(
+    def build_turn_memory_context_package(
         self,
         *,
         session_id: str,
@@ -320,7 +320,7 @@ class MemoryFacade:
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
     ):
-        return self.bundle_service.build_memory_context_package(
+        return self.bundle_service.build_turn_memory_context_package(
             session_id=session_id,
             pending_user_message=pending_user_message,
             memory_intent=memory_intent,
@@ -350,6 +350,5 @@ class MemoryFacade:
             memory_request_profile=memory_request_profile,
             note_limit=note_limit,
         )
-
 
 

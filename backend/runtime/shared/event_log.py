@@ -208,10 +208,17 @@ class RuntimeEventLog:
             subscriptions = list(self._subscriptions)
         if not subscriptions:
             return
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
         for subscription in subscriptions:
             if subscription.run_id and subscription.run_id != event.run_id:
                 continue
             if subscription.loop is not None and subscription.loop.is_running():
+                if subscription.loop is current_loop:
+                    _put_event_drop_oldest(subscription.queue, event)
+                    continue
                 subscription.loop.call_soon_threadsafe(_put_event_drop_oldest, subscription.queue, event)
                 continue
             _put_event_drop_oldest(subscription.queue, event)
@@ -481,4 +488,3 @@ def _first_non_empty(*values: Any) -> str:
         if text:
             return text
     return ""
-

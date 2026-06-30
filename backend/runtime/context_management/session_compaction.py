@@ -18,7 +18,7 @@ class _EmptyPromptAccountingLedger:
     def list_token_usage(self, **_kwargs: Any) -> list[Any]:
         return []
 
-    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+    def list_cache_plans(self, **_kwargs: Any) -> list[Any]:
         return []
 
     def summarize_session(self, _session_id: str) -> dict[str, Any]:
@@ -44,7 +44,7 @@ class _LatestContextUsageLedger:
             return []
         return [record]
 
-    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+    def list_cache_plans(self, **_kwargs: Any) -> list[Any]:
         return []
 
     def summarize_session(self, _session_id: str) -> dict[str, Any]:
@@ -245,10 +245,10 @@ def _build_session_pressure(
     record = dict(session_record or _load_session_record(runtime, session_id=session_id) or {})
     compressed_context = str(record.get("compressed_context") or "").strip()
     boundary_created_at = _safe_float(record.get("provider_protocol_compaction_created_at"))
-    api_transcript = _load_api_transcript(runtime, session_id=session_id)
+    provider_protocol_timeline = _load_provider_protocol_timeline(runtime, session_id=session_id)
     public_messages = _public_pressure_messages(raw_messages)
     protocol_messages, protocol_stats = _protocol_pressure_messages(
-        api_transcript,
+        provider_protocol_timeline,
         boundary_created_at=boundary_created_at,
         compressed_context_present=bool(compressed_context),
     )
@@ -261,7 +261,7 @@ def _build_session_pressure(
         "public_history_tokens": int(public_tokens),
         "provider_protocol_tokens": int(protocol_tokens),
         "public_message_count": len(public_messages),
-        "api_transcript_message_count": len(api_transcript),
+        "provider_protocol_timeline_message_count": len(provider_protocol_timeline),
         "provider_protocol_message_count": len(protocol_messages),
         "provider_protocol_compaction_created_at": boundary_created_at,
         "compressed_context_present": bool(compressed_context),
@@ -281,12 +281,12 @@ def _load_session_record(runtime: Any, *, session_id: str) -> dict[str, Any]:
     return dict(record or {}) if isinstance(record, dict) else {}
 
 
-def _load_api_transcript(runtime: Any, *, session_id: str) -> list[dict[str, Any]]:
-    load_session_for_api = getattr(getattr(runtime, "session_manager", None), "load_session_for_api", None)
-    if not callable(load_session_for_api):
+def _load_provider_protocol_timeline(runtime: Any, *, session_id: str) -> list[dict[str, Any]]:
+    load_provider_protocol_timeline = getattr(getattr(runtime, "session_manager", None), "load_provider_protocol_timeline", None)
+    if not callable(load_provider_protocol_timeline):
         return []
     try:
-        transcript = load_session_for_api(session_id)
+        transcript = load_provider_protocol_timeline(session_id)
     except Exception:
         return []
     return [dict(item) for item in list(transcript or []) if isinstance(item, dict)]

@@ -174,7 +174,7 @@ export type TokenStats = {
     present?: boolean;
     fresh?: boolean;
     source?: string;
-    schema_version?: string;
+    package_schema_id?: string;
     covered_message_count?: number;
     covered_event_run_id?: string;
     covered_event_offset_end?: number | null;
@@ -197,8 +197,8 @@ export type TokenStats = {
     context_recovery_package_source?: string;
   };
   provider_cache_log?: ProviderCacheLog;
-  cumulative_transcript_tokens?: number;
-  cumulative_transcript_message_count?: number;
+  provider_protocol_timeline_tokens?: number;
+  provider_protocol_timeline_message_count?: number;
   compression_saved_tokens?: number;
   compression_ratio?: number;
   raw_history_tokens: number;

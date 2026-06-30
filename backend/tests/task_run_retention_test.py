@@ -187,7 +187,7 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
         task_run_id=task_run_id,
         content={"task_run_id": task_run_id, "summary": "temporary"},
         projection_policy={},
-        projector_version="test",
+        projector_id="test",
         projection={"task_run_id": task_run_id, "summary": "temporary"},
     )
     ToolResultStore(host.root_dir, run_id=task_run_id).apply_budget(

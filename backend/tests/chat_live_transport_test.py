@@ -55,7 +55,7 @@ def test_chat_live_subscription_resolves_cursor_from_last_event_id() -> None:
         "session:test",
         {
             "type": "subscribe",
-            "protocol": "agent-live.v1",
+            "protocol": "agent-live",
             "subscriptions": [
                 {
                     "stream_run_id": "strun:test",
@@ -79,7 +79,7 @@ def test_chat_live_subscription_rejects_cross_session_run() -> None:
             "session:other",
             {
                 "type": "subscribe",
-                "protocol": "agent-live.v1",
+                "protocol": "agent-live",
                 "stream_run_id": "strun:test",
             },
         )
@@ -144,7 +144,7 @@ def test_chat_live_subscribes_before_replay(monkeypatch: pytest.MonkeyPatch) -> 
     websocket = _ScriptedWebSocket(
         {
             "type": "subscribe",
-            "protocol": "agent-live.v1",
+            "protocol": "agent-live",
             "stream_run_id": "strun:test",
             "after_offset": -1,
         }

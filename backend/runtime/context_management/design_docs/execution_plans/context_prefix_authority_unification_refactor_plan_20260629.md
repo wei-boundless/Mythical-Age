@@ -430,7 +430,7 @@ Hash 是体温计，不是身份证。
 新增或明确一个结构化身份对象：
 
 ```text
-context_prefix_identity.v1
+context_prefix_identity
 ```
 
 字段：
@@ -457,12 +457,12 @@ context_prefix_identity.v1
 
 ```json
 {
-  "schema": "context_prefix_identity.v1",
+  "schema": "context_prefix_identity",
   "prefix_domain": "provider_prompt_prefix",
   "semantic_slot": "tool_transcript",
   "origin_authority": "runtime.context_management.physical_prefix_frame.replay",
   "origin_ref": "turn:session-x:5/tool_round:1",
-  "logical_segment_ref": "ctxprefix:v1:tool_transcript:turn.session-x.5.tool_round.1",
+  "logical_segment_ref": "ctxprefix:tool_transcript:turn.session-x.5.tool_round.1",
   "physical_lane": "provider_visible_context_prefix",
   "lifecycle_state": "confirmed_frame_replay",
   "content_version_hash": "sha256:...",
@@ -478,7 +478,7 @@ context_prefix_identity.v1
 诊断可提供 compact display string，但不能作为存储主键：
 
 ```text
-ctxp:v1/{lane}/{state}/{slot}/{origin_ref_short}/{content_hash8}
+ctxp/{lane}/{state}/{slot}/{origin_ref_short}/{content_hash8}
 ```
 
 ### 5.4 Expected Cache Read 规则
@@ -582,7 +582,7 @@ frame_ordinal
 request_ordinal
 logical_segment_ref
 provider_serialized_hash
-ctxp:v1/...
+ctxp/...
 ppseg:...
 physframe:...
 provider_under_read
@@ -1041,9 +1041,9 @@ compacted history -> ContextRecoveryPackage
 | 代码位置 | 当前作用 | 结论 |
 | --- | --- | --- |
 | `backend/harness/continuation/selector.py:76-124` | `select_session_continuation()` 选择 `ContinuationRecord` 或 interrupted turn record | 找到可恢复工作候选 |
-| `backend/harness/continuation/recovery_boundary.py:84-189` | 根据 policy、expected ids、当前 active work 判断是否允许 `resume_recoverable_work` | action permit，不是记忆恢复本体 |
+| `backend/harness/continuation/recovery_boundary.py:84-189` | 根据 policy、expected ids、当前 active work 判断是否允许 `resume_task_recovery` | action permit，不是记忆恢复本体 |
 | `backend/harness/continuation/recovery_packet.py:9-58` | `build_recovery_packet()` 生成 confirmed_progress、resume_constraints、artifact_refs、runtime_facts | task resume packet |
-| `backend/harness/entrypoint/runtime_facade.py:949-1238` | `_run_recoverable_work_resume_action_request()` 和 `_attach_recovery_packet_to_task_run()` 把 packet 写入 task diagnostics | task executor 恢复入口 |
+| `backend/harness/entrypoint/runtime_facade.py:949-1238` | `_run_task_recovery_resume_action_request()` 和 `_attach_recovery_packet_to_task_run()` 把 packet 写入 task diagnostics | task executor 恢复入口 |
 | `backend/harness/runtime/compiler.py:1440-1446`、`:2018-2023` | task execution packet 把 `recovery_packet` 放入 dynamic payload | 只作用于 task execution |
 
 结论：
@@ -1054,28 +1054,28 @@ ContinuationRecord -> RecoveryBoundary -> RecoveryPacket -> task_execution dynam
 
 这不是单 agent 普通 turn 之间的即时记忆缓存，不能让它承担普通对话的 pending state。
 
-#### 5.11.3 普通单 Agent 中断：InterruptedTurnContinuationRecord
+#### 5.11.3 普通单 Agent 中断：已替换的 continuation 链
 
-实施前，普通单 agent turn 中断后的恢复入口主要来自 turn_run diagnostics，而不是 `TurnMemory` projector：
+最新实现中，普通 single-agent turn 中断后的入口不再来自 turn_run diagnostics 续接链，而是由 `TurnMemory` 生命周期闭合后提供下一 turn 的只读 work memory 包：
 
 | 代码位置 | 当前作用 | 结论 |
 | --- | --- | --- |
-| `backend/harness/runtime/single_agent_host.py:342-424` | runtime 中断时写 `turn_runtime_interruption_recorded`，并在 turn_run diagnostics 标记 `interrupted_turn_continuation_pending` | 中断事实入口 |
-| `backend/harness/runtime/single_agent_host.py:445-498` | `_mark_turn_memory_interrupted_handoff()` 同时把 `TurnMemory.status` 标为 `handoff_ready`，`phase=recovering` | TurnMemory 已记录 handoff |
-| `backend/harness/continuation/selector.py:370-551` | `_latest_interrupted_turn_record()` 从 turn_run diagnostics 构造 `InterruptedTurnContinuationRecord`，包含 `assistant_visible_stream_continuity` | 当前模型可见中断恢复材料来源 |
-| `backend/harness/entrypoint/runtime_facade.py:652-663` | 把 `interrupted_turn_work` 和 `recoverable_work` 放进 `session_context` | single-agent 编译器入口 |
-| `backend/harness/runtime/compiler.py:630-640`、`:3173-3234` | compiler 把 `interrupted_turn_work` 投影到 `volatile_runtime_state`，含 visible assistant prefix 和 followup contract | 当前普通 turn 续接依赖 diagnostics/visible prefix |
+| `backend/harness/runtime/single_agent_host.py` | runtime 中断时写 `turn_runtime_interruption_recorded`，并闭合 TurnRun / TurnMemory | 中断生命周期入口 |
+| `backend/runtime/turn_memory/turn_memory_prior_work.py` | 选择 latest closed interrupted package，构造 prior work context | 下一 turn 只读记忆来源 |
+| `backend/harness/continuation/selector.py` | 只选择 task continuation record | 普通 turn 中断不再由 continuation selector 决策 |
+| `backend/harness/entrypoint/runtime_facade.py` | 把 `prior_work_memory_context` 放进 `session_context` | single-agent 编译器入口 |
+| `backend/harness/runtime/compiler.py` | compiler 把 prior work memory 投影到 volatile runtime state，明确禁止 resume previous turn | 当前普通 turn 使用 prior context 后重新决策 |
 
 结论：
 
 ```text
-runtime interruption diagnostics
--> InterruptedTurnContinuationRecord
--> session_context["interrupted_turn_work"]
+runtime interruption
+-> closed TurnMemory interrupted package
+-> session_context["prior_work_memory_context"]
 -> compiler volatile_runtime_state
 ```
 
-这条链路能让 agent 继续，但它不是最稳的未提交 turn 状态权威，因为它依赖 turn_run diagnostics 和 visible assistant prefix。`TurnMemory` 已经同步写了 handoff 状态，Phase 0.5 将 compiler 的恢复投影来源切到 `TurnMemory`。
+这条链路把“中断”作为 turn 生命周期闭合状态处理，下一条用户输入开启新 turn，并以只读 prior work memory 作为上下文。
 
 #### 5.11.4 TurnMemory 已有记录，但 projector/recovery 未接入主链路
 
@@ -1112,7 +1112,7 @@ backend/runtime/turn_memory/turn_memory_recovery.py
 | `TurnMemoryStore` 落盘 | `storage/runtime_state/turn_memory` 已有真实 turn JSON、checkpoints、tombstones；状态覆盖 `terminal/handoff_ready/released/active/frame_pending` | 继续使用现有账本，不新建 hot journal |
 | `assistant_draft_ref` | 字段和 `update_assistant_draft()` 存在，但 active runtime 没有真实调用点，存量数据未发现非空 draft ref | 不把 draft recovery 当作已完成能力；本轮只保留裁决分支并标明 writer 缺口 |
 | projector/recovery 消费 | `project_current_turn_context()`、`project_handoff_context()`、`decide_turn_memory_recovery()` 没有进入 `runtime_facade -> compiler` 主链路 | 本轮必须接入 `session_context["turn_memory_recovery"]` 并由 compiler 投影为模型可见 runtime signal |
-| 旧 interrupted chain | `InterruptedTurnContinuationRecord` 仍从 turn_run diagnostics / visible prefix 构造 | 旧链路只可作为选择诊断；不得进入 compiler active payload；active 权威转交给 TurnMemory |
+| 旧 ordinary turn continuation chain | 已从 selector / compiler active payload 移除 | 普通中断 turn 只通过 TurnMemory prior work package 进入下一 turn |
 
 目标判断：
 
@@ -1677,11 +1677,11 @@ prefix identity 重构边界明确
 
 改动：
 
-1. `decide_turn_memory_recovery()` 明确支持 `handoff_ready`，输出 `recover_interrupted_turn`。
-2. `runtime_facade` 在每轮普通 single-agent turn 前读取最新 unreleased pending/handoff `TurnMemory`。
-3. 将 `TurnMemory` decision、handoff projection、current turn projection 归一为 `session_context["turn_memory_recovery"]`。
-4. `compiler` 优先消费 `turn_memory_recovery` 并投影到 current runtime signals。
-5. 删除 compiler 对 `interrupted_turn_work` 的模型可见消费路径。
+1. `record_chat_turn_run_runtime_interruption()` 将中断视作 turn 生命周期闭合，写入 terminal interrupted memory package。
+2. `runtime_facade` 在每轮普通 single-agent turn 前读取最新 unreleased closed interrupted `TurnMemory`。
+3. 将 closed memory package 归一为 `session_context["prior_work_memory_context"]`。
+4. `compiler` 消费 prior work memory，并明确要求 agent 开启新 turn 决策。
+5. 删除 compiler 对旧 ordinary turn continuation payload 的模型可见消费路径。
 
 完成标准：
 
@@ -1768,7 +1768,7 @@ model_gateway -> context_management 内部 ledger 直接调用列入后续删除
 ```text
 2026-06-29:
   新增 backend/runtime/context_management/context_prefix_identity.py
-  定义 PrefixIdentity / context_prefix_identity.v1 / runtime.context_management.context_prefix_identity
+  定义 PrefixIdentity / context_prefix_identity / runtime.context_management.context_prefix_identity
   logical_segment_ref seed 改为 prefix_domain + physical_lane + semantic_slot + origin_authority + origin_ref，不再包含 content hash
   ProviderPayloadSegment 增加 content_version_hash、provider_serialized_hash、prefix_segment_ref、prefix_identity
   prompt_accounting serializer / ledger / models 透传 canonical prefix identity
@@ -1915,7 +1915,7 @@ Phase 4A 实施记录：
   api/tokens.py 和 health_system/governance.py 只消费 build_provider_cache_log_view() / provider_cache_log_row()，不再各自拼装 provider cache 日志。
   /tokens/session/{session_id} 返回 provider_cache_log，并把 provider_cache_ledger.jsonl 纳入响应缓存签名，前端可直接从 tokenStats.provider_cache_log 读取结构化缓存日志。
   stability_report.py 改为记录 identity/content version/position/transport contract 分类，不再把 cached_tokens > 0 当作缓存成功。
-  cache_break_detector.py 对 provider_prefix_cache_health.verdict == provider_under_read 生成 break record，即使总 cached_tokens 大于 0 也不会误判为健康。
+  cache_anomaly_detector.py 对 provider_prefix_cache_health.verdict == provider_under_read 生成 anomaly record，即使总 cached_tokens 大于 0 也不会误判为健康。
   ChatPanel 的 sessionContextMeterPresentation() 只读取 tokenStats.provider_cache_log 的总线结论；上下文压力照常计算，前缀 under-read 时 meter 状态显示为 cache_under_read。
 ```
 

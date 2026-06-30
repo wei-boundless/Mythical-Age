@@ -93,13 +93,13 @@ class ProjectionLifecycleState:
             if not tool_call_id or not record:
                 return _protocol_diagnostic_spec(
                     data,
-                    code="tool_permission_without_model_request",
+                    code="tool_permission_without_tool_call_request",
                     detail="tool_permission_decided 没有绑定已存在的 ToolCallRequest，不能进入公开工具生命周期。",
                 )
             if offset <= int(record.get("requested_offset") or -1):
                 return _protocol_diagnostic_spec(
                     data,
-                    code="tool_permission_before_model_request",
+                    code="tool_permission_before_tool_call_request",
                     detail="tool_permission_decided 的 event_offset 不晚于 tool_call_requested，不能进入公开工具生命周期。",
                 )
             spec = _tool_permission_decided_spec(data)
@@ -1061,7 +1061,7 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
     state = text(data.get("status") or data.get("state")).lower()
     if _is_runtime_transport_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
-    if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
+    if state not in {"failed", "error", "stopped", "aborted", "interrupted", "cancelled", "canceled", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if state in {"failed", "error", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
@@ -1097,7 +1097,7 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 _RUNTIME_PROTOCOL_TERMINAL_REASONS = frozenset(
     {
-        "task_contract_invalid",
+        "task_run_contract_invalid",
         "model_action_invalid",
         "model_action_protocol_repair_required",
         "protocol_recovery_exhausted",
@@ -1192,12 +1192,13 @@ _RUNTIME_TRANSPORT_TERMINAL_REASONS = frozenset(
         "projection_stream_exception",
         "projection_stream_missing_terminal",
         "task_bridge_context_missing",
+        "runtime_interruption_closed",
     }
 )
 
 
 def _is_runtime_transport_terminal(data: dict[str, Any]) -> bool:
-    if data.get("semantic_terminal") is False:
+    if data.get("agent_decision_terminal") is False:
         return True
     if text(data.get("completion_state")) == "interrupted":
         return True

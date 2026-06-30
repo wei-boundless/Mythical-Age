@@ -338,7 +338,7 @@ def test_session_manager_agent_history_never_injects_compressed_context_as_messa
     ]
 
 
-def test_session_manager_keeps_api_transcript_hidden_but_loadable(tmp_path: Path) -> None:
+def test_session_manager_keeps_provider_protocol_timeline_hidden_but_loadable(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
     manager = SessionManager(backend_dir)
@@ -350,7 +350,7 @@ def test_session_manager_keeps_api_transcript_hidden_but_loadable(tmp_path: Path
             {"role": "assistant", "content": "结果", "turn_id": "turn:1"},
         ],
     )
-    manager.append_api_messages(
+    manager.append_provider_protocol_messages(
         session_id,
         [
             {"role": "user", "content": "查天气", "turn_id": "turn:1"},
@@ -367,13 +367,13 @@ def test_session_manager_keeps_api_transcript_hidden_but_loadable(tmp_path: Path
     )
 
     public_history = manager.get_history(session_id)
-    api_history = manager.load_session_for_api(session_id)
+    provider_protocol_timeline = manager.load_provider_protocol_timeline(session_id)
 
-    assert "api_transcript" not in public_history
+    assert "provider_protocol_timeline" not in public_history
     assert len(public_history["messages"]) == 2
-    assert api_history[1]["reasoning_content"] == "hidden reasoning"
-    assert api_history[1]["tool_calls"][0]["id"] == "call_1"
-    assert api_history[2]["role"] == "tool"
+    assert provider_protocol_timeline[1]["reasoning_content"] == "hidden reasoning"
+    assert provider_protocol_timeline[1]["tool_calls"][0]["id"] == "call_1"
+    assert provider_protocol_timeline[2]["role"] == "tool"
 
 
 def test_session_manager_public_history_filters_structured_tool_protocol_messages(tmp_path: Path) -> None:

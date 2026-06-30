@@ -7,7 +7,17 @@ export function streamEventStopsActiveWork(event: string, data: Record<string, u
   const status = runtimeText(data.status).toLowerCase();
   const state = runtimeText(data.state).toLowerCase();
   const phase = runtimeText(data.phase).toLowerCase();
-  const stopValues = ["stop_active_work", "conversation_stop", "user_stopped", "stopped", "aborted", "cancelled", "canceled"];
+  const stopValues = [
+    "stop_active_work",
+    "conversation_stop",
+    "user_stopped",
+    "stopped",
+    "aborted",
+    "interrupted",
+    "runtime_interruption_closed",
+    "cancelled",
+    "canceled",
+  ];
   if (stopValues.includes(terminalReason) || stopValues.includes(completionState)) {
     return true;
   }

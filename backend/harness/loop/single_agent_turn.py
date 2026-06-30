@@ -52,6 +52,7 @@ from harness.runtime.prompt_segment_plan import build_prompt_segment_plan, stabl
 from harness.runtime.provider_tool_schema import provider_tool_bindings_for_available_tools
 from harness.runtime.control_action_schema import (
     CONTROL_ACTION_TOOL_NAMES,
+    control_action_arg_errors_from_native_tool_call,
     control_action_request_payload_from_native_tool_call,
     is_control_action_tool_name,
     provider_control_action_bindings,
@@ -72,7 +73,7 @@ from runtime.context_management import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     NEVER_REPLAY_TAIL,
-    PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+    PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
     STATIC_PREFIX,
     assemble_physical_context_spine,
     annotate_specs_with_physical_context_plan,
@@ -81,11 +82,20 @@ from runtime.context_management import (
     context_segment_policy_metadata,
     context_segment_routes_to_dynamic_tail,
     DYNAMIC_TAIL,
-    provider_visible_context_append_candidate_spec,
+    provider_visible_append_candidate_spec,
 )
 from runtime.context_management.followup_context_rebase import (
     current_followup_append_context_policy,
-    current_turn_exact_old_context_policy,
+    provider_protocol_prefix_replay_policy,
+)
+from runtime.context_management.provider_message_replay_contract import (
+    PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY,
+    PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
+    PHYSICAL_PREFIX_FRAME_REPLAY_STATUS,
+    PROVIDER_PROTOCOL_REPLAY_POLICY,
+    PROVIDER_PROTOCOL_REPLAY_STATUS,
+    provider_message_byte_preservation_required,
+    provider_protocol_append_candidate_metadata,
 )
 from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
 from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT, TURN_COMPLETED_EVENT
@@ -148,7 +158,7 @@ logger = logging.getLogger(__name__)
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest, dict[str, Any]], AsyncIterator[dict[str, Any]]]
 ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
-ApplyRecoverableWorkResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
+ApplyTaskRecoveryResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
@@ -385,13 +395,13 @@ def _agent_visible_action_fields(allowed_action_types: tuple[str, ...] | list[st
     if "block" in allowed:
         fields["block"] = "blocking_reason"
     if "request_task_run" in allowed:
-        fields["request_task_run"] = "compact TaskStartIntent v3 in task_run_contract_seed"
+        fields["request_task_run"] = "compact TaskStartIntent in task_run_contract_seed"
     if "tool_call" in allowed:
         fields["tool_call"] = "tool_call or tool_calls"
     if "active_work_control" in allowed:
         fields["active_work_control"] = "active_work_control"
-    if "resume_recoverable_work" in allowed:
-        fields["resume_recoverable_work"] = "recovery_resume"
+    if "resume_task_recovery" in allowed:
+        fields["resume_task_recovery"] = "task_recovery_resume"
     return fields
 
 
@@ -882,7 +892,7 @@ def _tool_followup_requires_action_transport(allowed_action_types: tuple[str, ..
             "block",
             "request_task_run",
             "active_work_control",
-            "resume_recoverable_work",
+            "resume_task_recovery",
             "tool_call",
         }.intersection(str(item) for item in tuple(allowed_action_types or ()))
     )
@@ -1219,6 +1229,26 @@ def _agent_contract_feedback_items(
         reason = str(protocol_error.get("reason") or protocol_error.get("code") or "").strip()
         if reason:
             items.append(_contract_feedback_item_for_reason(reason, diagnostics=diagnostics))
+    if not items and not str(control_signal.get("commit_reason") or "").strip():
+        signal_reason = str(control_signal.get("signal_kind") or control_signal.get("reason") or control_signal.get("code") or "").strip()
+        if signal_reason:
+            attempted_tool_names = [
+                str(dict(dict(item or {}).get("tool_call") or {}).get("tool_name") or "").strip()
+                for item in list(control_signal.get("attempted_actions_not_executed") or [])
+                if isinstance(item, dict)
+            ]
+            items.append(
+                _contract_feedback_item_for_reason(
+                    signal_reason,
+                    diagnostics={
+                        **diagnostics,
+                        "tool_names": [name for name in attempted_tool_names if name],
+                        "used_tool_iterations": control_signal.get("used_tool_iterations"),
+                        "max_tool_iterations": control_signal.get("max_tool_iterations"),
+                        "attempted_actions_not_executed": list(control_signal.get("attempted_actions_not_executed") or []),
+                    },
+                )
+            )
     commit_reason = str(control_signal.get("commit_reason") or "").strip()
     if commit_reason:
         leak_flags = [str(item) for item in list(control_signal.get("answer_leak_flags") or []) if str(item)]
@@ -1264,14 +1294,53 @@ def _contract_feedback_item_for_reason(reason: str, *, diagnostics: dict[str, An
         for item in list(diagnostics.get("tool_names") or [])
         if str(item).strip()
     ]
+    normalized = str(reason or "action_contract_failed").strip()
+    if normalized in {"tool_budget_exhausted", "consecutive_tool_failures"}:
+        used = diagnostics.get("used_tool_iterations")
+        maximum = diagnostics.get("max_tool_iterations")
+        budget_text = f"{used}/{maximum}" if used not in (None, "") and maximum not in (None, "") else "已耗尽"
+        attempted = _attempted_tool_summaries(diagnostics.get("attempted_actions_not_executed"))
+        tool_text = "；未执行工具：" + "、".join(attempted) if attempted else ""
+        if normalized == "consecutive_tool_failures":
+            return {
+                "category": "runtime_control",
+                "code": "consecutive_tool_failures",
+                "reason": "consecutive_tool_failures",
+                "situation_feedback": f"已经连续工具失败{tool_text}；上一条工具请求没有执行，不能继续重复同类工具动作。",
+                "repair_instruction": "基于已经观察到的失败事实收口；如果证据不足，说明缺口并询问用户或阻塞，不要再次调用同类工具。",
+                "expected_next_action": "不要再调用工具；用 respond.final_answer、ask_user.user_question 或 block.blocking_reason 收口。",
+            }
+        return {
+            "category": "runtime_control",
+            "code": "tool_budget_exhausted",
+            "reason": "tool_budget_exhausted",
+            "situation_feedback": f"本轮工具预算已经耗尽（{budget_text}）{tool_text}；上一条工具请求没有执行，不能继续申请工具。",
+            "repair_instruction": "用你自己的判断收口；如果证据不足，说明缺口并询问用户或阻塞，不要再次调用工具。",
+            "expected_next_action": "不要再调用工具；用 respond.final_answer、ask_user.user_question 或 block.blocking_reason 收口。",
+        }
     return {
         "category": "protocol_violation",
-        "code": str(reason or "action_contract_failed").strip(),
-        "reason": str(reason or "action_contract_failed").strip(),
-        "situation_feedback": _situation_feedback_for_contract_code(str(reason or ""), requested_tool="、".join(tool_names)),
-        "repair_instruction": _repair_instruction_for_contract_code(str(reason or ""), requested_tool="、".join(tool_names)),
-        "expected_next_action": _expected_next_action_for_contract_code(str(reason or ""), requested_tool="、".join(tool_names)),
+        "code": normalized,
+        "reason": normalized,
+        "situation_feedback": _situation_feedback_for_contract_code(normalized, requested_tool="、".join(tool_names)),
+        "repair_instruction": _repair_instruction_for_contract_code(normalized, requested_tool="、".join(tool_names)),
+        "expected_next_action": _expected_next_action_for_contract_code(normalized, requested_tool="、".join(tool_names)),
     }
+
+
+def _attempted_tool_summaries(value: Any) -> list[str]:
+    summaries: list[str] = []
+    for item in list(value or []):
+        if not isinstance(item, dict):
+            continue
+        tool_call = dict(item.get("tool_call") or {}) if isinstance(item.get("tool_call"), dict) else {}
+        name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+        if not name:
+            continue
+        args = dict(tool_call.get("args") or {}) if isinstance(tool_call.get("args"), dict) else {}
+        path = str(args.get("path") or "").strip()
+        summaries.append(f"{name}({path})" if path else name)
+    return summaries
 
 
 def _contract_feedback_phase_text(phase: str) -> str:
@@ -1298,6 +1367,7 @@ def _uses_standard_contract_feedback_template(code: str) -> bool:
         "final_answer_required_for_respond",
         "blocking_reason_required_for_block",
         "user_question_required_for_ask_user",
+        "tool_budget_exhausted",
     }
 
 
@@ -1314,6 +1384,8 @@ def _situation_feedback_for_contract_code(code: str, *, requested_action: str = 
     if normalized == "action_object_required_for_control_action":
         action_hint = f"（{requested_action}）" if requested_action else ""
         return f"你把动作选择{action_hint}放在了错误的工具请求位置；它需要作为本轮控制动作提交。"
+    if normalized == "tool_budget_exhausted":
+        return "本轮工具预算已经耗尽；上一条工具请求没有执行，不能继续申请工具。"
     if normalized in {"multiple_native_action_sources"}:
         return "同一轮出现了多个动作决定，无法判断哪一个才是你的唯一真实决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1339,6 +1411,8 @@ def _repair_instruction_for_contract_code(code: str, *, requested_action: str = 
         return f"保留同一个观察目标{tool_hint}，按本轮工具行动合同重新提交工具行动；如果事实已经足够，可以直接自然回复或使用 respond.final_answer。"
     if normalized == "action_object_required_for_control_action":
         return "保留原动作意图，选择对应控制动作并填写参数；申请长任务资源时只填写紧凑 TaskStartIntent。"
+    if normalized == "tool_budget_exhausted":
+        return "基于已经观察到的事实收口；如果证据不足，说明缺口并询问用户或阻塞，不要再次调用工具。"
     if normalized in {"multiple_native_action_sources"}:
         return "只保留一个普通工具动作集合；不要在同一轮混合多个决策。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1362,6 +1436,8 @@ def _expected_next_action_for_contract_code(code: str, *, requested_action: str 
         return "按当前工具行动合同重新提交同一个观察目标，或基于已有事实收口。"
     if normalized == "action_object_required_for_control_action":
         return "提交同等语义的控制动作。"
+    if normalized == "tool_budget_exhausted":
+        return "不要再调用工具；用 respond.final_answer、ask_user.user_question 或 block.blocking_reason 收口。"
     if normalized in {"multiple_native_action_sources"}:
         return "删掉冲突动作，只提交一个可执行的结构化决定。"
     if normalized in {"single_agent_turn_multiple_action_sources"}:
@@ -1495,7 +1571,7 @@ def _turn_status_from_public_terminal_event(event: dict[str, Any]) -> str:
     event_type = str(payload.get("type") or "").strip()
     if event_type == TURN_COMPLETED_EVENT:
         status = str(payload.get("status") or "").strip().lower()
-        if status in {"completed", "blocked", "failed", "aborted", "stopped"}:
+        if status in {"completed", "blocked", "failed", "aborted", "interrupted", "stopped"}:
             return "aborted" if status == "stopped" else status
         return "failed"
     if event_type == "done":
@@ -1679,7 +1755,7 @@ async def run_single_agent_turn(
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
     apply_active_work_control: ApplyActiveWorkControl | None = None,
-    apply_recoverable_work_resume: ApplyRecoverableWorkResume | None = None,
+    apply_task_recovery_resume: ApplyTaskRecoveryResume | None = None,
     compact_session_context: CompactSessionContext | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     turn_run = None
@@ -1786,7 +1862,7 @@ async def run_single_agent_turn(
         )
         runtime_permission_mode = _turn_runtime_permission_mode(runtime_assembly, runtime_host=runtime_host)
         model_messages = _copy_model_messages_without_rewriting(list(compilation.packet.model_messages))
-        api_protocol_messages: list[dict[str, Any]] = []
+        provider_protocol_messages_to_append: list[dict[str, Any]] = []
         assistant_stream_normalizer: AssistantStreamNormalizer | None = None
         assistant_visible_stream_continuity = {}
         current_packet_ref = str(compilation.packet.packet_id)
@@ -1983,7 +2059,7 @@ async def run_single_agent_turn(
                     model_messages=closeout_messages,
                     model_selection=_model_selection_for_native_tool_protocol(dict(model_selection or {})),
                     accounting_context={
-                        "request_id": f"modelreq:{current_packet_ref}:agent-closeout:{phase}:{attempt}",
+                        "request_id": f"providerreq:{current_packet_ref}:agent-closeout:{phase}:{attempt}",
                         "session_id": session_id,
                         "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
@@ -2047,7 +2123,7 @@ async def run_single_agent_turn(
                     answer_source=_AGENT_CLOSEOUT_SOURCE,
                     execution_posture="single_agent_turn",
                     terminal_reason=terminal_reason,
-                    has_tool_receipt=bool(api_protocol_messages),
+                    has_tool_receipt=bool(provider_protocol_messages_to_append),
                 )
                 if (
                     _meaningful_visible_answer(content)
@@ -2063,8 +2139,8 @@ async def run_single_agent_turn(
                         content=content,
                         answer_channel=answer_channel,
                         answer_source=_AGENT_CLOSEOUT_SOURCE,
-                        api_protocol_messages=[
-                            *api_protocol_messages,
+                        provider_protocol_messages_to_append=[
+                            *provider_protocol_messages_to_append,
                             _assistant_protocol_message_from_content(content, turn_id=turn_id),
                         ],
                         main_context=memory_maintenance_main_context_for_commit(),
@@ -2183,7 +2259,7 @@ async def run_single_agent_turn(
             model_messages=model_messages,
             model_selection=dict(model_selection or {}),
             accounting_context={
-                "request_id": f"modelreq:{compilation.packet.packet_id}:1",
+                "request_id": f"providerreq:{compilation.packet.packet_id}:1",
                 "session_id": session_id,
                 "provider_cache_scope_id": provider_cache_scope_id,
                 "run_id": turn_run.turn_run_id if turn_run is not None else "",
@@ -2243,7 +2319,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     model_selection=dict(model_selection or {}),
                     accounting_context={
-                        "request_id": f"modelreq:{current_packet_ref}:active-turn-steer:{tool_iteration + 1}",
+                        "request_id": f"providerreq:{current_packet_ref}:active-turn-steer:{tool_iteration + 1}",
                         "session_id": session_id,
                         "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
@@ -2361,9 +2437,9 @@ async def run_single_agent_turn(
                     model_selection=dict(model_selection or {}),
                     accounting_context={
                         "request_id": (
-                            f"modelreq:{current_packet_ref}:contract-observation:{tool_iteration + 1}:{protocol_recovery_attempts}"
+                            f"providerreq:{current_packet_ref}:contract-observation:{tool_iteration + 1}:{protocol_recovery_attempts}"
                             if recovery_exhausted
-                            else f"modelreq:{current_packet_ref}:runtime-control-recovery:{tool_iteration + 1}:{protocol_recovery_attempts}"
+                            else f"providerreq:{current_packet_ref}:runtime-control-recovery:{tool_iteration + 1}:{protocol_recovery_attempts}"
                         ),
                         "session_id": session_id,
                         "provider_cache_scope_id": provider_cache_scope_id,
@@ -2659,7 +2735,7 @@ async def run_single_agent_turn(
             if assistant_tool_calls:
                 tool_context_assistant_message_index = previous_accumulated_context_count
                 assistant_protocol_message = _with_turn_id(_assistant_tool_call_message(response, assistant_tool_calls), turn_id)
-                api_protocol_messages.extend([assistant_protocol_message, *tool_protocol_messages])
+                provider_protocol_messages_to_append.extend([assistant_protocol_message, *tool_protocol_messages])
             else:
                 tool_context_assistant_message_index = -1
                 assistant_protocol_message = {}
@@ -2977,7 +3053,7 @@ async def run_single_agent_turn(
                 model_messages=followup_invocation_messages,
                 model_selection=dict(model_selection or {}),
                 accounting_context={
-                    "request_id": f"modelreq:{followup_packet_ref}:tool-followup:{tool_iteration}",
+                    "request_id": f"providerreq:{followup_packet_ref}:tool-followup:{tool_iteration}",
                     "session_id": session_id,
                     "provider_cache_scope_id": provider_cache_scope_id,
                     "run_id": turn_run.turn_run_id if turn_run is not None else "",
@@ -2987,8 +3063,8 @@ async def run_single_agent_turn(
                     "provider_lane": PROVIDER_LANE_AGENT_TOOL_LOOP,
                     "segment_plan": followup_segment_plan,
                     "provider_visible_physical_context": True,
-                    "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
-                    "provider_visible_context_scope": str(provider_visible_followup_ledger.get("provider_visible_context_scope") or ""),
+                    "provider_visible_append_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
+                    "provider_visible_append_scope": str(provider_visible_followup_ledger.get("provider_visible_append_scope") or ""),
                     "reasoning_projection_public_visible": reasoning_projection_public_visible,
                     "prompt_manifest": followup_prompt_manifest,
                 },
@@ -3152,9 +3228,9 @@ async def run_single_agent_turn(
                     model_selection=dict(model_selection or {}),
                     accounting_context={
                         "request_id": (
-                            f"modelreq:{current_packet_ref}:final-contract-observation:{protocol_recovery_attempts}"
+                            f"providerreq:{current_packet_ref}:final-contract-observation:{protocol_recovery_attempts}"
                             if recovery_exhausted
-                            else f"modelreq:{current_packet_ref}:final-runtime-control-recovery:{protocol_recovery_attempts}"
+                            else f"providerreq:{current_packet_ref}:final-runtime-control-recovery:{protocol_recovery_attempts}"
                         ),
                         "session_id": session_id,
                         "provider_cache_scope_id": provider_cache_scope_id,
@@ -3259,7 +3335,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     model_selection=dict(model_selection or {}),
                     accounting_context={
-                        "request_id": f"modelreq:{current_packet_ref}:final-admission-repair",
+                        "request_id": f"providerreq:{current_packet_ref}:final-admission-repair",
                         "session_id": session_id,
                         "provider_cache_scope_id": provider_cache_scope_id,
                         "run_id": turn_run.turn_run_id if turn_run is not None else "",
@@ -3272,8 +3348,8 @@ async def run_single_agent_turn(
                             **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
                             "provider_lane": PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                         },
-                        "provider_visible_context_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
-                        "provider_visible_context_scope": str(provider_visible_followup_ledger.get("provider_visible_context_scope") or ""),
+                        "provider_visible_append_ledger_storage_root": str(provider_visible_followup_ledger.get("storage_root") or ""),
+                        "provider_visible_append_scope": str(provider_visible_followup_ledger.get("provider_visible_append_scope") or ""),
                     },
                     request_id=f"model-response:{current_packet_ref}:final:admission-repair",
                     turn_id=turn_id,
@@ -3384,8 +3460,8 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="conversation",
                     answer_source="harness.single_agent_turn.respond",
-                    api_protocol_messages=_final_api_protocol_messages(
-                        api_protocol_messages,
+                    provider_protocol_messages_to_append=_final_provider_protocol_messages_to_append(
+                        provider_protocol_messages_to_append,
                         turn_id=turn_id,
                         final_content=content,
                     ),
@@ -3474,8 +3550,8 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="blocked",
                     answer_source="harness.single_agent_turn.block",
-                    api_protocol_messages=_final_api_protocol_messages(
-                        api_protocol_messages,
+                    provider_protocol_messages_to_append=_final_provider_protocol_messages_to_append(
+                        provider_protocol_messages_to_append,
                         turn_id=turn_id,
                         final_content=content,
                     ),
@@ -3528,8 +3604,8 @@ async def run_single_agent_turn(
                     content=content,
                     answer_channel="ask_user",
                     answer_source="harness.single_agent_turn.ask_user",
-                    api_protocol_messages=_final_api_protocol_messages(
-                        api_protocol_messages,
+                    provider_protocol_messages_to_append=_final_provider_protocol_messages_to_append(
+                        provider_protocol_messages_to_append,
                         turn_id=turn_id,
                         final_content=content,
                     ),
@@ -3557,25 +3633,25 @@ async def run_single_agent_turn(
                 ):
                     yield event
                 return
-            if action_request.action_type == "resume_recoverable_work":
-                if apply_recoverable_work_resume is None:
+            if action_request.action_type == "resume_task_recovery":
+                if apply_task_recovery_resume is None:
                     async for event in emit_agent_authored_closeout(
-                        reason="recoverable_work_resume_executor_missing",
-                        phase="recoverable_work_resume_executor_missing",
-                        terminal_reason="recoverable_work_resume_executor_missing",
+                        reason="task_recovery_resume_executor_missing",
+                        phase="task_recovery_resume_executor_missing",
+                        terminal_reason="task_recovery_resume_executor_missing",
                         protocol_error=_single_agent_protocol_error(
-                            code="recoverable_work_resume_executor_missing",
-                            reason="single_agent_turn_missing_recoverable_work_resume_callback",
+                            code="task_recovery_resume_executor_missing",
+                            reason="single_agent_turn_missing_task_recovery_resume_callback",
                             diagnostics={"action_request": action_request.to_dict()},
                         ),
                     ):
                         yield event
                     terminal_recorded = True
                     return
-                terminal_reason = "recoverable_work_resume"
+                terminal_reason = "task_recovery_resume"
                 terminal_status = "completed"
                 buffered_resume_events: list[dict[str, Any]] = []
-                async for event in apply_recoverable_work_resume(action_request):
+                async for event in apply_task_recovery_resume(action_request):
                     event_payload = dict(event or {})
                     event_type = str(event_payload.get("type") or "").strip()
                     if event_type == "error":
@@ -3702,11 +3778,11 @@ async def run_single_agent_turn(
             content=content,
             answer_channel="conversation",
             answer_source="harness.single_agent_turn",
-            api_protocol_messages=[
-                *api_protocol_messages,
+            provider_protocol_messages_to_append=[
+                *provider_protocol_messages_to_append,
                 _assistant_final_protocol_message(response, turn_id=turn_id, include_reasoning=True),
             ]
-            if api_protocol_messages
+            if provider_protocol_messages_to_append
             else None,
             main_context=memory_maintenance_main_context_for_commit(),
         )
@@ -3724,7 +3800,7 @@ async def run_single_agent_turn(
             content=content,
             answer_channel="conversation",
             answer_source="harness.single_agent_turn",
-            has_tool_receipt=bool(api_protocol_messages),
+            has_tool_receipt=bool(provider_protocol_messages_to_append),
             terminal_status="completed",
             terminal_reason="assistant_message",
             final_extra={"runtime_branch": dict(runtime_branch or {})},
@@ -3798,29 +3874,6 @@ async def _invoke_single_turn_model(
             )
         except Exception as exc:
             logger.exception("single agent turn model tool invocation failed")
-            if _native_tool_invocation_should_fallback_to_json_action(
-                channel_contract,
-                native_tools=native_tools,
-                error=exc,
-            ) and callable(plain_invoker):
-                try:
-                    return await call_model_invoker(
-                        plain_invoker,
-                        model_messages,
-                        model_selection=_model_selection_with_json_object_contract(model_selection),
-                        accounting_context={
-                            **dict(accounting_context or {}),
-                            "provider_native_action_fallback": {
-                                "from": "provider_native_tools",
-                                "to": "json_action_object",
-                                "phase": str(channel_contract.phase or ""),
-                                "reason": _native_tool_invocation_fallback_reason(exc),
-                            },
-                        },
-                    )
-                except Exception as fallback_exc:
-                    logger.exception("single agent turn JSON action fallback invocation failed")
-                    return _single_agent_model_failure_event(fallback_exc)
             return _single_agent_model_failure_event(exc)
     if callable(plain_invoker):
         try:
@@ -3939,46 +3992,6 @@ def _round_tool_call_options_for_native_tools(
     return build_round_tool_call_options(max_tool_calls=max_tool_calls, tool_choice=tool_choice)
 
 
-def _native_tool_invocation_should_fallback_to_json_action(
-    output_contract: SingleAgentOutputChannelContract,
-    *,
-    native_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    error: Exception,
-) -> bool:
-    if not native_tools or not _output_channel_requires_action(output_contract):
-        return False
-    if isinstance(error, ModelRuntimeError):
-        if error.code in {"timeout", "rate_limit", "insufficient_balance", "provider_unavailable"}:
-            return False
-        detail = str(error.detail or "")
-    else:
-        detail = str(error or "")
-    lowered = detail.lower()
-    if any(
-        token in lowered
-        for token in (
-            "tool_choice",
-            "parallel_tool_calls",
-            "tools",
-            "tool call",
-            "tool_calls",
-            "function calling",
-            "strict",
-            "unsupported",
-            "not support",
-            "not supported",
-        )
-    ):
-        return True
-    return isinstance(error, ModelRuntimeError) and error.code == "provider_error"
-
-
-def _native_tool_invocation_fallback_reason(error: Exception) -> str:
-    if isinstance(error, ModelRuntimeError):
-        return str(error.code or "provider_native_tool_invocation_failed")
-    return "provider_native_tool_invocation_failed"
-
-
 def _model_selection_with_action_budget(model_selection: dict[str, Any]) -> dict[str, Any]:
     selection = dict(model_selection or {})
     mappings = {
@@ -4079,7 +4092,7 @@ async def _invoke_single_turn_model_with_stream_events(
             answer_source=str(accounting_context.get("source") or "harness.single_agent_turn"),
             phase=phase,
             state=state,
-            model_request_id=stream_ref,
+            provider_request_id=stream_ref,
         )
 
     assistant_normalizer = AssistantStreamNormalizer.from_policy(
@@ -4170,33 +4183,6 @@ async def _invoke_single_turn_model_with_stream_events(
             return
     except Exception as exc:
         logger.exception("single agent turn streaming model invocation failed")
-        if _native_tool_invocation_should_fallback_to_json_action(
-            channel_contract,
-            native_tools=native_tools,
-            error=exc,
-        ):
-            fallback_response = await _invoke_single_turn_model(
-                model_runtime=model_runtime,
-                model_messages=model_messages,
-                model_selection=_model_selection_with_json_object_contract(model_selection),
-                accounting_context={
-                    **dict(accounting_context or {}),
-                    "provider_native_action_fallback": {
-                        "from": "provider_native_tools_stream",
-                        "to": "json_action_object",
-                        "phase": str(channel_contract.phase or ""),
-                        "reason": _native_tool_invocation_fallback_reason(exc),
-                    },
-                },
-                native_tools=[],
-                output_contract=channel_contract,
-            )
-            yield {
-                "type": _INTERNAL_MODEL_RESPONSE_EVENT,
-                "response": fallback_response,
-                "assistant_stream_normalizer": assistant_normalizer,
-            }
-            return
         if should_recover_partial_visible_stream(
             stream_policy,
             raw_content=raw_content,
@@ -5179,10 +5165,9 @@ def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -
         "permission_request",
         "public_action_state",
         "public_progress_note",
-        "recovery_resume",
+        "task_recovery_resume",
         "selected_skill_ids",
         "task_run_contract_seed",
-        "task_contract_seed",
         "tool_call",
         "tool_calls",
         "user_question",
@@ -5298,6 +5283,7 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
             errors.append(action_object_only_error)
             continue
         if is_control_action_tool_name(tool_name):
+            arg_errors = control_action_arg_errors_from_native_tool_call(call)
             payload = control_action_request_payload_from_native_tool_call(
                 call,
                 turn_id=turn_id,
@@ -5312,7 +5298,10 @@ def _action_requests_from_native_tool_calls_with_diagnostics(
             )
             validation_errors = [
                 str(item)
-                for item in list(dict(parse_diagnostics or {}).get("validation_errors") or [])
+                for item in [
+                    *arg_errors,
+                    *list(dict(parse_diagnostics or {}).get("validation_errors") or []),
+                ]
                 if str(item)
             ]
             if action is None or validation_errors:
@@ -5461,8 +5450,6 @@ def _detected_json_action_transport_rejection(
     task_run_contract_seed = (
         dict(payload.get("task_run_contract_seed") or {})
         if isinstance(payload.get("task_run_contract_seed"), dict)
-        else dict(payload.get("task_contract_seed") or {})
-        if isinstance(payload.get("task_contract_seed"), dict)
         else {}
     )
     tool_call = dict(payload.get("tool_call") or {}) if isinstance(payload.get("tool_call"), dict) else {}
@@ -5566,7 +5553,7 @@ _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS = (
     "verification_requirements",
     *_REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS,
 )
-_RECOVERY_RESUME_NESTED_FIELDS = ("work_ref", "resume_ref", "task_run_id", "continuation_id")
+_TASK_RECOVERY_RESUME_NESTED_FIELDS = ("work_ref", "resume_ref", "task_run_id", "continuation_id")
 
 
 def _request_task_run_minimal_repair_action() -> dict[str, Any]:
@@ -5578,7 +5565,7 @@ def _request_task_run_minimal_repair_action() -> dict[str, Any]:
             "next_action": "申请长任务资源并绑定当前 turn。",
         },
         "task_run_contract_seed": {
-            "contract_shape": "compact_task_start_intent_v3",
+            "contract_shape": "compact_task_start_intent",
             "primary_mode": "plan",
             "task_shape": "standard",
             "minimum_viable_next_step": "资源接受后的第一个可执行动作。",
@@ -5672,38 +5659,38 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
             "并在顶层 public_progress_note 或 public_action_state.current_judgment 中写明要核对的公开事实；"
             "不要把反馈写成普通正文，也不要把尚未完成的工具动作说成已经完成。"
         )
-    if action_type == "resume_recoverable_work":
-        recovery_resume = payload.get("recovery_resume")
-        recovery_resume_obj = dict(recovery_resume or {}) if isinstance(recovery_resume, dict) else {}
-        misplaced_top_level = [field for field in _RECOVERY_RESUME_NESTED_FIELDS if field in payload]
+    if action_type == "resume_task_recovery":
+        task_recovery_resume = payload.get("task_recovery_resume")
+        task_recovery_resume_obj = dict(task_recovery_resume or {}) if isinstance(task_recovery_resume, dict) else {}
+        misplaced_top_level = [field for field in _TASK_RECOVERY_RESUME_NESTED_FIELDS if field in payload]
         payload_wrapper = payload.get("payload") if isinstance(payload.get("payload"), dict) else None
         if misplaced_top_level or payload_wrapper is not None:
             misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
             return (
-                "resume_recoverable_work 的恢复句柄字段放错层级。不要把 "
+                "resume_task_recovery 的恢复句柄字段放错层级。不要把 "
                 f"{misplaced} 放在动作对象顶层，也不要使用 payload 包裹。"
-                "请保留 action_type=resume_recoverable_work，并把 work_ref、resume_ref "
-                "全部放入 recovery_resume 对象内。只使用当前可恢复上下文提供的句柄，不要从旧消息文本猜测。"
+                "请保留 action_type=resume_task_recovery，并把 work_ref、resume_ref "
+                "全部放入 task_recovery_resume 对象内。只使用当前任务恢复上下文提供的句柄，不要从旧消息文本猜测。"
             )
         if (
-            "recovery_resume.task_run_id_required" in errors
-            or "recovery_resume.continuation_id_required" in errors
-            or not isinstance(recovery_resume, dict)
+            "task_recovery_resume.task_run_id_required" in errors
+            or "task_recovery_resume.continuation_id_required" in errors
+            or not isinstance(task_recovery_resume, dict)
         ):
             missing = []
-            if not str(recovery_resume_obj.get("work_ref") or recovery_resume_obj.get("task_run_id") or "").strip():
+            if not str(task_recovery_resume_obj.get("work_ref") or task_recovery_resume_obj.get("task_run_id") or "").strip():
                 missing.append("work_ref")
-            if not str(recovery_resume_obj.get("resume_ref") or recovery_resume_obj.get("continuation_id") or "").strip():
+            if not str(task_recovery_resume_obj.get("resume_ref") or task_recovery_resume_obj.get("continuation_id") or "").strip():
                 missing.append("resume_ref")
             missing_text = "、".join(missing) if missing else "必需字段"
             return (
-                "resume_recoverable_work 必须包含 recovery_resume 对象。请在 recovery_resume 内补齐 "
+                "resume_task_recovery 必须包含 task_recovery_resume 对象。请在 task_recovery_resume 内补齐 "
                 f"{missing_text}；这些句柄必须来自当前可恢复上下文。"
             )
         return default
     if action_type != "request_task_run":
         return default
-    task_seed = payload.get("task_run_contract_seed") if "task_run_contract_seed" in payload else payload.get("task_contract_seed")
+    task_seed = payload.get("task_run_contract_seed")
     task_seed_obj = dict(task_seed or {}) if isinstance(task_seed, dict) else {}
     misplaced_top_level = [field for field in _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS if field in payload]
     payload_wrapper = payload.get("payload") if isinstance(payload.get("payload"), dict) else None
@@ -5960,7 +5947,7 @@ def _model_action_request_should_emit_public_feedback(action_request: ModelActio
         "tool_call",
         "request_task_run",
         "active_work_control",
-        "resume_recoverable_work",
+        "resume_task_recovery",
         "pause_for_user_steer",
     }
 
@@ -7178,7 +7165,7 @@ def _reasoning_projection_status_event(
     answer_source: str,
     phase: str = "model_finalization",
     state: str = "done",
-    model_request_id: str = "",
+    provider_request_id: str = "",
 ) -> dict[str, Any]:
     content = str(reasoning_content or "").strip()
     if not content:
@@ -7199,7 +7186,7 @@ def _reasoning_projection_status_event(
         "active_turn_id": str(turn_id or ""),
         "turn_run_id": str(turn_run_id or ""),
         "task_run_id": str(task_run_id or ""),
-        "model_request_id": str(model_request_id or ""),
+        "provider_request_id": str(provider_request_id or ""),
         "reasoning_content_present": True,
         "reasoning_content": content,
         "reasoning_content_chars": char_count,
@@ -7241,32 +7228,17 @@ def _assistant_protocol_message_from_content(content: str, *, turn_id: str) -> d
     }
 
 
-def _final_api_protocol_messages(
-    api_protocol_messages: list[dict[str, Any]],
+def _final_provider_protocol_messages_to_append(
+    provider_protocol_messages_to_append: list[dict[str, Any]],
     *,
     turn_id: str,
     final_content: str,
 ) -> list[dict[str, Any]] | None:
-    messages = [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)]
+    messages = [dict(item) for item in list(provider_protocol_messages_to_append or []) if isinstance(item, dict)]
     if not messages:
         return None
     messages.append(_assistant_protocol_message_from_content(final_content, turn_id=turn_id))
     return messages
-
-
-def _action_request_with_api_protocol_prefix(
-    action_request: ModelActionRequest,
-    messages: list[dict[str, Any]],
-) -> ModelActionRequest:
-    if not messages:
-        return action_request
-    return replace(
-        action_request,
-        diagnostics={
-            **dict(action_request.diagnostics or {}),
-            "api_protocol_prefix_messages": [dict(item) for item in messages],
-        },
-    )
 
 
 def _with_turn_id(message: dict[str, Any], turn_id: str) -> dict[str, Any]:
@@ -7312,17 +7284,17 @@ def _with_runtime_context_segment_tags(
 ) -> list[dict[str, Any]]:
     kind = str(segment_kind or "").strip()
     source_ref = str(segment_source_ref or "").strip()
-    semantic_role = ""
+    runtime_control_role = ""
     if not kind:
-        kind, source_ref, semantic_role = _RUNTIME_CONTEXT_SEGMENT_SOURCES.get(str(source or ""), ("", "", ""))
+        kind, source_ref, runtime_control_role = _RUNTIME_CONTEXT_SEGMENT_SOURCES.get(str(source or ""), ("", "", ""))
     if not kind:
         return [dict(item) for item in list(messages or []) if isinstance(item, dict)]
     metadata = {
         **dict(segment_metadata or {}),
         "runtime_control_source": str(source or ""),
     }
-    if semantic_role:
-        metadata.setdefault("runtime_control_semantic_role", semantic_role)
+    if runtime_control_role:
+        metadata.setdefault("runtime_control_role", runtime_control_role)
     tagged: list[dict[str, Any]] = []
     for message in [dict(item) for item in list(messages or []) if isinstance(item, dict)]:
         message[_RUNTIME_CONTEXT_SEGMENT_KIND_KEY] = kind
@@ -7446,7 +7418,7 @@ def _single_agent_turn_followup_prompt_context(
     packet_id: str = "",
     tool_iteration: int,
     storage_root: Path | None = None,
-    provider_visible_context_scope: str = "",
+    provider_visible_append_scope: str = "",
     model_selection: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], str]:
     resolved_packet_id = str(packet_id or compilation.packet.packet_id)
@@ -7456,7 +7428,7 @@ def _single_agent_turn_followup_prompt_context(
         packet_id=resolved_packet_id,
         tool_iteration=tool_iteration,
         storage_root=storage_root,
-        provider_visible_context_scope=provider_visible_context_scope,
+        provider_visible_append_scope=provider_visible_append_scope,
         model_selection=model_selection,
     )
     followup_prompt_manifest = {
@@ -7523,7 +7495,7 @@ class _EmptyPromptAccountingLedger:
     def list_token_usage(self, **_kwargs: Any) -> list[Any]:
         return []
 
-    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+    def list_cache_plans(self, **_kwargs: Any) -> list[Any]:
         return []
 
     def summarize_session(self, _session_id: str) -> dict[str, Any]:
@@ -7537,7 +7509,7 @@ def _single_agent_turn_followup_prompt_payload(
     packet_id: str,
     tool_iteration: int,
     storage_root: Path | None = None,
-    provider_visible_context_scope: str = "",
+    provider_visible_append_scope: str = "",
     model_selection: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     append_only_messages = _copy_model_messages_without_rewriting(model_messages)
@@ -7558,13 +7530,13 @@ def _single_agent_turn_followup_prompt_payload(
     specs = _with_provider_visible_followup_commit_candidates(
         specs,
         storage_root=storage_root,
-        scope=provider_visible_context_scope,
+        scope=provider_visible_append_scope,
         model_selection=model_selection,
     )
     specs, physical_assembly_diagnostics = _single_agent_turn_followup_physical_context_assembly(
         specs,
         storage_root=storage_root,
-        provider_visible_context_scope=provider_visible_context_scope,
+        provider_visible_append_scope=provider_visible_append_scope,
         model_selection=model_selection,
     )
     specs = _with_provider_payload_hashes(specs)
@@ -7618,10 +7590,10 @@ def _single_agent_turn_followup_physical_context_assembly(
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     *,
     storage_root: Path | None,
-    provider_visible_context_scope: str,
+    provider_visible_append_scope: str,
     model_selection: dict[str, Any] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    if storage_root is None or not str(provider_visible_context_scope or "").strip():
+    if storage_root is None or not str(provider_visible_append_scope or "").strip():
         return [dict(item) for item in list(specs or []) if isinstance(item, dict)], {
             "status": "skipped",
             "reason": "missing_scope_or_storage_root",
@@ -7629,8 +7601,8 @@ def _single_agent_turn_followup_physical_context_assembly(
         }
     provider, model = _provider_model_from_selection(model_selection)
     static_prefix: list[dict[str, Any]] = []
-    exact_old_context: list[dict[str, Any]] = []
-    provider_visible_specs: list[dict[str, Any]] = []
+    provider_protocol_replay_prefix: list[dict[str, Any]] = []
+    provider_visible_append_specs: list[dict[str, Any]] = []
     dynamic_tail: list[dict[str, Any]] = []
     for raw_spec in list(specs or []):
         if not isinstance(raw_spec, dict):
@@ -7638,61 +7610,62 @@ def _single_agent_turn_followup_physical_context_assembly(
         spec = dict(raw_spec)
         policy = context_segment_policy_for_spec(spec)
         metadata = dict(spec.get("metadata") or {})
-        if metadata.get("current_turn_exact_old_context") is True:
-            exact_old_context.append(_current_turn_exact_old_context_spec(spec))
+        if provider_message_byte_preservation_required(spec) and not provider_protocol_append_candidate_metadata(metadata):
+            provider_protocol_replay_prefix.append(_provider_protocol_prefix_replay_spec(spec))
             continue
         if policy.section == STATIC_PREFIX:
             static_prefix.append(spec)
             continue
         if _followup_spec_routes_to_physical_provider_visible_memory(spec, policy=policy, metadata=metadata):
-            provider_visible_specs.append(spec)
+            provider_visible_append_specs.append(spec)
             continue
         dynamic_tail.append(spec)
     assembly = assemble_physical_context_spine(
         static_prefix_specs=static_prefix,
-        provider_visible_ledger_specs=provider_visible_specs,
+        provider_visible_append_specs=provider_visible_append_specs,
         current_tail_specs=dynamic_tail,
         storage_root=storage_root,
-        scope=str(provider_visible_context_scope or "").strip(),
+        scope=str(provider_visible_append_scope or "").strip(),
         provider=provider,
         model=model,
         provider_lane=PROVIDER_LANE_AGENT_TOOL_LOOP,
     )
-    if exact_old_context:
+    if provider_protocol_replay_prefix:
         message_specs = [
             *static_prefix,
-            *exact_old_context,
+            *provider_protocol_replay_prefix,
             *list(assembly.current_append_specs or ()),
             *dynamic_tail,
         ]
-        replay_status = "current_turn_exact_old_context_preserved"
+        replay_status = "provider_protocol_prefix_preserved"
     else:
         message_specs = [dict(item) for item in assembly.message_specs]
         replay_status = "confirmed_physical_frame_replayed"
     return message_specs, {
         **dict(assembly.diagnostics or {}),
         "input_static_prefix_spec_count": len(static_prefix),
-        "input_provider_visible_spec_count": len(provider_visible_specs),
+        "input_provider_visible_spec_count": len(provider_visible_append_specs),
         "input_dynamic_tail_spec_count": len(dynamic_tail),
-        "current_turn_exact_old_context_spec_count": len(exact_old_context),
-        "old_context_replay_status": replay_status,
+        "provider_protocol_replay_prefix_spec_count": len(provider_protocol_replay_prefix),
+        "provider_message_replay_status": replay_status,
         "authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
     }
 
 
-def _current_turn_exact_old_context_spec(spec: dict[str, Any]) -> dict[str, Any]:
+def _provider_protocol_prefix_replay_spec(spec: dict[str, Any]) -> dict[str, Any]:
     payload = dict(spec or {})
     message = _spec_model_message(payload)
     metadata = {
         **dict(payload.get("metadata") or {}),
         "context_cache_section": CONTEXT_MEMORY_PREFIX,
         "fixed_context_package": "context_memory_prefix",
-        "context_replay_policy": "current_turn_exact_old_context",
-        "current_turn_exact_old_context": True,
-        "provider_visible_history_status": "current_turn_exact_old_context",
+        "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
+        "provider_protocol_replay": True,
+        "provider_protocol_prefix_replay": True,
+        "provider_visible_history_status": PROVIDER_PROTOCOL_REPLAY_STATUS,
         "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
         "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
-        "cache_policy_rebased": "current_turn_exact_old_context_preserved",
+        "cache_policy_rebased": "provider_protocol_prefix_preserved",
     }
     exact = {
         **payload,
@@ -7710,8 +7683,9 @@ def _current_turn_exact_old_context_spec(spec: dict[str, Any]) -> dict[str, Any]
         **context_segment_policy_metadata(policy),
         "context_cache_section": CONTEXT_MEMORY_PREFIX,
         "fixed_context_package": "context_memory_prefix",
-        "context_replay_policy": "current_turn_exact_old_context",
-        "current_turn_exact_old_context": True,
+        "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
+        "provider_protocol_replay": True,
+        "provider_protocol_prefix_replay": True,
     }
     exact["cache_scope"] = policy.prefix_cache_scope
     exact["cache_role"] = policy.prefix_cache_role
@@ -7729,7 +7703,7 @@ def _followup_spec_routes_to_physical_provider_visible_memory(
         return True
     if str(policy.section or "") != CONTEXT_APPEND:
         return False
-    if str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip() == "provider_success_required":
+    if str(metadata.get("provider_visible_append_commit_stage") or "").strip() == "provider_success_required":
         return True
     if str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip() != "append_then_seal":
         return False
@@ -7976,7 +7950,7 @@ def _provider_visible_followup_ledger_kwargs(
     storage_root = _path_value(getattr(compiler, "base_dir", None))
     return {
         "storage_root": storage_root,
-        "provider_visible_context_scope": str(session_id or "").strip(),
+        "provider_visible_append_scope": str(session_id or "").strip(),
         "model_selection": dict(model_selection or {}),
     }
 
@@ -8001,13 +7975,13 @@ def _provider_visible_followup_ledger_kwargs_from_accounting(
 ) -> dict[str, Any]:
     payload = dict(accounting_context or {})
     storage_root = _path_value(
-        payload.get("provider_visible_context_ledger_storage_root")
+        payload.get("provider_visible_append_ledger_storage_root")
         or payload.get("storage_root")
     )
     return {
         "storage_root": storage_root,
-        "provider_visible_context_scope": str(
-            payload.get("provider_visible_context_scope")
+        "provider_visible_append_scope": str(
+            payload.get("provider_visible_append_scope")
             or payload.get("session_id")
             or ""
         ).strip(),
@@ -8044,13 +8018,13 @@ def _with_provider_visible_followup_commit_candidates(
             result.append(spec)
             continue
         result.append(
-            provider_visible_context_append_candidate_spec(
+            provider_visible_append_candidate_spec(
                 candidate,
                 storage_root=storage_root,
                 scope=scope,
                 provider=provider,
                 model=model,
-                adapter_contract=PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+                adapter_contract=PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
             )
         )
     return result
@@ -8095,8 +8069,8 @@ def _followup_provider_visible_candidate_source_spec(spec: dict[str, Any]) -> di
         ).strip(),
         "semantic_commit_class": _followup_provider_visible_replay_only_class(kind),
         "provider_visible_replay_only": True,
-        "semantic_memory_visible": False,
-        "semantic_memory_commit_policy": "never_commit",
+        "context_memory_visible": False,
+        "context_memory_commit_policy": "never_commit",
         "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_provider_visible_commit_candidate",
     }
     candidate = {
@@ -8113,8 +8087,8 @@ def _followup_provider_visible_candidate_source_spec(spec: dict[str, Any]) -> di
         **context_segment_policy_metadata(policy),
         "semantic_commit_class": metadata["semantic_commit_class"],
         "provider_visible_replay_only": True,
-        "semantic_memory_visible": False,
-        "semantic_memory_commit_policy": "never_commit",
+        "context_memory_visible": False,
+        "context_memory_commit_policy": "never_commit",
     }
     return candidate
 
@@ -8132,11 +8106,11 @@ def _is_followup_provider_visible_replayed_prefix(
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
     if commit_policy.startswith("replay_only"):
         return True
-    if replay_policy == "physical_prefix_frame_replay":
+    if replay_policy == PHYSICAL_PREFIX_FRAME_REPLAY_POLICY:
         return True
-    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
+    if payload_authority == PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY:
         return True
-    return history_status in {"sealed_from_physical_prefix_frame", "static_context"}
+    return history_status in {PHYSICAL_PREFIX_FRAME_REPLAY_STATUS, "static_context"}
 
 
 def _is_followup_provider_visible_current_append(
@@ -8148,7 +8122,7 @@ def _is_followup_provider_visible_current_append(
         return False
     commit_policy = str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip()
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
-    commit_stage = str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip()
+    commit_stage = str(metadata.get("provider_visible_append_commit_stage") or "").strip()
     if commit_stage == "provider_success_required":
         return True
     if history_status == "current_tool_round_pending_provider_success":
@@ -8329,7 +8303,7 @@ def _provider_visible_metadata_by_followup_ordinal(
         provider_keys = {
             key: value
             for key, value in metadata.items()
-            if str(key).startswith("provider_visible_context_ledger_")
+            if str(key).startswith("provider_visible_append_ledger_")
             or str(key) in {"provider_visible_hash", "provider_visible_payload_form", "provider_visible_payload_authority"}
         }
         if provider_keys:
@@ -8339,19 +8313,19 @@ def _provider_visible_metadata_by_followup_ordinal(
 
 def _provider_visible_manifest_segment_authority(metadata: dict[str, Any]) -> str:
     payload_authority = str(dict(metadata or {}).get("provider_visible_payload_authority") or "").strip()
-    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
+    if payload_authority == PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY:
         return "runtime.context_management.physical_context_assembler"
-    return "runtime.context_management.provider_visible_context_ledger"
+    return "runtime.context_management.provider_visible_append_ledger"
 
 
 def _provider_visible_manifest_segment_stage(metadata: dict[str, Any]) -> str:
     payload_authority = str(dict(metadata or {}).get("provider_visible_payload_authority") or "").strip()
-    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
-        return "physical_prefix_frame_replay"
-    commit_stage = str(dict(metadata or {}).get("provider_visible_context_ledger_commit_stage") or "").strip()
+    if payload_authority == PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY:
+        return PHYSICAL_PREFIX_FRAME_REPLAY_POLICY
+    commit_stage = str(dict(metadata or {}).get("provider_visible_append_commit_stage") or "").strip()
     if commit_stage == "provider_success_required":
         return "current_append_pending_provider_success"
-    return "provider_visible_context_candidate"
+    return "provider_visible_append_candidate"
 
 
 def _followup_provider_visible_messages_by_ordinal(
@@ -8379,11 +8353,7 @@ def _followup_provider_visible_message_from_spec(spec: dict[str, Any]) -> dict[s
 
 
 def _is_followup_sealable_segment(segment: dict[str, Any]) -> bool:
-    if not context_segment_is_provider_visible_sealable_spec(dict(segment or {})):
-        return False
-    cache_role = str(dict(segment or {}).get("cache_role") or "").strip()
-    prefix_tier = str(dict(segment or {}).get("prefix_tier") or "").strip()
-    return cache_role in {"cacheable_prefix", "session_stable"} and prefix_tier not in {"volatile", "none"}
+    return context_segment_is_provider_visible_sealable_spec(dict(segment or {}))
 
 
 def _safe_int_value(value: Any) -> int:
@@ -8757,7 +8727,7 @@ def _single_agent_turn_followup_base_message_spec(
                 metadata=metadata,
             )
             if is_current_tool_round
-            else current_turn_exact_old_context_policy(
+            else provider_protocol_prefix_replay_policy(
                 base,
                 message=message,
                 metadata=metadata,
@@ -8834,7 +8804,6 @@ def _single_agent_turn_followup_message_spec(
             "prefix_tier": "volatile",
             "compression_role": "preserve",
             "metadata": {
-                "authority_class": "accumulated_context_boundary",
                 "cache_impact": "volatile_suffix_only",
                 "stability_rule": "this boundary is rebuilt for the current invocation and must not become part of the cacheable prefix",
                 "followup_iteration": boundary_iteration,
@@ -8863,7 +8832,7 @@ def _single_agent_turn_followup_message_spec(
         compression_role = "preserve"
     elif runtime_tag_kind == "runtime_control_signal_tail":
         kind = "runtime_control_signal_tail"
-        tag_role = str(runtime_tag_metadata.get("runtime_control_semantic_role") or "").strip()
+        tag_role = str(runtime_tag_metadata.get("runtime_control_role") or "").strip()
         if runtime_tag_source_ref:
             source_prefix = runtime_tag_source_ref
         elif tag_role:
@@ -8910,19 +8879,8 @@ def _single_agent_turn_followup_message_spec(
     if runtime_tag_source_ref:
         metadata["runtime_context_segment_source_ref"] = runtime_tag_source_ref
     if is_runtime_control_tail:
-        authority_class = "runtime_control_tail"
-    elif is_action_contract:
-        authority_class = "tool_followup_action_contract"
-    elif is_current_tool_transcript_kind(kind):
-        authority_class = "tool_transcript"
-    elif kind == "single_agent_turn_user_steer_context":
-        authority_class = "active_user_steer_context"
-    else:
-        authority_class = "runtime_followup_tail"
-    if is_runtime_control_tail:
         metadata.update(
             {
-                "authority_class": authority_class,
                 "context_cache_section": DYNAMIC_TAIL,
                 "context_prefix_cache_scope": "none",
                 "context_prefix_cache_role": "volatile",
@@ -8941,7 +8899,6 @@ def _single_agent_turn_followup_message_spec(
     elif is_current_tool_transcript_kind(kind):
         metadata.update(
             {
-                "authority_class": authority_class,
                 "context_cache_section": CONTEXT_APPEND,
                 "fixed_context_package": "context_memory_append",
                 "context_semantic_slot": "tool_transcript",
@@ -8968,7 +8925,6 @@ def _single_agent_turn_followup_message_spec(
     elif kind == "single_agent_turn_user_steer_context":
         metadata.update(
             {
-                "authority_class": authority_class,
                 "context_cache_section": CONTEXT_APPEND,
                 "fixed_context_package": "context_memory_append",
                 "context_semantic_slot": "active_user_steer_content",
@@ -8995,7 +8951,6 @@ def _single_agent_turn_followup_message_spec(
     else:
         metadata.update(
             {
-                "authority_class": authority_class,
                 "context_cache_section": DYNAMIC_TAIL,
                 "context_prefix_cache_scope": "none",
                 "context_prefix_cache_role": "volatile",
@@ -9520,13 +9475,13 @@ async def _commit_final_message(
     content: str,
     answer_channel: str,
     answer_source: str,
-    api_protocol_messages: list[dict[str, Any]] | None = None,
+    provider_protocol_messages_to_append: list[dict[str, Any]] | None = None,
     main_context: dict[str, Any] | None = None,
 ) -> FinalMessageCommit:
     sanitized_protocol_messages = _sanitize_model_messages(
-        [dict(item) for item in list(api_protocol_messages or []) if isinstance(item, dict)],
+        [dict(item) for item in list(provider_protocol_messages_to_append or []) if isinstance(item, dict)],
         turn_id=turn_id,
-        source="harness.loop.single_agent_turn.commit_api_protocol_messages",
+        source="harness.loop.single_agent_turn.commit_provider_protocol_messages",
     )
     agent_scope = _turn_run_agent_scope(
         runtime_host,
@@ -9554,7 +9509,7 @@ async def _commit_final_message(
             **_agent_scope_refs(agent_scope),
         },
         commit_payload_overrides={
-            "api_protocol_messages": sanitized_protocol_messages,
+            "provider_protocol_messages_to_append": sanitized_protocol_messages,
             **({"main_context": dict(main_context or {})} if main_context else {}),
         },
     )
@@ -10569,7 +10524,7 @@ def _record_turn_terminal(
         terminal_event_ref=str(getattr(event, "event_id", "") or ""),
     )
     if status == "completed":
-        _release_consumed_interrupted_turn_handoffs(
+        _release_consumed_interrupted_turn_memory_packages(
             runtime_host,
             session_id=turn_run.session_id,
             consuming_turn_id=turn_id,
@@ -10616,7 +10571,7 @@ def _record_turn_memory_terminal(
         logger.debug("failed to record terminal in turn memory", exc_info=True)
 
 
-def _release_consumed_interrupted_turn_handoffs(
+def _release_consumed_interrupted_turn_memory_packages(
     runtime_host: Any | None,
     *,
     session_id: str,
@@ -10629,7 +10584,7 @@ def _release_consumed_interrupted_turn_handoffs(
     checkpoint = getattr(store, "record_checkpoint", None)
     if not callable(lister) or not callable(releaser):
         return
-    recoverable_states = {
+    interruption_states = {
         "runtime_process_restarted",
         "runtime_cell_missing_after_restart",
         "runtime_cell_cancelled",
@@ -10647,29 +10602,31 @@ def _release_consumed_interrupted_turn_handoffs(
             turn_id = str(getattr(record, "turn_id", "") or "").strip()
             if not turn_id or turn_id == str(consuming_turn_id or "").strip():
                 continue
-            if str(getattr(record, "status", "") or "") != "handoff_ready":
+            if str(getattr(record, "status", "") or "") != "terminal":
+                continue
+            if str(getattr(record, "handoff_state", "") or "") != "interrupted_turn_memory_package":
                 continue
             recovery_state = str(getattr(record, "recovery_state", "") or "").strip()
-            if recovery_state not in recoverable_states:
+            if recovery_state not in interruption_states:
                 continue
             if callable(checkpoint):
                 checkpoint(
                     session_id=session_id,
                     turn_id=turn_id,
-                    checkpoint_kind="interrupted_handoff_consumed",
+                    checkpoint_kind="interrupted_memory_package_consumed",
                     payload={
                         "consuming_turn_id": str(consuming_turn_id or ""),
                         "terminal_event_ref": str(terminal_event_ref or ""),
-                        "authority": "harness.loop.single_agent_turn.turn_memory_handoff_release",
+                        "authority": "harness.loop.single_agent_turn.turn_memory_interruption_package_release",
                     },
                 )
             releaser(
                 session_id=session_id,
                 turn_id=turn_id,
-                reason=f"interrupted_handoff_consumed_by:{consuming_turn_id}",
+                reason=f"interrupted_memory_package_consumed_by:{consuming_turn_id}",
             )
     except Exception:
-        logger.debug("failed to release consumed interrupted turn handoffs", exc_info=True)
+        logger.debug("failed to release consumed interrupted turn memory packages", exc_info=True)
 
 
 def _complete_active_turn_after_turn_terminal(
@@ -10712,6 +10669,6 @@ def _complete_active_turn_after_turn_terminal(
 
 
 def _terminal_status_for_turn_run(status: str) -> str:
-    if status in {"completed", "blocked", "failed", "aborted"}:
+    if status in {"completed", "blocked", "failed", "aborted", "interrupted"}:
         return status
     return "failed"

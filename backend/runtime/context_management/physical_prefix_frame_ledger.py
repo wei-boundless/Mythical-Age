@@ -9,7 +9,7 @@ from core.project_layout import ProjectLayout
 
 from .physical_prefix_frame_models import (
     PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS,
-    PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION,
+    PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION,
     PhysicalPrefixFrame,
     PhysicalPrefixFrameSegment,
     json_stable,
@@ -41,7 +41,7 @@ def append_physical_prefix_frame_from_provider_success(
     provider_payload_messages_hash: str = "",
     physical_payload_family_hash: str = "",
     current_append_entry_indexes: list[int] | tuple[int, ...] = (),
-    provider_visible_confirmation: dict[str, Any] | None = None,
+    provider_visible_append_confirmation: dict[str, Any] | None = None,
     provider_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     response_ref: str = "",
     reason: str = "provider_request_succeeded",
@@ -70,7 +70,7 @@ def append_physical_prefix_frame_from_provider_success(
         provider_payload_messages_hash=provider_payload_messages_hash,
         physical_payload_family_hash=physical_payload_family_hash,
         current_append_entry_indexes=current_append_entry_indexes,
-        provider_visible_confirmation=provider_visible_confirmation,
+        provider_visible_append_confirmation=provider_visible_append_confirmation,
         provider_messages=provider_messages,
         response_ref=response_ref,
         reason=reason,
@@ -136,7 +136,7 @@ def build_physical_prefix_frame_from_provider_payload(
     provider_payload_messages_hash: str = "",
     physical_payload_family_hash: str = "",
     current_append_entry_indexes: list[int] | tuple[int, ...] = (),
-    provider_visible_confirmation: dict[str, Any] | None = None,
+    provider_visible_append_confirmation: dict[str, Any] | None = None,
     provider_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     response_ref: str = "",
     reason: str = "provider_request_succeeded",
@@ -167,7 +167,7 @@ def build_physical_prefix_frame_from_provider_payload(
     ]
     segments_by_id = {str(item.get("segment_id") or ""): dict(item) for item in full_segments}
     provider_message_list = [dict(item) for item in list(provider_messages or []) if isinstance(item, dict)]
-    confirmation_by_item_key = _confirmation_indexes_by_item_key(provider_visible_confirmation)
+    confirmation_by_item_key = _confirmation_indexes_by_item_key(provider_visible_append_confirmation)
     round_closed_by_id = {
         str(item.get("round_id") or ""): bool(item.get("closed") is True)
         for item in list(physical_spine.get("provider_tool_protocol_rounds") or [])
@@ -189,7 +189,7 @@ def build_physical_prefix_frame_from_provider_payload(
         segment_id = str(spine_segment.get("segment_id") or "")
         full = dict(segments_by_id.get(segment_id) or spine_segment)
         metadata = dict(full.get("metadata") or {})
-        provider_visible_item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "")
+        provider_visible_item_key = str(metadata.get("provider_visible_append_item_key") or "")
         provider_visible_hash = str(metadata.get("provider_visible_hash") or "")
         model_message_index = _safe_int(metadata.get("message_index"), default=-1)
         provider_message, provider_message_source = _select_physical_frame_provider_message(
@@ -199,7 +199,7 @@ def build_physical_prefix_frame_from_provider_payload(
             provider_visible_hash=provider_visible_hash,
             expected_role=str(full.get("role") or spine_segment.get("role") or ""),
         )
-        provider_visible_entry_index = _safe_int(metadata.get("provider_visible_context_ledger_entry_index"))
+        provider_visible_entry_index = _safe_int(metadata.get("provider_visible_append_entry_index"))
         if provider_visible_entry_index <= 0 and provider_visible_item_key:
             provider_visible_entry_index = _safe_int(confirmation_by_item_key.get(provider_visible_item_key))
         protocol = dict(metadata.get("provider_tool_protocol") or {})
@@ -410,7 +410,7 @@ def load_physical_prefix_frame_ledger(*, storage_root: Path | str | None, scope:
     except (OSError, json.JSONDecodeError) as exc:
         return {
             "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-            "schema_version": PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION,
+            "ledger_schema_revision": PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION,
             "scope_id": str(scope or "default").strip() or "default",
             "status": "recovery_required",
             "ledger_failure": {
@@ -423,7 +423,7 @@ def load_physical_prefix_frame_ledger(*, storage_root: Path | str | None, scope:
     if not isinstance(payload, dict):
         return {
             "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-            "schema_version": PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION,
+            "ledger_schema_revision": PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION,
             "scope_id": str(scope or "default").strip() or "default",
             "status": "recovery_required",
             "ledger_failure": {
@@ -623,7 +623,7 @@ def _ledger_for_append(*, ledger: dict[str, Any], scope: str, provider: str, mod
     if not ledger:
         return {
             "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
-            "schema_version": PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION,
+            "ledger_schema_revision": PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION,
             "scope_id": str(scope or "default"),
             "provider": str(provider or ""),
             "model": str(model or ""),
@@ -634,7 +634,7 @@ def _ledger_for_append(*, ledger: dict[str, Any], scope: str, provider: str, mod
         }
     payload = dict(ledger or {})
     payload.setdefault("authority", PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY)
-    payload.setdefault("schema_version", PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION)
+    payload.setdefault("ledger_schema_revision", PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION)
     payload.setdefault("scope_id", str(scope or "default"))
     payload.setdefault("provider", str(provider or payload.get("provider") or ""))
     payload.setdefault("model", str(model or payload.get("model") or ""))
@@ -647,7 +647,7 @@ def _ledger_for_append(*, ledger: dict[str, Any], scope: str, provider: str, mod
 def _finalize_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
     payload = dict(ledger or {})
     payload["authority"] = PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY
-    payload["schema_version"] = PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION
+    payload["ledger_schema_revision"] = PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION
     payload["frames"] = [dict(item) for item in list(payload.get("frames") or []) if isinstance(item, dict)]
     payload["frame_count"] = len(payload["frames"])
     payload["updated_at"] = time.time()
@@ -833,7 +833,7 @@ def _select_physical_frame_provider_message(
     provider_visible_hash: str,
     expected_role: str,
 ) -> tuple[dict[str, Any], str]:
-    candidate = dict(metadata.get("provider_visible_context_candidate_message") or {})
+    candidate = dict(metadata.get("provider_visible_append_candidate_message") or {})
     indexed = (
         dict(provider_message_list[model_message_index])
         if 0 <= model_message_index < len(provider_message_list)
@@ -842,16 +842,16 @@ def _select_physical_frame_provider_message(
     expected_hash = str(provider_visible_hash or "").strip()
     if expected_hash:
         if candidate and _provider_message_hash(candidate) == expected_hash:
-            return candidate, "provider_visible_context_candidate_message"
+            return candidate, "provider_visible_append_candidate_message"
         if indexed and _provider_message_hash(indexed) == expected_hash:
-            return indexed, "model_request.messages"
+            return indexed, "provider_request.messages"
     if candidate and _provider_message_shape_matches(candidate, expected_role=expected_role):
-        return candidate, "provider_visible_context_candidate_message"
+        return candidate, "provider_visible_append_candidate_message"
     if indexed and _provider_message_shape_matches(indexed, expected_role=expected_role):
-        return indexed, "model_request.messages"
+        return indexed, "provider_request.messages"
     if candidate:
-        return candidate, "provider_visible_context_candidate_message"
-    return indexed, "model_request.messages" if indexed else ""
+        return candidate, "provider_visible_append_candidate_message"
+    return indexed, "provider_request.messages" if indexed else ""
 
 
 def _provider_message_hash(message: dict[str, Any]) -> str:
@@ -873,7 +873,7 @@ def _provider_message_shape_matches(message: dict[str, Any], *, expected_role: s
 def _segment_provider_visible_entry_index(segment: dict[str, Any]) -> int:
     metadata = dict(segment.get("metadata") or {})
     return _safe_int(
-        metadata.get("provider_visible_context_ledger_entry_index")
+        metadata.get("provider_visible_append_entry_index")
         or segment.get("provider_visible_entry_index")
     )
 
@@ -887,7 +887,7 @@ def _resolved_segment_provider_visible_entry_index(
     if entry_index > 0:
         return entry_index
     metadata = dict(segment.get("metadata") or {})
-    item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
+    item_key = str(metadata.get("provider_visible_append_item_key") or "").strip()
     if item_key:
         confirmed = _safe_int(confirmation_by_item_key.get(item_key))
         if confirmed > 0:
@@ -899,7 +899,7 @@ def _segment_is_confirmed_current_append(segment: dict[str, Any]) -> bool:
     if str(segment.get("transport_location") or "") != "messages":
         return False
     metadata = dict(segment.get("metadata") or {})
-    if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") != "provider_success_required":
+    if str(metadata.get("provider_visible_append_commit_stage") or "") != "provider_success_required":
         return False
     if not str(metadata.get("provider_visible_hash") or "").strip():
         return False
@@ -962,7 +962,7 @@ def _provider_visible_frame_message_source_failure(
         message_source = str(
             dict(segment.metadata or {}).get("physical_prefix_frame_provider_message_source") or ""
         ).strip()
-        if message_source not in {"model_request.messages", "provider_visible_context_candidate_message"}:
+        if message_source not in {"provider_request.messages", "provider_visible_append_candidate_message"}:
             return {
                 "status": "rejected",
                 "reason": "provider_visible_frame_segment_not_copied_from_provider_request",
@@ -1016,8 +1016,8 @@ def _current_append_promotion_diagnostics(
         "promoted_current_append_entry_indexes": promoted,
         "missing_current_append_entry_indexes": sorted(set(required) - set(promoted)),
         "promoted_segment_ids": [segment.segment_id for segment in promoted_segments],
-        "selector": "provider_visible_confirmation_item_key_or_hash",
-        "content_source_rule": "copy_exact_provider_message_from_model_request",
+        "selector": "provider_visible_append_confirmation_item_key_or_hash",
+        "content_source_rule": "copy_exact_provider_message_from_provider_request",
         "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
     }
 
@@ -1046,7 +1046,7 @@ def _turn_snapshot(
         projection = _segment_projection(segment)
         if str(segment.get("segment_id") or "") not in prefix_segment_ids:
             tail_segments.append(projection)
-        if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") == "provider_success_required":
+        if str(metadata.get("provider_visible_append_commit_stage") or "") == "provider_success_required":
             current_append_segments.append(projection)
     snapshot_seed = {
         "request_id": str(request_id or ""),
@@ -1095,10 +1095,10 @@ def _segment_projection(segment: dict[str, Any]) -> dict[str, Any]:
         "physical_prefix_lane": str(segment.get("physical_prefix_lane") or metadata.get("physical_prefix_lane") or ""),
         "context_cache_section": str(metadata.get("context_cache_section") or ""),
         "context_replay_policy": str(metadata.get("context_replay_policy") or ""),
-        "provider_visible_context_ledger_entry_index": _safe_int(
-            metadata.get("provider_visible_context_ledger_entry_index")
+        "provider_visible_append_entry_index": _safe_int(
+            metadata.get("provider_visible_append_entry_index")
         ),
-        "provider_visible_context_ledger_item_key": str(metadata.get("provider_visible_context_ledger_item_key") or ""),
+        "provider_visible_append_item_key": str(metadata.get("provider_visible_append_item_key") or ""),
         "provider_visible_hash": str(metadata.get("provider_visible_hash") or ""),
     }
 
@@ -1120,12 +1120,12 @@ def _frame_segment_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "stable_origin_ref",
         "validity_scope",
         "provider_visible_payload_authority",
-        "provider_visible_context_ledger_authority",
-        "provider_visible_context_ledger_commit_stage",
-        "provider_visible_context_ledger_scope",
-        "provider_visible_context_candidate_kind",
-        "provider_visible_context_candidate_source_ref",
-        "provider_visible_context_candidate_semantic_commit_class",
+        "provider_visible_append_ledger_authority",
+        "provider_visible_append_commit_stage",
+        "provider_visible_append_ledger_scope",
+        "provider_visible_append_candidate_kind",
+        "provider_visible_append_candidate_source_ref",
+        "provider_visible_append_candidate_semantic_commit_class",
         "provider_adapter_contract",
         "provider_tool_protocol",
         "cache_spine_hash",

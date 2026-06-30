@@ -9,7 +9,7 @@ ModelActionType = Literal[
     "tool_call",
     "request_task_run",
     "active_work_control",
-    "resume_recoverable_work",
+    "resume_task_recovery",
     "pause_for_user_steer",
     "block",
 ]
@@ -41,7 +41,7 @@ class ModelActionRequest:
     completion_contract: dict[str, Any] = field(default_factory=dict)
     permission_request: dict[str, Any] = field(default_factory=dict)
     active_work_control: dict[str, Any] = field(default_factory=dict)
-    recovery_resume: dict[str, Any] = field(default_factory=dict)
+    task_recovery_resume: dict[str, Any] = field(default_factory=dict)
     pause_request: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
@@ -49,10 +49,6 @@ class ModelActionRequest:
     def __post_init__(self) -> None:
         if self.authority != "harness.loop.model_action_request":
             raise ValueError("ModelActionRequest authority must be harness.loop.model_action_request")
-
-    @property
-    def task_contract_seed(self) -> dict[str, Any]:
-        return dict(self.task_run_contract_seed or {})
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -63,7 +59,7 @@ class ModelActionRequest:
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
         payload["active_work_control"] = dict(self.active_work_control or {})
-        payload["recovery_resume"] = dict(self.recovery_resume or {})
+        payload["task_recovery_resume"] = dict(self.task_recovery_resume or {})
         payload["pause_request"] = dict(self.pause_request or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
@@ -116,7 +112,7 @@ def model_action_request_from_payload(
     if authority != "harness.loop.model_action_request":
         errors.append("invalid_authority")
     action_type = str(raw.get("action_type") or "").strip()
-    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_recoverable_work", "pause_for_user_steer", "block"}:
+    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_task_recovery", "pause_for_user_steer", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
     allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
     if allowed and action_type and action_type not in allowed:
@@ -128,12 +124,14 @@ def model_action_request_from_payload(
     tool_call = raw.get("tool_call") or {}
     tool_calls: tuple[dict[str, Any], ...] = ()
     raw_selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
-    legacy_task_contract_seed = raw.get("task_contract_seed") or {}
-    task_run_contract_seed = raw.get("task_run_contract_seed") or legacy_task_contract_seed or {}
+    legacy_task_contract_seed = raw.get("task_contract_seed")
+    task_run_contract_seed = raw.get("task_run_contract_seed") or {}
+    if _has_non_empty_value(legacy_task_contract_seed):
+        errors.append("legacy_task_contract_seed_field_not_allowed:task_contract_seed")
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
     active_work_control = raw.get("active_work_control") or {}
-    recovery_resume = raw.get("recovery_resume") or {}
+    task_recovery_resume = raw.get("task_recovery_resume") or {}
     pause_request = raw.get("pause_request") or {}
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
@@ -152,17 +150,17 @@ def model_action_request_from_payload(
     if not isinstance(active_work_control, dict):
         errors.append("active_work_control_must_be_object")
         active_work_control = {}
-    if not isinstance(recovery_resume, dict):
-        errors.append("recovery_resume_must_be_object")
-        recovery_resume = {}
+    if not isinstance(task_recovery_resume, dict):
+        errors.append("task_recovery_resume_must_be_object")
+        task_recovery_resume = {}
     else:
-        recovery_resume = _normalize_recovery_resume(dict(recovery_resume))
+        task_recovery_resume = _normalize_task_recovery_resume(dict(task_recovery_resume))
     if not isinstance(pause_request, dict):
         errors.append("pause_request_must_be_object")
         pause_request = {}
     selected_skill_ids = raw_selected_skill_ids
     if action_type == "request_task_run" and isinstance(task_run_contract_seed, dict):
-        normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_run_contract_seed)
+        normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_run_contract_seed(task_run_contract_seed)
         if raw_selected_skill_ids:
             seed_errors.append("selected_skill_ids_not_allowed_for_request_task_run")
         seed_errors.extend(
@@ -242,12 +240,12 @@ def model_action_request_from_payload(
             errors.append("active_work_action_must_be_canonical")
         elif not active_work_action_is_allowed(action):
             errors.append("active_work_action_not_allowed")
-    if action_type == "resume_recoverable_work":
-        resume_payload = dict(recovery_resume or {})
+    if action_type == "resume_task_recovery":
+        resume_payload = dict(task_recovery_resume or {})
         if not str(resume_payload.get("task_run_id") or "").strip():
-            errors.append("recovery_resume.task_run_id_required")
+            errors.append("task_recovery_resume.task_run_id_required")
         if not str(resume_payload.get("continuation_id") or "").strip():
-            errors.append("recovery_resume.continuation_id_required")
+            errors.append("task_recovery_resume.continuation_id_required")
     if action_type == "pause_for_user_steer":
         pause_payload = dict(pause_request or {})
         if not str(pause_payload.get("steer_ref") or "").strip():
@@ -288,7 +286,7 @@ def model_action_request_from_payload(
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
         active_work_control=dict(active_work_control),
-        recovery_resume=dict(recovery_resume),
+        task_recovery_resume=dict(task_recovery_resume),
         pause_request=dict(pause_request),
         diagnostics=normalized_diagnostics,
     ), {
@@ -307,7 +305,7 @@ _TASK_EXECUTION_CROSS_CONTEXT_FIELDS = (
     "permission_request",
     "engagement_request",
     "active_work_control",
-    "recovery_resume",
+    "task_recovery_resume",
     "plan_id",
 )
 
@@ -406,11 +404,10 @@ def _public_progress_note(value: Any) -> str:
     return text[:160].rstrip()
 
 
-def _normalize_recovery_resume(value: dict[str, Any]) -> dict[str, Any]:
+def _normalize_task_recovery_resume(value: dict[str, Any]) -> dict[str, Any]:
     payload = dict(value or {})
     work_ref = str(
         payload.get("work_ref")
-        or payload.get("recoverable_work_ref")
         or payload.get("task_ref")
         or payload.get("task_run_id")
         or ""
@@ -466,17 +463,17 @@ _REQUEST_TASK_RUN_TOP_LEVEL_CONTRACT_FIELDS = (
 )
 
 
-def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
-    payload, layer_errors = _seed_with_layered_contract_aliases(dict(seed or {}))
+def _normalize_task_run_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
+    payload = dict(seed or {})
     errors: list[str] = []
-    errors.extend(layer_errors)
+    errors.extend(_legacy_task_run_contract_seed_errors(payload))
     gaps: list[str] = []
     if _is_compact_task_start_intent(payload):
         payload, compact_errors = _normalize_compact_task_start_intent(payload)
         errors.extend(compact_errors)
         return payload, errors, gaps, ()
     if "container_contract" not in payload and "work_modes" not in payload:
-        payload = _legacy_seed_to_task_run_contract_seed(payload)
+        errors.append("task_run_contract_seed_requires_container_contract_and_work_modes_or_compact_task_start_intent")
     for legacy_key in ("resource_contract", "selected_skill_ids"):
         if _has_non_empty_value(payload.get(legacy_key)):
             errors.append(f"legacy_task_run_contract_field_not_allowed:{legacy_key}")
@@ -515,7 +512,7 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     if not str(acceptance_contract.get("acceptance_mode") or "").strip():
         errors.append("acceptance_contract.acceptance_mode_required_for_request_task_run")
     payload = {
-        "contract_version": str(payload.get("contract_version") or "task_run_contract_v1"),
+        "contract_id": str(payload.get("contract_id") or "task_run_contract"),
         "container_contract": _drop_empty_payload(
             {
                 **container_contract,
@@ -525,7 +522,7 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
                 "checkpoint_required": container_contract.get("checkpoint_required") is not False,
                 "supporting_mode_refs": list(_string_tuple(container_contract.get("supporting_mode_refs"))),
                 "mode_transition_policy": dict(container_contract.get("mode_transition_policy") or {"agent_may_propose_transition": True, "system_may_infer_transition": False, "requires_accepted_event": True}),
-                "authority": "task_run_contract_v1",
+                "authority": "task_run_contract",
             }
         ),
         "work_modes": work_modes,
@@ -538,9 +535,22 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     return payload, errors, gaps, ()
 
 
+def _legacy_task_run_contract_seed_errors(seed: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if _has_non_empty_value(dict(seed or {}).get("contract_version")):
+        errors.append("legacy_task_run_contract_field_not_allowed:contract_version")
+    for key in ("goal_contract", "plan_contract", "environment_contract"):
+        if _has_non_empty_value(dict(seed or {}).get(key)):
+            errors.append(f"legacy_task_run_contract_field_not_allowed:{key}")
+    for key in _REQUEST_TASK_RUN_LEGACY_SEED_TEXT_FIELDS:
+        if _has_non_empty_value(dict(seed or {}).get(key)):
+            errors.append(f"legacy_task_run_contract_field_not_allowed:{key}")
+    return errors
+
+
 def _is_compact_task_start_intent(seed: dict[str, Any]) -> bool:
     payload = dict(seed or {})
-    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent_v3":
+    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent":
         return True
     compact_keys = {
         "primary_mode",
@@ -558,8 +568,8 @@ def _is_compact_task_start_intent(seed: dict[str, Any]) -> bool:
 def _normalize_compact_task_start_intent(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     payload = dict(seed or {})
     errors: list[str] = []
-    contract_shape = str(payload.get("contract_shape") or "").strip() or "compact_task_start_intent_v3"
-    if contract_shape != "compact_task_start_intent_v3":
+    contract_shape = str(payload.get("contract_shape") or "").strip() or "compact_task_start_intent"
+    if contract_shape != "compact_task_start_intent":
         errors.append(f"compact_task_start_intent.contract_shape_unsupported:{contract_shape}")
     primary_mode = str(payload.get("primary_mode") or "").strip()
     if primary_mode not in TASK_START_PRIMARY_MODES:
@@ -583,7 +593,7 @@ def _normalize_compact_task_start_intent(seed: dict[str, Any]) -> tuple[dict[str
     mode_payload = dict(payload.get("mode_payload") or {}) if isinstance(payload.get("mode_payload"), dict) else {}
     normalized = _drop_empty_payload(
         {
-            "contract_shape": "compact_task_start_intent_v3",
+            "contract_shape": "compact_task_start_intent",
             "primary_mode": primary_mode,
             "task_shape": task_shape,
             "minimum_viable_next_step": minimum_next_step,
@@ -616,82 +626,6 @@ def _normalize_compact_task_start_intent(seed: dict[str, Any]) -> tuple[dict[str
             }
         )
     return normalized, errors
-
-
-def _seed_with_layered_contract_aliases(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    payload = dict(seed or {})
-    errors: list[str] = []
-    layers: dict[str, dict[str, Any]] = {}
-    for key in _REQUEST_TASK_RUN_LEGACY_LAYER_FIELDS:
-        value = payload.get(key)
-        if value is None:
-            layers[key] = {}
-            continue
-        if not isinstance(value, dict):
-            errors.append(f"{key}_must_be_object")
-            payload[key] = {}
-            layers[key] = {}
-            continue
-        layers[key] = dict(value)
-
-    goal = layers["goal_contract"]
-    if "user_visible_goal" not in payload and _has_non_empty_value(goal.get("user_visible_goal")):
-        payload["user_visible_goal"] = goal.get("user_visible_goal")
-    if "task_run_goal" not in payload:
-        task_goal = goal.get("task_run_goal") or goal.get("agent_goal")
-        if _has_non_empty_value(task_goal):
-            payload["task_run_goal"] = task_goal
-
-    environment = layers["environment_contract"]
-    for key in ("working_scope", "permission_requirements"):
-        if key not in payload and isinstance(environment.get(key), dict):
-            payload[key] = dict(environment.get(key) or {})
-    for key in ("capability_intent", "skill_intent"):
-        if _has_non_empty_value(environment.get(key)):
-            errors.append(f"system_execution_field_not_allowed_in_task_run_contract:environment_contract.{key}")
-
-    feedback = layers["feedback_contract"]
-    for key in ("observation_policy", "observation_contract"):
-        if _has_non_empty_value(feedback.get(key)):
-            errors.append(f"system_execution_field_not_allowed_in_task_run_contract:feedback_contract.{key}")
-
-    acceptance = layers["acceptance_contract"]
-    for key in _REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS:
-        if key not in payload and _has_non_empty_value(acceptance.get(key)):
-            payload[key] = acceptance.get(key)
-
-    plan = layers["plan_contract"]
-    if "plan_ref" not in payload and _has_non_empty_value(plan.get("plan_id")):
-        payload["plan_ref"] = plan.get("plan_id")
-    return payload, errors
-
-
-def _normalized_goal_contract(seed: dict[str, Any]) -> dict[str, Any]:
-    raw = dict(seed.get("goal_contract") or {})
-    payload = {
-        "user_visible_goal": str(seed.get("user_visible_goal") or raw.get("user_visible_goal") or "").strip(),
-        "task_run_goal": str(seed.get("task_run_goal") or raw.get("task_run_goal") or raw.get("agent_goal") or "").strip(),
-        "non_goals": list(_string_tuple(raw.get("non_goals") or seed.get("non_goals"))),
-        "success_definition": _public_progress_note(raw.get("success_definition") or seed.get("success_definition")),
-        "completion_evidence": list(_string_tuple(raw.get("completion_evidence") or seed.get("completion_evidence"))),
-        "authority": "harness.loop.model_action_protocol.goal_contract",
-    }
-    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
-
-
-def _normalized_plan_contract(seed: dict[str, Any]) -> dict[str, Any]:
-    raw = dict(seed.get("plan_contract") or {})
-    payload = {
-        "plan_id": str(raw.get("plan_id") or seed.get("plan_ref") or seed.get("external_plan_ref") or "").strip(),
-        "plan_version": str(raw.get("plan_version") or "").strip(),
-        "plan_status": str(raw.get("plan_status") or raw.get("approval_state") or "agent_managed").strip(),
-        "strategy_summary": _public_progress_note(raw.get("strategy_summary")),
-        "major_steps": list(_string_tuple(raw.get("major_steps") or raw.get("steps"))),
-        "allowed_plan_operations": list(_string_tuple(raw.get("allowed_plan_operations") or raw.get("allowed_operations"))),
-        "replan_policy": dict(raw.get("replan_policy") or {}) if isinstance(raw.get("replan_policy"), dict) else {},
-        "authority": "harness.loop.model_action_protocol.plan_contract",
-    }
-    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
 
 
 def _normalized_lifecycle_contract(seed: dict[str, Any]) -> dict[str, Any]:
@@ -927,85 +861,6 @@ def _primary_work_mode_contract_errors(mode: dict[str, Any]) -> list[str]:
             errors.append("primary_open_work_mode.contract_required_for_request_task_run")
         return errors
     return errors
-
-
-def _legacy_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, Any]:
-    goal_contract = _normalized_goal_contract(seed)
-    plan_contract = _normalized_plan_contract(seed)
-    acceptance_contract = _normalized_acceptance_contract(seed)
-    working_scope = _normalize_working_scope(dict(seed.get("working_scope") or {}))
-    primary_mode = "goal"
-    primary_contract: dict[str, Any] = {
-        "user_visible_goal": goal_contract.get("user_visible_goal") or seed.get("user_visible_goal") or "",
-        "task_run_goal": goal_contract.get("task_run_goal") or seed.get("task_run_goal") or "",
-        "success_definition": goal_contract.get("success_definition") or "",
-        "non_goals": list(goal_contract.get("non_goals") or []),
-        "completion_evidence": list(goal_contract.get("completion_evidence") or []),
-        "working_scope": working_scope,
-    }
-    if not _has_non_empty_value(primary_contract.get("user_visible_goal") or primary_contract.get("task_run_goal") or primary_contract.get("success_definition")) and plan_contract:
-        primary_mode = "plan"
-        primary_contract = {
-            "strategy_summary": plan_contract.get("strategy_summary") or "",
-            "major_steps": list(plan_contract.get("major_steps") or []),
-            "plan_status": plan_contract.get("plan_status") or "agent_managed",
-            "replan_policy": dict(plan_contract.get("replan_policy") or {}),
-            "working_scope": working_scope,
-        }
-    work_modes = [
-        {
-            "mode_instance_id": f"work-mode:{primary_mode}:primary",
-            "mode_kind": primary_mode,
-            "mode_role": "primary",
-            "status": "draft",
-            "depends_on_mode_refs": [],
-            "contract": primary_contract,
-        }
-    ]
-    if primary_mode != "plan" and plan_contract:
-        work_modes.append(
-            {
-                "mode_instance_id": "work-mode:plan:supporting",
-                "mode_kind": "plan",
-                "mode_role": "supporting",
-                "status": "draft",
-                "depends_on_mode_refs": ["work-mode:goal:primary"],
-                "contract": {
-                    "strategy_summary": plan_contract.get("strategy_summary") or "",
-                    "major_steps": list(plan_contract.get("major_steps") or []),
-                    "plan_status": plan_contract.get("plan_status") or "agent_managed",
-                    "replan_policy": dict(plan_contract.get("replan_policy") or {}),
-                    "working_scope": working_scope,
-                },
-            }
-        )
-    return {
-        "contract_version": "task_run_contract_v1",
-        "container_contract": {
-            "entry_reason": str(seed.get("entry_reason") or "当前工作需要长任务资源。").strip(),
-            "continuity_required": True,
-            "control_required": True,
-            "projection_required": True,
-            "checkpoint_required": True,
-            "minimum_viable_next_step": str(seed.get("minimum_viable_next_step") or "推进当前 primary Work Mode 的下一步。").strip(),
-            "primary_work_mode_ref": f"work-mode:{primary_mode}:primary",
-            "supporting_mode_refs": [str(item.get("mode_instance_id") or "") for item in work_modes[1:]],
-            "mode_transition_policy": {"agent_may_propose_transition": True, "system_may_infer_transition": False, "requires_accepted_event": True},
-        },
-        "work_modes": work_modes,
-        "lifecycle_contract": dict(seed.get("lifecycle_contract") or {}),
-        "feedback_contract": dict(seed.get("feedback_contract") or {}),
-        "memory_contract": dict(seed.get("memory_contract") or {}),
-        "acceptance_contract": {
-            **acceptance_contract,
-            "acceptance_mode": acceptance_contract.get("acceptance_mode") or "checkpoint",
-        },
-        "runtime_requirements": {
-            "permission_requirements": dict(seed.get("permission_requirements") or {}),
-            "resource_requirements": {},
-            "safety_boundaries": list(_string_tuple(seed.get("safety_boundaries"))),
-        },
-    }
 
 
 def _request_task_run_contract_boundary_errors(

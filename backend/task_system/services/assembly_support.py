@@ -8,6 +8,7 @@ from runtime.request_signals.frame_access import (
 )
 from capability_system.mcp.local_registry import get_local_mcp_unit_for_source_kind
 from task_system.contracts.execution_obligation import build_execution_obligation
+from task_system.contracts.task_run_signal import task_run_contract_signal_from_context
 
 from task_system.services.bundle_models import BundleItemSpec, BundleSpec
 from task_system.tasks.definitions import default_task_definitions
@@ -140,6 +141,10 @@ def build_runtime_task_intent_contract(
         current_turn_context=current_turn_with_obligation,
         execution_obligation=execution_obligation_payload,
     )
+    task_run_signal = task_run_contract_signal_from_context(
+        current_turn_context=current_turn,
+        query_understanding=understanding,
+    )
     return TaskIntentContract(
         task_intent_id=f"task-intent:{session_id}:{task_id}",
         session_id=session_id,
@@ -177,7 +182,7 @@ def build_runtime_task_intent_contract(
         diagnostics={
             "execution_mode": str(current_turn.get("execution_mode") or "single"),
             "agent_turn_action_request": dict(current_turn.get("agent_turn_action_request") or {}),
-            "task_contract_seed": dict(current_turn.get("task_contract_seed") or {}),
+            "task_run_contract_signal": task_run_signal,
             "semantic_task_type": semantic_contract.task_goal_type,
             "professional_profile_id": semantic_contract.professional_profile_id,
             "execution_obligation": {
@@ -211,7 +216,12 @@ def build_runtime_policy_request(
     obligation = dict(execution_obligation or contract.get("execution_obligation") or current_turn.get("execution_obligation") or {})
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
     graph_node_runtime = _current_turn_is_task_graph_node_runtime(current_turn)
-    real_work_required = _obligation_requires_real_work(obligation, contract=contract, understanding=understanding)
+    real_work_required = _obligation_requires_real_work(
+        obligation,
+        contract=contract,
+        understanding=understanding,
+        current_turn_context=current_turn,
+    )
     return {
         "authority": "task_system.runtime_policy_request",
         "policy_reason": "task_graph_node_runtime" if graph_node_runtime else ("real_work_required" if real_work_required else "semantic_task_contract"),
@@ -223,14 +233,23 @@ def build_runtime_policy_request(
             "task_goal_type": task_goal_type,
             "professional_profile_id": str(contract.get("professional_profile_id") or ""),
             "agent_turn_action_request": dict(understanding.get("agent_turn_action_request") or {}),
-            "task_contract_seed": dict(understanding.get("task_contract_seed") or {}),
+            "task_run_contract_signal": task_run_contract_signal_from_context(
+                current_turn_context=current_turn,
+                query_understanding=understanding,
+            ),
             "execution_obligation": _obligation_summary(obligation),
             "tool_permission_authority": "harness.runtime.assembly",
             "sandbox_authority": "task_environment",
         },
     }
 
-def _obligation_requires_real_work(obligation: dict[str, Any], *, contract: dict[str, Any], understanding: dict[str, Any]) -> bool:
+def _obligation_requires_real_work(
+    obligation: dict[str, Any],
+    *,
+    contract: dict[str, Any],
+    understanding: dict[str, Any],
+    current_turn_context: dict[str, Any],
+) -> bool:
     item = dict(obligation or {})
     forbidden = {
         str(value).strip()
@@ -245,12 +264,15 @@ def _obligation_requires_real_work(obligation: dict[str, Any], *, contract: dict
         or list(item.get("required_verifications") or [])
     ):
         return True
-    seed = dict(understanding.get("task_contract_seed") or {})
-    working_scope = dict(seed.get("working_scope") or {})
+    task_run_signal = task_run_contract_signal_from_context(
+        current_turn_context=current_turn_context,
+        query_understanding=understanding,
+    )
+    working_scope = dict(task_run_signal.get("working_scope") or {})
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
     return bool(
         task_goal_type
-        or list(seed.get("required_artifacts") or [])
+        or list(task_run_signal.get("required_artifacts") or [])
         or list(working_scope.get("target_objects") or [])
     )
 
@@ -473,8 +495,8 @@ def _build_task_spec(
         for item in list(skill_runtime_views or [])
         if str((item.to_dict() if hasattr(item, "to_dict") else dict(item)).get("skill_id") or "").strip()
     }
-    action_seed = dict(dict(current_turn_context.get("agent_turn_action_request") or {}).get("task_contract_seed") or {})
-    action_skill_intent = dict(action_seed.get("skill_intent") or {})
+    task_run_signal = task_run_contract_signal_from_context(current_turn_context=current_turn_context)
+    action_skill_intent = dict(task_run_signal.get("skill_intent") or {})
     action_selected_skill_ids = [
         str(item).strip()
         for item in list(action_skill_intent.get("selected_skill_ids") or [])
@@ -974,6 +996,4 @@ def _single_bundle_item_ref(bundle_spec: BundleSpec | None) -> str:
     if bundle_spec is None or len(bundle_spec.items) != 1:
         return ""
     return str(bundle_spec.items[0].item_id or "")
-
-
 

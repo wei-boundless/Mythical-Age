@@ -11,6 +11,7 @@ import "../styles/06-task-workbench.css";
 import "../styles/07-agent-management.css";
 import "@xyflow/react/dist/style.css";
 import "../styles/08-graph-repository.css";
+import "../styles/09-agent-network.css";
 
 const APPEARANCE_BOOTSTRAP_SCRIPT = `(function(){try{
 var root=document.documentElement;

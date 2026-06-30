@@ -8,7 +8,9 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
 from core.project_layout import ProjectLayout
 
+from .active_execution_lease import build_active_execution_lease_context
 from .execution_state_projector import ExecutionStateProjector
+from .evidence_acquisition_horizon import build_evidence_acquisition_horizon
 from .evidence_index_cursor import build_evidence_index_cursor, split_evidence_index_cursor
 from .history_projector import HistoryProjector
 from .models import (
@@ -220,6 +222,7 @@ class DynamicContextManager:
             read_resource_state=read_resource_state,
             evidence_confidence=evidence_confidence,
         )
+        evidence_horizon = build_evidence_acquisition_horizon(evidence_index_cursor_payload=evidence_cursor)
         return drop_empty(
             {
                 "file_evidence_scope": dict(request.file_evidence_scope or {}),
@@ -227,6 +230,7 @@ class DynamicContextManager:
                 "read_resource_state": read_resource_state,
                 "evidence_confidence": evidence_confidence,
                 **evidence_cursor,
+                **evidence_horizon,
             }
         )
 
@@ -252,7 +256,13 @@ class DynamicContextManager:
         turn_state_attention_contexts = build_turn_state_attention_contexts(
             task_state,
             task_run_id=request.task_run_id,
-            task_contract=request.task_contract,
+            task_run_contract=request.task_run_contract,
+        )
+        active_execution_lease_context = build_active_execution_lease_context(
+            task_run=request.task_run,
+            task_run_contract=request.task_run_contract,
+            turn_state_attention_contexts=turn_state_attention_contexts,
+            task_state=task_state,
         )
         replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(
             task_state,
@@ -260,14 +270,23 @@ class DynamicContextManager:
         )
         replay_entries = self._ordered_task_state_replay_entries(request, replay_entries)
         evidence_index_cursor, _evidence_source_remainder = split_evidence_index_cursor(task_state)
+        editor_context_payload = _editor_context_dynamic_projection(request.editor_context)
+        evidence_horizon = build_evidence_acquisition_horizon(
+            evidence_index_cursor_payload=evidence_index_cursor,
+            editor_context_payload=editor_context_payload,
+        )
         payload = {
             "task_state": task_state_cursor,
         }
         if turn_state_attention_contexts:
             payload.update(turn_state_attention_contexts)
+        if active_execution_lease_context:
+            payload.update(active_execution_lease_context)
         if evidence_index_cursor:
             payload.update(evidence_index_cursor)
-        payload.update(_editor_context_dynamic_projection(request.editor_context))
+        if evidence_horizon:
+            payload.update(evidence_horizon)
+        payload.update(editor_context_payload)
         return drop_empty(payload), replay_entries
 
     def _ordered_task_state_replay_entries(
@@ -452,7 +471,7 @@ class DynamicContextManager:
                     section_id=f"dynamic_context:{request.invocation_kind}:task_goal_context",
                     source="task_goal_context",
                     volatility_reason="active goal mode boundary can change only through task contract revision; the current boundary stays in the dynamic tail while historical context remains sealed",
-                    input_chars=estimate_chars({"task_contract": request.task_contract}),
+                    input_chars=estimate_chars({"task_run_contract": request.task_run_contract}),
                     output_chars=estimate_chars(task_goal_context),
                     projection_strategy="goal_work_mode_contract_projection",
                     cache_impact="dynamic_tail_only",
@@ -474,7 +493,7 @@ class DynamicContextManager:
                     section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
                     source="task_plan_context",
                     volatility_reason="active plan mode strategy can be revised by the agent; it is projected as its own dynamic tail segment instead of absorbing todo execution state",
-                    input_chars=estimate_chars({"task_contract": request.task_contract}),
+                    input_chars=estimate_chars({"task_run_contract": request.task_run_contract}),
                     output_chars=estimate_chars(task_plan_context),
                     projection_strategy="plan_work_mode_baseline_projection",
                     cache_impact="dynamic_tail_only",
@@ -513,6 +532,37 @@ class DynamicContextManager:
                     ),
                 )
             )
+        active_execution_lease = (
+            dict(volatile_state.get("active_execution_lease") or {})
+            if isinstance(volatile_state.get("active_execution_lease"), dict)
+            else {}
+        )
+        if active_execution_lease:
+            plan_source = dict(active_execution_lease.get("plan_source_snapshot") or {})
+            execution_contract = dict(active_execution_lease.get("execution_contract") or {})
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:active_execution_lease",
+                    source="active_execution_lease",
+                    volatility_reason=(
+                        "active execution lease is the current task execution occupancy boundary; "
+                        "released/completed/superseded leases must not be projected into current model context"
+                    ),
+                    input_chars=estimate_chars({"task_run": request.task_run, "task_run_contract": request.task_run_contract}),
+                    output_chars=estimate_chars(active_execution_lease),
+                    projection_strategy="plan_source_execution_contract_active_lease_projection",
+                    cache_impact="dynamic_tail_only",
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            str(active_execution_lease.get("lease_id") or ""),
+                            str(plan_source.get("snapshot_id") or ""),
+                            str(execution_contract.get("execution_contract_id") or ""),
+                        )
+                        if ref
+                    ),
+                )
+            )
         evidence_index_cursor = (
             dict(volatile_state.get("evidence_index_cursor") or {})
             if isinstance(volatile_state.get("evidence_index_cursor"), dict)
@@ -541,6 +591,36 @@ class DynamicContextManager:
                         for item in list(evidence_index_cursor.get("files") or [])
                         if isinstance(item, dict) and str(item.get("latest_evidence_ref") or "")
                     ),
+                )
+            )
+        evidence_horizon = (
+            dict(volatile_state.get("evidence_acquisition_horizon") or {})
+            if isinstance(volatile_state.get("evidence_acquisition_horizon"), dict)
+            else dict(dynamic_payload.get("evidence_acquisition_horizon") or {})
+            if isinstance(dynamic_payload.get("evidence_acquisition_horizon"), dict)
+            else {}
+        )
+        if evidence_horizon:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:evidence_acquisition_horizon",
+                    source="evidence_acquisition_horizon",
+                    volatility_reason=(
+                        "evidence acquisition horizon is the current invocation read-before-judgment boundary; "
+                        "it is derived from refs/ranges/freshness and must not be sealed into provider-visible history"
+                    ),
+                    input_chars=estimate_chars(
+                        {
+                            "execution_state": request.execution_state,
+                            "observations": request.observations,
+                            "file_state": request.file_state,
+                            "editor_context": request.editor_context,
+                        }
+                    ),
+                    output_chars=estimate_chars(evidence_horizon),
+                    projection_strategy="current_invocation_evidence_action_boundary",
+                    cache_impact="dynamic_tail_only",
+                    refs=tuple(_evidence_horizon_refs(evidence_horizon)),
                 )
             )
         editor_context_payload = _editor_context_dynamic_projection(request.editor_context)
@@ -1464,6 +1544,25 @@ def _attachment_context_refs(attachment_context_index: Any) -> list[str]:
     return refs
 
 
+def _evidence_horizon_refs(evidence_horizon: Any) -> list[str]:
+    payload = dict(evidence_horizon or {}) if isinstance(evidence_horizon, dict) else {}
+    refs: list[str] = []
+    for value in (
+        payload.get("horizon_id"),
+        dict(payload.get("source_refs") or {}).get("evidence_index_cursor_ref"),
+    ):
+        ref = str(value or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
+    for item in list(payload.get("usable_evidence_refs") or [])[:12]:
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("evidence_ref") or item.get("artifact_ref") or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
 def _editor_evidence_refs(editor_evidence_delta: Any) -> list[str]:
     refs: list[str] = []
     for item in list(dict(editor_evidence_delta or {}).get("events") or [])[:8]:
@@ -1539,4 +1638,3 @@ def _as_list(value: Any) -> list[Any]:
     if value in (None, ""):
         return []
     return [value]
-

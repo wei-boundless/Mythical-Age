@@ -5,7 +5,7 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class PromptStabilitySection:
+class PrefixStateDiffSection:
     section_id: str
     kind: str
     ordinal: int
@@ -21,13 +21,13 @@ class PromptStabilitySection:
     predicted_tokens: int = 0
     volatility_reason: str = ""
     prefix_identity: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.prompt_stability_section"
+    authority: str = "runtime.prompt_accounting.prefix_state.diff_section"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PromptStabilitySection":
+    def from_dict(cls, payload: dict[str, Any]) -> "PrefixStateDiffSection":
         return cls(
             section_id=str(payload.get("section_id") or ""),
             kind=str(payload.get("kind") or ""),
@@ -44,12 +44,12 @@ class PromptStabilitySection:
             predicted_tokens=_int(payload.get("predicted_tokens")),
             volatility_reason=str(payload.get("volatility_reason") or ""),
             prefix_identity=dict(payload.get("prefix_identity") or {}),
-            authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_stability_section"),
+            authority=str(payload.get("authority") or "runtime.prompt_accounting.prefix_state.diff_section"),
         )
 
 
 @dataclass(frozen=True, slots=True)
-class PromptStabilityReport:
+class PrefixStateDiffReport:
     report_id: str
     request_id: str
     run_id: str = ""
@@ -70,8 +70,8 @@ class PromptStabilityReport:
     session_prefix_tokens: int = 0
     stable_section_count: int = 0
     volatile_token_count: int = 0
-    stable_sections: tuple[PromptStabilitySection, ...] = ()
-    volatile_sections: tuple[PromptStabilitySection, ...] = ()
+    stable_sections: tuple[PrefixStateDiffSection, ...] = ()
+    volatile_sections: tuple[PrefixStateDiffSection, ...] = ()
     dynamic_param_hash: str = ""
     dynamic_param_summary: dict[str, Any] = field(default_factory=dict)
     previous_report_ref: str = ""
@@ -80,7 +80,7 @@ class PromptStabilityReport:
     provider_usage: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
-    authority: str = "runtime.prompt_accounting.prompt_stability_report"
+    authority: str = "runtime.prompt_accounting.prefix_state.diff_report"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -93,7 +93,7 @@ class PromptStabilityReport:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PromptStabilityReport":
+    def from_dict(cls, payload: dict[str, Any]) -> "PrefixStateDiffReport":
         return cls(
             report_id=str(payload.get("report_id") or ""),
             request_id=str(payload.get("request_id") or ""),
@@ -116,12 +116,12 @@ class PromptStabilityReport:
             stable_section_count=_int(payload.get("stable_section_count")),
             volatile_token_count=_int(payload.get("volatile_token_count")),
             stable_sections=tuple(
-                PromptStabilitySection.from_dict(dict(item))
+                PrefixStateDiffSection.from_dict(dict(item))
                 for item in list(payload.get("stable_sections") or [])
                 if isinstance(item, dict)
             ),
             volatile_sections=tuple(
-                PromptStabilitySection.from_dict(dict(item))
+                PrefixStateDiffSection.from_dict(dict(item))
                 for item in list(payload.get("volatile_sections") or [])
                 if isinstance(item, dict)
             ),
@@ -133,7 +133,7 @@ class PromptStabilityReport:
             provider_usage=dict(payload.get("provider_usage") or {}),
             diagnostics=dict(payload.get("diagnostics") or {}),
             created_at=float(payload.get("created_at") or 0.0),
-            authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_stability_report"),
+            authority=str(payload.get("authority") or "runtime.prompt_accounting.prefix_state.diff_report"),
         )
 
 

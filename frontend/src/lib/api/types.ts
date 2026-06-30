@@ -93,7 +93,7 @@ export type SessionScope = {
 };
 
 export type ProviderCacheLogRecord = {
-  ledger_id: string;
+  bus_record_id: string;
   request_id: string;
   run_id: string;
   task_run_id: string;
@@ -102,7 +102,7 @@ export type ProviderCacheLogRecord = {
   model: string;
   provider_lane: string;
   cache_status: string;
-  break_status: string;
+  physical_cache_spine_status: string;
   prompt_tokens: number;
   cached_tokens: number;
   miss_tokens: number;
@@ -112,12 +112,17 @@ export type ProviderCacheLogRecord = {
   transport_contract_hash?: string;
   physical_cache_spine_provider_scaled_tokens?: number;
   physical_cache_spine_segment_kinds?: string[];
+  physical_cache_spine_context_contract_node_refs?: string[];
+  physical_cache_spine_context_contract_edge_refs?: string[];
+  physical_cache_spine_agent_domains?: string[];
+  physical_cache_spine_connection_contract_refs?: string[];
+  physical_cache_spine_control_signals?: string[];
   provider_under_read_tokens: number;
   current_context_append_tokens?: number;
   dynamic_tail_tokens?: number;
   tool_schema_blocker_tokens?: number;
   non_spine_prompt_tokens?: number;
-  first_break_segment?: Record<string, unknown>;
+  first_mismatch_segment?: Record<string, unknown>;
   provider_prefix_cache_health?: Record<string, unknown>;
   created_at: number;
 };
@@ -143,14 +148,128 @@ export type ProviderCacheLog = {
     current_prefix_covered?: boolean;
     current_cache_spine_hash?: string;
     current_transport_contract_hash?: string;
+    current_context_contract_node_refs?: string[];
+    current_context_contract_edge_refs?: string[];
+    current_agent_domains?: string[];
+    current_connection_contract_refs?: string[];
     provider_under_read_count: number;
-    local_physical_break_count: number;
+    local_physical_mismatch_count: number;
     cold_start_count: number;
     hit_count: number;
     status_counts: Record<string, number>;
   };
   records: ProviderCacheLogRecord[];
   updated_at: number;
+};
+
+export type RuntimeTopologyNodeKind =
+  | "domain"
+  | "contract"
+  | "physical"
+  | "transport"
+  | "ledger"
+  | "memory"
+  | "diagnostic"
+  | string;
+
+export type RuntimeTopologyEdgeStatus = "connected" | "weak" | "planned" | string;
+
+export type RuntimeTopologyNode = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  kind: RuntimeTopologyNodeKind;
+  branch?: string;
+  module_path?: string;
+  file?: string;
+  time_scope?: string;
+  timeScope?: string;
+  agent_domain?: string;
+  domain?: string;
+  agent_role?: string;
+  control_layer?: string;
+  authority?: string;
+  summary?: string;
+  owned_signals?: string[];
+  state_read_policy?: string;
+  state_write_policy?: string;
+  physical_lane_policy?: string;
+  status?: string;
+  x?: number;
+  y?: number;
+  [key: string]: unknown;
+};
+
+export type RuntimeTopologyEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  edge_kind?: string;
+  signal?: string;
+  control_signal?: string;
+  status: RuntimeTopologyEdgeStatus;
+  payload_schema?: string;
+  payload?: string;
+  payload_identity?: string;
+  authority?: string;
+  connection_contract_ref?: string;
+  physical_lane?: string;
+  producer_ref?: string;
+  consumer_ref?: string;
+  lifecycle?: string;
+  cache_expectation?: string;
+  state_read_policy?: string;
+  state_write_policy?: string;
+  failure_route?: string;
+  failureRoute?: string;
+  terminal_behavior?: string;
+  forbidden_route?: string;
+  forbiddenRoute?: string;
+  diagnostics_key?: string;
+  [key: string]: unknown;
+};
+
+export type RuntimeTopologyBranch = {
+  id: string;
+  label: string;
+};
+
+export type AgentControlNetworkPayload = {
+  schema: string;
+  authority: string;
+  generated_at?: number;
+  scope?: {
+    session_id?: string;
+    runtime_available?: boolean;
+    runtime_host_available?: boolean;
+    runtime_host_instance_id?: string;
+    read_only?: boolean;
+    [key: string]: unknown;
+  };
+  summary?: {
+    node_count?: number;
+    edge_count?: number;
+    connected_edge_count?: number;
+    runtime_authority?: string;
+    projection_kind?: string;
+    [key: string]: unknown;
+  };
+  branches?: RuntimeTopologyBranch[];
+  domains?: Array<Record<string, unknown>>;
+  nodes: RuntimeTopologyNode[];
+  edges: RuntimeTopologyEdge[];
+  diagnostics?: Record<string, unknown>;
+  runtime_evidence?: {
+    available?: boolean;
+    reason?: string;
+    session_id?: string;
+    turn_memory?: Record<string, unknown>;
+    provider_cache_log?: ProviderCacheLog | Record<string, unknown>;
+    context_recovery_package?: Record<string, unknown>;
+    cache_diagnostics?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
 };
 
 export type SessionTokensPayload = {
@@ -173,7 +292,7 @@ export type SessionTokensPayload = {
     present?: boolean;
     fresh?: boolean;
     source?: string;
-    schema_version?: string;
+    package_schema_id?: string;
     covered_message_count?: number;
     covered_event_run_id?: string;
     covered_event_offset_end?: number | null;
@@ -196,8 +315,8 @@ export type SessionTokensPayload = {
     context_recovery_package_source?: string;
   };
   provider_cache_log?: ProviderCacheLog;
-  cumulative_transcript_tokens?: number;
-  cumulative_transcript_message_count?: number;
+  provider_protocol_timeline_tokens?: number;
+  provider_protocol_timeline_message_count?: number;
   compression_saved_tokens?: number;
   compression_ratio?: number;
   raw_history_tokens: number;
@@ -566,7 +685,7 @@ export type SessionRuntimeAttachment = {
 
 export type ProjectionSlice = {
   slice_id: string;
-  schema_version: "chronological_projection" | string;
+  projection_schema_id: "chronological_projection" | string;
   event_log_id: string;
   start_offset: number;
   end_offset: number;
@@ -2205,7 +2324,7 @@ export type HealthRiskEvent = {
 export type HealthTaskRecord = {
   task_run_id: string;
   session_id: string;
-  task_contract_ref: string;
+  task_run_contract_ref: string;
   title: string;
   task_id: string;
   agent_id: string;
@@ -4223,8 +4342,8 @@ export type StreamHandlers = {
 };
 
 export type StreamResult = {
-  terminalEvent: "turn_completed";
-  terminalStatus: "completed" | "failed" | "stopped" | string;
+  terminalEvent: "turn_completed" | "recoverable_interruption";
+  terminalStatus: "completed" | "failed" | "stopped" | "recoverable_interruption" | string;
   streamRunId: string;
   eventLogId: string;
   lastEventOffset: number;
@@ -4277,7 +4396,6 @@ export type SessionContinuationProjection = {
   session_id: string;
   available: boolean;
   record?: SessionContinuationRecord;
-  interrupted_turn?: Record<string, unknown>;
   context_recovery_status?: Record<string, unknown>;
   reason?: string;
   authority?: string;

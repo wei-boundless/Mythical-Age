@@ -5,60 +5,18 @@ from typing import Any
 
 from harness.loop.task_run_recovery_state import recovery_state_for_task_run
 from harness.loop.work_rollout import work_rollout_ref, work_rollout_summary
-from harness.runtime.control_events import runtime_signal_from_event_payload
-from harness.runtime.runtime_gateway import (
-    CONTROL_SIGNAL_PUBLISHED_EVENT,
-)
 from harness.task_run_status import is_stopped_or_terminal_task_run
 
 from .record import (
     ContinuationRecord,
-    InterruptedTurnContinuationRecord,
     continuation_id_for_task_run,
-    continuation_id_for_turn_run,
     now_timestamp,
 )
-
-
-_RECOVERABLE_TURN_CONTROL_SIGNAL_KINDS = frozenset(
-    {
-        "consecutive_tool_failures",
-        "model_protocol_violation",
-        "final_output_not_committable",
-        "agent_contract_feedback_required",
-    }
-)
-_RECOVERABLE_TURN_TERMINAL_REASONS = frozenset(
-    {
-        "single_turn_consecutive_tool_failures",
-        "single_agent_turn_protocol_error",
-        "final_output_not_committable",
-        "session_output_commit_not_committed",
-        "agent_contract_feedback_required",
-    }
-)
-_RECOVERABLE_TURN_INTERRUPTION_REASONS = frozenset(
-    {
-        "runtime_process_restarted",
-        "runtime_cell_missing_after_restart",
-        "runtime_cell_cancelled",
-        "runtime_stream_interrupted",
-        "stream_cancelled",
-        "stream_exception",
-        "missing_terminal_event",
-        "projection_stream_exception",
-        "projection_stream_missing_terminal",
-        "task_bridge_context_missing",
-    }
-)
-
-_SUCCESSFUL_TURN_STATUSES = frozenset({"completed"})
 
 
 @dataclass(frozen=True, slots=True)
 class ContinuationSelection:
     record: ContinuationRecord | None = None
-    interrupted_turn: InterruptedTurnContinuationRecord | None = None
     reason: str = ""
     context_recovery_status: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.continuation.selector"
@@ -66,7 +24,6 @@ class ContinuationSelection:
     def to_dict(self) -> dict[str, Any]:
         return {
             "record": self.record.to_dict() if self.record is not None else {},
-            "interrupted_turn": self.interrupted_turn.to_dict() if self.interrupted_turn is not None else {},
             "reason": self.reason,
             "context_recovery_status": dict(self.context_recovery_status or {}),
             "authority": self.authority,
@@ -114,21 +71,19 @@ def select_session_continuation(
         if record is not None:
             selected_record = record
             break
-    selected_interrupted_turn = _latest_interrupted_turn_record(runtime_host, session_id=normalized_session_id)
-    if selected_record is not None or selected_interrupted_turn is not None:
+    if selected_record is not None:
         return ContinuationSelection(
             record=selected_record,
-            interrupted_turn=selected_interrupted_turn,
-            reason=_selection_reason(task_record=selected_record, interrupted_turn=selected_interrupted_turn),
+            reason="latest_session_task_run_selected",
             context_recovery_status=resolved_context_status,
         )
     if not task_runs:
         return ContinuationSelection(
-            reason="session_task_run_missing_or_interrupted_turn_missing",
+            reason="session_task_run_missing",
             context_recovery_status=resolved_context_status,
         )
     return ContinuationSelection(
-        reason="no_supported_session_task_or_interrupted_turn",
+        reason="no_supported_session_task",
         context_recovery_status=resolved_context_status,
     )
 
@@ -182,7 +137,7 @@ def _record_from_task_run(
     work_state = state
     recovery_cause = _recovery_cause_from_recovery_state(recovery_state)
     rollout = work_rollout_summary(runtime_host, task_run)
-    contract = _load_contract(runtime_host, str(getattr(task_run, "task_contract_ref", "") or ""))
+    contract = _load_contract(runtime_host, str(getattr(task_run, "task_run_contract_ref", "") or ""))
     latest_progress = _first_text(
         diagnostics.get("latest_public_progress_note"),
         rollout.get("latest_progress"),
@@ -233,7 +188,7 @@ def _record_from_task_run(
         latest_progress=latest_progress,
         last_completed_step=latest_step,
         next_recommended_step=_next_recommended_step(state=state, resume_allowed=resume_allowed),
-        task_contract_ref=str(getattr(task_run, "task_contract_ref", "") or ""),
+        task_run_contract_ref=str(getattr(task_run, "task_run_contract_ref", "") or ""),
         work_rollout_ref=work_rollout_ref(task_run_id),
         event_log_ref=task_run_id,
         event_cursor=event_cursor,
@@ -367,307 +322,6 @@ def _recovery_cause_from_recovery_state(recovery_state: Any) -> str:
     return "" if reason in {"not_resumable", "executor_claimed", "paused", "approval_granted"} else reason
 
 
-def _latest_interrupted_turn_record(runtime_host: Any, *, session_id: str) -> InterruptedTurnContinuationRecord | None:
-    turn_runs = [
-        item
-        for item in list(getattr(runtime_host.state_index, "list_session_turn_runs", lambda _session_id: [])(session_id) or [])
-        if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_turn"
-    ]
-    if not turn_runs:
-        return None
-    candidates = sorted(
-        turn_runs,
-        key=lambda item: (float(getattr(item, "updated_at", 0.0) or 0.0), float(getattr(item, "created_at", 0.0) or 0.0)),
-        reverse=True,
-    )
-    for candidate in candidates:
-        if not _interrupted_turn_continuation_pending(candidate):
-            continue
-        if _interrupted_turn_shadowed_by_later_completed_turn(turn_runs, candidate):
-            continue
-        record = _record_from_interrupted_turn_run(runtime_host, candidate)
-        if record is not None:
-            return record
-    return None
-
-
-def _interrupted_turn_continuation_pending(turn_run: Any) -> bool:
-    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {})
-    if diagnostics.get("interrupted_turn_continuation_pending") is True:
-        return True
-    recovery_entry_event = str(diagnostics.get("interrupted_turn_recovery_entry_event_id") or "").strip()
-    if recovery_entry_event and diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
-        return True
-    return False
-
-
-def _interrupted_turn_shadowed_by_later_completed_turn(turn_runs: list[Any], candidate: Any) -> bool:
-    """A later completed conversational turn means the old interrupted turn was already carried forward."""
-
-    for turn_run in turn_runs:
-        if _same_turn_run(turn_run, candidate):
-            continue
-        if not _turn_run_completed_successfully(turn_run):
-            continue
-        if _turn_run_occurs_after(turn_run, candidate):
-            return True
-    return False
-
-
-def _turn_run_completed_successfully(turn_run: Any) -> bool:
-    if _interrupted_turn_continuation_pending(turn_run):
-        return False
-    status = str(getattr(turn_run, "status", "") or "").strip()
-    if status not in _SUCCESSFUL_TURN_STATUSES:
-        return False
-    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {})
-    terminal_status = str(diagnostics.get("terminal_status") or status or "").strip()
-    if terminal_status in {"failed", "blocked", "aborted"}:
-        return False
-    if diagnostics.get("semantic_terminal") is False and diagnostics.get("recoverable") is True:
-        return False
-    return True
-
-
-def _turn_run_occurs_after(left: Any, right: Any) -> bool:
-    left_index = _turn_sequence_index(left)
-    right_index = _turn_sequence_index(right)
-    if left_index >= 0 and right_index >= 0 and left_index != right_index:
-        return left_index > right_index
-    left_created = float(getattr(left, "created_at", 0.0) or 0.0)
-    right_created = float(getattr(right, "created_at", 0.0) or 0.0)
-    if left_created and right_created and left_created != right_created:
-        return left_created > right_created
-    left_updated = float(getattr(left, "updated_at", 0.0) or 0.0)
-    right_updated = float(getattr(right, "updated_at", 0.0) or 0.0)
-    return left_updated > right_updated
-
-
-def _turn_sequence_index(turn_run: Any) -> int:
-    turn_id = str(getattr(turn_run, "turn_id", "") or "").strip()
-    tail = turn_id.rsplit(":", 1)[-1]
-    try:
-        return int(tail)
-    except (TypeError, ValueError):
-        return -1
-
-
-def _same_turn_run(left: Any, right: Any) -> bool:
-    return str(getattr(left, "turn_run_id", "") or "") == str(getattr(right, "turn_run_id", "") or "")
-
-
-def _record_from_interrupted_turn_run(runtime_host: Any, turn_run: Any) -> InterruptedTurnContinuationRecord | None:
-    turn_run_id = str(getattr(turn_run, "turn_run_id", "") or "").strip()
-    session_id = str(getattr(turn_run, "session_id", "") or "").strip()
-    turn_id = str(getattr(turn_run, "turn_id", "") or "").strip()
-    if not turn_run_id or not session_id or not turn_id:
-        return None
-    diagnostics = dict(getattr(turn_run, "diagnostics", {}) or {})
-    terminal_reason = str(
-        getattr(turn_run, "terminal_reason", "")
-        or diagnostics.get("terminal_reason")
-        or diagnostics.get("terminal_reason_detail")
-        or diagnostics.get("runtime_interruption_code")
-        or diagnostics.get("failure_code")
-        or diagnostics.get("reason")
-        or ""
-    ).strip()
-    status = str(getattr(turn_run, "status", "") or diagnostics.get("terminal_status") or "").strip()
-    gateway_signal = _latest_turn_runtime_control_signal_from_gateway(
-        runtime_host,
-        turn_run_id=turn_run_id,
-    )
-    interruption_kind = _interrupted_turn_kind(
-        terminal_reason=terminal_reason,
-        status=status,
-        diagnostics=diagnostics,
-        runtime_control_signal=gateway_signal,
-    )
-    if not interruption_kind:
-        return None
-    latest_signal = dict(gateway_signal or {})
-    feedback = dict(diagnostics.get("latest_agent_contract_feedback") or {})
-    agent_contract_feedback = _agent_contract_feedback_continuation_payload(feedback)
-    latest_progress = _first_text(
-        diagnostics.get("latest_public_progress_note"),
-        diagnostics.get("latest_step_summary"),
-        feedback.get("agent_feedback"),
-        dict(feedback.get("structured_signal") or {}).get("message"),
-        latest_signal.get("message"),
-        diagnostics.get("runtime_interruption_reason"),
-        diagnostics.get("failure_reason"),
-        terminal_reason,
-        status,
-    )
-    latest_step = _first_text(
-        diagnostics.get("latest_step"),
-        diagnostics.get("latest_tool_batch_event"),
-        diagnostics.get("runtime_interruption_event_type"),
-        diagnostics.get("terminal_event_type"),
-    )
-    visible_stream = dict(diagnostics.get("assistant_visible_stream_continuity") or {})
-    visible_prefix = str(visible_stream.get("content") or "").strip()
-    event_cursor = _int_value(getattr(turn_run, "latest_event_offset", -1), -1)
-    control_version = _int_value(diagnostics.get("continuation_control_version"), 0)
-    now = now_timestamp()
-    return InterruptedTurnContinuationRecord(
-        continuation_id=continuation_id_for_turn_run(turn_run_id, event_cursor=event_cursor, control_version=control_version),
-        session_id=session_id,
-        turn_run_id=turn_run_id,
-        turn_id=turn_id,
-        previous_stream_run_id=str(diagnostics.get("interrupted_stream_run_id") or diagnostics.get("stream_run_id") or ""),
-        interruption_kind=interruption_kind,
-        terminal_status=status,
-        terminal_reason=terminal_reason,
-        latest_progress=latest_progress,
-        latest_step=latest_step,
-        next_recommended_step=_interrupted_turn_next_step(interruption_kind),
-        visible_assistant_prefix=visible_prefix,
-        visible_assistant_prefix_sha256=str(visible_stream.get("content_sha256") or ""),
-        visible_assistant_prefix_truncated=bool(visible_stream.get("truncated_from_start") is True),
-        visible_assistant_prefix_utf8_bytes=_int_value(visible_stream.get("content_utf8_bytes"), 0),
-        event_log_ref=turn_run_id,
-        event_cursor=event_cursor,
-        model_visible_summary=_interrupted_turn_model_visible_summary(
-            latest_progress=latest_progress,
-            latest_step=latest_step,
-            interruption_kind=interruption_kind,
-            terminal_reason=terminal_reason,
-            status=status,
-            visible_assistant_prefix_present=bool(visible_prefix),
-        ),
-        agent_contract_feedback=agent_contract_feedback,
-        created_at=now,
-        updated_at=float(getattr(turn_run, "updated_at", 0.0) or now),
-        diagnostics={
-            "terminal_reason": terminal_reason,
-            "terminal_status": status,
-            "runtime_interruption_code": str(diagnostics.get("runtime_interruption_code") or ""),
-            "semantic_terminal": diagnostics.get("semantic_terminal"),
-            "latest_runtime_control_signal_kind": str(latest_signal.get("signal_kind") or ""),
-            "latest_step_status": str(diagnostics.get("latest_step_status") or ""),
-            "has_agent_contract_feedback": bool(feedback),
-        },
-    )
-
-
-def _interrupted_turn_kind(
-    *,
-    terminal_reason: str,
-    status: str,
-    diagnostics: dict[str, Any],
-    runtime_control_signal: dict[str, Any],
-) -> str:
-    reason = str(terminal_reason or "").strip()
-    signal_kind = str(dict(runtime_control_signal or {}).get("signal_kind") or "").strip()
-    runtime_interruption = _runtime_interruption_reason_from_diagnostics(diagnostics)
-    if runtime_interruption:
-        return "runtime_execution_interrupted"
-    if reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
-        if reason == "single_turn_consecutive_tool_failures":
-            return "consecutive_tool_failures"
-        if reason == "agent_contract_feedback_required":
-            return "agent_contract_feedback_required"
-        return "interrupted_turn_runtime_boundary"
-    if signal_kind in _RECOVERABLE_TURN_CONTROL_SIGNAL_KINDS:
-        return signal_kind
-    if dict(diagnostics.get("latest_agent_contract_feedback") or {}):
-        return "agent_contract_feedback_required"
-    if str(status or "").strip() in {"failed", "aborted"} and reason in _RECOVERABLE_TURN_TERMINAL_REASONS:
-        return "interrupted_turn_runtime_boundary"
-    return ""
-
-
-def _runtime_interruption_reason_from_diagnostics(diagnostics: dict[str, Any]) -> str:
-    if diagnostics.get("semantic_terminal") is not False and diagnostics.get("recoverable") is not True:
-        return ""
-    candidates = (
-        diagnostics.get("runtime_interruption_code"),
-        diagnostics.get("failure_code"),
-        diagnostics.get("reason"),
-        diagnostics.get("recovery_kind"),
-    )
-    for candidate in candidates:
-        reason = str(candidate or "").strip()
-        if reason in _RECOVERABLE_TURN_INTERRUPTION_REASONS:
-            return reason
-    return ""
-
-
-def _latest_turn_runtime_control_signal_from_gateway(
-    runtime_host: Any,
-    *,
-    turn_run_id: str,
-) -> dict[str, Any]:
-    normalized_turn_run_id = str(turn_run_id or "").strip()
-    if not normalized_turn_run_id:
-        return {}
-    event_log = getattr(runtime_host, "event_log", None)
-    list_events = getattr(event_log, "list_events", None)
-    if not callable(list_events):
-        return {}
-    try:
-        events = list(list_events(normalized_turn_run_id) or [])
-    except Exception:
-        return {}
-    for event in reversed(events):
-        if getattr(event, "event_type", "") != CONTROL_SIGNAL_PUBLISHED_EVENT:
-            continue
-        signal = runtime_signal_from_event_payload(dict(getattr(event, "payload", {}) or {}))
-        if signal is None:
-            continue
-        if signal.signal_type != "control.signal.requested":
-            continue
-        if signal.scope.turn_run_id and signal.scope.turn_run_id != normalized_turn_run_id:
-            continue
-        return dict(signal.payload or {})
-    return {}
-
-
-def _interrupted_turn_next_step(interruption_kind: str) -> str:
-    if interruption_kind == "agent_contract_feedback_required":
-        return "继续上一轮普通对话工作；根据合同反馈产出合法 action，不要让系统代写用户正文，不要重复已公开前缀。"
-    return "继续上一轮普通对话工作；把该记录当作同一 session 的连续上下文，必要时再读取缺失或过期证据。"
-
-
-def _interrupted_turn_model_visible_summary(
-    *,
-    latest_progress: str,
-    latest_step: str,
-    interruption_kind: str,
-    terminal_reason: str,
-    status: str,
-    visible_assistant_prefix_present: bool = False,
-) -> str:
-    parts = ["上下文：上一轮普通对话 turn 在运行边界中断，属于同一会话的可延续工作上下文。"]
-    if visible_assistant_prefix_present:
-        parts.append("已公开输出：上一轮存在已显示给用户但尚未最终提交的 assistant 正文前缀，本轮需要从该前缀之后继续，不要重复。")
-    if latest_progress:
-        parts.append(f"已确认进度：{latest_progress}")
-    if latest_step:
-        parts.append(f"最近步骤：{latest_step}")
-    if interruption_kind:
-        parts.append(f"中断类型：{interruption_kind}")
-    if terminal_reason:
-        parts.append(f"结束原因：{terminal_reason}")
-    if status:
-        parts.append(f"当前状态：{status}")
-    parts.append("证据规则：优先复用本次 packet 可见的 exact read evidence；只有证据缺失、stale 或文件已变更时才重新读取。")
-    return "\n".join(parts)
-
-
-def _selection_reason(
-    *,
-    task_record: ContinuationRecord | None,
-    interrupted_turn: InterruptedTurnContinuationRecord | None,
-) -> str:
-    if task_record is not None and interrupted_turn is not None:
-        return "latest_session_task_run_and_interrupted_turn_selected"
-    if task_record is not None:
-        return "latest_session_task_run_selected"
-    return "latest_interrupted_single_agent_turn_selected"
-
-
 def _load_contract(runtime_host: Any, ref: str) -> dict[str, Any]:
     if not ref:
         return {}
@@ -725,7 +379,7 @@ def _agent_contract_feedback_continuation_payload(feedback: dict[str, Any]) -> d
     payload = dict(feedback or {})
     if not payload:
         return {}
-    requirements = dict(payload.get("next_action_requirements") or payload.get("required_action_protocol") or {})
+    requirements = dict(payload.get("next_action_requirements") or {})
     failure = dict(payload.get("contract_failure") or {})
     structured_signal = dict(payload.get("structured_signal") or {})
     specific_feedback = [

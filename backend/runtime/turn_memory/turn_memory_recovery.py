@@ -57,22 +57,13 @@ def decide_turn_memory_recovery(record: TurnMemoryRecord | None) -> TurnMemoryRe
             recoverable=True,
             payload={"frame_promotion_ref": record.frame_promotion_ref},
         )
-    if record.assistant_draft_ref or record.assistant_draft_sha256:
-        return TurnMemoryRecoveryDecision(
-            action="recover_from_checkpoint",
-            reason="assistant_draft_checkpoint_available",
-            turn_id=record.turn_id,
-            commit_state=record.commit_state,
-            recoverable=True,
-            payload={"assistant_draft_ref": record.assistant_draft_ref, "assistant_draft_sha256": record.assistant_draft_sha256},
-        )
     if record.status == "handoff_ready":
         return TurnMemoryRecoveryDecision(
-            action="recover_interrupted_turn",
-            reason="turn_interrupted_handoff_ready",
+            action="inspect",
+            reason="interrupted_turn_available_as_prior_work_memory",
             turn_id=record.turn_id,
             commit_state=record.commit_state,
-            recoverable=True,
+            recoverable=False,
             payload={
                 "recovery_state": record.recovery_state,
                 "pending_commit_summary": dict(record.pending_commit_summary or {}),

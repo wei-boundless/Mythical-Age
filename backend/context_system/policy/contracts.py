@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from context_system.models.context_models import ContextPackage, SealedContextReceipt
+from context_system.models.context_models import TurnContextPackage, ContextSelectionReceipt
 
 
 ContextDecision = Literal["include", "drop"]
 
 
 @dataclass(slots=True, frozen=True)
-class ContextCandidateDecision:
+class TurnContextCandidateDecision:
     candidate_id: str
     memory_layer: str
     target_section: str
@@ -27,29 +27,29 @@ class ContextCandidateDecision:
 
 
 @dataclass(slots=True, frozen=True)
-class ContextPolicyResult:
-    package: ContextPackage
-    decisions: tuple[ContextCandidateDecision, ...]
-    sealed_receipt: SealedContextReceipt
+class TurnContextPolicyResult:
+    package: TurnContextPackage
+    decisions: tuple[TurnContextCandidateDecision, ...]
+    selection_receipt: ContextSelectionReceipt
     read_only: bool = True
-    authority: str = "context_policy_result"
+    authority: str = "turn_context_policy_result"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.read_only:
-            raise ValueError("ContextPolicyResult must remain read_only")
-        if self.authority != "context_policy_result":
-            raise ValueError("ContextPolicyResult cannot carry runtime authority")
-        if not self.sealed_receipt.read_only:
-            raise ValueError("ContextPolicyResult sealed receipt must remain read_only")
-        if self.package.sealed_receipt is not None and self.package.sealed_receipt != self.sealed_receipt:
-            raise ValueError("ContextPolicyResult package receipt mismatch")
+            raise ValueError("TurnContextPolicyResult must remain read_only")
+        if self.authority != "turn_context_policy_result":
+            raise ValueError("TurnContextPolicyResult cannot carry runtime authority")
+        if not self.selection_receipt.read_only:
+            raise ValueError("TurnContextPolicyResult selection receipt must remain read_only")
+        if self.package.selection_receipt is not None and self.package.selection_receipt != self.selection_receipt:
+            raise ValueError("TurnContextPolicyResult package receipt mismatch")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "package": self.package.to_dict(),
             "decisions": [decision.to_dict() for decision in self.decisions],
-            "sealed_receipt": self.sealed_receipt.to_dict(),
+            "selection_receipt": self.selection_receipt.to_dict(),
             "read_only": self.read_only,
             "authority": self.authority,
             "diagnostics": dict(self.diagnostics),

@@ -51,7 +51,7 @@ def stable_tool_schema_catalog_payload(
     return {
         "tool_binding_contract": {
             "contract_role": "cacheable_tool_contract_view",
-            "native_binding": "model_request.tools",
+            "native_binding": "provider_request.tools",
             "native_binding_semantics": "authoritative_structured_tool_call_schema",
             "cache_rule": "This message is the cacheable tool contract view; when the native tools payload matches this schema fingerprint, it is accounted as the provider physical tool schema prefix before messages.",
         },

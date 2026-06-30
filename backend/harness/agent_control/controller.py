@@ -408,35 +408,52 @@ class SubagentControl:
         expected_outputs: list[str],
         runtime_assembly: dict[str, Any],
     ) -> dict[str, Any]:
-        runtime_contract = dict(dict(parent_task_run.diagnostics or {}).get("runtime_contract") or {})
-        runtime_profile = dict(runtime_contract.get("runtime_profile") or {})
-        runtime_contract["runtime_profile"] = runtime_profile
-        contract_payload = {
-            "contract_id": f"subagent-contract:{child_task_run_id}",
-            "contract_source": "subagent_control",
-            "task_environment_id": str(dict(runtime_assembly.get("task_environment") or {}).get("environment_id") or ""),
-            "task_goal_type": str(dict(parent_task_run.diagnostics or {}).get("task_goal_type") or "subagent_worker"),
-            "user_visible_goal": goal,
-            "task_run_goal": goal,
-            "objective": goal,
-            "instructions": instructions,
-            "context_refs": list(context_refs),
-            "expected_outputs": list(expected_outputs),
-            "completion_criteria": list(expected_outputs) or ([goal] if goal else []),
-            "output_contract": {"kind": "subagent_result", "required_refs": list(expected_outputs)},
-            "origin": {
-                "origin_kind": "subagent_spawned",
-                "origin_authority": "harness.subagent_control",
-                "parent_task_run_id": str(parent_task_run.task_run_id),
-                "parent_agent_run_ref": str(child_agent_run.parent_agent_run_ref),
-            },
-            "authority": "task_system.task_contract",
+        base_runtime_contract = dict(dict(parent_task_run.diagnostics or {}).get("runtime_contract") or {})
+        runtime_profile = dict(base_runtime_contract.get("runtime_profile") or {})
+        contract = _subagent_task_run_contract(
+            parent_task_run=parent_task_run,
+            child_task_run_id=child_task_run_id,
+            child_agent_run=child_agent_run,
+            runtime_assembly=runtime_assembly,
+            runtime_profile=runtime_profile,
+            goal=goal,
+            instructions=instructions,
+            context_refs=context_refs,
+            expected_outputs=expected_outputs,
+        )
+        from harness.loop.task_lifecycle import TaskLifecycleRecord, runtime_contract_from_task_run_contract
+
+        contract_payload = contract.to_dict()
+        runtime_objects = getattr(self.runtime_host, "runtime_objects", None)
+        put_object = getattr(runtime_objects, "put_object", None)
+        if not callable(put_object):
+            return self._mark_child_schedule_failed(
+                child_task_run_id=child_task_run_id,
+                child_agent_run=child_agent_run,
+                error="task_run_contract_store_unavailable",
+                schedule_result={},
+            )
+        contract_ref = str(put_object("task_run_contract", contract.contract_id, contract_payload))
+        runtime_contract = {
+            **base_runtime_contract,
+            **runtime_contract_from_task_run_contract(contract),
         }
+        runtime_contract["runtime_profile"] = runtime_profile
+        if base_runtime_contract.get("skill_activation"):
+            runtime_contract["skill_activation"] = dict(base_runtime_contract.get("skill_activation") or {})
+        lifecycle = TaskLifecycleRecord(
+            task_run_id=child_task_run_id,
+            contract_ref=contract_ref,
+            status="waiting_executor",
+            created_at=time.time(),
+            updated_at=time.time(),
+        )
+        put_object("task_lifecycle", child_task_run_id, lifecycle.to_dict())
         child_task_run = TaskRun(
             task_run_id=child_task_run_id,
             session_id=str(parent_task_run.session_id),
             task_id=f"{parent_task_run.task_id}:subagent:{child_task_run_id.rsplit(':', 1)[-1]}",
-            task_contract_ref="",
+            task_run_contract_ref=contract_ref,
             owner_agent_seat_id=str(getattr(parent_task_run, "owner_agent_seat_id", "main") or "main"),
             agent_id=str(child_agent_run.agent_id),
             agent_profile_id=str(target_profile.agent_profile_id),
@@ -446,18 +463,17 @@ class SubagentControl:
             updated_at=time.time(),
             diagnostics={
                 "contract": contract_payload,
+                "task_run_contract": contract_payload,
+                "task_run_contract_ref": contract_ref,
+                "task_lifecycle": lifecycle.to_dict(),
                 "runtime_contract": runtime_contract,
                 "model_selection": dict(dict(parent_task_run.diagnostics or {}).get("model_selection") or {}),
-                "origin": {
-                    "origin_kind": "subagent_spawned",
-                    "origin_authority": "harness.subagent_control",
-                    "parent_task_run_id": str(parent_task_run.task_run_id),
-                    "parent_agent_run_ref": str(child_agent_run.parent_agent_run_ref),
-                },
+                "origin": dict(contract.origin or {}),
                 "subagent_control": {
                     "parent_task_run_id": str(parent_task_run.task_run_id),
                     "parent_agent_run_ref": str(child_agent_run.parent_agent_run_ref),
                     "subagent_run_ref": str(child_agent_run.agent_run_id),
+                    "task_run_contract_ref": contract_ref,
                     "goal": goal,
                     "instructions": instructions,
                     "context_refs": list(context_refs),
@@ -505,6 +521,7 @@ class SubagentControl:
                 "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
                 "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
                 "worker_backend": str(schedule_result.get("worker_backend") or ""),
+                "task_run_contract_ref": contract_ref,
             },
         )
         return {
@@ -513,6 +530,7 @@ class SubagentControl:
             "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
             "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
             "worker_backend": str(schedule_result.get("worker_backend") or ""),
+            "task_run_contract_ref": contract_ref,
         }
 
     def _mark_child_schedule_failed(
@@ -598,6 +616,97 @@ def _canonical_agent_run_status(value: Any) -> str:
     if status not in {"pending", "running", "completed", "failed", "killed"}:
         raise ValueError(f"AgentRun status must be canonical: {status}")
     return status
+
+
+def _subagent_task_run_contract(
+    *,
+    parent_task_run: Any,
+    child_task_run_id: str,
+    child_agent_run: AgentRun,
+    runtime_assembly: dict[str, Any],
+    runtime_profile: dict[str, Any],
+    goal: str,
+    instructions: str,
+    context_refs: list[str],
+    expected_outputs: list[str],
+) -> Any:
+    from harness.loop.task_lifecycle import TaskRunContract
+
+    task_environment_id = str(dict(runtime_assembly.get("task_environment") or {}).get("environment_id") or "")
+    parent_task_run_id = str(getattr(parent_task_run, "task_run_id", "") or "")
+    parent_agent_run_ref = str(child_agent_run.parent_agent_run_ref or "")
+    goal_text = str(goal or "").strip()
+    instruction_text = str(instructions or "").strip()
+    criteria = tuple(str(item).strip() for item in list(expected_outputs or []) if str(item).strip()) or (
+        goal_text or instruction_text,
+    )
+    primary_ref = "work-mode:goal:primary"
+    working_scope = {
+        "target_objects": [],
+        "workspace_refs": [],
+        "source_refs": list(context_refs),
+        "excluded_scope": [],
+        "known_constraints": [
+            f"parent_task_run_id:{parent_task_run_id}",
+            f"parent_agent_run_ref:{parent_agent_run_ref}",
+        ],
+    }
+    origin = {
+        "origin_kind": "subagent_spawned",
+        "origin_authority": "harness.subagent_control",
+        "parent_task_run_id": parent_task_run_id,
+        "parent_agent_run_ref": parent_agent_run_ref,
+    }
+    return TaskRunContract(
+        contract_id=f"subagent-contract:{child_task_run_id}",
+        contract_source="subagent_control",
+        user_visible_goal=goal_text,
+        task_run_goal=goal_text or instruction_text,
+        container_contract={
+            "entry_reason": f"父任务请求子 Agent 执行：{goal_text or instruction_text}",
+            "continuity_required": True,
+            "control_required": True,
+            "projection_required": True,
+            "checkpoint_required": True,
+            "minimum_viable_next_step": instruction_text or goal_text,
+            "primary_work_mode_ref": primary_ref,
+            "supporting_mode_refs": [],
+            "mode_transition_policy": {
+                "agent_may_propose_transition": False,
+                "system_may_infer_transition": False,
+                "requires_accepted_event": True,
+            },
+        },
+        work_modes=(
+            {
+                "mode_instance_id": primary_ref,
+                "mode_kind": "goal",
+                "mode_role": "primary",
+                "status": "draft",
+                "depends_on_mode_refs": [],
+                "contract": {
+                    "user_visible_goal": goal_text,
+                    "task_run_goal": goal_text or instruction_text,
+                    "success_definition": "; ".join(criteria),
+                    "working_scope": working_scope,
+                },
+            },
+        ),
+        primary_work_mode_instance_id=primary_ref,
+        active_work_mode_refs=(primary_ref,),
+        completion_criteria=criteria,
+        working_scope=working_scope,
+        acceptance_policy={
+            "result_kind": "subagent_result",
+            "expected_outputs": list(expected_outputs),
+            "parent_task_run_id": parent_task_run_id,
+        },
+        recovery_policy={"on_failure": "向父 Agent 返回失败原因、已完成范围和可恢复状态。"},
+        created_from_packet_ref=child_task_run_id,
+        task_environment_id=task_environment_id,
+        runtime_profile=dict(runtime_profile or {}),
+        origin=origin,
+    )
 
 
 def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, reason: str) -> dict[str, Any]:

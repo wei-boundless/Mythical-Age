@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from runtime.prompt_accounting.provider_lane import provider_lane_from_accounting_context
-from runtime.shared.protected_context import protected_old_context_spec
+from runtime.prompt_accounting.provider_lane import normalize_provider_lane
 
 from .context_candidates import context_candidate_from_message_spec
 from .context_capability_policy import apply_context_capability_profile
@@ -20,7 +19,11 @@ from .context_segment_policy import (
 )
 from .physical_context_plan import annotate_specs_with_physical_context_plan
 from .physical_context_assembler import assemble_physical_context_spine
-from .provider_visible_context_ledger import assemble_provider_visible_context_specs
+from .provider_message_replay_contract import (
+    provider_message_byte_preservation_required,
+    provider_message_replay_kind,
+)
+from .provider_visible_append_ledger import assemble_provider_visible_append_specs
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +38,7 @@ class ContextPipelineResult:
         }
 
 
-PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS = frozenset(
+PROVIDER_VISIBLE_APPEND_STAGE_INVOCATIONS = frozenset(
     {
         "single_agent_turn",
         "single_agent_turn_tool_followup",
@@ -49,7 +52,7 @@ def build_context_pipeline(
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     *,
     invocation_kind: str,
-    provider_visible_context_scope: str = "",
+    provider_visible_append_scope: str = "",
     provider_visible_context_inheritance: dict[str, Any] | None = None,
     compaction_generation: str = "",
     storage_root: Path | None = None,
@@ -72,10 +75,10 @@ def build_context_pipeline(
         clean_specs,
         compaction_generation=compaction_generation,
     )
-    clean_specs, ledger_diagnostics = apply_provider_visible_context_ledger_to_specs(
+    clean_specs, append_stage_diagnostics = apply_provider_visible_append_stage_to_specs(
         clean_specs,
         invocation_kind=invocation_kind,
-        provider_visible_context_scope=provider_visible_context_scope,
+        provider_visible_append_scope=provider_visible_append_scope,
         provider_visible_context_inheritance=provider_visible_context_inheritance,
         compaction_generation=compaction_generation,
         storage_root=storage_root,
@@ -91,7 +94,7 @@ def build_context_pipeline(
             "candidate_trace": candidate_trace[:80],
             "candidate_trace_count": len(candidate_trace),
             "context_capability": capability_diagnostics,
-            "provider_visible_context_ledger": ledger_diagnostics,
+            "provider_visible_append_stage": append_stage_diagnostics,
             "physical_context": physical_diagnostics,
             "authority": "runtime.context_management.context_pipeline",
         },
@@ -115,16 +118,17 @@ def apply_context_capability_profile_to_specs(
     kept: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     group_counts: dict[str, int] = {}
-    bypassed: list[dict[str, Any]] = []
+    byte_preservation_specs: list[dict[str, Any]] = []
     for index, spec in enumerate([dict(item) for item in list(source_specs or []) if isinstance(item, dict)], start=1):
-        if protected_old_context_spec(spec):
-            kept.append(_annotated_context_capability_bypass_spec(spec))
-            bypassed.append(
+        if provider_message_byte_preservation_required(spec):
+            kept.append(_annotated_provider_message_byte_preservation_spec(spec))
+            byte_preservation_specs.append(
                 {
                     "index": index,
                     "kind": str(spec.get("kind") or ""),
                     "source_ref": str(spec.get("source_ref") or ""),
-                    "reason": "protected_old_context_is_not_reclassified",
+                    "byte_preservation_contract": provider_message_replay_kind(spec),
+                    "reason": "provider_message_byte_preservation_contract_preserves_provider_payload",
                 }
             )
             continue
@@ -147,8 +151,8 @@ def apply_context_capability_profile_to_specs(
         "context_capability_group_counts": group_counts,
         "rejected_context_capability_count": len(rejected),
         "rejected_context_capabilities": rejected[:30],
-        "bypassed_protected_old_context_count": len(bypassed),
-        "bypassed_protected_old_context_specs": bypassed[:30],
+        "provider_message_byte_preservation_contract_count": len(byte_preservation_specs),
+        "provider_message_byte_preservation_contract_specs": byte_preservation_specs[:30],
         "input_spec_count": len(list(source_specs or [])),
         "output_spec_count": len(kept),
         "invocation_kind": str(invocation_kind or ""),
@@ -156,30 +160,30 @@ def apply_context_capability_profile_to_specs(
     }
 
 
-def apply_provider_visible_context_ledger_to_specs(
+def apply_provider_visible_append_stage_to_specs(
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     *,
     invocation_kind: str,
-    provider_visible_context_scope: str,
+    provider_visible_append_scope: str,
     provider_visible_context_inheritance: dict[str, Any] | None,
     compaction_generation: str,
     storage_root: Path | None,
     model_selection: dict[str, Any] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     clean_specs = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
-    scope = str(provider_visible_context_scope or "").strip()
+    scope = str(provider_visible_append_scope or "").strip()
     if not clean_specs or not scope or storage_root is None:
         return clean_specs, {
             "status": "skipped",
             "reason": "missing_scope_or_storage_root",
-            "authority": "runtime.context_management.context_pipeline.provider_visible_context_ledger",
+            "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
         }
-    if str(invocation_kind or "") not in PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS:
+    if str(invocation_kind or "") not in PROVIDER_VISIBLE_APPEND_STAGE_INVOCATIONS:
         return clean_specs, {
             "status": "skipped",
-            "reason": "invocation_kind_not_provider_visible_context_ledger_managed",
+            "reason": "invocation_kind_not_provider_visible_append_stage_managed",
             "invocation_kind": str(invocation_kind or ""),
-            "authority": "runtime.context_management.context_pipeline.provider_visible_context_ledger",
+            "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
         }
 
     inheritance_contract = provider_visible_context_inheritance_contract(
@@ -187,12 +191,9 @@ def apply_provider_visible_context_ledger_to_specs(
         write_scope=scope,
     )
     provider, model = provider_model_from_selection(model_selection)
-    provider_lane = provider_lane_from_model_selection(
-        model_selection,
-        invocation_kind=invocation_kind,
-    )
+    provider_lane = provider_lane_from_model_selection(model_selection)
     static_prefix: list[dict[str, Any]] = []
-    provider_visible_candidates: list[tuple[int, dict[str, Any]]] = []
+    provider_visible_append_candidates: list[tuple[int, dict[str, Any]]] = []
     current_turn_tail_specs: list[dict[str, Any]] = []
     blocked_dynamic_tail_replay_count = 0
     non_sealable_context_append_count = 0
@@ -218,7 +219,7 @@ def apply_provider_visible_context_ledger_to_specs(
                 current_turn_tail_specs.append(spec)
                 non_sealable_context_append_count += 1
                 continue
-            provider_visible_candidates.append((original_order, spec))
+            provider_visible_append_candidates.append((original_order, spec))
             context_candidate_count += 1
             continue
         if section == DYNAMIC_TAIL:
@@ -227,8 +228,8 @@ def apply_provider_visible_context_ledger_to_specs(
             continue
         current_turn_tail_specs.append(spec)
 
-    current_append_specs_with_order = assemble_provider_visible_context_specs(
-        provider_visible_candidates,
+    current_append_specs_with_order = assemble_provider_visible_append_specs(
+        provider_visible_append_candidates,
         storage_root=storage_root,
         scope=scope,
         inherited_scope=str(inheritance_contract.get("inherited_scope") or ""),
@@ -244,7 +245,7 @@ def apply_provider_visible_context_ledger_to_specs(
     ]
     physical_assembly = assemble_physical_context_spine(
         static_prefix_specs=static_prefix,
-        provider_visible_ledger_specs=current_append_specs,
+        provider_visible_append_specs=current_append_specs,
         current_tail_specs=current_turn_tail_specs,
         storage_root=storage_root,
         scope=scope,
@@ -266,12 +267,12 @@ def apply_provider_visible_context_ledger_to_specs(
         "non_sealable_context_append_tail_count": non_sealable_context_append_count,
         "provider_visible_current_append_spec_count": len(current_append_specs),
         "physical_context_assembly": dict(physical_assembly.diagnostics or {}),
-        "fork_inherited_provider_visible_spec_count": 0,
-        "fork_inherited_provider_visible_scope": str(inheritance_contract.get("inherited_scope") or ""),
-        "fork_inherited_provider_visible_anchor_id": str(
+        "fork_inherited_provider_visible_append_spec_count": 0,
+        "fork_inherited_provider_visible_append_scope": str(inheritance_contract.get("inherited_scope") or ""),
+        "fork_inherited_provider_visible_append_anchor_id": str(
             dict(inheritance_contract.get("inherited_anchor") or {}).get("anchor_id") or ""
         ),
-        "fork_inherited_provider_visible_terminal_entry_index": _safe_int(
+        "fork_inherited_provider_visible_append_terminal_entry_index": _safe_int(
             dict(inheritance_contract.get("inherited_anchor") or {}).get("terminal_entry_index")
         ),
         "fork_point_provider_request_commit_id": str(inheritance_contract.get("fork_point_provider_request_commit_id") or ""),
@@ -297,7 +298,7 @@ def apply_provider_visible_context_ledger_to_specs(
         ),
         "current_turn_tail_spec_count": len(current_turn_tail_specs),
         "physical_replay_rule": "static_prefix_then_confirmed_physical_frame_then_current_append_then_dynamic_tail",
-        "authority": "runtime.context_management.context_pipeline.provider_visible_context_ledger",
+        "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
     }
 
 
@@ -391,8 +392,8 @@ def provider_visible_context_inheritance_contract(
     anchor = (
         dict(payload.get("inherited_anchor") or {})
         if isinstance(payload.get("inherited_anchor"), dict)
-        else dict(payload.get("fork_point_provider_visible_ledger_anchor") or {})
-        if isinstance(payload.get("fork_point_provider_visible_ledger_anchor"), dict)
+        else dict(payload.get("fork_point_provider_visible_append_anchor") or {})
+        if isinstance(payload.get("fork_point_provider_visible_append_anchor"), dict)
         else {}
     )
     if not anchor:
@@ -456,38 +457,17 @@ def provider_model_from_selection(model_selection: dict[str, Any] | None) -> tup
 
 def provider_lane_from_model_selection(
     model_selection: dict[str, Any] | None,
-    *,
-    invocation_kind: str,
 ) -> str:
     selection = dict(model_selection or {})
-    return provider_lane_from_accounting_context(
-        {
-            "provider_lane": str(selection.get("provider_lane") or ""),
-            "source": str(invocation_kind or ""),
-            "prompt_manifest": {"invocation_kind": str(invocation_kind or "")},
-        },
-        call_kind=str(invocation_kind or ""),
-    )
+    return normalize_provider_lane(selection.get("provider_lane"))
 
 
-def sealed_provider_visible_replay_spec(spec: dict[str, Any]) -> bool:
-    metadata = dict(spec.get("metadata") or {})
-    if metadata.get("provider_protocol_replay") is True:
-        return True
-    payload_authority = str(metadata.get("provider_visible_payload_authority") or "").strip()
-    if payload_authority == "runtime.context_management.physical_prefix_frame.replay":
-        return True
-    replay_policy = str(metadata.get("context_replay_policy") or "").strip()
-    if replay_policy == "physical_prefix_frame_replay" and str(metadata.get("physical_prefix_frame_id") or "").strip():
-        return True
-    return str(metadata.get("provider_visible_history_status") or "") == "sealed_from_physical_prefix_frame"
-
-
-def _annotated_context_capability_bypass_spec(spec: dict[str, Any]) -> dict[str, Any]:
+def _annotated_provider_message_byte_preservation_spec(spec: dict[str, Any]) -> dict[str, Any]:
     payload = dict(spec or {})
     metadata = {
         **dict(payload.get("metadata") or {}),
-        "context_capability_filter": "bypassed_for_protected_old_context",
+        "context_capability_filter": "preserved_by_provider_message_byte_preservation_contract",
+        "provider_message_byte_preservation_contract": provider_message_replay_kind(payload),
     }
     payload["metadata"] = metadata
     return payload

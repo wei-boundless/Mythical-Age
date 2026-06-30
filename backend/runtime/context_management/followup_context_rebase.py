@@ -12,6 +12,11 @@ from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
+from .provider_message_replay_contract import (
+    PROVIDER_PROTOCOL_REPLAY_AUTHORITY,
+    PROVIDER_PROTOCOL_REPLAY_POLICY,
+    PROVIDER_PROTOCOL_REPLAY_STATUS,
+)
 
 
 def current_followup_append_context_policy(
@@ -70,7 +75,7 @@ def current_followup_append_context_policy(
     }
 
 
-def current_turn_exact_old_context_policy(
+def provider_protocol_prefix_replay_policy(
     base: dict[str, Any],
     *,
     message: dict[str, Any],
@@ -93,7 +98,7 @@ def current_turn_exact_old_context_policy(
 
     origin_authority = _origin_authority(
         metadata,
-        fallback="runtime.context_management.followup_context_rebase.current_turn_exact_old_context",
+        fallback=PROVIDER_PROTOCOL_REPLAY_AUTHORITY,
     )
     origin_ref = _origin_ref(base=base, metadata=metadata)
     original_context = {
@@ -108,16 +113,18 @@ def current_turn_exact_old_context_policy(
         "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
         "fixed_context_package": "context_memory_prefix",
         "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_turn_exact_old_context",
+        "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
         "context_identity_policy": "origin_ref_stable",
         "context_origin_authority": origin_authority,
         "context_origin_ref": origin_ref,
-        "current_turn_exact_old_context": True,
-        "current_turn_exact_old_context_reason": "old follow-up base context is already present in the current turn model message prefix",
-        "provider_visible_history_status": "current_turn_exact_old_context",
+        "provider_protocol_replay": True,
+        "provider_protocol_prefix_replay": True,
+        "provider_message_replay_authority": PROVIDER_PROTOCOL_REPLAY_AUTHORITY,
+        "provider_protocol_prefix_replay_reason": "follow-up base context is already present in the current turn provider message prefix",
+        "provider_visible_history_status": PROVIDER_PROTOCOL_REPLAY_STATUS,
         "provider_visible_history_authority": origin_authority,
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
-        "cache_impact": "current_turn_exact_old_context_prefix_preserved",
+        "cache_impact": "provider_protocol_prefix_preserved",
         "stability_rule": (
             "this message was already sent to the provider in an earlier request; "
             "the follow-up path must preserve the exact provider message from the current turn prefix"
@@ -140,8 +147,9 @@ def current_turn_exact_old_context_policy(
             **context_segment_policy_metadata(policy),
             "context_cache_section": CONTEXT_MEMORY_PREFIX,
             "fixed_context_package": "context_memory_prefix",
-            "context_replay_policy": "current_turn_exact_old_context",
-            "current_turn_exact_old_context": True,
+            "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
+            "provider_protocol_replay": True,
+            "provider_protocol_prefix_replay": True,
         },
     }
 

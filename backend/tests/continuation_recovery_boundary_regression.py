@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 
-from runtime.shared.models import TaskRun, TurnRun
-from runtime.shared.event_log import RuntimeEventLog
+from runtime.shared.models import TaskRun
 
 from harness.continuation import (
     build_recovery_packet,
@@ -16,21 +15,8 @@ from harness.loop.model_action_protocol import (
     model_action_request_from_payload,
     task_execution_action_request_from_payload,
 )
-from harness.runtime import RuntimeCompiler, RuntimeGateway, RuntimeSignalScope
-from harness.runtime.control_events import build_runtime_signal_envelope
+from harness.runtime import RuntimeCompiler
 from harness.runtime.request_facts import build_turn_input_facts
-
-
-def _message_payload_with_title(packet, title: str) -> dict[str, object]:
-    marker = title + "\n"
-    for message in packet.model_messages:
-        content = str(message.get("content") or "")
-        if content.startswith(marker):
-            return json.loads(content.split("\n", 1)[1])
-        inner_marker = "\n" + marker
-        if inner_marker in content:
-            return json.loads(content.split(inner_marker, 1)[1])
-    raise AssertionError(f"message title not found: {title}")
 
 
 class _StateIndex:
@@ -51,11 +37,9 @@ class _RuntimeObjects:
 
 
 class _Host:
-    def __init__(self, task_runs, turn_runs=None, event_log=None):
+    def __init__(self, task_runs, turn_runs=None):
         self.state_index = _StateIndex(task_runs, turn_runs=turn_runs)
         self.runtime_objects = _RuntimeObjects()
-        self.event_log = event_log
-        self.runtime_gateway = RuntimeGateway(event_log) if event_log is not None else None
 
 
 def _recoverable_task() -> TaskRun:
@@ -82,6 +66,16 @@ def _recoverable_task() -> TaskRun:
     )
 
 
+def _fresh_context_recovery_status() -> dict[str, object]:
+    return {
+        "available": True,
+        "present": True,
+        "fresh": True,
+        "source": "test.context_recovery_package",
+        "authority": "harness.continuation.context_recovery_status",
+    }
+
+
 def _bare_recovery_action_task() -> TaskRun:
     return TaskRun(
         task_run_id="taskrun:session-continuation:bare-recovery",
@@ -99,153 +93,11 @@ def _bare_recovery_action_task() -> TaskRun:
     )
 
 
-def _interrupted_turn() -> TurnRun:
-    return TurnRun(
-        turn_run_id="turnrun:session-continuation:4:def",
-        session_id="session-continuation",
-        turn_id="turn:session-continuation:4",
-        execution_runtime_kind="single_agent_turn",
-        status="blocked",
-        latest_event_offset=21,
-        updated_at=120.0,
-        terminal_reason="single_turn_tool_iteration_limit",
-        diagnostics={
-            "turn_id": "turn:session-continuation:4",
-            "stream_run_id": "strun:session-continuation:4",
-            "latest_step": "tool_budget_closeout",
-            "latest_step_summary": "已读取 fps_game.html 的敌人生成和移动逻辑，尚未完成最终修复判断。",
-            "assistant_visible_stream_continuity": {
-                "content": "我已经定位到敌人生成逻辑，接下来",
-                "content_sha256": "sha256:test-visible-prefix",
-                "content_utf8_bytes": 54,
-                "truncated_from_start": False,
-                "authority": "harness.loop.single_agent_turn.assistant_stream_continuity",
-            },
-        },
-    )
-
-
-def _contract_feedback_interrupted_turn() -> TurnRun:
-    return TurnRun(
-        turn_run_id="turnrun:session-continuation:contract-feedback",
-        session_id="session-continuation",
-        turn_id="turn:session-continuation:contract-feedback",
-        execution_runtime_kind="single_agent_turn",
-        status="failed",
-        latest_event_offset=33,
-        updated_at=170.0,
-        terminal_reason="agent_contract_feedback_required",
-        diagnostics={
-            "turn_id": "turn:session-continuation:contract-feedback",
-            "latest_step": "agent_contract_feedback_required",
-            "latest_agent_contract_feedback": {
-                "signal_kind": "agent_contract_feedback_required",
-                "lifecycle": "agent_contract_feedback_required",
-                "contract_feedback_state": "execution_contract_feedback_required",
-                "phase": "tool_limit_tool_loop",
-                "reason": "tool_budget_exhausted",
-                "visible_assistant_message_allowed": False,
-                "tool_calls_allowed_after_signal": False,
-                "agent_closeout_required": True,
-                "agent_feedback": "上一条输出没有进入会话，也不会展示给用户；请提交合法 JSON action。",
-                "required_action_protocol": {
-                    "authority": "harness.loop.model_action_request",
-                    "allowed_action_types": ["respond", "ask_user", "block"],
-                    "tool_call_allowed": False,
-                    "structured_action_required": True,
-                },
-                "contract_failure": {
-                    "kind": "agent_output_contract_not_satisfied",
-                    "closeout_attempts": 2,
-                    "phase": "tool_limit_tool_loop",
-                    "reason": "tool_budget_exhausted",
-                    "protocol_error": {"raw_model_output": "private raw model output"},
-                    "specific_feedback": [
-                        {
-                            "category": "protocol_violation",
-                            "code": "json_action_required",
-                            "situation_feedback": "上一条输出无法可靠归类。",
-                            "repair_instruction": "只输出一个 JSON action。",
-                            "expected_next_action": "选择 respond、ask_user 或 block。",
-                        }
-                    ],
-                },
-                "observed_facts": {"successful_tool_observation_count": 1},
-                "structured_signal": {
-                    "code": "single_agent_turn_agent_contract_feedback_required",
-                    "message": "请提交合法 JSON action。",
-                    "retryable": True,
-                },
-            },
-        },
-    )
-
-
-def _completed_turn() -> TurnRun:
-    return TurnRun(
-        turn_run_id="turnrun:session-continuation:5:ghi",
-        session_id="session-continuation",
-        turn_id="turn:session-continuation:5",
-        execution_runtime_kind="single_agent_turn",
-        status="completed",
-        latest_event_offset=24,
-        updated_at=140.0,
-        terminal_reason="respond",
-        diagnostics={
-            "turn_id": "turn:session-continuation:5",
-            "latest_step": "respond",
-            "latest_step_summary": "已完成上一轮答复。",
-        },
-    )
-
-
-def _runtime_interrupted_turn() -> TurnRun:
-    return TurnRun(
-        turn_run_id="turnrun:session-continuation:runtime-interrupted",
-        session_id="session-continuation",
-        turn_id="turn:session-continuation:runtime-interrupted",
-        execution_runtime_kind="single_agent_turn",
-        status="running",
-        latest_event_offset=42,
-        updated_at=160.0,
-        diagnostics={
-            "turn_id": "turn:session-continuation:runtime-interrupted",
-            "interrupted_stream_run_id": "strun:session-continuation:runtime-interrupted",
-            "runtime_interruption_event_type": "runtime_interruption_recorded",
-            "runtime_interruption_code": "runtime_process_restarted",
-            "runtime_interruption_reason": "runtime_cell_missing_after_restart",
-            "recoverable": True,
-            "semantic_terminal": False,
-        },
-    )
-
-
-def _generic_interrupted_turn_with_diagnostic_signal() -> TurnRun:
-    return TurnRun(
-        turn_run_id="turnrun:session-continuation:6:jkl",
-        session_id="session-continuation",
-        turn_id="turn:session-continuation:6",
-        execution_runtime_kind="single_agent_turn",
-        status="failed",
-        latest_event_offset=31,
-        updated_at=150.0,
-        terminal_reason="model_output_boundary_failed",
-        diagnostics={
-            "turn_id": "turn:session-continuation:6",
-            "latest_step": "protocol_repair_failed",
-            "latest_step_summary": "模型输出没有满足动作合同。",
-            "latest_runtime_control_signal": {
-                "signal_kind": "model_protocol_violation",
-                "message": "diagnostic-only signal must not decide continuation",
-            },
-        },
-    )
-
-
 def test_selector_builds_recoverable_continuation_record_from_waiting_executor() -> None:
     selection = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     )
 
     assert selection.record is not None
@@ -264,195 +116,14 @@ def test_selector_does_not_promote_bare_recovery_action_to_continuation_record()
     )
 
     assert selection.record is None
-    assert selection.reason == "no_supported_session_task_or_interrupted_turn"
-
-
-def test_selector_builds_continuation_context_from_interrupted_turn_tool_limit() -> None:
-    selection = select_session_continuation(
-        _Host([], turn_runs=[_interrupted_turn()]),
-        session_id="session-continuation",
-    )
-
-    assert selection.record is None
-    assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.state == "interrupted_continuation_context"
-    assert selection.interrupted_turn.resume_allowed is False
-    assert selection.interrupted_turn.turn_run_id == "turnrun:session-continuation:4:def"
-    assert selection.interrupted_turn.interruption_kind == "tool_budget_exhausted"
-    assert selection.interrupted_turn.visible_assistant_prefix == "我已经定位到敌人生成逻辑，接下来"
-    assert selection.interrupted_turn.visible_assistant_prefix_sha256 == "sha256:test-visible-prefix"
-    assert "exact read evidence" in selection.interrupted_turn.model_visible_summary
-    assert "已公开" in selection.interrupted_turn.model_visible_summary
-
-
-def test_selector_preserves_agent_contract_feedback_for_interrupted_turn_context() -> None:
-    selection = select_session_continuation(
-        _Host([], turn_runs=[_contract_feedback_interrupted_turn()]),
-        session_id="session-continuation",
-    )
-
-    assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.interruption_kind == "agent_contract_feedback_required"
-    assert selection.interrupted_turn.diagnostics["has_agent_contract_feedback"] is True
-    feedback = dict(selection.interrupted_turn.agent_contract_feedback)
-    failure = dict(feedback["contract_failure"])
-    protocol = dict(feedback["required_action_protocol"])
-
-    assert feedback["signal_kind"] == "agent_contract_feedback_required"
-    assert "上一条输出没有进入会话" in feedback["agent_feedback"]
-    assert protocol["authority"] == "harness.loop.model_action_request"
-    assert protocol["allowed_action_types"] == ["respond", "ask_user", "block"]
-    assert failure["specific_feedback"][0]["code"] == "json_action_required"
-    assert "raw_model_output" not in json.dumps(feedback, ensure_ascii=False)
-
-
-def test_selector_builds_continuation_context_from_runtime_interruption() -> None:
-    selection = select_session_continuation(
-        _Host([], turn_runs=[_runtime_interrupted_turn()]),
-        session_id="session-continuation",
-    )
-
-    assert selection.record is None
-    assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.turn_run_id == "turnrun:session-continuation:runtime-interrupted"
-    assert selection.interrupted_turn.previous_stream_run_id == "strun:session-continuation:runtime-interrupted"
-    assert selection.interrupted_turn.interruption_kind == "runtime_execution_interrupted"
-    assert selection.interrupted_turn.terminal_status == "running"
-    assert selection.interrupted_turn.terminal_reason == "runtime_process_restarted"
-    assert selection.interrupted_turn.diagnostics["semantic_terminal"] is False
-
-
-def test_selector_keeps_pending_runtime_interruption_available_after_newer_turn() -> None:
-    interrupted = _runtime_interrupted_turn()
-    interrupted = TurnRun(
-        **{
-            **interrupted.to_dict(),
-            "updated_at": 160.0,
-            "diagnostics": {
-                **dict(interrupted.diagnostics or {}),
-                "interrupted_turn_continuation_pending": True,
-                "interrupted_turn_recovery_entry_event_id": "rtevt:interrupted:entry",
-            },
-        }
-    )
-    newer_completed = TurnRun(
-        turn_run_id="turnrun:session-continuation:newer-completed",
-        session_id="session-continuation",
-        turn_id="turn:session-continuation:newer-completed",
-        execution_runtime_kind="single_agent_turn",
-        status="completed",
-        latest_event_offset=7,
-        updated_at=300.0,
-        terminal_reason="assistant_message",
-        diagnostics={"turn_id": "turn:session-continuation:newer-completed"},
-    )
-
-    selection = select_session_continuation(
-        _Host([], turn_runs=[interrupted, newer_completed]),
-        session_id="session-continuation",
-    )
-
-    assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.turn_run_id == interrupted.turn_run_id
-    assert selection.interrupted_turn.interruption_kind == "runtime_execution_interrupted"
-
-
-def test_selector_uses_gateway_signal_for_generic_interrupted_turn(tmp_path) -> None:
-    turn = _generic_interrupted_turn_with_diagnostic_signal()
-    event_log = RuntimeEventLog(tmp_path)
-    host = _Host([], turn_runs=[turn], event_log=event_log)
-    signal_event = host.runtime_gateway.publish(
-        turn.turn_run_id,
-        signal_type="control.signal.requested",
-        signal_id="turnsig:model-protocol-violation:test",
-        scope=RuntimeSignalScope(
-            session_id=turn.session_id,
-            turn_id=turn.turn_id,
-            turn_run_id=turn.turn_run_id,
-        ),
-        source_authority="test.continuation.gateway_signal",
-        payload={
-            "signal_kind": "model_protocol_violation",
-            "message": "Gateway signal decides continuation.",
-        },
-        visibility="runtime_private",
-    )
-    host.runtime_gateway.mark_observed_by_id(
-        turn.turn_run_id,
-        signal_id=dict(dict(signal_event.payload or {}).get("signal") or {})["signal_id"],
-        observed_by="test.continuation.gateway_signal",
-    )
-
-    selection = select_session_continuation(host, session_id="session-continuation")
-
-    assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.interruption_kind == "model_protocol_violation"
-    assert selection.interrupted_turn.diagnostics["latest_runtime_control_signal_kind"] == "model_protocol_violation"
-
-
-def test_selector_ignores_diagnostics_only_signal_for_generic_interrupted_turn() -> None:
-    selection = select_session_continuation(
-        _Host([], turn_runs=[_generic_interrupted_turn_with_diagnostic_signal()]),
-        session_id="session-continuation",
-    )
-
-    assert selection.interrupted_turn is None
-    assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"
-
-
-def test_selector_ignores_derived_gateway_signal_without_published_source(tmp_path) -> None:
-    turn = _generic_interrupted_turn_with_diagnostic_signal()
-    event_log = RuntimeEventLog(tmp_path)
-    host = _Host([], turn_runs=[turn], event_log=event_log)
-    scope = RuntimeSignalScope(
-        session_id=turn.session_id,
-        turn_id=turn.turn_id,
-        turn_run_id=turn.turn_run_id,
-    )
-    for event_type, state, actor in (
-        ("runtime_control_signal_observed", "observed", "test.observer"),
-        ("runtime_control_signal_consumed", "consumed", "test.consumer"),
-    ):
-        signal = build_runtime_signal_envelope(
-            signal_type="control.signal.requested",
-            signal_id="rtsig:derived-only",
-            scope=scope,
-            source_authority="test.derived",
-            payload={
-                "signal_kind": "model_protocol_violation",
-                "message": "derived signal must not decide continuation",
-            },
-            consumption_state=state,
-            consumed_by=actor,
-        )
-        event_log.append(
-            turn.turn_run_id,
-            event_type,  # type: ignore[arg-type]
-            payload={"signal": signal.to_dict()},
-            refs={"signal_ref": signal.signal_id},
-        )
-
-    selection = select_session_continuation(host, session_id="session-continuation")
-
-    assert selection.interrupted_turn is None
-    assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"
-
-
-def test_selector_does_not_reuse_old_interrupted_turn_after_newer_completed_turn() -> None:
-    selection = select_session_continuation(
-        _Host([], turn_runs=[_interrupted_turn(), _completed_turn()]),
-        session_id="session-continuation",
-    )
-
-    assert selection.record is None
-    assert selection.interrupted_turn is None
-    assert selection.reason == "session_task_run_missing_or_interrupted_turn_missing"
+    assert selection.reason == "no_supported_session_task"
 
 
 def test_recovery_boundary_requires_explicit_handle_for_resume() -> None:
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
 
@@ -466,9 +137,9 @@ def test_recovery_boundary_requires_explicit_handle_for_resume() -> None:
     )
     receipt = recovery_boundary_receipt_from_decision(decision)
 
-    assert decision.action == "confirm_recoverable_work"
+    assert decision.action == "confirm_task_recovery"
     assert decision.reason == "expected_recovery_handle_missing"
-    assert receipt.operation_availability["resume_recoverable_work"] is False
+    assert receipt.operation_availability["resume_task_recovery"] is False
     assert "allowed_next_actions" not in decision.to_dict()
     assert "forbidden_next_actions" not in decision.to_dict()
     assert "available_action_types_for_next_packet" not in receipt.to_dict()
@@ -478,6 +149,7 @@ def test_recovery_boundary_allows_resume_only_when_expected_handles_match() -> N
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
 
@@ -493,9 +165,9 @@ def test_recovery_boundary_allows_resume_only_when_expected_handles_match() -> N
     )
     receipt = recovery_boundary_receipt_from_decision(decision)
 
-    assert decision.action == "resume_recoverable_work"
+    assert decision.action == "resume_task_recovery"
     assert decision.reason == "recovery_boundary_ready"
-    assert receipt.operation_availability == {"resume_recoverable_work": True}
+    assert receipt.operation_availability == {"resume_task_recovery": True}
     assert receipt.task_run_ref == record.task_run_id
     assert "available_action_types_for_next_packet" not in receipt.to_dict()
 
@@ -504,6 +176,7 @@ def test_recovery_boundary_ignores_shadow_current_work_receipt_true() -> None:
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
 
@@ -525,7 +198,7 @@ def test_recovery_boundary_ignores_shadow_current_work_receipt_true() -> None:
         )
     )
 
-    assert decision.action == "resume_recoverable_work"
+    assert decision.action == "resume_task_recovery"
     assert decision.reason == "recovery_boundary_ready"
 
 
@@ -533,6 +206,7 @@ def test_recovery_boundary_prioritizes_trusted_live_current_work_receipt() -> No
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
 
@@ -555,14 +229,15 @@ def test_recovery_boundary_prioritizes_trusted_live_current_work_receipt() -> No
         )
     )
 
-    assert decision.action == "no_recoverable_work"
+    assert decision.action == "no_task_recovery"
     assert decision.reason == "live_active_work_has_priority"
 
 
-def test_recovery_boundary_receipt_projection_requires_authority() -> None:
+def test_single_agent_turn_does_not_project_untrusted_recovery_boundary_receipt() -> None:
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
 
@@ -573,14 +248,13 @@ def test_recovery_boundary_receipt_projection_requires_authority() -> None:
         user_message="继续。",
         history=[],
         session_context={
-            "recoverable_work": record.to_dict(),
             "recovery_boundary_receipt": {
                 "receipt_id": "rbreceipt:shadow",
                 "decision_id": "rbd:shadow",
-                "boundary_decision": "resume_recoverable_work",
+                "boundary_decision": "resume_task_recovery",
                 "continuation_ref": record.continuation_id,
                 "task_run_ref": record.task_run_id,
-                "operation_availability": {"resume_recoverable_work": True},
+                "operation_availability": {"resume_task_recovery": True},
                 "resume_execution_route": "task_executor_controller.schedule",
                 "enforced": True,
             },
@@ -592,18 +266,21 @@ def test_recovery_boundary_receipt_projection_requires_authority() -> None:
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["recovery_boundary_receipt"])
+    model_payload = json.dumps(result.packet.model_messages, ensure_ascii=False)
 
-    assert "resume_recoverable_work" in result.packet.allowed_action_types
-    assert projected["operation_availability"]["resume_recoverable_work"] is False
-    assert projected["read_only_context"] is True
+    assert "resume_task_recovery" not in result.packet.allowed_action_types
+    assert result.packet.diagnostics["current_work_boundary_receipt"] == {}
+    assert "recovery_boundary_receipt" not in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+    assert "recovery_boundary_receipt" not in model_payload
+    assert record.continuation_id not in model_payload
+    assert record.task_run_id not in model_payload
 
 
-def test_recovery_boundary_receipt_projection_accepts_trusted_resume_receipt() -> None:
+def test_single_agent_turn_does_not_project_trusted_recovery_boundary_receipt() -> None:
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
     decision = decide_recovery_boundary(
@@ -625,7 +302,6 @@ def test_recovery_boundary_receipt_projection_accepts_trusted_resume_receipt() -
         user_message="继续。",
         history=[],
         session_context={
-            "recoverable_work": record.to_dict(),
             "recovery_boundary_receipt": receipt.to_dict(),
         },
         runtime_assembly={
@@ -635,11 +311,14 @@ def test_recovery_boundary_receipt_projection_accepts_trusted_resume_receipt() -
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["recovery_boundary_receipt"])
+    model_payload = json.dumps(result.packet.model_messages, ensure_ascii=False)
 
-    assert projected["operation_availability"]["resume_recoverable_work"] is True
-    assert projected["read_only_context"] is False
+    assert "resume_task_recovery" not in result.packet.allowed_action_types
+    assert result.packet.diagnostics["current_work_boundary_receipt"] == {}
+    assert "recovery_boundary_receipt" not in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+    assert "recovery_boundary_receipt" not in model_payload
+    assert record.continuation_id not in model_payload
+    assert record.task_run_id not in model_payload
 
 
 def test_public_turn_input_facts_do_not_accept_resume_as_recovery_decision() -> None:
@@ -658,59 +337,59 @@ def test_public_turn_input_facts_do_not_accept_resume_as_recovery_decision() -> 
     assert payload["recovery_input_policy"] == "auto"
 
 
-def test_model_action_protocol_requires_explicit_recovery_resume_handles() -> None:
+def test_model_action_protocol_requires_explicit_task_recovery_resume_handles() -> None:
     valid_action, valid_diagnostics = model_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
-            "request_id": "model-action:resume-recoverable",
+            "request_id": "model-action:resume-task-recovery",
             "turn_id": "turn:session-continuation:4",
-            "action_type": "resume_recoverable_work",
+            "action_type": "resume_task_recovery",
             "public_progress_note": "我会从已恢复的任务断点继续，并先核对当前文件状态。",
-            "recovery_resume": {
+            "task_recovery_resume": {
                 "task_run_id": "taskrun:session-continuation:3:abc",
                 "continuation_id": "cont:session-continuation:17:0",
                 "reason": "用户要求继续上一轮可恢复任务",
             },
         },
         turn_id="turn:session-continuation:4",
-        allowed_action_types=("respond", "ask_user", "block", "resume_recoverable_work"),
+        allowed_action_types=("respond", "ask_user", "block", "resume_task_recovery"),
     )
 
     assert valid_diagnostics["status"] == "accepted"
     assert valid_action is not None
-    assert valid_action.action_type == "resume_recoverable_work"
-    assert valid_action.recovery_resume["task_run_id"] == "taskrun:session-continuation:3:abc"
+    assert valid_action.action_type == "resume_task_recovery"
+    assert valid_action.task_recovery_resume["task_run_id"] == "taskrun:session-continuation:3:abc"
 
     missing_handle_action, missing_handle_diagnostics = model_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
             "turn_id": "turn:session-continuation:4",
-            "action_type": "resume_recoverable_work",
+            "action_type": "resume_task_recovery",
             "public_progress_note": "我会继续。",
-            "recovery_resume": {"task_run_id": "taskrun:session-continuation:3:abc"},
+            "task_recovery_resume": {"task_run_id": "taskrun:session-continuation:3:abc"},
         },
         turn_id="turn:session-continuation:4",
-        allowed_action_types=("respond", "ask_user", "block", "resume_recoverable_work"),
+        allowed_action_types=("respond", "ask_user", "block", "resume_task_recovery"),
     )
 
     assert missing_handle_action is None
     assert missing_handle_diagnostics["status"] == "invalid"
-    assert "recovery_resume.continuation_id_required" in missing_handle_diagnostics["validation_errors"]
+    assert "task_recovery_resume.continuation_id_required" in missing_handle_diagnostics["validation_errors"]
 
 
-def test_task_execution_protocol_rejects_resume_recoverable_work_cross_context_action() -> None:
+def test_task_execution_protocol_rejects_resume_task_recovery_cross_context_action() -> None:
     action, diagnostics = task_execution_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
             "request_id": "model-action:task-cross-resume",
             "turn_id": "taskrun:session-continuation:3:abc",
-            "action_type": "resume_recoverable_work",
+            "action_type": "resume_task_recovery",
             "public_progress_note": "不应在 task execution 内请求恢复。",
             "public_action_state": {
                 "current_judgment": "恢复动作属于主线程模型决策。",
                 "next_action": "拒绝跨上下文动作。",
             },
-            "recovery_resume": {
+            "task_recovery_resume": {
                 "task_run_id": "taskrun:session-continuation:3:abc",
                 "continuation_id": "cont:session-continuation:17:0",
             },
@@ -720,13 +399,14 @@ def test_task_execution_protocol_rejects_resume_recoverable_work_cross_context_a
 
     assert action is None
     assert diagnostics["status"] == "invalid"
-    assert "field_not_allowed_for_task_execution:recovery_resume" in diagnostics["validation_errors"]
+    assert "field_not_allowed_for_task_execution:task_recovery_resume" in diagnostics["validation_errors"]
 
 
 def test_task_execution_packet_injects_authorized_recovery_packet_from_task_run_diagnostics() -> None:
     record = select_session_continuation(
         _Host([_recoverable_task()]),
         session_id="session-continuation",
+        context_recovery_status=_fresh_context_recovery_status(),
     ).record
     assert record is not None
     recovery_packet = build_recovery_packet(
@@ -756,11 +436,9 @@ def test_task_execution_packet_injects_authorized_recovery_packet_from_task_run_
         },
     )
 
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["recovery_packet"])
-    assert projected["continuation_id"] == record.continuation_id
-    assert projected["task_run_id"] == record.task_run_id
-    assert projected["resume_intent"] == "user_requested_resume"
-    assert projected["user_resume_instruction"] == "继续，并优先处理刚才新增的 steer。"
+    model_payload = json.dumps(result.packet.model_messages, ensure_ascii=False)
+    assert record.continuation_id in model_payload
+    assert record.task_run_id in model_payload
+    assert "user_requested_resume" in model_payload
+    assert "继续，并优先处理刚才新增的 steer。" in model_payload
     assert "recovery_packet" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
-

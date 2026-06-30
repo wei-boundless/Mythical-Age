@@ -17,15 +17,15 @@ REASONING_CONTENT_CHARS_PER_TOKEN_ESTIMATE = 4
 _PREFIX_CONSUMER_CONTRACTS = (
     "runtime.prompt_accounting.serializer",
     "runtime.prompt_accounting.cache_planner",
-    "runtime.prompt_accounting.cache_baseline",
-    "runtime.prompt_accounting.cache_break_detector",
+    "runtime.prompt_accounting.prefix_state",
+    "runtime.prompt_accounting.cache_anomaly_detector",
     "runtime.prompt_accounting.provider_cache_bus",
 )
 _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES = (
     "runtime.prompt_accounting.serializer.reclassify_prefix_family",
     "runtime.prompt_accounting.cache_planner.reclassify_prefix_family",
     "runtime.prompt_accounting.provider_cache_bus.reclassify_prefix_family",
-    "runtime.prompt_accounting.cache_break_detector.reclassify_prefix_family",
+    "runtime.prompt_accounting.cache_anomaly_detector.reclassify_prefix_family",
     "frontend.presentation.reclassify_prefix_family",
 )
 
@@ -59,21 +59,21 @@ class CanonicalPromptSerializer:
         created_at: float | None = None,
         metadata: dict[str, Any] | None = None,
         segment_plan: dict[str, Any] | None = None,
-        model_request: Any | None = None,
+        provider_request: Any | None = None,
     ) -> PromptSegmentMap:
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
         canonical_run_id = str(run_id or task_run_id or "")
-        normalized_messages = _model_request_messages(model_request) or normalize_messages(messages)
-        normalized_tools = _model_request_tools(model_request) or normalize_tools(list(tools or []))
+        normalized_messages = _provider_request_messages(provider_request) or normalize_messages(messages)
+        normalized_tools = _provider_request_tools(provider_request) or normalize_tools(list(tools or []))
         request_payload = {
             "messages": normalized_messages,
             "tools": normalized_tools,
         }
         canonical = canonical_json(request_payload)
-        bindings = _model_request_bindings(model_request)
-        plan = _model_request_segment_plan(model_request) or dict(segment_plan or {})
+        bindings = _provider_request_bindings(provider_request)
+        plan = _provider_request_segment_plan(provider_request) or dict(segment_plan or {})
         planned_by_index = _bindings_by_message_index(bindings) if bindings else _plan_segments_by_message_index(plan)
-        provider_payload_manifest = _model_request_provider_payload_manifest(model_request)
+        provider_payload_manifest = _provider_request_payload_manifest(provider_request)
         provider_tool_segment = _provider_payload_tool_segment(provider_payload_manifest)
         provider_messages_by_index = _provider_payload_message_segments_by_index(provider_payload_manifest)
         tool_schema_profile = provider_tool_segment or _unmanifested_tool_schema_profile(
@@ -125,7 +125,6 @@ class CanonicalPromptSerializer:
                     cache_role=str(tool_schema_profile.get("cache_role") or "never_cache"),
                     prefix_tier=str(tool_schema_profile.get("prefix_tier") or "none"),
                     compression_role="preserve",
-                    authority_class="contract" if tool_schema_prefix_component else "unknown",
                     transport_location=str(tool_schema_profile.get("transport_location") or "tools"),
                     prefix_family=str(tool_schema_profile.get("prefix_family") or ""),
                     semantic_source=str(tool_schema_profile.get("semantic_source") or ""),
@@ -138,7 +137,7 @@ class CanonicalPromptSerializer:
                     exclusion_reason=str(tool_schema_profile.get("exclusion_reason") or ""),
                     consumer_contracts=_tuple_text(tool_schema_profile.get("consumer_contracts")),
                     forbidden_authorities=_tuple_text(tool_schema_profile.get("forbidden_authorities")),
-                    source=str(tool_schema_profile.get("source") or "model_request.tools"),
+                    source=str(tool_schema_profile.get("source") or "provider_request.tools"),
                     created_at=timestamp,
                     metadata={
                         "tool_count": len(normalized_tools),
@@ -169,17 +168,11 @@ class CanonicalPromptSerializer:
             prefix_tier = _prefix_tier(planned.get("prefix_tier"), cache_scope=str(planned.get("cache_scope") or "none"), cache_role=cache_role) if planned else "none"
             compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
             ordinal += 1
-            authority_class = _authority_class(
-                planned,
-                message=message,
-                kind=kind,
-                compression_role=compression_role,
-            )
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
             reasoning_token_supplement = _reasoning_content_token_supplement(message)
             planned_metadata = _planned_metadata(planned)
             provider_message_segment = provider_messages_by_index.get(index, {})
-            source_ref = str(planned.get("source_ref") or "model_request.message") if planned else "model_request.unplanned_message"
+            source_ref = str(planned.get("source_ref") or "provider_request.message") if planned else "provider_request.unplanned_message"
             identity = _message_prompt_segment_identity(
                 planned=planned,
                 planned_metadata=planned_metadata,
@@ -216,7 +209,6 @@ class CanonicalPromptSerializer:
                     cache_role=cache_role,
                     prefix_tier=prefix_tier,
                     compression_role=compression_role,
-                    authority_class=authority_class,
                     transport_location=str(identity.get("transport_location") or "messages"),
                     prefix_family=str(identity.get("prefix_family") or ""),
                     semantic_source=str(identity.get("semantic_source") or ""),
@@ -506,7 +498,7 @@ def _unmanifested_tool_schema_profile(
         "kind": "native_tool_binding_schema",
         "cache_role": "never_cache",
         "prefix_tier": "none",
-        "source": "model_request.tools",
+        "source": "provider_request.tools",
         "transport_location": "tools",
         "role": "tool_schema",
         "prefix_family": "provider_tool_schema_blocker",
@@ -535,30 +527,30 @@ def _unmanifested_tool_schema_profile(
     }
 
 
-def _model_request_messages(model_request: Any | None) -> list[dict[str, Any]]:
-    if model_request is None:
+def _provider_request_messages(provider_request: Any | None) -> list[dict[str, Any]]:
+    if provider_request is None:
         return []
-    value = getattr(model_request, "messages", None)
-    if value is None and isinstance(model_request, dict):
-        value = model_request.get("messages")
+    value = getattr(provider_request, "messages", None)
+    if value is None and isinstance(provider_request, dict):
+        value = provider_request.get("messages")
     return [dict(item) for item in list(value or []) if isinstance(item, dict)]
 
 
-def _model_request_tools(model_request: Any | None) -> list[dict[str, Any]]:
-    if model_request is None:
+def _provider_request_tools(provider_request: Any | None) -> list[dict[str, Any]]:
+    if provider_request is None:
         return []
-    value = getattr(model_request, "tools", None)
-    if value is None and isinstance(model_request, dict):
-        value = model_request.get("tools")
+    value = getattr(provider_request, "tools", None)
+    if value is None and isinstance(provider_request, dict):
+        value = provider_request.get("tools")
     return [dict(item) for item in list(value or []) if isinstance(item, dict)]
 
 
-def _model_request_bindings(model_request: Any | None) -> list[dict[str, Any]]:
-    if model_request is None:
+def _provider_request_bindings(provider_request: Any | None) -> list[dict[str, Any]]:
+    if provider_request is None:
         return []
-    value = getattr(model_request, "segment_bindings", None)
-    if value is None and isinstance(model_request, dict):
-        value = model_request.get("segment_bindings")
+    value = getattr(provider_request, "segment_bindings", None)
+    if value is None and isinstance(provider_request, dict):
+        value = provider_request.get("segment_bindings")
     result: list[dict[str, Any]] = []
     for item in list(value or []):
         if hasattr(item, "to_dict"):
@@ -568,21 +560,21 @@ def _model_request_bindings(model_request: Any | None) -> list[dict[str, Any]]:
     return result
 
 
-def _model_request_segment_plan(model_request: Any | None) -> dict[str, Any]:
-    if model_request is None:
+def _provider_request_segment_plan(provider_request: Any | None) -> dict[str, Any]:
+    if provider_request is None:
         return {}
-    value = getattr(model_request, "segment_plan", None)
-    if value is None and isinstance(model_request, dict):
-        value = model_request.get("segment_plan")
+    value = getattr(provider_request, "segment_plan", None)
+    if value is None and isinstance(provider_request, dict):
+        value = provider_request.get("segment_plan")
     return dict(value or {}) if isinstance(value, dict) else {}
 
 
-def _model_request_provider_payload_manifest(model_request: Any | None) -> dict[str, Any]:
-    if model_request is None:
+def _provider_request_payload_manifest(provider_request: Any | None) -> dict[str, Any]:
+    if provider_request is None:
         return {}
-    value = getattr(model_request, "provider_payload_manifest", None)
-    if value is None and isinstance(model_request, dict):
-        value = model_request.get("provider_payload_manifest")
+    value = getattr(provider_request, "provider_payload_manifest", None)
+    if value is None and isinstance(provider_request, dict):
+        value = provider_request.get("provider_payload_manifest")
     if hasattr(value, "to_dict"):
         return dict(value.to_dict())
     return dict(value or {}) if isinstance(value, dict) else {}
@@ -622,7 +614,7 @@ def _provider_payload_tool_segment(manifest: dict[str, Any]) -> dict[str, Any]:
             "exclusion_reason": str(item.get("exclusion_reason") or ""),
             "consumer_contracts": tuple(str(value) for value in list(item.get("consumer_contracts") or [])),
             "forbidden_authorities": tuple(str(value) for value in list(item.get("forbidden_authorities") or [])),
-            "source": str(item.get("source_ref") or "model_request.tools"),
+            "source": str(item.get("source_ref") or "provider_request.tools"),
             "metadata": {
                 **metadata,
                 "provider_payload_manifest_ref": str(dict(manifest or {}).get("manifest_id") or ""),
@@ -682,8 +674,6 @@ def _message_prompt_segment_identity(
     semantic_source = _first_text(
         payload.get("context_semantic_source"),
         payload.get("semantic_source"),
-        payload.get("source_kind"),
-        payload.get("context_source_kind"),
         source_ref,
     )
     semantic_slot = _first_text(
@@ -774,7 +764,6 @@ def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict
                 "planned_segment_id": str(binding.get("planned_segment_id") or ""),
                 "block_id": str(binding.get("block_id") or ""),
                 "slot": str(binding.get("slot") or ""),
-                "semantic_role": str(binding.get("semantic_role") or ""),
                 "function_cell": str(binding.get("function_cell") or ""),
                 "agent_running_cycle": str(binding.get("agent_running_cycle") or ""),
                 "override_strategy": str(binding.get("override_strategy") or ""),
@@ -809,7 +798,6 @@ def _planned_metadata(planned: dict[str, Any] | None) -> dict[str, Any]:
         "planned_segment_id": str(planned.get("segment_id") or planned.get("planned_segment_id") or ""),
         "block_id": str(planned.get("block_id") or ""),
         "slot": str(planned.get("slot") or ""),
-        "semantic_role": str(planned.get("semantic_role") or ""),
         "function_cell": str(planned.get("function_cell") or ""),
         "agent_running_cycle": str(planned.get("agent_running_cycle") or ""),
         "override_strategy": str(planned.get("override_strategy") or ""),
@@ -829,45 +817,6 @@ def _prefix_tier(value: Any, *, cache_scope: str, cache_role: str) -> str:
 
 def _compression_role(value: Any) -> str:
     return normalize_compression_role(value)
-
-
-def _authority_class(
-    planned: dict[str, Any] | None,
-    *,
-    message: dict[str, Any],
-    kind: str,
-    compression_role: str,
-) -> str:
-    raw = ""
-    if planned:
-        raw = str(planned.get("authority_class") or dict(planned.get("metadata") or {}).get("authority_class") or "")
-    if raw in {
-        "contract",
-        "permission",
-        "current_user_intent",
-        "runtime_state",
-        "evidence_ref",
-        "natural_history",
-        "bulk_output",
-        "unknown",
-    }:
-        return raw
-    normalized_kind = str(kind or "").lower()
-    if compression_role == "preserve":
-        if "permission" in normalized_kind:
-            return "permission"
-        if "runtime" in normalized_kind or "state" in normalized_kind:
-            return "runtime_state"
-        return "contract"
-    if str(message.get("role") or "") == "user":
-        return "current_user_intent"
-    if "tool" in normalized_kind or compression_role in {"drop_if_cold", "ref_only"}:
-        return "bulk_output"
-    if "retrieval" in normalized_kind or "evidence" in normalized_kind:
-        return "evidence_ref"
-    if "runtime" in normalized_kind or "state" in normalized_kind:
-        return "runtime_state"
-    return "natural_history"
 
 
 def _int(value: Any, *, default: int = 0) -> int:

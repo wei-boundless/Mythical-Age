@@ -13,7 +13,7 @@ CONTROL_ACTION_TOOL_NAMES = frozenset(
         "block",
         "request_task_run",
         "active_work_control",
-        "resume_recoverable_work",
+        "resume_task_recovery",
         "pause_for_user_steer",
     }
 )
@@ -29,6 +29,20 @@ _ACTIVE_WORK_ACTIONS = (
 
 def is_control_action_tool_name(value: Any) -> bool:
     return str(value or "").strip().lower() in CONTROL_ACTION_TOOL_NAMES
+
+
+def control_action_arg_errors_from_native_tool_call(call: dict[str, Any]) -> list[str]:
+    tool_name = str(dict(call or {}).get("name") or "").strip().lower()
+    args = dict(dict(call or {}).get("args") or {})
+    schema = _control_action_input_schema(tool_name)
+    allowed = set(dict(schema.get("properties") or {})) if isinstance(schema, dict) else set()
+    if not allowed:
+        return []
+    return [
+        f"native_control_action_arg_not_allowed:{key}"
+        for key in sorted(str(item) for item in args.keys())
+        if key not in allowed
+    ]
 
 
 def provider_control_action_bindings(allowed_action_types: tuple[str, ...] | list[str]) -> list[dict[str, Any]]:
@@ -106,8 +120,8 @@ def control_action_request_payload_from_native_tool_call(
                 "reason": str(args.get("reason") or "").strip(),
             }
         )
-    elif action_type == "resume_recoverable_work":
-        payload["recovery_resume"] = _drop_empty_payload(
+    elif action_type == "resume_task_recovery":
+        payload["task_recovery_resume"] = _drop_empty_payload(
             {
                 "work_ref": str(args.get("work_ref") or args.get("task_run_id") or "").strip(),
                 "resume_ref": str(args.get("resume_ref") or args.get("continuation_id") or "").strip(),
@@ -143,7 +157,7 @@ def _compact_task_start_intent_from_args(args: dict[str, Any]) -> dict[str, Any]
         dict(args.get("todo_tool_contract") or {}) if isinstance(args.get("todo_tool_contract"), dict) else {}
     )
     return {
-        "contract_shape": "compact_task_start_intent_v3",
+        "contract_shape": "compact_task_start_intent",
         "primary_mode": str(args.get("primary_mode") or "").strip(),
         "task_shape": str(args.get("task_shape") or "standard").strip() or "standard",
         "minimum_viable_next_step": str(args.get("minimum_viable_next_step") or "").strip(),
@@ -168,7 +182,7 @@ def _control_action_description(action_name: str) -> str:
         "block": "Stop because the current work cannot continue reliably and explain the blocking reason.",
         "request_task_run": "Request a long-task resource from a compact TaskStartIntent.",
         "active_work_control": "Control an already active durable work item.",
-        "resume_recoverable_work": "Resume a recoverable durable work item from runtime-provided handles.",
+        "resume_task_recovery": "Resume a paused task recovery boundary from runtime-provided handles.",
         "pause_for_user_steer": "Pause current task execution at a recoverable boundary because a user steer must be handled first.",
     }.get(action_name, action_name)
 
@@ -258,10 +272,10 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
             },
             ["action"],
         )
-    if action_name == "resume_recoverable_work":
+    if action_name == "resume_task_recovery":
         return _strict_object(
             {
-                "work_ref": _string("Runtime-provided recoverable work reference."),
+                "work_ref": _string("Runtime-provided task recovery work reference."),
                 "resume_ref": _string("Runtime-provided resume reference."),
                 "task_run_id": _string("Optional canonical task_run_id if provided by runtime."),
                 "continuation_id": _string("Optional canonical continuation_id if provided by runtime."),
@@ -373,7 +387,7 @@ def _semantic_required_fields(action_name: str) -> list[str]:
             "todo_tool_contract",
         ],
         "active_work_control": ["action"],
-        "resume_recoverable_work": ["work_ref", "resume_ref"],
+        "resume_task_recovery": ["work_ref", "resume_ref"],
         "pause_for_user_steer": [
             "reason",
             "steer_ref",

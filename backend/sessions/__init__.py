@@ -121,7 +121,7 @@ class SessionManager:
             "created_at": now,
             "updated_at": now,
             "messages": [],
-            "api_transcript": [],
+            "provider_protocol_timeline": [],
             "compressed_context": "",
             "provider_protocol_compaction_created_at": 0.0,
             "compaction_generation": "0",
@@ -149,12 +149,12 @@ class SessionManager:
             child_path = self._session_path(child_id)
             if child_path.exists():
                 raise ValueError("fork target session already exists")
-            provider_anchor = self._latest_provider_visible_anchor(parent_id)
+            provider_append_anchor = self._latest_provider_visible_append_anchor(parent_id)
             provider_request_commit = self._latest_provider_request_context_commit(parent_id)
             context_commit = self._create_context_commit_record(
                 parent_id,
                 parent_payload,
-                provider_anchor=provider_anchor,
+                provider_append_anchor=provider_append_anchor,
             )
             fork_id = f"fork-{uuid.uuid4().hex[:16]}"
             provider_cache_scope_id = _fork_provider_cache_scope_id(parent_payload, parent_session_id=parent_id)
@@ -187,8 +187,8 @@ class SessionManager:
                 "fork_point_context_commit_id": str(context_commit.get("record_id") or ""),
                 "fork_point_turn_id": str(context_commit.get("turn_id") or ""),
                 "fork_point_public_message_count": len(list(parent_payload.get("messages") or [])),
-                "fork_point_api_transcript_count": len(list(parent_payload.get("api_transcript") or [])),
-                "fork_point_provider_visible_ledger_anchor": provider_anchor,
+                "fork_point_provider_protocol_message_count": len(list(parent_payload.get("provider_protocol_timeline") or [])),
+                "fork_point_provider_visible_append_anchor": provider_append_anchor,
                 "fork_point_cache_spine_hash": str(context_commit.get("cache_spine_hash") or ""),
                 "fork_point_provider_request_commit_id": str(provider_request_commit.get("record_id") or ""),
                 "fork_point_provider_request_cache_spine_hash": str(provider_request_commit.get("cache_spine_hash") or ""),
@@ -227,7 +227,7 @@ class SessionManager:
             child_payload["parent_session_id"] = parent_id
             child_payload["forked_from"] = forked_from
             child_payload["messages"] = _rewrite_message_session_refs(list(child_payload.get("messages") or []), parent_id=parent_id, child_id=child_id)
-            child_payload["api_transcript"] = _rewrite_message_session_refs(list(child_payload.get("api_transcript") or []), parent_id=parent_id, child_id=child_id)
+            child_payload["provider_protocol_timeline"] = _rewrite_message_session_refs(list(child_payload.get("provider_protocol_timeline") or []), parent_id=parent_id, child_id=child_id)
             child_payload["task_binding"] = copy.deepcopy(dict(parent_payload.get("task_binding") or {}))
             child_payload["scope"] = _normalize_scope(dict(parent_payload.get("scope") or {}))
             child_payload["conversation_state"] = _normalize_conversation_state(dict(parent_payload.get("conversation_state") or {}))
@@ -294,17 +294,14 @@ class SessionManager:
         ]
         return [item for item in messages if item is not None]
 
-    def load_session_for_api(self, session_id: str) -> list[dict[str, Any]]:
+    def load_provider_protocol_timeline(self, session_id: str) -> list[dict[str, Any]]:
         payload = self._read_payload(session_id)
-        transcript = [
-            _api_message(item)
-            for item in list(payload.get("api_transcript") or [])
+        timeline = [
+            _provider_protocol_message(item)
+            for item in list(payload.get("provider_protocol_timeline") or [])
             if isinstance(item, dict)
         ]
-        transcript = [item for item in transcript if item is not None]
-        if transcript:
-            return transcript
-        return self.load_session_for_agent(session_id)
+        return [item for item in timeline if item is not None]
 
     def get_history(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
@@ -546,22 +543,22 @@ class SessionManager:
             self._write_payload(session_id, payload)
             return existing
 
-    def append_api_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def append_provider_protocol_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
-            existing = list(payload.get("api_transcript") or [])
+            existing = list(payload.get("provider_protocol_timeline") or [])
             now = time.time()
             if str(payload.get("compressed_context") or "").strip() and _float(payload.get("provider_protocol_compaction_created_at")) <= 0:
                 payload["provider_protocol_compaction_created_at"] = now
             for item in messages:
                 if not isinstance(item, dict):
                     continue
-                message = _api_message(item)
+                message = _provider_protocol_message(item)
                 if message is not None:
                     if not message.get("created_at"):
                         message["created_at"] = now
                     existing.append(message)
-            payload["api_transcript"] = existing
+            payload["provider_protocol_timeline"] = existing
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return existing
@@ -576,10 +573,10 @@ class SessionManager:
     ) -> dict[str, Any]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
-            if not list(payload.get("api_transcript") or []):
-                payload["api_transcript"] = [
+            if not list(payload.get("provider_protocol_timeline") or []):
+                payload["provider_protocol_timeline"] = [
                     item
-                    for item in (_api_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
+                    for item in (_provider_protocol_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
                     if item is not None
                 ]
             normalized_messages: list[dict[str, Any]] = []
@@ -617,8 +614,8 @@ class SessionManager:
             kept_raw_messages = messages[:raw_cutoff]
             kept_public_messages = _public_messages(kept_raw_messages)
             payload["messages"] = kept_public_messages
-            payload["api_transcript"] = _truncated_api_transcript(
-                list(payload.get("api_transcript") or []),
+            payload["provider_protocol_timeline"] = _truncate_provider_protocol_timeline(
+                list(payload.get("provider_protocol_timeline") or []),
                 kept_messages=kept_public_messages,
             )
             payload["updated_at"] = time.time()
@@ -786,13 +783,13 @@ class SessionManager:
         with self._summary_cache_guard:
             self._summary_cache.pop(cache_key, None)
 
-    def _latest_provider_visible_anchor(self, session_id: str) -> dict[str, Any]:
+    def _latest_provider_visible_append_anchor(self, session_id: str) -> dict[str, Any]:
         try:
-            from runtime.context_management.provider_visible_context_ledger import latest_provider_visible_context_success_anchor
+            from runtime.context_management.provider_visible_append_ledger import latest_provider_visible_append_success_anchor
 
-            return latest_provider_visible_context_success_anchor(storage_root=self.base_dir, scope=session_id)
+            return latest_provider_visible_append_success_anchor(storage_root=self.base_dir, scope=session_id)
         except Exception:
-            logger.exception("Failed to load provider-visible context anchor for fork: %s", session_id)
+            logger.exception("Failed to load provider-visible append anchor for fork: %s", session_id)
             return {}
 
     def _latest_provider_request_context_commit(self, session_id: str) -> dict[str, Any]:
@@ -813,7 +810,7 @@ class SessionManager:
         session_id: str,
         payload: dict[str, Any],
         *,
-        provider_anchor: dict[str, Any],
+        provider_append_anchor: dict[str, Any],
     ) -> dict[str, Any]:
         try:
             from runtime.context_management.context_commit_record import create_session_context_commit_record
@@ -822,7 +819,7 @@ class SessionManager:
                 storage_root=self.base_dir,
                 session_id=session_id,
                 session_payload=dict(payload or {}),
-                provider_visible_anchor=dict(provider_anchor or {}),
+                provider_visible_append_anchor=dict(provider_append_anchor or {}),
                 reason="session_fork_point",
             )
         except Exception:
@@ -995,7 +992,7 @@ def _fork_content_replacement_state(
             dict(provider_request_commit or {}).get("tool_context_projection"),
             dict(provider_request_commit or {}).get("provider_payload_segments"),
             dict(provider_request_commit or {}).get("provider_payload_cache_boundary"),
-            list(dict(parent_payload or {}).get("api_transcript") or [])[-24:],
+            list(dict(parent_payload or {}).get("provider_protocol_timeline") or [])[-24:],
         ],
         limit=80,
     )
@@ -1402,7 +1399,7 @@ def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:
     return {"role": role, "content": content}
 
 
-def _api_message(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _provider_protocol_message(payload: dict[str, Any]) -> dict[str, Any] | None:
     role = str(payload.get("role") or payload.get("type") or "").strip()
     if role not in {"user", "assistant", "tool"}:
         return None
@@ -1438,7 +1435,7 @@ def _explicit_provider_text(value: Any) -> str:
     return text if text != "" else ""
 
 
-def _truncated_api_transcript(
+def _truncate_provider_protocol_timeline(
     transcript: list[Any],
     *,
     kept_messages: list[dict[str, Any]],
@@ -1451,14 +1448,14 @@ def _truncated_api_transcript(
     if not kept_turn_ids:
         return [
             item
-            for item in (_api_message(message) for message in kept_messages if isinstance(message, dict))
+            for item in (_provider_protocol_message(message) for message in kept_messages if isinstance(message, dict))
             if item is not None
         ]
     result: list[dict[str, Any]] = []
     for item in transcript:
         if not isinstance(item, dict):
             continue
-        message = _api_message(item)
+        message = _provider_protocol_message(item)
         if message is None:
             continue
         turn_id = str(message.get("turn_id") or "").strip()

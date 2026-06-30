@@ -7,7 +7,7 @@ import { buildHealthSystemViewModel } from "./healthSelectors";
 const baseTask = {
   task_run_id: "taskrun:1",
   session_id: "session-abcdef",
-  task_contract_ref: "",
+  task_run_contract_ref: "",
   title: "",
   task_id: "",
   agent_id: "",

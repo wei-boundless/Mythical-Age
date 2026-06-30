@@ -14,7 +14,7 @@ from .structured_error_projection import structured_error_projection
 from .todo_plan_projection import DEFAULT_TODO_OPERATIONS, project_todo_plan
 
 
-PROJECTOR_VERSION = "tool_result_projector.v3"
+PROJECTOR_ID = "harness.runtime.dynamic_context.tool_result_projector"
 
 _CODE_LOCATOR_TOOL_NAMES = frozenset({"codebase_search", "search_text"})
 
@@ -72,7 +72,7 @@ class ToolResultProjector:
             task_run_id=task_run_id,
             content=normalized,
             projection_policy=policy,
-            projector_version=PROJECTOR_VERSION,
+            projector_id=PROJECTOR_ID,
         )
         if frozen is not None:
             projection, record = frozen
@@ -84,7 +84,7 @@ class ToolResultProjector:
             task_run_id=task_run_id,
             content=normalized,
             projection_policy=policy,
-            projector_version=PROJECTOR_VERSION,
+            projector_id=PROJECTOR_ID,
             projection=projection,
             budget_decision=budget_decision,
         )

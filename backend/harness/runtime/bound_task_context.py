@@ -56,9 +56,9 @@ class BoundTaskContext:
             return {}
         return _drop_empty_payload(
             {
-                "bound_task_runtime_context": {
+                "bound_task_current_context": {
                     "stable_context_hash": self.context_hash,
-                    "runtime_state_hash": str(self.diagnostics.get("runtime_state_hash") or ""),
+                    "current_state_hash": str(self.diagnostics.get("runtime_state_hash") or ""),
                     **body,
                     "authority": self.authority,
                 }

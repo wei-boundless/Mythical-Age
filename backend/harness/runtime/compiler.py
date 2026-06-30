@@ -45,20 +45,26 @@ from prompt_composition import (
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, model_visible_artifact_refs, normalize_artifact_ref
 from agent_system.identity import normalize_agent_id_sequence
 from harness.current_work_receipt import current_work_operation_availability_from_receipt
-from harness.recovery_receipt import recovery_operation_availability_from_receipt
 from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.protocol_sanitizer import ProtocolSanitizerResult, sanitize_messages_for_prompt
-from runtime.shared.protected_context import protected_old_context_spec
+from runtime.context_management.provider_message_replay_contract import (
+    PROVIDER_PROTOCOL_APPEND_AUTHORITY,
+    PROVIDER_PROTOCOL_APPEND_POLICY,
+    PROVIDER_PROTOCOL_APPEND_STATUS,
+    physical_prefix_frame_replay_metadata,
+    provider_message_byte_preservation_required,
+    provider_message_replay_kind,
+)
 from runtime.context_management.context_segment_policy import (
     CONTEXT_APPEND,
     DYNAMIC_TAIL,
+    context_segment_policy_for_spec,
 )
 from runtime.context_management.context_pipeline import (
     apply_context_capability_profile_to_specs,
     build_context_pipeline,
     normalize_context_compaction_generation,
-    sealed_provider_visible_replay_spec,
 )
 from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies
@@ -93,7 +99,7 @@ from .prompt_segment_plan import build_prompt_segment_plan
 from .project_instructions import ProjectInstructionBundle, collect_project_instruction_bundle
 from .runtime_control_signal_projection import canonical_runtime_control_signal_projection
 from .sandbox_execution_scope import compile_sandbox_execution_scope, task_safety_envelope_from_assembly
-from .task_contract_manifest import TaskContractManifest, build_task_contract_manifest_from_contract
+from .task_run_contract_manifest import TaskRunContractManifest, build_task_run_contract_manifest_from_contract
 from .tool_catalog_manifest import ToolCatalogManifest, build_tool_catalog_manifest
 from .tool_call_contract import ToolCallContract, build_tool_call_contract
 from .turn_operating_contract import (
@@ -258,7 +264,7 @@ class RuntimeCompiler:
                     },
                 ),
             ],
-            provider_visible_context_scope=resolved_session_id,
+            provider_visible_append_scope=resolved_session_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
@@ -627,29 +633,25 @@ class RuntimeCompiler:
             volatile_runtime_payload["current_work_boundary_receipt"] = _current_work_boundary_receipt_model_visible_payload(
                 current_work_boundary_receipt
             )
-        recoverable_work_payload = _continuation_record_model_visible_payload(
-            session_context_payload.get("recoverable_work")
+        prior_work_memory_payload = _prior_work_memory_model_visible_payload(
+            session_context_payload.get("prior_work_memory_context"),
+            current_user_message=user_message,
         )
-        if recoverable_work_payload:
-            volatile_runtime_payload["recoverable_work"] = recoverable_work_payload
+        if prior_work_memory_payload:
+            volatile_runtime_payload["prior_work_memory_context"] = prior_work_memory_payload
         turn_memory_recovery_payload = _turn_memory_recovery_model_visible_payload(
             session_context_payload.get("turn_memory_recovery"),
             current_user_message=user_message,
         )
         if turn_memory_recovery_payload:
-            volatile_runtime_payload["turn_memory_recovery"] = turn_memory_recovery_payload
-        recovery_boundary_receipt_payload = _recovery_boundary_receipt_model_visible_payload(
-            session_context_payload.get("recovery_boundary_receipt")
-        )
-        if recovery_boundary_receipt_payload:
-            volatile_runtime_payload["recovery_boundary_receipt"] = recovery_boundary_receipt_payload
+            volatile_runtime_payload["work_state_repair_context"] = turn_memory_recovery_payload
         runtime_observations_payload = _runtime_observations_model_visible_payload(
             session_context_payload.get("runtime_observations")
         )
         if runtime_observations_payload:
-            volatile_runtime_payload["runtime_observations"] = runtime_observations_payload
+            volatile_runtime_payload["work_observations"] = runtime_observations_payload
         if turn_input_facts:
-            volatile_runtime_payload["turn_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
+            volatile_runtime_payload["request_input_facts"] = _turn_input_facts_model_visible_payload(turn_input_facts)
         if volatile_runtime_payload:
             dynamic_payload = _drop_empty_payload({**dynamic_payload, **volatile_runtime_payload})
             volatile_runtime_payload = {}
@@ -669,7 +671,7 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="single_agent_turn",
-            provider_visible_context_scope=session_id,
+            provider_visible_append_scope=session_id,
             provider_visible_context_inheritance=_provider_visible_context_inheritance_from_session_context(
                 session_context_payload,
                 child_scope=session_id,
@@ -713,7 +715,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "task_environment_context",
                         "content_source": "harness.runtime.environment_model_visible_payload",
                         "cache_impact": "session_prefix_task_environment_context",
                     },
@@ -731,7 +732,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "capability_catalog",
                         "content_source": "harness.runtime.capability_directory_catalog",
                         "cache_impact": "session_prefix_capability_catalog",
                         "routing_boundary": "Current requested groups and preferred namespaces stay in the turn operating contract tail.",
@@ -749,7 +749,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "project_instruction_boundary",
                         "cache_impact": "project_prefix_stable",
                         "projection_strategy": "scoped_project_instruction_bundle",
                         "content_source": "harness.runtime.project_instructions",
@@ -768,7 +767,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "file_evidence_policy",
                         "projection_strategy": "stable_file_evidence_policy",
                     },
                 ),
@@ -799,7 +797,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "environment_guidance_protocol",
                         "environment_guidance_prompt_keys": list(prompt_mount_plan.environment_guidance_prompt_keys),
                         "environment_guidance_trigger_reasons": dict(prompt_mount_plan.environment_guidance_trigger_reasons),
                     },
@@ -817,7 +814,7 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Runtime Identity References",
+                    title="Stable Context References",
                     payload=runtime_baseline_refs_payload,
                     kind="runtime_baseline_refs",
                     visible_kind="context_continuity",
@@ -826,10 +823,9 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
-                        "authority_class": "runtime_baseline_refs",
                         "content_source": "harness.runtime.dynamic_context.runtime_baseline_refs",
                         "cache_impact": "session_prefix_runtime_baseline_refs",
-                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; current execution-boundary deltas stay in the current runtime boundary tail.",
+                        "stability_rule": "Only immutable agent and environment refs are cacheable; current action and execution facts stay in the current request context tail.",
                     },
                 )
                 if runtime_baseline_refs_payload
@@ -846,7 +842,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
                         "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
                         "cache_impact": "context_append_then_sealed_prefix",
@@ -856,7 +851,7 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="user",
-                    title="Current Turn Delta",
+                    title="Current User Request",
                     payload=current_turn_delta_payload,
                     kind="current_turn_user_context",
                     visible_kind="current_user_request",
@@ -880,7 +875,6 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "read_evidence_injection",
                         "projection_strategy": "current_exact_or_required_read_tail",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
                         "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
@@ -891,11 +885,11 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Current Runtime Boundary",
+                    title="Current Request Context",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
-                    visible_kind="current_runtime_boundary",
+                    visible_kind="current_request_context",
                     source_ref="single_agent_turn_runtime_delta",
                     cache_scope="none",
                     cache_role="volatile",
@@ -903,7 +897,6 @@ class RuntimeCompiler:
                     metadata=_current_runtime_tail_metadata(
                         {
                             **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
-                            "authority_class": "runtime_delta_tail",
                             "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
                         },
                         semantic_slot="runtime_delta_tail",
@@ -912,18 +905,17 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Turn Operating Contract",
+                    title="Current Action Contract",
                     payload=current_operating_contract_payload,
                     preamble=_runtime_control_context_notice(validity_scope=turn_id),
                     kind="turn_operating_contract",
-                    visible_kind="turn_operating_contract",
+                    visible_kind="current_action_contract",
                     source_ref="single_agent_turn_operating_contract",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "turn_operating_contract",
                             "content_source": "harness.runtime.turn_operating_contract",
                             "volatility_reason": "current turn action surface, output protocol, and capability routing are bound to the provider request",
                         },
@@ -948,7 +940,6 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "turn_state_guidance",
                             "environment_guidance_prompt_keys": list(prompt_mount_plan.turn_state_guidance_prompt_keys),
                             "environment_guidance_trigger_reasons": dict(prompt_mount_plan.turn_state_guidance_trigger_reasons),
                             "volatility_reason": "turn state guidance is selected from active state such as memory, observations, steering, or recovery",
@@ -961,16 +952,15 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Current Runtime Signals",
+                    title="Current Request Signals",
                     payload=volatile_runtime_payload,
                     kind="volatile_runtime_state",
-                    visible_kind="current_runtime_signals",
+                    visible_kind="current_request_signals",
                     source_ref="single_agent_turn_volatile_runtime_state",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "single_turn_runtime_state",
                         "volatility_reason": "active work, recovery, runtime observations, and turn facts can change on every user turn",
                         "cache_impact": "volatile_suffix_only",
                         "content_source": "harness.runtime.compiler.single_turn_volatile_runtime_state",
@@ -999,11 +989,10 @@ class RuntimeCompiler:
             "active_work_context",
             "recent_work_outcome",
             "current_work_boundary_receipt",
-            "recoverable_work",
-            "turn_memory_recovery",
-            "recovery_boundary_receipt",
-            "runtime_observations",
-            "turn_input_facts",
+            "prior_work_memory_context",
+            "work_state_repair_context",
+            "work_observations",
+            "request_input_facts",
         )
         single_turn_volatile_refs = (
             "runtime_envelope",
@@ -1368,16 +1357,16 @@ class RuntimeCompiler:
         action_schema_payload = action_schema_manifest.to_model_visible_payload()
         agent_function_shared_payload = _graph_agent_function_shared_stable_payload(contract)
         graph_task_shared_payload = _graph_task_shared_stable_payload(contract)
-        task_contract_manifest = build_task_contract_manifest_from_contract(
+        task_run_contract_manifest = build_task_run_contract_manifest_from_contract(
             invocation_kind="task_execution",
             contract=contract,
             planning_protocol=planning_protocol,
             source_ref=str(contract.get("contract_id") or "task_execution_contract"),
             graph_node_context=_graph_node_stable_contract_context(graph_slot) if graph_slot else {},
         )
-        task_contract_payload = task_contract_manifest.to_model_visible_payload()
+        task_run_contract_payload = task_run_contract_manifest.to_model_visible_payload()
         graph_node_runtime_context_payload = (
-            {"graph_node_runtime_context": _graph_node_model_context_projection(graph_slot)}
+            {"graph_node_current_context": _graph_node_model_context_projection(graph_slot)}
             if graph_slot
             else {}
         )
@@ -1422,7 +1411,7 @@ class RuntimeCompiler:
                 session_id=session_id,
                 task_run_id=task_run_id,
                 task_run=dict(task_run or {}),
-                task_contract=dict(contract or {}),
+                task_run_contract=dict(contract or {}),
                 observations=tuple(dict(item) for item in list(observations or []) if isinstance(item, dict)),
                 execution_state=dict(execution_state or {}),
                 work_rollout=dict(work_rollout or {}),
@@ -1507,7 +1496,7 @@ class RuntimeCompiler:
         )
         context_message_specs = list(context_message_projection.message_specs)
         turn_attention_index_payload = _turn_attention_index_payload_from_task_resource(
-            task_contract_payload=task_contract_payload,
+            task_run_contract_payload=task_run_contract_payload,
             turn_state_attention_context_payload=turn_state_attention_context_payload,
             task_state_payload=task_state_payload,
         )
@@ -1530,7 +1519,7 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="task_execution",
-            provider_visible_context_scope=session_id,
+            provider_visible_append_scope=session_id,
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
@@ -1580,7 +1569,6 @@ class RuntimeCompiler:
                         cache_role="session_stable",
                         compression_role="preserve",
                         metadata={
-                            "authority_class": "environment_guidance_protocol",
                             "environment_guidance_prompt_keys": list(prompt_mount_plan.environment_guidance_prompt_keys),
                             "environment_guidance_trigger_reasons": dict(prompt_mount_plan.environment_guidance_trigger_reasons),
                         },
@@ -1621,7 +1609,6 @@ class RuntimeCompiler:
                         cache_role="session_stable",
                         compression_role="preserve",
                         metadata={
-                            "authority_class": "project_instruction_boundary",
                             "cache_impact": "project_prefix_stable",
                             "projection_strategy": "scoped_project_instruction_bundle",
                             "content_source": "harness.runtime.project_instructions",
@@ -1653,7 +1640,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "file_evidence_policy",
                         "projection_strategy": "stable_file_evidence_policy",
                     },
                 ),
@@ -1670,10 +1656,10 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Task execution task contract",
-                    payload=task_contract_payload,
+                    title="Task execution task run contract",
+                    payload=task_run_contract_payload,
                     kind="task_run_contract_stable",
-                    source_ref=task_contract_manifest.source_ref,
+                    source_ref=task_run_contract_manifest.source_ref,
                     cache_scope="session",
                     cache_role="session_stable",
                     compression_role="preserve",
@@ -1697,8 +1683,7 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "bound_task_context",
-                        "semantic_layer": "L7_bound_task_context",
+                        "control_layer": "bound_task_context_prefix",
                         "cache_impact": "provider_visible_context_prefix_stable",
                         "projection_strategy": "task_bound_context_manifest",
                         "content_source": "harness.runtime.bound_task_context",
@@ -1748,23 +1733,23 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task execution bound runtime context",
+                    title="Task execution bound current context",
                     payload=bound_task_runtime_context_payload,
                     kind="bound_task_runtime_context",
+                    visible_kind="task_execution_bound_current_context",
                     source_ref=bound_task_context.source_ref,
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="ref_only",
                     metadata={
-                        "authority_class": "bound_task_runtime_context",
-                        "semantic_layer": "L7_bound_task_runtime_context",
+                        "control_layer": "bound_task_runtime_tail",
                         "context_cache_section": "dynamic_tail",
                         "context_commit_policy": "never_commit",
                         "context_replay_policy": "current_dynamic_tail_only",
                         "context_identity_policy": "current_invocation_only",
                         "fixed_context_package": "dynamic_tail",
                         "cache_impact": "current_dynamic_tail_only",
-                        "stability_rule": "bound runtime context carries current invocation refs and must not be sealed into the task prefix",
+                        "stability_rule": "bound current context carries request-scoped refs and must not be sealed into the task prefix",
                         "content_source": "harness.runtime.bound_task_context",
                     },
                 )
@@ -1772,9 +1757,10 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Task execution graph node runtime context",
+                    title="Task execution graph node current context",
                     payload=graph_node_runtime_context_payload,
                     kind="graph_node_runtime_context",
+                    visible_kind="task_execution_graph_node_current_context",
                     source_ref="graph_node_runtime_context",
                     cache_scope="none",
                     cache_role="volatile",
@@ -1788,18 +1774,17 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="system",
-                    title="Current Runtime Boundary",
+                    title="Current Request Context",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="task_runtime_boundary_dynamic",
-                    visible_kind="current_runtime_boundary",
+                    visible_kind="current_request_context",
                     source_ref="task_execution_runtime_delta",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "runtime_boundary",
                             "projection_strategy": "agent_visible_runtime_boundary",
                             "content_source": "runtime.dynamic_context.runtime_delta_projection",
                             "volatility_reason": "runtime dynamic projection may include active state and must not mutate current instructions after its validity window",
@@ -1819,7 +1804,6 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "read_evidence_injection",
                         "projection_strategy": "current_exact_or_required_read_tail",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
                         "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
@@ -1840,7 +1824,6 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "active_skill_runtime",
                         "volatility_reason": "active skill bodies are activated runtime content and must remain outside the cacheable task prefix",
                         "cache_impact": "volatile_suffix_only",
                     },
@@ -1862,7 +1845,6 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "turn_state_guidance",
                             "environment_guidance_prompt_keys": list(prompt_mount_plan.turn_state_guidance_prompt_keys),
                             "environment_guidance_trigger_reasons": dict(prompt_mount_plan.turn_state_guidance_trigger_reasons),
                             "volatility_reason": "turn state guidance is selected from active state such as memory, observations, steering, or recovery",
@@ -1895,7 +1877,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
                         "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
                         "cache_impact": "context_append_then_sealed_prefix",
@@ -1913,7 +1894,6 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "incremental_context_cursor",
                         "runtime_fragment_role": "task_execution_delta_explanation",
                         "volatility_reason": (
                             "the cursor explains the current invocation delta and must stay after the "
@@ -1926,23 +1906,22 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Turn Attention Index",
+                    title="Current Attention Index",
                     payload=turn_attention_index_payload,
                     kind="turn_attention_index",
-                    visible_kind="turn_attention_index",
-                    source_ref=f"turn_attention_index:{task_contract_manifest.source_ref}",
+                    visible_kind="current_attention_index",
+                    source_ref=f"turn_attention_index:{task_run_contract_manifest.source_ref}",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "turn_attention_index",
                             "runtime_fragment_role": "current_turn_attention_anchor_index",
                             "projection_strategy": "tail_attention_index_for_current_turn",
-                            "content_source": "harness.runtime.task_contract_manifest_and_turn_state_attention_context",
+                            "content_source": "harness.runtime.task_run_contract_manifest_and_turn_state_attention_context",
                             "volatility_reason": "current todo cursor and active execution focus may change each invocation",
                             "cache_impact": "volatile_suffix_only",
-                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in TaskRunContract, turn state attention context, runtime boundary, and tool observations.",
+                            "stability_rule": "This index repeats current anchors for attention only; full authority remains in the task contract, current state attention context, request context, and tool observations.",
                         },
                         semantic_slot="turn_attention_index",
                         validity_scope=f"{task_run_id}:{invocation_index}",
@@ -1960,7 +1939,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "user_task_steer",
                         "projection_strategy": "preserve_user_supplied_task_steer",
                         "cache_impact": "context_append_then_sealed_prefix",
                         "stability_rule": "user steer text is rememberable context; consumption state is emitted separately in the dynamic tail",
@@ -1980,7 +1958,6 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "user_task_steer_consumption_state",
                         "volatility_reason": "user steer queue consumption changes during task execution and must not enter memory context",
                         "projection_strategy": "current_user_steer_consumption_tail",
                         "cache_impact": "volatile_suffix_only",
@@ -2081,7 +2058,7 @@ class RuntimeCompiler:
         action_schema_manifest_payload = _attach_action_schema_manifest(prompt_manifest, action_schema_manifest)
         artifact_scope_manifest_payload = _attach_artifact_scope_manifest(prompt_manifest, artifact_scope_manifest)
         tool_catalog_manifest_payload = _attach_tool_catalog_manifest(prompt_manifest, tool_catalog_manifest)
-        task_contract_manifest_payload = _attach_task_contract_manifest(prompt_manifest, task_contract_manifest)
+        task_run_contract_manifest_payload = _attach_task_run_contract_manifest(prompt_manifest, task_run_contract_manifest)
         bound_task_context_manifest_payload = bound_task_context.to_manifest_payload()
         prompt_manifest["bound_task_context_manifest"] = bound_task_context_manifest_payload
         prompt_composition_manifest = _attach_prompt_composition_manifest(
@@ -2114,7 +2091,7 @@ class RuntimeCompiler:
             action_schema_manifest=action_schema_manifest_payload,
             artifact_scope_manifest=artifact_scope_manifest_payload,
             tool_catalog_manifest=tool_catalog_manifest_payload,
-            task_contract_manifest=task_contract_manifest_payload,
+            task_run_contract_manifest=task_run_contract_manifest_payload,
             bound_task_context_manifest=bound_task_context_manifest_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
@@ -2135,7 +2112,7 @@ class RuntimeCompiler:
                 "action_schema_manifest": action_schema_manifest_payload,
                 "artifact_scope_manifest": artifact_scope_manifest_payload,
                 "tool_catalog_manifest": tool_catalog_manifest_payload,
-                "task_contract_manifest": task_contract_manifest_payload,
+                "task_run_contract_manifest": task_run_contract_manifest_payload,
                 "bound_task_context_manifest": bound_task_context_manifest_payload,
                 "tool_call_contract": tool_call_contract.to_hidden_control_payload(),
                 "model_input_authority": "prompt_composition.message_projection",
@@ -2357,7 +2334,7 @@ class RuntimeCompiler:
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
-            provider_visible_context_scope=session_id,
+            provider_visible_append_scope=session_id,
             provider_visible_context_inheritance=_provider_visible_context_inheritance_from_session_context(
                 dict(session_context or {}),
                 child_scope=session_id,
@@ -2421,7 +2398,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "file_evidence_policy",
                         "projection_strategy": "stable_file_evidence_policy",
                     },
                 ),
@@ -2434,7 +2410,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "environment_guidance_protocol",
                         "environment_guidance_prompt_keys": list(prompt_mount_plan.environment_guidance_prompt_keys),
                         "environment_guidance_trigger_reasons": dict(prompt_mount_plan.environment_guidance_trigger_reasons),
                     },
@@ -2461,7 +2436,7 @@ class RuntimeCompiler:
                 ),
                 _runtime_payload_spec(
                     role="system",
-                    title="Runtime Identity References",
+                    title="Stable Context References",
                     payload=runtime_baseline_refs_payload,
                     kind="runtime_baseline_refs",
                     visible_kind="context_continuity",
@@ -2470,10 +2445,9 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="ref_only",
                     metadata={
-                        "authority_class": "runtime_baseline_refs",
                         "content_source": "harness.runtime.dynamic_context.runtime_baseline_refs",
                         "cache_impact": "session_prefix_runtime_baseline_refs",
-                        "stability_rule": "Only immutable runtime profile/environment refs are cacheable; current execution-boundary deltas stay in the current runtime boundary tail.",
+                        "stability_rule": "Only immutable agent and environment refs are cacheable; current action and execution facts stay in the current request context tail.",
                     },
                 )
                 if runtime_baseline_refs_payload
@@ -2481,11 +2455,11 @@ class RuntimeCompiler:
                 *context_message_specs,
                 _runtime_payload_spec(
                     role="system",
-                    title="Current Runtime Boundary",
+                    title="Current Request Context",
                     payload=dynamic_payload,
                     preamble=runtime_instruction,
                     kind="dynamic_projection",
-                    visible_kind="current_runtime_boundary",
+                    visible_kind="current_request_context",
                     source_ref="observation_followup_runtime_delta",
                     cache_scope="none",
                     cache_role="volatile",
@@ -2493,7 +2467,6 @@ class RuntimeCompiler:
                     metadata=_current_runtime_tail_metadata(
                         {
                             **_dynamic_context_segment_metadata(dynamic_context, source="runtime_delta"),
-                            "authority_class": "runtime_delta_tail",
                             "content_source": "harness.runtime.dynamic_context.runtime_delta_projection",
                         },
                         semantic_slot="runtime_delta_tail",
@@ -2515,7 +2488,6 @@ class RuntimeCompiler:
                     compression_role="preserve",
                     metadata=_current_runtime_tail_metadata(
                         {
-                            "authority_class": "turn_state_guidance",
                             "environment_guidance_prompt_keys": list(prompt_mount_plan.turn_state_guidance_prompt_keys),
                             "environment_guidance_trigger_reasons": dict(prompt_mount_plan.turn_state_guidance_trigger_reasons),
                             "volatility_reason": "turn state guidance is selected from observation followup state and must expire after this follow-up boundary",
@@ -2537,7 +2509,6 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "authority_class": "read_evidence_injection",
                         "projection_strategy": "current_exact_or_required_read_tail",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
                         "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
@@ -2557,7 +2528,6 @@ class RuntimeCompiler:
                     cache_role="session_stable",
                     compression_role="summarize",
                     metadata={
-                        "authority_class": "runtime_memory_context",
                         "content_source": "memory_system.runtime_memory_context",
                         "stability_rule": "selected memory context is rememberable context; changed selections append as new context and the previous provider-visible package remains sealed",
                         "cache_impact": "context_append_then_sealed_prefix",
@@ -2567,7 +2537,7 @@ class RuntimeCompiler:
                 else None,
                 _runtime_payload_spec(
                     role="user",
-                    title="Current Turn Delta",
+                    title="Current User Request",
                     payload=current_turn_delta_payload,
                     kind="current_turn_user_context",
                     visible_kind="current_user_request",
@@ -2952,14 +2922,14 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         "action_type": "|".join(allowed),
         "allowed_action_types": list(allowed),
         "action_shape_rules": [
-            "每次只选择一个本轮行动。需要工具、控制、询问或阻塞时，把动作写成一个顶层结构化对象；如果只是最终回答且运行边界允许 assistant 正文，可以直接自然回复。",
+            "每次只选择一个当前请求行动。需要工具、控制、询问或阻塞时，把动作写成一个顶层结构化对象；如果只是最终回答且当前请求边界允许 assistant 正文，可以直接自然回复。",
             "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
             "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
             "block 必须把真实阻塞原因写在顶层 blocking_reason。",
             "需要工具观察或执行时，action_type=tool_call，并使用顶层 tool_call 或 tool_calls，二选一：单个工具用 tool_call: {tool_name, args}；同一判断目标内需要一组工具时用 tool_calls: [{tool_name, args}]。工具名必须来自当前可用工具，args 必须是对象。",
             *(
                 [
-                    "pause_for_user_steer 只能在本轮 allowed_action_types 明确包含它时使用；它不是工具，也不是缺权限、缺资源、预算耗尽或普通不确定性的兜底。",
+                    "pause_for_user_steer 只能在当前请求的 allowed_action_types 明确包含它时使用；它不是工具，也不是缺权限、缺资源、预算耗尽或普通不确定性的兜底。",
                     "pause_for_user_steer 必须携带顶层 pause_request，并且不得在 diagnostics.consumed_steer_refs 或 diagnostics.consumed_user_steer_refs 中消费该 steer。",
                 ]
                 if pause_for_user_steer_available
@@ -2972,7 +2942,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                 "第一步先判断当前是否已经足以回答。足以回答时，选择 respond，并把完整自然语言回复写入 final_answer。",
                 "第二步，如果还需要查证、读取、修改或验证，选择 tool_call/tool_calls。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用可以在同次输出的简短自然 preamble 中写公开反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 和 sidecar 都只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
                 "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入顶层 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
-                "第四步，工具观察返回后，重新判断：事实足够就 respond；缺用户决定就 ask_user；事实、权限或环境不足就 block；仍需查证且本轮允许时再继续 tool_call。",
+                "第四步，工具观察返回后，重新判断：事实足够就 respond；缺用户决定就 ask_user；事实、权限或环境不足就 block；仍需查证且当前请求允许时再继续 tool_call。",
                 "第五步，如果用户问的是为什么卡住、为什么没回应、是否正常，先解释你已经知道的状态或需要核对的状态，再决定是否继续执行。",
                 "只有用户只是明确说继续、恢复、接着执行，并且没有提出新问题时，才可以只承接执行。"
             ],
@@ -2984,7 +2954,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                     "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
                     "观察结果推翻了你先前的公开判断或暴露出不确定性。",
                     "一批 tool_calls[] 的观察共同形成了新的公开结论、风险、阻塞、验收状态或下一步判断。",
-                    "你已经连续跨多个文件、多个工具批次或多轮观察推进，或者刚处理过失败恢复、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
+                    "你已经连续跨多个文件、多个工具批次或多次观察推进，或者刚处理过失败处理、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
                 ],
                 "may_keep_internal_when": [
                     "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
@@ -3000,10 +2970,10 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                 "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "这是你写给用户看的短判断：说明本轮要确认什么、为什么要查证、或为什么要申请资源。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用如果无法提交顶层字段，可以在同次输出的简短自然 preamble 中写这句反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 会被 runtime 归一为 assistant_public_feedback，不是 final_answer。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": "这是你写给用户看的短判断：说明当前请求要确认什么、为什么要查证、或为什么要申请资源。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用如果无法提交顶层字段，可以在同次输出的简短自然 preamble 中写这句反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 会被系统归一为 assistant_public_feedback，不是 final_answer。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
-            "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写本轮已经确定的事实或边界，不写隐藏推理。",
+            "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写当前请求已经确定的事实或边界，不写隐藏推理。",
             "next_action": "可选；你下一步准备执行的动作。必须与 action_type 对齐：respond 时是整理回复；ask_user 时是向用户确认；block 时是说明阻塞。tool_call 时通常留空；只有在观察返回后形成真实阶段方向，才写给用户能理解的下一步，不要把工具调用动作或机器状态改写成公开判断文本。",
             "evidence_refs": ["已经返回且可被用户理解的 observation/event/artifact ref；没有返回结果时留空"],
             "open_risks": ["已经观察到的公开阻塞或风险；没有则留空；不要写预测性风险"],
@@ -3020,20 +2990,20 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
             {
                 "pause_for_user_steer_shape_rules": [
                     "只有当 pending_user_steers 中存在指向当前持续工作的未消费用户 steer，并且继续原步骤会越过用户最新意图时，才可以提交 action_type=pause_for_user_steer。",
-                    "暂停只记录可恢复边界和用户 steer 事实；恢复后仍由你判断继续、改计划、询问用户、写工具或阻塞。",
+                    "暂停只记录可继续边界和用户 steer 事实；重新接入后仍由你判断继续、改计划、询问用户、写工具或阻塞。",
                     "不得用 pause_for_user_steer 处理缺工具权限、缺文件、外部事实不足、工具失败、上下文预算耗尽、普通犹豫或系统安全边界。",
-                    "提交该动作时不要把 steer 标记为 consumed；这条 steer 需要在恢复后的任务上下文中继续保持可见，直到你真正处理它。",
+                    "提交该动作时不要把 steer 标记为 consumed；这条 steer 需要在后续任务上下文中继续保持可见，直到你真正处理它。",
                 ],
                 "pause_request": {
                     "reason": "必须为 user_steer_requires_pause",
                     "steer_ref": "pending_user_steers 中指向当前 task_run 的 steer_id",
-                    "checkpoint_summary": "已经完成的工作、尚未完成的工作、当前安全恢复点；必填",
-                    "resume_hint": "可选；恢复后你建议自己首先重新判断什么事实或计划",
+                    "checkpoint_summary": "已经完成的工作、尚未完成的工作、当前安全继续点；必填",
+                    "resume_hint": "可选；后续接入时建议先重新判断什么事实或计划",
                     "requires_user_input": "可选布尔值；只有确实需要用户补充回答时才为 true",
                 },
                 "minimal_valid_pause_for_user_steer_example": {
                     "action_type": "pause_for_user_steer",
-                    "public_progress_note": "用户刚刚补充了会影响当前任务方向的要求，我会先停在可继续状态，恢复后先处理这条补充要求。",
+                    "public_progress_note": "用户刚刚补充了会影响当前任务方向的要求，我会先停在可继续状态，后续接入时先处理这条补充要求。",
                     "public_action_state": {
                         "visible_status": "blocked",
                         "current_judgment": "继续原步骤前需要先处理用户最新 steer。",
@@ -3058,7 +3028,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
             ],
             "verification": "简短说明自审和验收结果",
             "consumed_steer_refs": [
-                "如果本轮处理了 pending_user_steers 中的某条用户补充要求，填写对应 steer_id；未处理则留空"
+                "如果当前请求处理了 pending_user_steers 中的某条用户补充要求，填写对应 steer_id；未处理则留空"
             ],
             "contract_revision_decisions": [
                 {
@@ -3126,50 +3096,6 @@ def _active_work_ref_model_visible_payload(value: dict[str, Any] | None) -> dict
     )
 
 
-def _continuation_record_model_visible_payload(record: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(record or {})
-    if not payload:
-        return {}
-    return _drop_empty_payload(
-        {
-            "resume_ref": str(payload.get("continuation_id") or ""),
-            "work_ref": str(payload.get("task_run_id") or ""),
-            "state": str(payload.get("state") or ""),
-            "resume_allowed": bool(payload.get("resume_allowed") is True),
-            "resume_strategy": str(payload.get("resume_strategy") or ""),
-            "context_resume_available": bool(payload.get("context_resume_available") is True),
-            "context_resume_source": str(payload.get("context_resume_source") or ""),
-            "same_run_executable": bool(payload.get("same_run_executable") is True),
-            "recovery_cause": str(payload.get("recovery_cause") or ""),
-            "task_status": str(payload.get("task_status") or ""),
-            "executor_status": str(payload.get("executor_status") or ""),
-            "control_state": str(payload.get("control_state") or ""),
-            "user_visible_goal": str(payload.get("user_visible_goal") or ""),
-            "latest_progress": str(payload.get("latest_progress") or ""),
-            "last_completed_step": str(payload.get("last_completed_step") or ""),
-            "next_recommended_step": str(payload.get("next_recommended_step") or ""),
-            "model_visible_summary": str(payload.get("model_visible_summary") or ""),
-            "task_disconnection_info": _drop_empty_payload(
-                {
-                    "work_ref": str(payload.get("task_run_id") or ""),
-                    "task_status": str(payload.get("task_status") or ""),
-                    "executor_status": str(payload.get("executor_status") or ""),
-                    "control_state": str(payload.get("control_state") or ""),
-                    "same_run_executable": bool(payload.get("same_run_executable") is True),
-                    "same_run_resume_action_allowed": bool(payload.get("resume_allowed") is True),
-                    "recovery_cause": str(payload.get("recovery_cause") or ""),
-                }
-            ),
-            "followup_contract": [
-                "保持同一会话上下文连续；不要因为持续工作断开就丢失已确认的目标、约束、进度和证据。",
-                "这里给出的是可恢复工作的事实状态，不是对用户意图的裁决。你需要判断是续跑、重新规划、说明状态，还是先补充证据。",
-                "只有 same_run_resume_action_allowed 为 true 时，才可以发起 resume_recoverable_work；否则应通过普通回答、请求新任务、或向用户说明限制来继续。",
-            ],
-            "read_only_context": True,
-        }
-    )
-
-
 def _turn_memory_recovery_model_visible_payload(
     context: dict[str, Any] | None,
     *,
@@ -3199,24 +3125,22 @@ def _turn_memory_recovery_model_visible_payload(
     action = str(decision.get("action") or "")
     return _drop_empty_payload(
         {
-            "authority": "harness.runtime.compiler.turn_memory_recovery",
-            "state": "turn_memory_recovery_context",
-            "previous_turn_id": str(payload.get("previous_turn_id") or decision.get("turn_id") or ""),
-            "turn_run_id": str(payload.get("turn_run_id") or ""),
+            "authority": "harness.compiler.work_state_repair_context",
+            "state": "work_state_repair_context",
             "branch_id": str(payload.get("branch_id") or ""),
             "status": str(payload.get("status") or ""),
             "phase": str(payload.get("phase") or ""),
-            "recovery_state": str(payload.get("recovery_state") or ""),
-            "recovery_decision": _drop_empty_payload(
+            "repair_state": str(payload.get("recovery_state") or ""),
+            "repair_decision": _drop_empty_payload(
                 {
                     "action": action,
                     "reason": str(decision.get("reason") or ""),
                     "commit_state": str(decision.get("commit_state") or ""),
-                    "recoverable": True,
+                    "repairable": True,
                 }
             ),
-            "current_user_instruction": _compact_text(current_user_message, limit=4000),
-            "turn_refs": _drop_empty_payload(
+            "current_user_request": _compact_text(current_user_message, limit=4000),
+            "work_refs": _drop_empty_payload(
                 {
                     "current_user_message_ref": str(current_context.get("current_user_message_ref") or ""),
                     "physical_prefix_frame_id": str(payload.get("physical_prefix_frame_id") or handoff_context.get("physical_prefix_frame_id") or ""),
@@ -3239,24 +3163,121 @@ def _turn_memory_recovery_model_visible_payload(
                 }
             ),
             "followup_contract": [
-                "Treat these TurnMemory facts as the authoritative pending state for the previous ordinary conversation turn.",
-                "Keep the same user goal, constraints, tool facts, and confirmed evidence unless the current user instruction changes them.",
-                "If recovery_decision.action is retry_commit or retry_frame_promotion, do not regenerate an assistant final that already exists; preserve the recorded final refs and let the runtime close the missing boundary.",
-                "If recovery_decision.action is recover_interrupted_turn or recover_from_checkpoint, continue the ordinary conversation from the recorded pending state and the current user instruction.",
-                "Do not call resume_recoverable_work for this payload; that action belongs to task recovery, not ordinary single-agent turn recovery.",
+                "Treat these work-state facts as a repair boundary, not as a new user goal.",
+                "If repair_decision.action is retry_commit or retry_frame_promotion, do not regenerate an assistant final that already exists; preserve the recorded final refs and let the system close the missing boundary.",
+                "Do not treat this payload as permission to continue an old execution; use it only to repair or explain the current state.",
             ],
-            "allowed_followup_posture": "ordinary_turn_continuation",
-            "forbidden_action": "resume_recoverable_work",
+            "allowed_followup_posture": "work_state_repair",
+            "forbidden_action": "continue_closed_work",
             "read_only_context": False,
         }
     )
+
+
+def _prior_work_memory_model_visible_payload(
+    context: dict[str, Any] | None,
+    *,
+    current_user_message: str = "",
+) -> dict[str, Any]:
+    payload = dict(context or {})
+    if not payload:
+        return {}
+    if str(payload.get("authority") or "") != "runtime.turn_memory.prior_work_context":
+        return {}
+    current_context = dict(payload.get("current_turn_context") or {})
+    handoff_context = dict(payload.get("handoff_context") or {})
+    pending_commit_summary = dict(payload.get("pending_commit_summary") or {})
+    pending_tool_summary = dict(payload.get("pending_tool_summary") or {})
+    closure_summary = _agent_visible_work_closure_summary(
+        payload.get("interruption"),
+        pending_commit_summary,
+    )
+    return _drop_empty_payload(
+        {
+            "authority": "harness.compiler.prior_work_memory_context",
+            "state": "closed_interrupted_work_memory_package",
+            "source": "previous_interrupted_work_memory_package",
+            "branch_id": str(payload.get("branch_id") or ""),
+            "status": str(payload.get("status") or ""),
+            "phase": str(payload.get("phase") or ""),
+            "closure": closure_summary,
+            "current_user_request": _compact_text(current_user_message, limit=4000),
+            "memory_refs": _drop_empty_payload(
+                {
+                    "current_user_message_ref": str(current_context.get("current_user_message_ref") or ""),
+                    "physical_prefix_frame_id": str(payload.get("physical_prefix_frame_id") or handoff_context.get("physical_prefix_frame_id") or ""),
+                    "provider_request_refs": list(payload.get("provider_request_refs") or [])[-8:],
+                    "provider_payload_manifest_refs": list(payload.get("provider_payload_manifest_refs") or [])[-8:],
+                    "closed_tool_round_refs": list(payload.get("closed_tool_round_refs") or handoff_context.get("closed_tool_round_refs") or [])[-8:],
+                    "active_steer_refs": list(payload.get("active_steer_refs") or handoff_context.get("active_steer_refs") or [])[-8:],
+                    "assistant_draft_ref": str(payload.get("assistant_draft_ref") or ""),
+                    "assistant_draft_sha256": str(payload.get("assistant_draft_sha256") or ""),
+                    "current_append_hash": str(payload.get("current_append_hash") or ""),
+                }
+            ),
+            "memory_summaries": _drop_empty_payload(
+                {
+                    "tool": pending_tool_summary,
+                    "closure": closure_summary,
+                }
+            ),
+            "followup_contract": [
+                "This is a read-only work memory package produced when prior work was interrupted and closed.",
+                "Use it only as background context for the current user request.",
+                "Do not resume or write to the closed work package, and do not treat it as task recovery.",
+                "Carry forward useful facts, constraints, tool observations, and partial work unless the current user instruction changes them.",
+            ],
+            "allowed_followup_posture": "current_request_with_prior_work_memory",
+            "forbidden_action": "resume_closed_work",
+            "read_only_context": True,
+        }
+    )
+
+
+def _agent_visible_work_closure_summary(interruption: Any, pending_commit_summary: dict[str, Any]) -> dict[str, Any]:
+    interruption_payload = dict(interruption or {}) if isinstance(interruption, dict) else {}
+    raw_code = _first_runtime_text(
+        interruption_payload.get("code"),
+        pending_commit_summary.get("runtime_interruption_code"),
+    )
+    raw_reason = _first_runtime_text(
+        interruption_payload.get("reason"),
+        pending_commit_summary.get("runtime_interruption_reason"),
+    )
+    return _drop_empty_payload(
+        {
+            "state": "interrupted_and_closed",
+            "reason": _agent_visible_work_interruption_reason(raw_code, raw_reason),
+        }
+    )
+
+
+def _agent_visible_work_interruption_reason(code: Any, reason: Any) -> str:
+    normalized_code = str(code or "").strip().lower()
+    if normalized_code in {
+        "runtime_process_restarted",
+        "runtime_cell_missing_after_restart",
+        "runtime_cell_cancelled",
+    }:
+        return "connection_or_process_interruption"
+    if normalized_code in {"stream_cancelled"}:
+        return "stream_cancelled"
+    if normalized_code in {"stream_exception", "projection_stream_exception"}:
+        return "stream_interrupted"
+    if normalized_code in {"missing_terminal_event", "projection_stream_missing_terminal"}:
+        return "closed_without_normal_finish_signal"
+    raw_reason = str(reason or "").strip()
+    lowered = raw_reason.lower()
+    if not raw_reason or "runtime" in lowered or "turn" in lowered:
+        return "work_interrupted"
+    return _compact_text(raw_reason, limit=240)
 
 
 def _agent_contract_feedback_model_visible_payload(value: Any) -> dict[str, Any]:
     payload = dict(value or {}) if isinstance(value, dict) else {}
     if not payload:
         return {}
-    requirements = dict(payload.get("next_action_requirements") or payload.get("required_action_protocol") or {})
+    requirements = dict(payload.get("next_action_requirements") or {})
     failure = dict(payload.get("contract_failure") or {})
     structured_signal = dict(payload.get("structured_signal") or {})
     feedback_contract = _feedback_contract_model_visible_payload(payload.get("feedback_contract"))
@@ -3352,24 +3373,6 @@ def _feedback_contract_model_visible_payload(value: Any) -> dict[str, Any]:
     )
 
 
-def _recovery_boundary_receipt_model_visible_payload(receipt: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(receipt or {})
-    if not payload:
-        return {}
-    operations = recovery_operation_availability_from_receipt(payload)
-    return _drop_empty_payload(
-        {
-            "boundary_decision": str(payload.get("boundary_decision") or ""),
-            "resume_ref": str(payload.get("continuation_ref") or ""),
-            "work_ref": str(payload.get("task_run_ref") or ""),
-            "operation_availability": operations,
-            "resume_execution_route": str(payload.get("resume_execution_route") or ""),
-            "read_only_context": not bool(operations.get("resume_recoverable_work") is True),
-            "state_reason": str(payload.get("state_reason") or ""),
-        }
-    )
-
-
 def _recovery_packet_model_visible_payload(packet: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(packet or {})
     if not payload:
@@ -3455,7 +3458,7 @@ def _runtime_observations_model_visible_payload(value: Any) -> dict[str, Any]:
         return {}
     return {
         "observations": observations,
-        "boundary_code": "agent_addressed_runtime_observations",
+        "boundary_code": "agent_addressed_work_observations",
     }
 
 
@@ -3475,7 +3478,7 @@ def _single_agent_turn_current_operating_contract_payload(
     return _drop_empty_payload(
         {
             "control_capabilities": dict(control_capabilities or {}),
-            "turn_operating_contract": dict(turn_operating_contract or {}),
+            "current_action_contract": dict(turn_operating_contract or {}),
             "output_contract": dict(output_contract or {}),
             "capability_routing": _capability_routing_payload(capability_directory),
         }
@@ -3545,12 +3548,11 @@ def _turn_input_facts_model_visible_payload(facts: dict[str, Any] | None) -> dic
     active_turn = dict(payload.get("active_turn") or {})
     return _drop_empty_payload(
         {
-            "active_turn_input_policy": str(payload.get("active_turn_input_policy") or ""),
+            "current_work_input_policy": str(payload.get("active_turn_input_policy") or ""),
             "recovery_input_policy": str(payload.get("recovery_input_policy") or ""),
-            "active_turn_present": bool(active_turn),
-            "active_turn_state": str(active_turn.get("state") or ""),
+            "current_work_present": bool(active_turn),
+            "current_work_state": str(active_turn.get("state") or ""),
             "active_work_candidate_present": bool(payload.get("active_work_candidate")),
-            "recoverable_work_candidate_present": bool(payload.get("recoverable_work_candidate")),
             "recent_work_outcome_candidate_present": bool(payload.get("recent_work_outcome_candidate")),
         }
     )
@@ -3594,7 +3596,7 @@ def _provider_protocol_message_specs(
         return []
     transcript_candidates = [
         dict(item)
-        for item in list(payload.get("api_transcript") or payload.get("provider_protocol_history") or [])
+        for item in list(payload.get("provider_protocol_timeline") or [])
         if isinstance(item, dict)
     ]
     boundary_filtered_candidates = _provider_protocol_after_compaction_boundary(
@@ -3613,28 +3615,35 @@ def _provider_protocol_message_specs(
     protocol_created_ats = _provider_protocol_created_ats(transcript, boundary_filtered_candidates)
     protocol_projection = {
         "authority": "harness.runtime.compiler.provider_protocol_projection",
-        "projection_strategy": "full_append_only_protocol_replay",
+        "projection_strategy": "full_append_only_protocol_append_candidate",
         "input_message_count": len(protocol_transcript),
-        "replayed_message_count": len(transcript),
+        "append_candidate_message_count": len(transcript),
         "omitted_message_count": 0,
         "input_chars": _provider_protocol_messages_chars(protocol_transcript),
         "output_chars": _provider_protocol_messages_chars(transcript),
     }
     protocol_truncated_count = 0
     protocol_projection = {
-            **dict(protocol_projection or {}),
-            "raw_transcript_message_count": len(raw_transcript),
-            "raw_transcript_input_message_count": len(transcript_candidates),
-            "protocol_projection_strategy": "provider_payload_replay_without_protocol_repair",
-            "protocol_sanitizer_bypassed": True,
-            "compaction_boundary_created_at": compaction_boundary_created_at,
-            "compaction_boundary_omitted_message_count": max(0, len(transcript_candidates) - len(boundary_filtered_candidates)),
-            "hot_protocol_message_count": len(protocol_transcript),
+        **dict(protocol_projection or {}),
+        "raw_transcript_message_count": len(raw_transcript),
+        "raw_transcript_input_message_count": len(transcript_candidates),
+        "protocol_projection_strategy": "provider_payload_append_candidate_byte_preservation",
+        "protocol_sanitizer_boundary": "provider_protocol_append_candidate_byte_preservation",
+        "compaction_boundary_created_at": compaction_boundary_created_at,
+        "compaction_boundary_omitted_message_count": max(0, len(transcript_candidates) - len(boundary_filtered_candidates)),
+        "hot_protocol_message_count": len(protocol_transcript),
         "non_protocol_message_count": max(0, len(raw_transcript) - len(protocol_transcript)),
     }
     result: list[dict[str, Any]] = []
     for index, message in enumerate([item for item in transcript if item is not None], start=1):
         append_only_created_at = protocol_created_ats[index - 1] if index - 1 < len(protocol_created_ats) else 0.0
+        append_only_item_key = _provider_protocol_append_item_key(
+            message,
+            source_ref=source_ref,
+            index=index,
+            append_only_created_at=append_only_created_at,
+            compaction_boundary_created_at=compaction_boundary_created_at,
+        )
         result.append(
             {
                 "role": str(message.get("role") or "user"),
@@ -3642,26 +3651,38 @@ def _provider_protocol_message_specs(
                 "kind": "provider_protocol_history",
                 "source_ref": f"{source_ref}:{index}",
                 "cache_scope": "none",
-                "cache_role": "never_cache",
-                "prefix_tier": "none",
+                "cache_role": "volatile",
+                "prefix_tier": "volatile",
                 "compression_role": "preserve",
                 "metadata": {
+                    "context_cache_section": CONTEXT_APPEND,
+                    "context_commit_policy": "append_then_seal",
+                    "context_replay_policy": PROVIDER_PROTOCOL_APPEND_POLICY,
+                    "context_identity_policy": "origin_ref_stable",
+                    "context_origin_authority": "harness.runtime.compiler.provider_protocol_projection",
+                    "context_origin_ref": append_only_item_key,
+                    "append_only_context_item_key": append_only_item_key,
                     "protocol_history_index": index,
-                    "provider_protocol_replay": True,
+                    "provider_protocol_append_candidate": True,
+                    "provider_message_append_authority": PROVIDER_PROTOCOL_APPEND_AUTHORITY,
+                    "provider_visible_history_status": PROVIDER_PROTOCOL_APPEND_STATUS,
                     "protocol_truncated_count": protocol_truncated_count,
                     "protocol_sanitizer": {
-                        "status": "bypassed_for_provider_visible_replay",
-                        "reason": "provider protocol history must preserve provider-visible replay bytes",
+                        "status": "provider_protocol_append_candidate_byte_preserved",
+                        "reason": "provider protocol history is an append candidate and must preserve provider-visible bytes",
                         "authority": "harness.runtime.compiler.provider_protocol_projection",
                     },
                     "protocol_projection": dict(protocol_projection),
                     "reasoning_content_present": bool(message.get("reasoning_content")),
                     "tool_calls_present": bool(message.get("tool_calls")),
                     "exact_content_required_before_final": _provider_protocol_requires_rehydration(message),
-                    "content_source": "runtime.provider_protocol_replay",
-                    "authority_class": "append_only_provider_protocol_history",
-                    "cache_impact": "append_only_provider_visible_context_prefix",
-                    "stability_rule": "provider protocol transcript is historical context; new protocol messages append after old ones and only compaction boundary may replace prior content",
+                    "content_source": "runtime.provider_protocol_append_candidate",
+                    "cache_impact": "append_only_provider_visible_append_candidate",
+                    "volatility_reason": (
+                        "provider protocol append candidates are materialized in the current request; "
+                        "provider success and the physical prefix frame decide their later cache placement"
+                    ),
+                    "stability_rule": "provider protocol transcript is historical context; new protocol messages append after old ones and provider success promotes confirmed candidates into the next physical prefix frame",
                     "append_only_context_package": "historical_context",
                     "append_only_context_stream": "provider_protocol",
                     "append_only_created_at": append_only_created_at,
@@ -3692,34 +3713,23 @@ def _provider_protocol_after_compaction_boundary(
 
 
 def _provider_protocol_hot_messages(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return _provider_protocol_closed_tool_round_messages(transcript)
-
-
-_CONTROL_PROTOCOL_TOOL_CALL_NAMES = {
-    "respond",
-    "ask_user",
-    "block",
-    "request_task_run",
-    "active_work_control",
-    "resume_recoverable_work",
-    "pause_for_user_steer",
-    "task_run_request",
-}
-
-
-def _provider_protocol_closed_tool_round_messages(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
     messages = [dict(item) for item in list(transcript or []) if isinstance(item, dict)]
     result: list[dict[str, Any]] = []
     index = 0
     while index < len(messages):
         message = messages[index]
         role = str(message.get("role") or "").strip()
+        if role == "user":
+            if _provider_protocol_message_has_content(message):
+                result.append(message)
+            index += 1
+            continue
         if role != "assistant":
             index += 1
             continue
         tool_call_ids = _assistant_tool_call_id_list(message)
         if not tool_call_ids:
-            if _explicit_provider_text(message.get("reasoning_content")):
+            if _provider_protocol_message_has_content(message) or _explicit_provider_text(message.get("reasoning_content")):
                 result.append(message)
             index += 1
             continue
@@ -3730,6 +3740,7 @@ def _provider_protocol_closed_tool_round_messages(transcript: list[dict[str, Any
         if len(expected) != len(set(expected)):
             index += 1
             continue
+        expected_set = set(expected)
         tool_messages: list[dict[str, Any]] = []
         found: set[str] = set()
         cursor = index + 1
@@ -3738,18 +3749,41 @@ def _provider_protocol_closed_tool_round_messages(transcript: list[dict[str, Any
             if str(candidate.get("role") or "").strip() != "tool":
                 break
             tool_call_id = str(candidate.get("tool_call_id") or "").strip()
-            if tool_call_id not in set(tool_call_ids) or tool_call_id in found:
+            if tool_call_id not in expected_set or tool_call_id in found:
                 break
             tool_messages.append(candidate)
             found.add(tool_call_id)
             cursor += 1
-        if set(tool_call_ids).issubset(found):
+        if expected_set.issubset(found):
             result.append(message)
             result.extend(tool_messages)
             index = cursor
             continue
         index += 1
     return result
+
+
+def _provider_protocol_message_has_content(message: dict[str, Any]) -> bool:
+    content = message.get("content")
+    if content is None:
+        return False
+    if isinstance(content, str):
+        return bool(content.strip())
+    if isinstance(content, list):
+        return bool(content)
+    return bool(str(content).strip())
+
+
+_CONTROL_PROTOCOL_TOOL_CALL_NAMES = {
+    "respond",
+    "ask_user",
+    "block",
+    "request_task_run",
+    "active_work_control",
+    "resume_task_recovery",
+    "pause_for_user_steer",
+    "task_run_request",
+}
 
 
 def _provider_protocol_created_ats(
@@ -3786,17 +3820,6 @@ def _same_provider_protocol_message(message: dict[str, Any], candidate: dict[str
         return reasoning == _explicit_provider_text(candidate.get("reasoning_content"))
     content = str(message.get("content") or "").strip()
     return bool(content) and content == str(candidate.get("content") or candidate.get("text") or "").strip()
-
-
-def _is_provider_protocol_hot_message(message: dict[str, Any]) -> bool:
-    role = str(message.get("role") or "").strip()
-    if role == "tool":
-        return True
-    if _assistant_tool_call_ids(message):
-        return True
-    if _explicit_provider_text(message.get("reasoning_content")):
-        return True
-    return False
 
 
 def _explicit_provider_text(value: Any) -> str:
@@ -3853,13 +3876,34 @@ def _provider_protocol_requires_rehydration(message: dict[str, Any]) -> bool:
     return "<persisted-output>" in content
 
 
+def _provider_protocol_append_item_key(
+    message: dict[str, Any],
+    *,
+    source_ref: str,
+    index: int,
+    append_only_created_at: float,
+    compaction_boundary_created_at: float,
+) -> str:
+    return _stable_json_hash(
+        {
+            "schema": "provider_protocol_append_item_key",
+            "source_ref": str(source_ref or ""),
+            "stream": "provider_protocol",
+            "index": int(index or 0),
+            "created_at": float(append_only_created_at or 0.0),
+            "compaction_boundary_created_at": float(compaction_boundary_created_at or 0.0),
+            "provider_message_hash": _stable_json_hash(message),
+        }
+    )
+
+
 def _model_messages_and_segment_plan(
     *,
     packet_id: str,
     invocation_kind: str,
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     collect_dynamic_context_metadata_diagnostics: bool = False,
-    provider_visible_context_scope: str = "",
+    provider_visible_append_scope: str = "",
     provider_visible_context_inheritance: dict[str, Any] | None = None,
     compaction_generation: str = "",
     storage_root: Path | None = None,
@@ -3905,7 +3949,7 @@ def _model_messages_and_segment_plan(
     context_pipeline_result = build_context_pipeline(
         clean_specs,
         invocation_kind=invocation_kind,
-        provider_visible_context_scope=provider_visible_context_scope,
+        provider_visible_append_scope=provider_visible_append_scope,
         provider_visible_context_inheritance=provider_visible_context_inheritance,
         compaction_generation=compaction_generation,
         storage_root=storage_root,
@@ -3916,7 +3960,7 @@ def _model_messages_and_segment_plan(
     )
     clean_specs = [dict(item) for item in tuple(context_pipeline_result.message_specs or ())]
     context_pipeline_diagnostics = dict(context_pipeline_result.diagnostics or {})
-    _provider_visible_context_diagnostics = dict(context_pipeline_diagnostics.get("provider_visible_context_ledger") or {})
+    _provider_visible_append_stage_diagnostics = dict(context_pipeline_diagnostics.get("provider_visible_append_stage") or {})
     _context_physical_diagnostics = dict(context_pipeline_diagnostics.get("physical_context") or {})
     slot_plan = build_runtime_prompt_slot_plan(
         packet_id=packet_id,
@@ -3942,7 +3986,7 @@ def _model_messages_and_segment_plan(
         message_specs=clean_specs,
         diagnostics={
             **dict(_context_physical_diagnostics or {}),
-            "provider_visible_context_ledger": dict(_provider_visible_context_diagnostics or {}),
+            "provider_visible_append_stage": dict(_provider_visible_append_stage_diagnostics or {}),
             "context_capability": dict(_context_capability_diagnostics or {}),
             "context_pipeline": context_pipeline_diagnostics,
             "dynamic_context_metadata_validation": dynamic_context_validation,
@@ -3972,8 +4016,8 @@ def _provider_visible_context_inheritance_from_session_context(
     if not parent_session_id or parent_session_id == child:
         return {}
     anchor = (
-        dict(forked_from.get("fork_point_provider_visible_ledger_anchor") or {})
-        if isinstance(forked_from.get("fork_point_provider_visible_ledger_anchor"), dict)
+        dict(forked_from.get("fork_point_provider_visible_append_anchor") or {})
+        if isinstance(forked_from.get("fork_point_provider_visible_append_anchor"), dict)
         else {}
     )
     if not anchor:
@@ -4036,12 +4080,12 @@ def _sanitize_model_messages_for_prompt_packet(
     turn_id: str,
     source: str,
 ) -> ProtocolSanitizerResult:
-    protected_old_context_specs = [
+    byte_preservation_specs = [
         dict(item)
         for item in list(message_specs or ())
-        if isinstance(item, dict) and _protected_old_context_spec(dict(item))
+        if isinstance(item, dict) and _provider_message_byte_preservation_contract_spec(dict(item))
     ]
-    if not protected_old_context_specs:
+    if not byte_preservation_specs:
         return sanitize_messages_for_prompt(messages, turn_id=turn_id, source=source)
     return ProtocolSanitizerResult(
         messages=tuple(dict(item) for item in list(messages or []) if isinstance(item, dict)),
@@ -4050,19 +4094,22 @@ def _sanitize_model_messages_for_prompt_packet(
             "turn_id": str(turn_id or ""),
             "input_message_count": len(list(messages or [])),
             "output_message_count": len([item for item in list(messages or []) if isinstance(item, dict)]),
-            "status": "bypassed_for_protected_old_context",
-            "protected_old_context_spec_count": len(protected_old_context_specs),
-            "protected_old_context_refs": [
+            "status": "byte_preserved_for_provider_message_contract",
+            "provider_message_byte_preservation_contract_spec_count": len(byte_preservation_specs),
+            "provider_message_byte_preservation_contract_refs": [
                 str(spec.get("source_ref") or dict(spec.get("metadata") or {}).get("runtime_prompt_source_id") or "")
-                for spec in protected_old_context_specs[:20]
+                for spec in byte_preservation_specs[:20]
             ],
-            "authority": "harness.runtime.compiler.protected_old_context_sanitizer_guard",
+            "provider_message_byte_preservation_contracts": [
+                provider_message_replay_kind(spec) for spec in byte_preservation_specs[:20]
+            ],
+            "authority": "harness.runtime.compiler.provider_message_byte_preservation_sanitizer_guard",
         },
     )
 
 
-def _protected_old_context_spec(spec: dict[str, Any]) -> bool:
-    return protected_old_context_spec(spec)
+def _provider_message_byte_preservation_contract_spec(spec: dict[str, Any]) -> bool:
+    return provider_message_byte_preservation_required(spec)
 
 
 def _context_physical_assembly_manifest_from_specs(
@@ -4120,7 +4167,7 @@ def _context_physical_assembly_manifest_from_specs(
 
 def _model_message_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
     raw_message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else spec
-    if protected_old_context_spec(spec):
+    if provider_message_byte_preservation_required(spec):
         return dict(raw_message)
     role = str(raw_message.get("role") or spec.get("role") or "user").strip() or "user"
     message: dict[str, Any] = {
@@ -4193,7 +4240,8 @@ def _dynamic_context_metadata_violations(specs: list[dict[str, Any]]) -> list[di
     for index, spec in enumerate(specs):
         cache_role = str(spec.get("cache_role") or "")
         kind = str(spec.get("kind") or "")
-        if cache_role != "volatile" and not kind.startswith("dynamic"):
+        policy = context_segment_policy_for_spec(spec, default_section=CONTEXT_APPEND)
+        if cache_role != "volatile" and policy.section != DYNAMIC_TAIL:
             continue
         metadata = dict(spec.get("metadata") or {})
         if _is_sealed_provider_visible_replay_metadata(metadata):
@@ -4213,8 +4261,7 @@ def _dynamic_context_metadata_violations(specs: list[dict[str, Any]]) -> list[di
 
 
 def _is_sealed_provider_visible_replay_metadata(metadata: dict[str, Any]) -> bool:
-    payload_authority = str(metadata.get("provider_visible_payload_authority") or "")
-    return payload_authority == "runtime.context_management.physical_prefix_frame.replay"
+    return physical_prefix_frame_replay_metadata(metadata)
 
 
 def _dynamic_context_segment_metadata(
@@ -4238,7 +4285,6 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None, *, tur
     user_message = str(dict(payload or {}).get("user_message") or "")
     origin_ref = f"turn:{str(turn_id or '').strip()}:current_user_context" if str(turn_id or "").strip() else ""
     return {
-        "authority_class": "current_user_context",
         "content_source": "harness.runtime.compiler.current_turn_user_context",
         "context_origin_authority": "harness.runtime.compiler.current_turn_user_context",
         "context_origin_ref": origin_ref,
@@ -4247,12 +4293,15 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None, *, tur
         "context_prefix_cache_scope": "none",
         "context_prefix_cache_role": "volatile",
         "context_prefix_tier": "volatile",
-        "context_commit_policy": "append_then_seal",
-        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
-        "cache_impact": "current_context_append_promotes_to_next_prefix",
+        "context_commit_policy": "never_commit",
+        "context_replay_policy": "current_turn_present_only",
+        "context_identity_policy": "current_turn_only",
+        "semantic_commit_class": "current_user_context",
+        "provider_visible_after_validity": "not_replayed_after_current_request",
+        "cache_impact": "current_turn_tail_only",
         "stability_rule": (
-            "current user input is new provider-visible context for this turn; it can be sealed after "
-            "provider success, but the current request must not count it as an already cached prefix"
+            "current user input is present-turn context; after provider success it is represented by "
+            "provider_protocol_timeline/provider_protocol_history instead of this current-turn fragment"
         ),
         "append_only_context_package": "current_user_context",
         "append_only_context_stream": "current_user_context",
@@ -4281,13 +4330,13 @@ def _current_runtime_tail_metadata(
         "context_replay_policy": "current_dynamic_tail_only",
         "context_identity_policy": "turn_scope_runtime_tail",
         "semantic_commit_class": "current_runtime_control",
-        "semantic_memory_visible": False,
-        "semantic_memory_commit_policy": "never_commit",
+        "context_memory_visible": False,
+        "context_memory_commit_policy": "never_commit",
         "validity_scope": str(validity_scope or ""),
         "provider_visible_after_validity": "not_replayed_after_current_request",
         "cache_impact": "current_dynamic_tail_only",
         "stability_rule": (
-            "This runtime-control block is valid only for the current provider request. "
+            "This request-control block is valid only for the current model request. "
             "It is not sealed into provider-visible history; stable conversation memory is carried by "
             "the append-only user, tool, file-evidence, and memory context lanes."
         ),
@@ -4295,11 +4344,10 @@ def _current_runtime_tail_metadata(
 
 
 def _runtime_control_context_notice(*, validity_scope: str = "") -> str:
-    validity = str(validity_scope or "current-provider-request").strip()
+    del validity_scope
     return (
-        "当前运行边界只对本次 provider 请求有效；历史前缀里的旧边界只作历史记录。"
-        "本轮以消息流最后的运行边界为准。\n"
-        f"有效期：{validity}。"
+        "这段只对当前用户请求有效；历史上下文中的同类边界只作背景记录。"
+        "请以消息流最后出现的当前请求上下文为准。"
     )
 
 
@@ -4323,7 +4371,7 @@ def _runtime_control_context_content(
     )
     return render_text_context_fragment(
         kind="turn_state_guidance",
-        title="当前运行工作提示边界",
+        title="当前请求工作提示边界",
         text=text,
         role="system",
         source_ref=source_ref,
@@ -4448,7 +4496,7 @@ def _attach_context_contract_manifest(
     )
     payload = manifest.to_dict()
     prompt_manifest["context_contract_manifest"] = payload
-    prompt_manifest["semantic_space_inspection"] = build_context_contract_inspection_payload(payload)
+    prompt_manifest["context_contract_inspection"] = build_context_contract_inspection_payload(payload)
     return payload
 
 
@@ -4479,12 +4527,12 @@ def _attach_tool_catalog_manifest(
     return payload
 
 
-def _attach_task_contract_manifest(
+def _attach_task_run_contract_manifest(
     prompt_manifest: dict[str, Any],
-    task_contract_manifest: TaskContractManifest,
+    task_run_contract_manifest: TaskRunContractManifest,
 ) -> dict[str, Any]:
-    payload = task_contract_manifest.to_dict()
-    prompt_manifest["task_contract_manifest"] = payload
+    payload = task_run_contract_manifest.to_dict()
+    prompt_manifest["task_run_contract_manifest"] = payload
     return payload
 
 
@@ -4842,7 +4890,7 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
             },
             "current_evidence_sources": [
                 "当前文件证据窗口",
-                "可恢复的读取结果句柄",
+                "可重新读取的结果句柄",
                 "已绑定的编辑器或任务工作范围",
             ],
         }
@@ -4871,12 +4919,18 @@ def _merge_prompt_assemblies(
     sections = []
     pack_refs: list[str] = []
     rejected_refs: list[dict[str, Any]] = []
+    omitted_refs: list[dict[str, Any]] = []
     for assembly in assemblies:
         sections.extend(assembly.sections)
         pack_refs.extend(assembly.prompt_pack_refs)
         rejected_refs.extend(dict(item) for item in assembly.rejected_refs)
+        omitted_refs.extend(dict(item) for item in list(dict(assembly.manifest or {}).get("omitted_refs") or []))
     sections = list(enforce_prompt_authority_order(tuple(sections)))
-    rule_diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=invocation_kind)
+    rule_diagnostics = build_rule_diagnostics(
+        tuple(sections),
+        invocation_kind=invocation_kind,
+        omitted_rule_refs=tuple(str(item.get("ref") or "") for item in omitted_refs),
+    )
     rejected_refs.extend(dict(item) for item in list(rule_diagnostics.get("rejected_rules") or []))
     if rule_diagnostics.get("rejected_rules"):
         rejected = ", ".join(
@@ -4899,6 +4953,7 @@ def _merge_prompt_assemblies(
             "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(dict.fromkeys(pack_refs)),
             "rejected_refs": rejected_refs,
+            "omitted_refs": omitted_refs,
             "prompt_rules": rule_diagnostics,
             "prompt_precedence": build_prompt_precedence_report(tuple(sections)),
             "prompt_authority": build_prompt_authority_manifest(tuple(sections)),
@@ -5216,7 +5271,7 @@ def _graph_node_prompt_contract_from_runtime(
 def _normalize_prompt_contract(payload: dict[str, Any], *, contract_id: str) -> dict[str, Any]:
     return {
         "contract_id": str(contract_id or payload.get("contract_id") or "").strip(),
-        "version": str(payload.get("version") or "v1"),
+        "contract_identity": str(payload.get("contract_identity") or contract_id or "prompt_contract"),
         "role_prompt": _first_runtime_text(payload.get("role_prompt")),
         "task_instruction": _first_runtime_text(payload.get("task_instruction")),
         "output_instruction": _first_runtime_text(payload.get("output_instruction")),
@@ -5451,13 +5506,13 @@ def _model_decision_contract_payload(
     task_run_allowed: bool,
     tool_call_contract: ToolCallContract | None = None,
 ) -> dict[str, Any]:
-    semantic_actions = [str(item) for item in tuple(allowed_action_types or ()) if str(item)]
+    allowed_actions = [str(item) for item in tuple(allowed_action_types or ()) if str(item)]
     control_actions = [
         item
         for item in ("ask_user", "block", "request_task_run", "active_work_control", "pause_for_user_steer")
-        if item in semantic_actions
+        if item in allowed_actions
     ]
-    pause_for_user_steer_allowed = "pause_for_user_steer" in semantic_actions
+    pause_for_user_steer_allowed = "pause_for_user_steer" in allowed_actions
     tool_contract = tool_call_contract.to_hidden_control_payload() if tool_call_contract is not None else {}
     ordinary_tool_submission = str(tool_contract.get("ordinary_tool_submission") or "none")
     control_action_submission = str(tool_contract.get("control_action_submission") or "none")
@@ -5468,7 +5523,7 @@ def _model_decision_contract_payload(
         "prompt_authority": "runtime_action_contract",
         "invocation_kind": str(invocation_kind or ""),
         "model_invocation_phase": model_invocation_phase,
-        "semantic_actions": semantic_actions,
+        "allowed_action_types": allowed_actions,
         "control_actions": control_actions,
         "assistant_response_form": (
             "ordinary_initial_assistant_message"
@@ -5530,18 +5585,18 @@ def _model_decision_contract_payload(
             {
                 "task_pause_rule": {
                     "pause_for_user_steer_allowed": True,
-                    "authority_boundary": "model_decides_semantic_pause_after_runtime_exposes_pending_user_steer",
+                    "authority_boundary": "model_decides_semantic_pause_after_current_context_exposes_pending_user_steer",
                     "use_only_when": [
-                        "本轮上下文包含指向当前 task_run 的 pending_user_steers 或等价用户 steer 事实。",
-                        "你判断继续当前执行步骤会越过用户最新要求，需要停在可恢复边界。",
-                        "你能提供 steer_ref 和 checkpoint_summary，让恢复后的你先重新判断用户 steer。",
+                        "当前请求上下文包含指向当前 task_run 的 pending_user_steers 或等价用户 steer 事实。",
+                        "你判断继续当前执行步骤会越过用户最新要求，需要停在可继续边界。",
+                        "你能提供 steer_ref 和 checkpoint_summary，让后续接入时先重新判断用户 steer。",
                     ],
                     "do_not_use_for": [
                         "缺权限、缺资源、缺文件、缺外部事实、工具失败、预算耗尽或普通不确定。",
                         "没有 pending_user_steers 的普通任务暂停。",
                         "已经真正处理并消费该 steer 的情况。",
                     ],
-                    "resume_contract": "暂停后会留下可恢复的事实和句柄；恢复时，你仍要根据上下文缓存、pending steer 和 runtime facts 重新判断下一步。",
+                    "resume_contract": "暂停后会留下可继续的事实和句柄；后续接入时，你仍要根据上下文缓存、pending steer 和当前工作事实重新判断下一步。",
                 }
             }
             if pause_for_user_steer_allowed
@@ -5554,8 +5609,8 @@ def _model_decision_contract_payload(
                 "ask_user_when_contract_gaps_exist": True,
                 "task_start_requires_structured_request_task_run": True,
                 "resource_request_conditions": [
-                    "需要跨 turn 保存目标、计划游标、todo 游标、证据、恢复点、验收边界或阶段反馈。",
-                    "用户需要能暂停、停止、恢复或继续同一个工作单元。",
+                    "需要为后续请求保存目标、计划游标、todo 游标、证据、检查点、验收边界或阶段反馈。",
+                    "用户需要能暂停、停止或继续同一个工作单元。",
                     "当前动作需要一个明确的系统资源边界，而不是一次普通工具观察。",
                 ],
                 "request_task_run_when_agent_selects_resource": (
@@ -5566,7 +5621,7 @@ def _model_decision_contract_payload(
                     "如果你判断需要长任务资源但 primary_mode、task_shape、最小下一步、范围或验收模式不足，提交 ask_user 补齐。"
                 ),
                 "request_task_run_minimum_contract": [
-                    "task_run_contract_seed.contract_shape=compact_task_start_intent_v3",
+                    "task_run_contract_seed.contract_shape=compact_task_start_intent",
                     "task_run_contract_seed.primary_mode",
                     "task_run_contract_seed.task_shape",
                     "task_run_contract_seed.minimum_viable_next_step",
@@ -5575,7 +5630,7 @@ def _model_decision_contract_payload(
                     "task_run_contract_seed.mode_payload",
                 ],
                 "single_turn_tool_call_boundary": (
-                    "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
+                    "tool_call 是当前请求内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
                     "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
                 ),
             }
@@ -5584,9 +5639,9 @@ def _model_decision_contract_payload(
                 "request_task_run_allowed": False,
                 "agent_selects_resource_request": False,
                 "task_start_requires_structured_request_task_run": False,
-                "resource_request_unavailable": "当前运行配置没有提供长任务资源申请入口；不要提交 request_task_run，也不要把普通工具调用描述成已开启 task。",
+                "resource_request_unavailable": "当前可用能力没有提供长任务资源申请入口；不要提交 request_task_run，也不要把普通工具调用描述成已开启 task。",
                 "single_turn_tool_call_boundary": (
-                    "tool_call 是当前 turn 内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
+                    "tool_call 是当前请求内的有效路径，用于你判断有限工具观察即可回答、验证或推进的问题；"
                     "选择工具动作时，公开反馈应说明本次查证目标，不得宣称已经申请或绑定长任务资源。"
                 ),
             }
@@ -5744,7 +5799,7 @@ def _runtime_projection_instruction(projection: dict[str, Any], *, validity_scop
     notice = _runtime_control_context_notice(validity_scope=validity_scope)
     return _join_prompt_sections(
         notice,
-        f"本轮动态契约：动作={allowed_text}；工具行动={action_ref}；本段只列当前边界。\n",
+        f"当前请求动作契约：动作={allowed_text}；工具行动={action_ref}；本段只列当前请求边界。\n",
     )
 
 
@@ -5910,7 +5965,7 @@ def _runtime_baseline_refs_model_visible_payload(dynamic_context: DynamicContext
         "context_continuity": {
             "stable_agent_role_present": bool(baseline_refs.get("agent_profile_ref")),
             "stable_environment_contract_present": bool(baseline_refs.get("task_environment_ref")),
-            "current_runtime_boundary": "Per-invocation action and execution facts are provided later in the current runtime boundary.",
+            "current_request_context": "Current action and execution facts are provided later in the current request context.",
         }
     }
 
@@ -6143,11 +6198,11 @@ def _capability_catalog_source_ref(payload: dict[str, Any]) -> str:
 
 def _turn_attention_index_payload_from_task_resource(
     *,
-    task_contract_payload: dict[str, Any],
+    task_run_contract_payload: dict[str, Any],
     turn_state_attention_context_payload: dict[str, Any],
     task_state_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    contract_root = dict(dict(task_contract_payload or {}).get("task_run_contract") or {})
+    contract_root = dict(dict(task_run_contract_payload or {}).get("task_run_contract") or {})
     if not contract_root:
         return {}
     task_run_context = dict(contract_root.get("task_run_context") or {})
@@ -6173,13 +6228,13 @@ def _turn_attention_index_payload_from_task_resource(
     todo_focus = _task_attention_todo_focus(todo_contract, turn_state_attention_context_payload, task_state_payload)
     return _drop_empty_payload(
         {
-            "turn_attention_index": _drop_empty_payload(
+            "current_attention_index": _drop_empty_payload(
                 {
-                    "authority": "harness.runtime.turn_attention_index",
+                    "authority": "harness.current_attention_index",
                     "agent_use_contract": (
-                        "Before choosing the next action, re-anchor on this current turn attention index. "
+                        "Before choosing the next action, re-anchor on this current attention index. "
                         "Use it as a volatile attention guide for the active resource, scope, plan cursor, "
-                        "todo cursor, acceptance boundary, runtime boundary, and tool observations."
+                        "todo cursor, acceptance boundary, current request context, and tool observations."
                     ),
                     "task_goal": _compact_text(
                         goal_contract.get("task_run_goal")
@@ -6207,10 +6262,10 @@ def _turn_attention_index_payload_from_task_resource(
                     "acceptance_focus": _task_attention_acceptance_focus(acceptance),
                     "context_pointers": _drop_empty_payload(
                         {
-                            "full_task_contract": "Task execution task contract",
-                            "long_plan_context": "Turn plan cursor context" if plan_focus else "",
-                            "current_todo_context": "Turn todo cursor context" if todo_focus else "",
-                            "current_runtime_boundary": "Current Runtime Boundary",
+                            "full_task_run_contract": "Task execution task run contract",
+                            "long_plan_context": "Plan cursor context" if plan_focus else "",
+                            "current_todo_context": "Todo cursor context" if todo_focus else "",
+                            "current_request_context": "Current Request Context",
                         }
                     ),
                     "cache_boundary": {
@@ -6555,7 +6610,7 @@ def _graph_node_stable_contract_context(graph_slot: dict[str, Any]) -> dict[str,
             "output": _graph_visible_output_requirements(output_contract),
             "constraints": _graph_visible_constraints(node_contract=node_contract, output_contract=output_contract),
             "visibility": {
-                "authorized_input_content_lives_in": "Task execution graph node runtime context",
+                "authorized_input_content_lives_in": "Task execution graph node current context",
                 "stable_contract_is_cache_prefix_safe": True,
                 "authority": "harness.runtime.graph_node_context.stable_visibility",
             },
@@ -7152,8 +7207,3 @@ def _ensure_environment_storage_dirs_for_runtime(base_dir: Path, environment_pay
         return
     project_root = ProjectLayout.from_backend_dir(base_dir).project_root.resolve()
     ensure_environment_storage_dirs(project_root=project_root, storage_space=storage)
-
-
-
-
-

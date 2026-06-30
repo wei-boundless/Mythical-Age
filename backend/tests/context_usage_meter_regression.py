@@ -17,8 +17,8 @@ class _Ledger:
 
 def _runtime_record(*, prompt_tokens: int) -> ModelTokenUsageRecord:
     return ModelTokenUsageRecord(
-        usage_id="tokuse:modelreq:pressure:local_prediction",
-        request_id="modelreq:pressure",
+        usage_id="tokuse:providerreq:pressure:local_prediction",
+        request_id="providerreq:pressure",
         session_id="session:pressure",
         provider="deepseek",
         model="deepseek-v4-pro",
@@ -80,8 +80,8 @@ def test_prompt_accounting_ledger_can_read_recent_token_usage_without_full_scan(
     ledger.record_token_usage(_runtime_record(prompt_tokens=30_000))
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:other:local_prediction",
-            request_id="modelreq:other",
+            usage_id="tokuse:providerreq:other:local_prediction",
+            request_id="providerreq:other",
             session_id="session:other",
             provider="deepseek",
             model="deepseek-v4-pro",
@@ -94,8 +94,8 @@ def test_prompt_accounting_ledger_can_read_recent_token_usage_without_full_scan(
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:pressure:newer",
-            request_id="modelreq:pressure:newer",
+            usage_id="tokuse:providerreq:pressure:newer",
+            request_id="providerreq:pressure:newer",
             session_id="session:pressure",
             provider="deepseek",
             model="deepseek-v4-pro",

@@ -6,29 +6,29 @@ from typing import Any
 PHYSICAL_CACHE_SPINE_KEY = "physical_cache_spine"
 
 
-def provider_payload_manifest_dict(model_request: Any | None) -> dict[str, Any]:
-    if model_request is None:
+def provider_payload_manifest_dict(provider_request: Any | None) -> dict[str, Any]:
+    if provider_request is None:
         return {}
-    value = getattr(model_request, "provider_payload_manifest", None)
-    if value is None and isinstance(model_request, dict):
-        value = model_request.get("provider_payload_manifest")
+    value = getattr(provider_request, "provider_payload_manifest", None)
+    if value is None and isinstance(provider_request, dict):
+        value = provider_request.get("provider_payload_manifest")
     if hasattr(value, "to_dict"):
         return dict(value.to_dict())
     return dict(value or {}) if isinstance(value, dict) else {}
 
 
-def provider_payload_cache_boundary(model_request: Any | None) -> dict[str, Any]:
-    manifest = provider_payload_manifest_dict(model_request)
+def provider_payload_cache_boundary(provider_request: Any | None) -> dict[str, Any]:
+    manifest = provider_payload_manifest_dict(provider_request)
     return dict(manifest.get("cache_boundary") or {})
 
 
-def provider_payload_segments(model_request: Any | None) -> list[dict[str, Any]]:
-    manifest = provider_payload_manifest_dict(model_request)
+def provider_payload_segments(provider_request: Any | None) -> list[dict[str, Any]]:
+    manifest = provider_payload_manifest_dict(provider_request)
     return [dict(item) for item in list(manifest.get("segments") or []) if isinstance(item, dict)]
 
 
-def provider_payload_manifest_id(model_request: Any | None) -> str:
-    manifest = provider_payload_manifest_dict(model_request)
+def provider_payload_manifest_id(provider_request: Any | None) -> str:
+    manifest = provider_payload_manifest_dict(provider_request)
     return str(manifest.get("manifest_id") or "")
 
 
@@ -53,24 +53,24 @@ def provider_payload_physical_cache_spine(boundary: dict[str, Any] | None) -> di
     return {}
 
 
-def provider_payload_prefix_hash_for_tier(model_request: Any | None, tier: str) -> str:
+def provider_payload_prefix_hash_for_tier(provider_request: Any | None, tier: str) -> str:
     normalized = str(tier or "").strip()
     if normalized == PHYSICAL_CACHE_SPINE_KEY:
-        return str(getattr(model_request, "provider_payload_prefix_hash", "") or "")
+        return str(getattr(provider_request, "provider_payload_prefix_hash", "") or "")
     return ""
 
 
 def provider_payload_boundary_diagnostics(
     *,
-    model_request: Any | None,
+    provider_request: Any | None,
     boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    resolved = dict(boundary or provider_payload_cache_boundary(model_request))
+    resolved = dict(boundary or provider_payload_cache_boundary(provider_request))
     selected_tier = provider_payload_selected_tier(resolved)
     selected_prefix = provider_payload_tier_prefix(resolved, selected_tier)
     physical_spine = provider_payload_physical_cache_spine(resolved)
     return {
-        "provider_payload_manifest_ref": provider_payload_manifest_id(model_request),
+        "provider_payload_manifest_ref": provider_payload_manifest_id(provider_request),
         "provider_payload_prefix_hash": str(resolved.get("provider_payload_prefix_hash") or ""),
         "physical_cache_spine_message_subtotal_hash": str(resolved.get("physical_cache_spine_message_subtotal_hash") or ""),
         "provider_payload_prefix_key_tier": selected_tier,

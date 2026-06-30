@@ -729,7 +729,6 @@ _COMPACTION_BOUNDARY_KEYS = {
     "semantic_compaction",
     "context_compaction",
     "context_compression",
-    "recoverable_work",
     "recovery_boundary",
     "rehydration_plan",
 }

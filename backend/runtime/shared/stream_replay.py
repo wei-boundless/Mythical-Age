@@ -7,12 +7,12 @@ from typing import Any
 
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent
-from .runtime_run_registry import RuntimeRun, is_terminal_runtime_run_status
+from .runtime_run_registry import RuntimeRun, is_recoverable_runtime_run_interruption, is_terminal_runtime_run_status
 from runtime.output_stream.public_contract import TURN_COMPLETED_EVENT, is_terminal_public_event
 
 
 PUBLIC_STREAM_EVENT_TYPE = "chat_stream_event"
-AGENT_LIVE_PROTOCOL = "agent-live.v1"
+AGENT_LIVE_PROTOCOL = "agent-live"
 _PUBLIC_PROJECTION_AUTHORITY = "harness.public_projection"
 _REQUIRED_PROJECTION_FRAME_KEYS = ("op", "slot", "main_visibility", "retention")
 _PUBLIC_RAW_PROTOCOL_KEYS = {
@@ -116,6 +116,8 @@ class RuntimeStreamReplayService:
     def ensure_terminal_reconciliation_event(self, run: RuntimeRun) -> RuntimeEvent | None:
         if not is_terminal_runtime_run_status(getattr(run, "status", "")):
             return None
+        if is_recoverable_runtime_run_interruption(run):
+            return None
         if any(self.is_terminal_event(event) for event in self.list_public_events(run)):
             return None
         return self.append_public_event(
@@ -210,7 +212,11 @@ class RuntimeStreamReplayService:
             latest_offset = max(latest_offset, int(envelope.get("event_offset") or latest_offset))
             terminal = terminal or bool(envelope.get("terminal") is True)
         run_latest_offset = int(getattr(run, "latest_event_offset", -1) or -1)
-        if is_terminal_runtime_run_status(getattr(run, "status", "")) and latest_offset >= run_latest_offset:
+        if (
+            is_terminal_runtime_run_status(getattr(run, "status", ""))
+            and not is_recoverable_runtime_run_interruption(run)
+            and latest_offset >= run_latest_offset
+        ):
             terminal = True
         return {
             "stream_run_id": run.stream_run_id,

@@ -4,18 +4,15 @@ from importlib import import_module
 from typing import Any
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
-    "ASSISTANT_STREAM_FRAME_SCHEMA_VERSION": (
+    "ASSISTANT_STREAM_FRAME_SCHEMA_ID": (
         "runtime.model_gateway.assistant_stream_frame",
-        "ASSISTANT_STREAM_FRAME_SCHEMA_VERSION",
+        "ASSISTANT_STREAM_FRAME_SCHEMA_ID",
     ),
     "ASSISTANT_STREAM_REPAIR_EVENT": ("runtime.model_gateway.assistant_stream_frame", "ASSISTANT_STREAM_REPAIR_EVENT"),
     "ASSISTANT_TEXT_DELTA_EVENT": ("runtime.model_gateway.assistant_stream_frame", "ASSISTANT_TEXT_DELTA_EVENT"),
     "ASSISTANT_TEXT_FINAL_EVENT": ("runtime.model_gateway.assistant_stream_frame", "ASSISTANT_TEXT_FINAL_EVENT"),
     "AssistantStreamFrame": ("runtime.model_gateway.assistant_stream_frame", "AssistantStreamFrame"),
     "AssistantStreamNormalizer": ("runtime.model_gateway.assistant_stream_normalizer", "AssistantStreamNormalizer"),
-    "ModelRequestBuilder": ("runtime.model_gateway.model_request", "ModelRequestBuilder"),
-    "ModelRequestPacket": ("runtime.model_gateway.model_request", "ModelRequestPacket"),
-    "ModelRequestSegmentBinding": ("runtime.model_gateway.model_request", "ModelRequestSegmentBinding"),
     "ModelResponseProtocolResult": ("runtime.model_gateway.model_response_protocol", "ModelResponseProtocolResult"),
     "ModelResponseRuntimeExecutor": ("runtime.model_gateway.model_response", "ModelResponseRuntimeExecutor"),
     "ModelRuntime": ("runtime.model_gateway.model_runtime", "ModelRuntime"),
@@ -23,6 +20,9 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "ModelSpec": ("runtime.model_gateway.model_runtime", "ModelSpec"),
     "ProviderCachePolicy": ("runtime.model_gateway.provider_cache_policy", "ProviderCachePolicy"),
     "ProviderCachePolicyResolver": ("runtime.model_gateway.provider_cache_policy", "ProviderCachePolicyResolver"),
+    "ProviderRequestBuilder": ("runtime.model_gateway.provider_request", "ProviderRequestBuilder"),
+    "ProviderRequestPacket": ("runtime.model_gateway.provider_request", "ProviderRequestPacket"),
+    "ProviderRequestSegmentBinding": ("runtime.model_gateway.provider_request", "ProviderRequestSegmentBinding"),
     "RuntimeConversationAgent": ("runtime.model_gateway.model_runtime", "RuntimeConversationAgent"),
     "model_response_protocol_from_response": (
         "runtime.model_gateway.model_response_protocol",

@@ -8,36 +8,36 @@ from .models import PromptResource, PromptRule, PromptSection
 RUNTIME_TOOL_USE_RULE = """
 你需要把每次工具调用当作当前目标的一步真实行动。
 调用工具前，确认它服务于当前请求、任务合同、权限边界和可见工具列表。
-不可见工具不能臆造；只有当前运行投影或工具观察明确显示权限、沙盒、网络、写入、git 或外部服务未授权时，才把它当作真实边界，不要预设自己缺权限。
+不可见工具不能臆造；只有当前请求上下文或工具观察明确显示权限、沙盒、网络、写入、git 或外部服务未授权时，才把它当作真实边界，不要预设自己缺权限。
 工具返回失败时，把失败当作事实观察，下一步必须改变参数、路径、范围、工具或计划；不要原样重复同一失败动作。
 当工具观察改变了你的判断、计划、风险、失败原因、写入结果、验证结论或阶段边界时，你必须给用户一个可理解的公开短判断。
 公开短判断只能描述已确认事实、缺口、调整方向、阶段结论或下一步；不能写成“正在继续处理”，也不能暴露工具对象、动作字段、内部编号或隐藏推理。
-一组低层读取、搜索或枚举如果属于同一个很短的证据链，可以先连续执行，不必每个工具单独反馈；但一旦跨多个文件、多个工具批次、多轮观察、失败恢复、写入验证或阶段切换，就必须先形成阶段判断，再继续。
+一组低层读取、搜索或枚举如果属于同一个很短的证据链，可以先连续执行，不必每个工具单独反馈；但一旦跨多个文件、多个工具批次、多次观察、失败处理、写入验证或阶段切换，就必须先形成阶段判断，再继续。
 如果当前动作形态没有公开反馈载体，不要夹带普通正文；在下一次结构化动作、控制动作、询问、阻塞或最终回答里补上同一判断目标的公开交代。
 系统不会替你补写反馈，也不会因为缺少反馈替你改变语义动作；反馈节奏由你负责。
 """.strip()
 
 
 RUNTIME_SYSTEM_CALL_PROTOCOL_RULE = """
-当你需要提交动作时，必须使用本轮允许的动作形式。
+当你需要提交动作时，必须使用当前请求允许的动作形式。
 可提交动作只包括当前边界列出的 action_type 和当前动作合同允许的结构化动作。
-如果本轮需要行动对象，本次行动必须唯一，action_type 必须来自 allowed_action_types；执行层会绑定本次动作身份。
-需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；工具名必须来自当前可见工具列表，参数必须是对象。同一判断目标内的一组工具也只使用当前合同给出的批量形式。不要把不可见工具名、路径、命令或参数写成会被执行的行动。
-respond、ask_user、block、request_task_run 和 active_work_control 只能在本轮运行边界允许时使用，并且必须填写对应必需字段。
+如果当前请求需要行动对象，本次行动必须唯一，action_type 必须来自 allowed_action_types；执行层会绑定本次动作身份。
+需要使用工具时，只按当前工具行动合同提交当前允许的工具行动；工具名必须来自当前可见工具列表，参数必须是对象。同一判断目标内的一组工具也只使用当前合同给出的批量形式。不要把不可见工具名、路径、命令或参数写成会被执行的行动。
+respond、ask_user、block、request_task_run 和 active_work_control 只能在当前请求边界允许时使用，并且必须填写对应必需字段。
 提交动作未被接受时，保留原本的任务判断，修正动作字段、权限或范围；不能换等价形式绕过当前可行动作范围。
 """.strip()
 
 
 RUNTIME_TURN_DECISION_ALIGNMENT_RULE = """
-你负责根据用户最新话语、可见上下文和本轮动作边界，选择一个最小充分动作。
+你负责根据用户最新话语、可见上下文和当前请求动作边界，选择一个最小充分动作。
 如果当前事实足以回应，选择 respond。
 如果缺少用户裁决、材料范围、授权意图或关键输入，选择 ask_user。
 如果需要观察、读取、搜索、执行、修改、验证或调用可见外部能力，选择 tool_call。
-如果当前目标需要系统分配长任务运行资源来保留跨 turn 状态、计划游标、恢复点、阶段反馈或验收边界，选择 request_task_run。
-如果当前 turn 已绑定可控工作，且用户最新话语是在继续、暂停、停止、补充、质疑或修订这项工作，选择 active_work_control。
+如果当前目标需要系统分配长任务资源来保留后续请求中的工作状态、计划游标、检查点、阶段反馈或验收边界，选择 request_task_run。
+如果当前请求已绑定可控工作，且用户最新话语是在继续、暂停、停止、补充、质疑或修订这项工作，选择 active_work_control。
 如果所有合法路径都不足以继续，选择 block。
-历史摘要、旧任务记录、todo、工具建议、active_work_context 和恢复线索只能作为判断材料，不能覆盖用户最新话语。
-不要把动作字段、权限校验、展示格式或输出字段当成用户语义；语义动作由你裁决，字段形态由本轮 schema 和运行边界承载。
+历史摘要、旧任务记录、todo、工具建议、active_work_context 和工作接续线索只能作为判断材料，不能覆盖用户最新话语。
+不要把动作字段、权限校验、展示格式或输出字段当成用户语义；语义动作由你裁决，字段形态由当前 schema 和请求边界承载。
 """.strip()
 
 
@@ -61,8 +61,8 @@ RUNTIME_ERROR_RECOVERY_RULE = """
 
 
 RUNTIME_CONTEXT_MEMORY_RULE = """
-你需要区分当前用户消息、最近观察、动态运行投影、任务稳定合同、历史摘要和记忆候选。
-旧摘要、旧任务记录、todo、记忆或恢复候选不能替代当前轮事实；只用于决定下一步检查什么。
+你需要区分当前用户消息、最近观察、当前请求上下文、任务稳定合同、历史摘要和记忆候选。
+旧摘要、旧任务记录、todo、记忆或工作接续候选不能替代当前请求事实；只用于决定下一步检查什么。
 如果上下文被压缩或替换，应依赖当前输入里的 refs、summary 和状态投影，不要补写自己没有证据的细节。
 如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 read_persisted_tool_result，它表示你只看到了预览，不等于完整原文。
 基于被省略的非代码原文做精确结论、引用、验收或最终事实裁决前，先按 rehydration_plan 调用 read_persisted_tool_result；它不用于恢复 read_file 代码证据。高层状态判断可先用预览。
@@ -76,15 +76,15 @@ RUNTIME_PERMISSION_DENIAL_RULE = """
 如果工具观察或运行控制面明确显示工具调用被权限、沙盒、策略或用户拒绝阻止，你需要把拒绝当作真实边界。
 不要换一种等价方式绕过拒绝；先判断是否有已授权替代路径。
 如果当前状态进入显式人工审批等待，审批由 UI/control-plane 处理；不要在聊天中要求用户批准权限，也不要把审批等待当作你可以自行解决的工具失败。
-如果当前运行权限模式已经授予，但预期工具仍不可见或不可派发，应优先说明任务环境、工具注册、能力投影或参数问题；不要要求用户重复授权。
+如果当前权限模式已经授予，但预期工具仍不可见或不可派发，应优先说明任务环境、工具注册、能力投影或参数问题；不要要求用户重复授权。
 如果没有替代路径，应向用户说明具体缺失的边界、需要的决策和继续条件。
 """.strip()
 
 
 RUNTIME_SUBAGENT_DELEGATION_RULE = """
 只有当问题需要隔离大量搜索噪声、外部资料、代码库广泛定位、记忆回溯、PDF 读取或专门验证时，才委派子 agent。
-普通聊天回合不要为了显得主动而委派；只有当当前可见工具和运行边界明确开放子 agent 生命周期工具，并且你的目标确实需要独立 specialist 时，才调用 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 或 close_subagent。
-如果运行观察说明子 agent 需要持续工作资源、父工作资源或 runtime handle，而本轮没有该资源，再使用 request_task_run 申请可恢复的工作资源；不要在资源已经可用时为了旧规则先绕去开任务。
+普通聊天请求不要为了显得主动而委派；只有当当前可见工具和请求边界明确开放子 agent 生命周期工具，并且你的目标确实需要独立 specialist 时，才调用 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 或 close_subagent。
+如果观察说明子 agent 需要持续工作资源或父工作资源，而当前请求没有该资源，再使用 request_task_run 申请可继续的工作资源；不要在资源已经可用时为了旧规则先绕去开任务。
 委派 brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
 子 agent 未返回前，不能预测它的结论；多个互不依赖的问题可以并行委派，但不能重复委派同一搜索。
 """.strip()
@@ -92,8 +92,8 @@ RUNTIME_SUBAGENT_DELEGATION_RULE = """
 
 RUNTIME_SUBAGENT_INVOCATION_PROTOCOL_RULE = """
 调用子 agent 前先写清分工；不要把“看看整个项目”这类模糊目标直接交给子 agent。
-spawn_subagent、wait_subagent、list_subagents、send_subagent_message 和 close_subagent 只在持续任务执行中代表真实子 agent 生命周期；如果当前回合没有这些工具，不要用正文、伪标签或其它工具模拟子 agent 调度。
-spawn_subagent.target_agent_id 只能使用本轮 runtime boundary 的 allowed_subagent_ids 中出现的 canonical 值；不要使用短名或历史 alias。
+spawn_subagent、wait_subagent、list_subagents、send_subagent_message 和 close_subagent 只在持续任务执行中代表真实子 agent 生命周期；如果当前请求没有这些工具，不要用正文、伪标签或其它工具模拟子 agent 调度。
+spawn_subagent.target_agent_id 只能使用当前请求上下文的 allowed_subagent_ids 中出现的 canonical 值；不要使用短名或历史 alias。
 brief 必须可执行：目标、scope、排除项、已知事实、context_refs、搜索策略、期望输出、失败处理。并行时划分不重叠 scope。
 agent:codebase_searcher 要返回 evidence matrix：positive/negative findings、files_read、evidence_refs、limitations、open_questions、recommended_parent_reads。
 agent:web_researcher 要返回 source matrix：claim、source_urls、source_type、published_at/event_date、fetch 状态、evidence_refs、limitations、open_questions、source_strength；时间敏感问题同时核对发布日期和事件日期。
@@ -113,7 +113,7 @@ tool_calls[] 仍然只是一个语义动作；它不代表多个控制动作，�
 
 
 RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
-当运行边界显示 plan mode、permission_mode=plan、planning_policy.requires_plan 或任务目标带有未批准计划要求时，你处在计划阶段。
+当当前请求边界显示 plan mode、permission_mode=plan、planning_policy.requires_plan 或任务目标带有未批准计划要求时，你处在计划阶段。
 计划阶段只允许探索、读取、搜索、询问用户、整理计划、请求建立带计划要求的 TaskRun，或说明阻塞；不能实施代码修改、运行破坏性命令、写交付产物或宣称任务已经完成。
 计划必须包含目标边界、相关文件或系统、实施步骤、风险、验证方式和需要用户确认的事项。
 用户批准计划后，TaskRun 合同应携带 plan_ref 或 implementation_lock；执行时必须按该计划推进。
@@ -122,10 +122,10 @@ RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
 
 
 RUNTIME_TURN_STATE_ORIENTATION_RULE = """
-你会看到当前 turn 的状态提示。
-这些状态只帮助你定位当前目标、计划游标、todo 游标、恢复线索、active work、观察结果、权限边界和验收边界。
+你会看到当前请求的状态提示。
+这些状态只帮助你定位当前目标、计划游标、todo 游标、工作接续线索、active work、观察结果、权限边界和验收边界。
 状态提示不是第二套生命周期，也不能替你决定用户意图。
-用户最新话语和状态提示冲突时，先回应用户最新话语，再按本轮动作边界选择动作。
+用户最新话语和状态提示冲突时，先回应用户最新话语，再按当前请求动作边界选择动作。
 todo 只是执行清单或进度游标；它不能证明事实、不能替代任务合同、不能决定完成，也不能覆盖用户最新要求。
 工具事件只表示工具生命周期；工具 started/completed 不等于任务完成。工具观察只有在提供事实、缺口、结果或风险时，才改变你的判断。
 如果状态提示显示工作已收口、暂停、停止、阻塞或等待用户，应把它当作当前事实边界，而不是继续沿用过期工具计划。
@@ -162,7 +162,7 @@ CODING_LARGE_SCOPE_EXPLORATION_RULE = """
 全项目、架构审查或系统性排查先定范围，再细读文件。
 读具体文件前先看顶层结构；跨多个区域时划分 scope、目标、证据和风险。
 子 agent 可见且 scope 可拆时，委派互不重叠的只读搜索，并要求返回发现、已读文件、证据、限制和建议父级读取。
-子 agent 不可见或不适合时，用本轮搜索/读取做有界探索；结果返回后只读能改变结论的关键文件。
+子 agent 不可见或不适合时，用当前搜索/读取做有界探索；结果返回后只读能改变结论的关键文件。
 """.strip()
 
 
@@ -221,9 +221,9 @@ todo 和步骤摘要只用于跟踪，不是事实来源。
 
 
 ENVIRONMENT_CODING_WORKSPACE_RULE = """
-专用 coding 工作区支持项目检查、受控实现、命令验证、失败恢复、运行控制信号处理和交付证据。
+专用 coding 工作区支持项目检查、受控实现、命令验证、失败处理、控制信号处理和交付证据。
 文件路径、权限、读写状态、工具说明和验证产物是行动边界与证据来源。
-只使用本轮可见工具和动作格式；能力不可见时说明缺口和替代路径。
+只使用当前可见工具和动作格式；能力不可见时说明缺口和替代路径。
 根据用户当前请求、上下文、权限、运行控制信号和观察决定下一步，不要因处在 coding 工作区而扩大范围。
 如果暂停、停止、重规划或守卫事件作为观察交回，你负责选择收口、询问、阻塞或修订计划；状态词不能代替你对用户的自然回应。
 """.strip()
@@ -674,10 +674,12 @@ def build_rule_diagnostics(
     sections: tuple[PromptSection, ...] | list[PromptSection],
     *,
     invocation_kind: str,
+    omitted_rule_refs: tuple[str, ...] | list[str] = (),
 ) -> dict[str, Any]:
     rules = tuple(item for item in (prompt_rule_from_section(section) for section in sections) if item is not None)
     rule_refs = tuple(rule.rule_id for rule in rules if rule.rule_id)
     rule_ref_set = set(rule_refs)
+    omitted_ref_set = {str(item).strip() for item in list(omitted_rule_refs or ()) if str(item).strip()}
     rule_kind_counts: dict[str, int] = {}
     rejected: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -685,6 +687,8 @@ def build_rule_diagnostics(
         rule_kind_counts[rule.rule_kind] = rule_kind_counts.get(rule.rule_kind, 0) + 1
     for rule in rules:
         for requirement in rule.requires:
+            if requirement in omitted_ref_set:
+                continue
             if requirement not in rule_ref_set and requirement not in rule_kind_counts:
                 rejected.append(
                     {
@@ -764,9 +768,7 @@ def build_rule_diagnostics(
         "warnings": warnings,
         "coverage": {
             "rule_count": len(rules),
-            "has_system_foundation": any(
-                str(rule.rule_kind or "").startswith("system.foundation") for rule in rules
-            ),
+            "has_system_foundation": any(_is_builtin_system_foundation_section(section) for section in sections),
             "has_runtime_protocol": protocol_count == 1,
             "has_system_call_protocol": "runtime.system_call_protocol" in rule_kind_counts,
             "has_turn_decision_alignment": "runtime.turn_decision_alignment" in rule_kind_counts,
@@ -775,6 +777,15 @@ def build_rule_diagnostics(
         },
         "authority": "prompt_library.prompt_rule_diagnostics",
     }
+
+
+def _is_builtin_system_foundation_section(section: PromptSection) -> bool:
+    metadata = dict(section.metadata or {})
+    return (
+        str(section.category or "").strip() == "system"
+        and str(section.subtype or "").strip() == "foundation"
+        and str(metadata.get("source_type") or "").strip() == "builtin_system_foundation_prompt"
+    )
 
 
 class PromptRuleCompiler:

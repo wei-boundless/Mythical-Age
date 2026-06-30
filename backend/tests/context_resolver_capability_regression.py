@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from context_system.resolution.resolver import ContextResolver
+from context_system.resolution.resolver import TurnContextResolver
 
 
 def test_report_word_does_not_create_pdf_bundle_without_structured_material_signal() -> None:
-    binding = ContextResolver().resolve(
+    binding = TurnContextResolver().resolve(
         session_id="session:test",
         task_id="task:test",
         user_message="先输出审查报告，然后总结风险。",
@@ -17,7 +17,7 @@ def test_report_word_does_not_create_pdf_bundle_without_structured_material_sign
 
 
 def test_structured_capability_signals_can_still_create_bundle_items() -> None:
-    binding = ContextResolver().resolve(
+    binding = TurnContextResolver().resolve(
         session_id="session:test",
         task_id="task:test",
         user_message="先处理文档，然后查最新信息。",

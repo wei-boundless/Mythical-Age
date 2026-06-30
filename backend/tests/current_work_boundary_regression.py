@@ -56,6 +56,11 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
         inner_marker = "\n" + marker
         if inner_marker in content:
             return json.loads(content.split(inner_marker, 1)[1])
+        title_marker = f'title="{title}"'
+        if title_marker in content and "<context_fragment " in content:
+            fragment_body = content.split(">\n", 1)[1].rsplit("\n</context_fragment>", 1)[0]
+            payload = json.loads(fragment_body)
+            return dict(payload.get("payload") or payload)
     raise AssertionError(f"message title not found: {title}")
 
 
@@ -254,7 +259,7 @@ def test_compiler_does_not_project_active_work_controls_when_receipt_unavailable
     assert projected_active_work["read_only_context"] is True
     assert projected_active_work["control_availability"] == "current_work_boundary_receipt_active_work_control_unavailable"
     assert projected_receipt["operation_availability"]["active_work_control"] is False
-    assert "operation_availability.active_work_control" in active_control_contract["operation_availability_gate"]
+    assert "Current Runtime Boundary" in active_control_contract["operation_availability_gate"]
 
 
 def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> None:
@@ -330,103 +335,34 @@ def test_compiler_treats_shadow_current_work_receipt_true_as_read_only_state() -
     assert projected_active_work["read_only_context"] is True
 
 
-def test_compiler_exposes_recoverable_work_as_model_decision_context_not_active_control() -> None:
-    recoverable_work = {
-        "continuation_id": "cont:recoverable:17:0",
-        "task_run_id": "taskrun:recoverable",
-        "state": "recoverable",
-        "resume_allowed": True,
-        "resume_strategy": "same_run_resume",
-        "task_status": "waiting_executor",
-        "latest_progress": "连接已恢复，任务停在可恢复边界。",
-        "next_recommended_step": "恢复前核对文件状态。",
-        "model_visible_summary": "任务目标：修复断线恢复。",
-        "authority": "harness.continuation.record",
-    }
-
-    result = RuntimeCompiler().compile_single_agent_turn_packet(
-        session_id="session:recoverable-work",
-        turn_id="turn:recoverable-work",
-        agent_invocation_id="aginvoke:recoverable-work",
-        user_message="继续。",
-        history=[],
-        session_context={"recoverable_work": recoverable_work},
-        runtime_assembly={
-            "profile": {"mode": "conversation"},
-            "task_environment": {"environment_id": "env.general.workspace"},
-            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
-        },
-    )
-
-    assert "resume_recoverable_work" in result.packet.allowed_action_types
-    assert "active_work_control" in result.packet.allowed_action_types
-    resume_contract = dict(dict(result.packet.output_contract["control_actions"])["resume_recoverable_work"])
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["recoverable_work"])
-    assert projected["continuation_id"] == "cont:recoverable:17:0"
-    assert projected["task_run_id"] == "taskrun:recoverable"
-    assert projected["read_only_context"] is True
-    assert resume_contract["enabled"] is True
-    assert "recoverable_work.resume_allowed" in resume_contract["operation_availability_gate"]
-    assert "recovery_resume.continuation_id" in resume_contract["required_fields"]
-    assert "recoverable_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
-
-
-def test_compiler_keeps_unresumable_recoverable_work_read_only_without_resume_action() -> None:
-    recoverable_work = {
-        "continuation_id": "cont:recoverable-read-only:17:0",
-        "task_run_id": "taskrun:recoverable-read-only",
-        "state": "recoverable",
-        "resume_allowed": False,
-        "resume_strategy": "ask_user_confirm",
-        "task_status": "waiting_executor",
-        "latest_progress": "任务有历史断点，但当前不可直接恢复。",
-        "next_recommended_step": "解释当前状态，不要直接续跑。",
-        "model_visible_summary": "任务目标：修复断线恢复。",
-        "authority": "harness.continuation.record",
-    }
-
-    result = RuntimeCompiler().compile_single_agent_turn_packet(
-        session_id="session:recoverable-work-read-only",
-        turn_id="turn:recoverable-work-read-only",
-        agent_invocation_id="aginvoke:recoverable-work-read-only",
-        user_message="继续。",
-        history=[],
-        session_context={"recoverable_work": recoverable_work},
-        runtime_assembly={
-            "profile": {"mode": "conversation"},
-            "task_environment": {"environment_id": "env.general.workspace"},
-            "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
-        },
-    )
-
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["recoverable_work"])
-
-    assert "resume_recoverable_work" not in result.packet.allowed_action_types
-    assert projected["resume_allowed"] is False
-    assert projected["read_only_context"] is True
-
-
-def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context() -> None:
-    interrupted_turn_work = {
-        "continuation_id": "turncont:interrupted:21:0",
-        "session_id": "session:interrupted-turn",
+def test_compiler_exposes_prior_work_memory_as_current_request_context() -> None:
+    prior_work_memory_context = {
+        "authority": "runtime.turn_memory.prior_work_context",
+        "source": "previous_interrupted_turn_memory_package",
+        "previous_turn_id": "turn:interrupted",
         "turn_run_id": "turnrun:interrupted",
-        "turn_id": "turn:interrupted",
-        "state": "interrupted_continuation_context",
-        "resume_allowed": False,
-        "resume_strategy": "continue_next_single_agent_turn",
-        "interruption_kind": "tool_budget_exhausted",
-        "terminal_status": "blocked",
-        "terminal_reason": "single_turn_tool_iteration_limit",
-        "latest_progress": "已读取目标文件，尚未完成最终判断。",
-        "next_recommended_step": "继续上一轮普通对话工作；优先复用 exact read evidence。",
-        "visible_assistant_prefix": "我已经检查了目标文件，下一步",
-        "visible_assistant_prefix_sha256": "sha256:visible-prefix",
-        "visible_assistant_prefix_utf8_bytes": 42,
-        "model_visible_summary": "上一轮普通 turn 在工具预算边界中断。",
-        "authority": "harness.continuation.interrupted_turn_record",
+        "status": "terminal",
+        "phase": "terminal",
+        "interruption": {
+            "code": "runtime_process_restarted",
+            "reason": "runtime_cell_missing_after_restart",
+            "event_id": "rtevt:interrupted:closed",
+            "event_offset": 17,
+        },
+        "current_turn_context": {
+            "current_user_message_ref": "msg:user:interrupted",
+        },
+        "assistant_draft_ref": "draft:interrupted",
+        "assistant_draft_sha256": "sha256:visible-prefix",
+        "pending_tool_summary": {
+            "latest_progress": "已读取目标文件，尚未完成最终判断。",
+            "next_recommended_step": "可复用 exact read evidence，但必须重新判断当前用户意图。",
+        },
+        "pending_commit_summary": {
+            "runtime_interruption_code": "runtime_process_restarted",
+            "runtime_interruption_reason": "runtime_cell_missing_after_restart",
+            "turn_lifecycle_closed_by": "runtime_interruption",
+        },
     }
     runtime_assembly = {
         "profile": {"mode": "conversation"},
@@ -448,22 +384,31 @@ def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context
         agent_invocation_id="aginvoke:interrupted-followup",
         user_message="继续。",
         history=[],
-        session_context={"interrupted_turn_work": interrupted_turn_work},
+        session_context={"prior_work_memory_context": prior_work_memory_context},
         runtime_assembly=runtime_assembly,
     )
 
-    assert "resume_recoverable_work" not in result.packet.allowed_action_types
+    assert "resume_task_recovery" not in result.packet.allowed_action_types
     assert "active_work_control" in result.packet.allowed_action_types
     dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["interrupted_turn_work"])
-    assert projected["turn_run_id"] == "turnrun:interrupted"
-    assert projected["state"] == "interrupted_continuation_context"
-    assert projected["read_only_context"] is False
-    assert projected["allowed_followup_posture"] == "ordinary_turn_continuation"
-    assert projected["current_user_instruction"] == "继续。"
-    assert projected["visible_assistant_prefix"]["content"] == "我已经检查了目标文件，下一步"
-    assert projected["forbidden_action"] == "resume_recoverable_work"
-    assert "interrupted_turn_work" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
+    projected = dict(dynamic_payload["prior_work_memory_context"])
+    assert "turn_run_id" not in projected
+    assert "previous_turn_id" not in projected
+    assert projected["state"] == "closed_interrupted_work_memory_package"
+    assert projected["read_only_context"] is True
+    assert projected["allowed_followup_posture"] == "current_request_with_prior_work_memory"
+    assert projected["current_user_request"] == "继续。"
+    assert projected["forbidden_action"] == "resume_closed_work"
+    assert projected["memory_refs"]["assistant_draft_ref"] == "draft:interrupted"
+    assert projected["memory_summaries"]["closure"]["state"] == "interrupted_and_closed"
+    assert projected["memory_summaries"]["closure"]["reason"] == "connection_or_process_interruption"
+    projected_json = json.dumps(projected, ensure_ascii=False)
+    assert "new turn" not in projected_json
+    assert "previous turn" not in projected_json
+    assert "turn_run" not in projected_json
+    assert "turn_lifecycle" not in projected_json
+    assert "runtime" not in projected_json.lower()
+    assert "prior_work_memory_context" in result.packet.diagnostics["prompt_manifest"]["dynamic_projection_refs"]
 
     def stable_fingerprint(packet) -> list[tuple[str, str, str]]:
         return [
@@ -479,93 +424,3 @@ def test_compiler_exposes_interrupted_turn_work_as_volatile_continuation_context
         if str(segment.get("kind") or "") == "dynamic_projection"
     )
     assert dynamic_segment["cache_role"] == "volatile"
-
-
-def test_compiler_exposes_agent_contract_feedback_inside_interrupted_turn_work() -> None:
-    interrupted_turn_work = {
-        "continuation_id": "turncont:contract-feedback:33:0",
-        "session_id": "session:contract-feedback",
-        "turn_run_id": "turnrun:contract-feedback",
-        "turn_id": "turn:contract-feedback",
-        "state": "interrupted_continuation_context",
-        "resume_allowed": False,
-        "resume_strategy": "continue_next_single_agent_turn",
-        "interruption_kind": "agent_contract_feedback_required",
-        "terminal_status": "failed",
-        "terminal_reason": "agent_contract_feedback_required",
-        "latest_progress": "上一条输出没有进入会话，也不会展示给用户。",
-        "latest_step": "agent_contract_feedback_required",
-        "next_recommended_step": "根据合同反馈产出合法 action。",
-        "model_visible_summary": "上一轮普通 turn 需要合同反馈修复。",
-        "agent_contract_feedback": {
-            "signal_kind": "agent_contract_feedback_required",
-            "lifecycle": "agent_contract_feedback_required",
-            "contract_feedback_state": "execution_contract_feedback_required",
-            "phase": "tool_limit_tool_loop",
-            "reason": "tool_budget_exhausted",
-            "visible_assistant_message_allowed": False,
-            "tool_calls_allowed_after_signal": False,
-            "agent_closeout_required": True,
-            "agent_feedback": "上一条输出没有进入会话，也不会展示给用户；请提交合法 JSON action。",
-            "required_action_protocol": {
-                "authority": "harness.loop.model_action_request",
-                "allowed_action_types": ["respond", "ask_user", "block"],
-                "tool_call_allowed": False,
-                "structured_action_required": True,
-                "visible_user_body_allowed_only_from_agent_action": True,
-            },
-            "contract_failure": {
-                "kind": "agent_output_contract_not_satisfied",
-                "closeout_attempts": 2,
-                "phase": "tool_limit_tool_loop",
-                "reason": "tool_budget_exhausted",
-                "protocol_error": {"raw_model_output": "private raw model output"},
-                "specific_feedback": [
-                    {
-                        "category": "protocol_violation",
-                        "code": "json_action_required",
-                        "situation_feedback": "上一条输出无法可靠归类。",
-                        "repair_instruction": "只输出一个 JSON action。",
-                        "expected_next_action": "选择 respond、ask_user 或 block。",
-                    }
-                ],
-            },
-            "observed_facts": {"successful_tool_observation_count": 1},
-            "structured_signal": {
-                "code": "single_agent_turn_agent_contract_feedback_required",
-                "message": "请提交合法 JSON action。",
-                "retryable": True,
-            },
-        },
-        "authority": "harness.continuation.interrupted_turn_record",
-    }
-    runtime_assembly = {
-        "profile": {"mode": "conversation"},
-        "task_environment": {"environment_id": "env.general.workspace"},
-        "control_capabilities": {"may_request_task_run": True, "may_control_active_work": True},
-    }
-
-    result = RuntimeCompiler().compile_single_agent_turn_packet(
-        session_id="session:contract-feedback",
-        turn_id="turn:contract-feedback-followup",
-        agent_invocation_id="aginvoke:contract-feedback-followup",
-        user_message="继续。",
-        history=[],
-        session_context={"interrupted_turn_work": interrupted_turn_work},
-        runtime_assembly=runtime_assembly,
-    )
-
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
-    projected = dict(dynamic_payload["interrupted_turn_work"])
-    feedback = dict(projected["agent_contract_feedback"])
-    protocol = dict(feedback["required_action_protocol"])
-    failure = dict(feedback["contract_failure"])
-
-    assert projected["interruption_kind"] == "agent_contract_feedback_required"
-    assert feedback["signal_kind"] == "agent_contract_feedback_required"
-    assert protocol["authority"] == "harness.loop.model_action_request"
-    assert protocol["allowed_action_types"] == ["respond", "ask_user", "block"]
-    assert failure["specific_feedback"][0]["repair_instruction"] == "只输出一个 JSON action。"
-    assert feedback["observed_facts"]["successful_tool_observation_count"] == 1
-    assert "raw_model_output" not in json.dumps(feedback, ensure_ascii=False)
-

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
-from harness.task_contract_normalization import contract_string_list
+from harness.task_run_contract_normalization import contract_string_list
 
 
 _GRAPH_STABLE_INPUT_LIMIT = 4000
@@ -17,7 +17,7 @@ _GRAPH_STABLE_LOOP_ARTIFACT_PAYLOAD_LIMIT = 4
 
 
 @dataclass(frozen=True, slots=True)
-class TaskContractManifest:
+class TaskRunContractManifest:
     manifest_id: str
     invocation_kind: str
     source_ref: str
@@ -28,7 +28,7 @@ class TaskContractManifest:
     completion_criteria_count: int = 0
     model_visible_contract: dict[str, Any] = field(default_factory=dict)
     planning_protocol: dict[str, Any] = field(default_factory=dict)
-    authority: str = "harness.runtime.task_contract_manifest"
+    authority: str = "harness.runtime.task_run_contract_manifest"
 
     def to_model_visible_payload(self) -> dict[str, Any]:
         return {
@@ -43,13 +43,13 @@ class TaskContractManifest:
         return payload
 
 
-def build_task_contract_manifest(
+def build_task_run_contract_manifest(
     *,
     invocation_kind: str,
     model_visible_contract: dict[str, Any],
     planning_protocol: dict[str, Any],
     source_ref: str,
-) -> TaskContractManifest:
+) -> TaskRunContractManifest:
     contract_payload = _deepcopy_json_dict(model_visible_contract)
     planning_payload = _deepcopy_json_dict(planning_protocol)
     contract_hash = _stable_json_hash(contract_payload)
@@ -68,7 +68,7 @@ def build_task_contract_manifest(
         "contract_hash": contract_hash,
         "planning_protocol_hash": planning_hash,
     }
-    return TaskContractManifest(
+    return TaskRunContractManifest(
         manifest_id="taskcontract:" + _digest(seed),
         invocation_kind=str(invocation_kind or ""),
         source_ref=str(source_ref or ""),
@@ -88,19 +88,19 @@ def build_task_contract_manifest(
     )
 
 
-def build_task_contract_manifest_from_contract(
+def build_task_run_contract_manifest_from_contract(
     *,
     invocation_kind: str,
     contract: dict[str, Any],
     planning_protocol: dict[str, Any],
     source_ref: str,
     graph_node_context: dict[str, Any] | None = None,
-) -> TaskContractManifest:
-    contract_payload = project_task_contract_for_prompt(
+) -> TaskRunContractManifest:
+    contract_payload = project_task_run_contract_for_prompt(
         contract,
         graph_node_context=graph_node_context,
     )
-    return build_task_contract_manifest(
+    return build_task_run_contract_manifest(
         invocation_kind=invocation_kind,
         model_visible_contract=contract_payload,
         planning_protocol=planning_protocol,
@@ -108,7 +108,7 @@ def build_task_contract_manifest_from_contract(
     )
 
 
-def project_task_contract_for_prompt(
+def project_task_run_contract_for_prompt(
     contract: dict[str, Any],
     *,
     graph_node_context: dict[str, Any] | None = None,
@@ -121,7 +121,7 @@ def project_task_contract_for_prompt(
                 "contract_id": "graph_node_contract",
                 "contract_source": str(payload.get("contract_source") or "graph_node_work_order"),
                 "task_environment_id": str(payload.get("task_environment_id") or ""),
-                "origin": _graph_task_contract_origin_model_visible(dict(payload.get("origin") or {})),
+                "origin": _graph_task_run_contract_origin_model_visible(dict(payload.get("origin") or {})),
                 "graph_node_context": dict(graph_node_context or {}),
                 "completion_criteria": _string_list(payload.get("completion_criteria")),
                 "authority": "harness.runtime.graph_node_contract.model_visible",
@@ -165,108 +165,7 @@ def _canonical_task_run_contract(payload: dict[str, Any]) -> dict[str, Any]:
         return dict(payload.get("task_run_contract") or {})
     if isinstance(payload.get("container_contract"), dict) or isinstance(payload.get("work_modes"), list):
         return dict(payload or {})
-    return _legacy_task_contract_as_task_run_contract(payload)
-
-
-def _legacy_task_contract_as_task_run_contract(payload: dict[str, Any]) -> dict[str, Any]:
-    goal = dict(payload.get("goal_contract") or {}) if isinstance(payload.get("goal_contract"), dict) else {}
-    plan = dict(payload.get("plan_contract") or {}) if isinstance(payload.get("plan_contract"), dict) else {}
-    todo = dict(payload.get("todo_contract") or {}) if isinstance(payload.get("todo_contract"), dict) else {}
-    environment = dict(payload.get("environment_contract") or {}) if isinstance(payload.get("environment_contract"), dict) else {}
-    working_scope = _working_scope_stable_payload(
-        payload.get("working_scope")
-        or environment.get("working_scope")
-        or goal.get("working_scope")
-        or plan.get("working_scope")
-        or todo.get("working_scope")
-    )
-    user_visible_goal = str(goal.get("user_visible_goal") or payload.get("user_visible_goal") or "").strip()
-    task_run_goal = str(goal.get("task_run_goal") or goal.get("agent_goal") or payload.get("task_run_goal") or user_visible_goal).strip()
-    plan_steps = _string_list(plan.get("major_steps") or plan.get("steps"))
-    primary_kind = "goal" if user_visible_goal or task_run_goal or goal.get("success_definition") else "plan"
-    primary_ref = f"work-mode:{primary_kind}:primary"
-    work_modes: list[dict[str, Any]] = [
-        {
-            "mode_instance_id": primary_ref,
-            "mode_kind": primary_kind,
-            "mode_role": "primary",
-            "status": "active",
-            "depends_on_mode_refs": [],
-            "contract": (
-                _drop_empty_payload(
-                    {
-                        "user_visible_goal": user_visible_goal,
-                        "task_run_goal": task_run_goal,
-                        "success_definition": str(goal.get("success_definition") or payload.get("success_definition") or "").strip(),
-                        "non_goals": _string_list(goal.get("non_goals") or payload.get("non_goals")),
-                        "completion_evidence": _string_list(goal.get("completion_evidence") or payload.get("completion_evidence")),
-                        "working_scope": working_scope,
-                    }
-                )
-                if primary_kind == "goal"
-                else _drop_empty_payload(
-                    {
-                        "plan_id": _task_contract_plan_ref(payload),
-                        "plan_status": str(plan.get("plan_status") or plan.get("approval_state") or "agent_managed").strip(),
-                        "strategy_summary": str(plan.get("strategy_summary") or "Agent manages the task strategy.").strip(),
-                        "major_steps": plan_steps,
-                        "allowed_plan_operations": _string_list(plan.get("allowed_plan_operations") or plan.get("allowed_operations")),
-                        "replan_policy": dict(plan.get("replan_policy") or {}) if isinstance(plan.get("replan_policy"), dict) else {},
-                        "working_scope": working_scope,
-                    }
-                )
-            ),
-        }
-    ]
-    if primary_kind != "plan" and plan:
-        work_modes.append(
-            {
-                "mode_instance_id": "work-mode:plan:supporting",
-                "mode_kind": "plan",
-                "mode_role": "supporting",
-                "status": "active",
-                "depends_on_mode_refs": [primary_ref],
-                "contract": _drop_empty_payload(
-                    {
-                        "plan_id": _task_contract_plan_ref(payload),
-                        "plan_status": str(plan.get("plan_status") or plan.get("approval_state") or "agent_managed").strip(),
-                        "strategy_summary": str(plan.get("strategy_summary") or "").strip(),
-                        "major_steps": plan_steps,
-                        "allowed_plan_operations": _string_list(plan.get("allowed_plan_operations") or plan.get("allowed_operations")),
-                        "replan_policy": dict(plan.get("replan_policy") or {}) if isinstance(plan.get("replan_policy"), dict) else {},
-                        "working_scope": working_scope,
-                    }
-                ),
-            }
-        )
-    if todo:
-        work_modes.append(
-            {
-                "mode_instance_id": "work-mode:todo:supporting",
-                "mode_kind": "todo",
-                "mode_role": "supporting",
-                "status": "active",
-                "depends_on_mode_refs": [primary_ref],
-                "contract": todo,
-            }
-        )
-    return {
-        "container_contract": {
-            "entry_reason": str(payload.get("entry_reason") or "Legacy task contract projected into TaskRunContract.").strip(),
-            "primary_work_mode_ref": primary_ref,
-            "supporting_mode_refs": [str(item.get("mode_instance_id") or "") for item in work_modes[1:]],
-            "minimum_viable_next_step": str(payload.get("minimum_viable_next_step") or "Continue the active Work Mode.").strip(),
-            "projection_required": True,
-            "checkpoint_required": True,
-            "mode_transition_policy": {"agent_may_propose_transition": True, "system_may_infer_transition": False, "requires_accepted_event": True},
-        },
-        "work_modes": work_modes,
-        "lifecycle_contract": dict(payload.get("lifecycle_contract") or {}),
-        "feedback_contract": dict(payload.get("feedback_contract") or {}),
-        "memory_contract": dict(payload.get("memory_contract") or {}),
-        "acceptance_contract": dict(payload.get("acceptance_contract") or {}),
-        "runtime_requirements": dict(payload.get("runtime_requirements") or {}),
-    }
+    return {}
 
 
 def _task_run_context_model_visible(
@@ -437,19 +336,6 @@ def _todo_mode_contract_model_visible(raw: dict[str, Any]) -> dict[str, Any]:
             "authority": "harness.runtime.todo_context.contract.model_visible",
         }
     )
-
-
-def _task_contract_plan_ref(payload: dict[str, Any]) -> str:
-    raw = dict(payload.get("plan_contract") or {}) if isinstance(payload.get("plan_contract"), dict) else {}
-    implementation_lock = dict(payload.get("implementation_lock") or {}) if isinstance(payload.get("implementation_lock"), dict) else {}
-    return str(
-        raw.get("plan_id")
-        or payload.get("plan_ref")
-        or payload.get("approved_plan_ref")
-        or payload.get("external_plan_ref")
-        or implementation_lock.get("plan_ref")
-        or ""
-    ).strip()
 
 
 def _memory_contract_model_visible(payload: dict[str, Any]) -> dict[str, Any]:
@@ -664,12 +550,12 @@ def _graph_slot_from_contract(contract: dict[str, Any]) -> dict[str, Any]:
     return dict(diagnostics.get("graph_slot") or {})
 
 
-def _graph_task_contract_origin_model_visible(origin: dict[str, Any]) -> dict[str, Any]:
+def _graph_task_run_contract_origin_model_visible(origin: dict[str, Any]) -> dict[str, Any]:
     return {
         "origin_kind": str(origin.get("origin_kind") or ""),
         "origin_authority": str(origin.get("origin_authority") or ""),
         "node_id": str(origin.get("node_id") or ""),
-        "authority": "harness.runtime.graph_task_contract_origin.model_visible_projection",
+        "authority": "harness.runtime.graph_task_run_contract_origin.model_visible_projection",
     }
 
 

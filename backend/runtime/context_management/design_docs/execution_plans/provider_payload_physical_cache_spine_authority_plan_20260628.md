@@ -102,7 +102,7 @@ ModelRequestBuilder
 -> ProviderPayloadManifest.segments
 -> ProviderPayloadManifest.cache_boundary.physical_cache_spine
 -> prompt_accounting.cache_planner
--> provider_cache_ledger / cache_break_detector
+-> provider_cache_ledger / cache_anomaly_detector
 -> model_runtime provider usage reconciliation
 ```
 
@@ -115,7 +115,7 @@ ModelRequestBuilder
 | `serializer.py` | 为账本计 token，复用 manifest 判定 | 不重新判断 tools 是 prefix 还是 sidecar |
 | `provider_payload_boundary.py` | 只读取 manifest 中的 physical spine | 不从旧 top-level 字段拼 fallback |
 | `cache_planner.py` | 用 physical spine 做预算、命中目标和 expected miss 分类 | 不把已验证 tools 固定算 miss |
-| `cache_break_detector.py` | 用 physical spine hash / segment ids / transport family 判断 break | 不用旧 message hash 盖过 physical spine |
+| `cache_anomaly_detector.py` | 用 physical spine hash / segment ids / transport family 判断 break | 不用旧 message hash 盖过 physical spine |
 | `model_runtime.py` | 对齐 provider usage 和本地 cache record | 不重建 prefix 语义 |
 
 ## 6. 目标数据结构
@@ -291,7 +291,7 @@ ProviderPayloadSegment structural identity:
 3. `transport_contract_family_selector` 不进入 token subtotal，但必须进入 `transport_contract_hash`，并参与 physical spine cache key。
 4. `dynamic_tail` 不能进入 provider-visible ledger commit，也不能被 cache planner 解释成 warm prefix。
 5. `serializer` 只按 segment identity 计 token，不允许重新裁决 prefix family。
-6. `cache_break_detector` 只比较标准结构身份：`physical_cache_spine_hash`、`segment_ids`、`transport_locations`、`roles`、`transport_contract_hash`。
+6. `cache_anomaly_detector` 只比较标准结构身份：`physical_cache_spine_hash`、`segment_ids`、`transport_locations`、`roles`、`transport_contract_hash`。
 7. `stability_report` 可以展示 prompt 层稳定性，但不能把 prompt stable prefix 当 provider cache authority。
 
 目标实现形态：
@@ -545,13 +545,13 @@ physical_prefix_lane
 
 ### Phase 6: Cache planner / ledger / break detector 对齐
 
-目标：命中率、miss family、break reason 都以 physical spine 为准。
+目标：命中率、miss family、anomaly reason 都以 physical spine 为准。
 
 文件：
 
 - `backend/runtime/prompt_accounting/cache_planner.py`
 - `backend/runtime/prompt_accounting/cache_baseline.py`
-- `backend/runtime/prompt_accounting/cache_break_detector.py`
+- `backend/runtime/prompt_accounting/cache_anomaly_detector.py`
 - `backend/runtime/prompt_accounting/provider_cache_ledger.py`
 - `backend/runtime/model_gateway/model_runtime.py`
 
@@ -581,7 +581,7 @@ transport_contract_hash
 
 禁止：
 
-- 不用旧 `message_prefix_hash` 解释 provider cache break。
+- 不用旧 `message_prefix_hash` 解释 provider cache anomaly。
 
 ### Phase 7: 提示词 / 文档 / 运行验证收口
 
@@ -622,7 +622,7 @@ transport_contract_hash
 - `backend/runtime/model_gateway/model_request.py`
 - `backend/runtime/prompt_accounting/serializer.py`
 - `backend/runtime/prompt_accounting/cache_planner.py`
-- `backend/runtime/prompt_accounting/cache_break_detector.py`
+- `backend/runtime/prompt_accounting/cache_anomaly_detector.py`
 - `backend/runtime/prompt_accounting/provider_cache_ledger.py`
 - `backend/runtime/context_management/context_segment_registry.py`
 - `backend/runtime/context_management/context_segment_policy.py`
@@ -656,13 +656,13 @@ authority
 - blocker tools 在同一个 tools segment 上标记 `boundary_participation=blocker`，并在 spine diagnostics 中暴露 first blocker。
 - transport family selector 在同一个 transport segment 上标记 `boundary_participation=non_token_family_selector`，参与 `transport_contract_hash`，不参与 token subtotal。
 - dynamic tail 在同一个 message segment 上标记或诊断为 `boundary_participation=excluded`，并明确 `exclusion_reason`。
-- `serializer`、`cache_planner`、`provider_cache_ledger`、`cache_break_detector` 优先读取 segment canonical identity，不再各自从 metadata 猜 lane、role 或 prefix family。
+- `serializer`、`cache_planner`、`provider_cache_ledger`、`cache_anomaly_detector` 优先读取 segment canonical identity，不再各自从 metadata 猜 lane、role 或 prefix family。
 
 完成标准：
 
 - 任一 `physical_cache_spine.segment_id` 都能在 `ProviderPayloadManifest.segments[]` 中找到同 ID segment。
 - 任一 `native_tool_binding_schema` 都明确是 `provider_physical_tool_schema_prefix` 或 `provider_tool_schema_blocker`，不存在第三种含糊状态。
-- `cache_break_detector` 输出的 break reason 可以定位到 segment 的 `prefix_family / transport_location / role / physical_prefix_lane`。
+- `cache_anomaly_detector` 输出的 anomaly reason 可以定位到 segment 的 `prefix_family / transport_location / role / physical_prefix_lane`。
 - `provider_cache_ledger` 可以复盘本轮 provider cache 目标：哪些段进入 spine、哪些段是 blocker、哪些段只是 transport family selector。
 - active runtime 中不存在用字段名猜测 prefix 族的逻辑。
 
@@ -682,7 +682,7 @@ authority
 | `backend/runtime/prompt_accounting/provider_payload_boundary.py` | fallback 拼旧结构 | 删除 fallback | 缺 spine 即 bypass |
 | `backend/runtime/prompt_accounting/cache_planner.py` | boundaries 跳过 tools，sidecar fixed miss | 以 spine segment identity 全段预算 | validated tools 不算 miss；blocker 可定位 |
 | `backend/runtime/prompt_accounting/cache_baseline.py` | 本地从 PromptSegment lanes 重算 spine | 改读 provider payload spine | baseline 和 manifest 一致 |
-| `backend/runtime/prompt_accounting/cache_break_detector.py` | 旧 message hash 仍参与 break | spine/contract/segment identity 优先 | reason 指向真实物理变化和 prefix family |
+| `backend/runtime/prompt_accounting/cache_anomaly_detector.py` | 旧 message hash 仍参与 break | spine/contract/segment identity 优先 | reason 指向真实物理变化和 prefix family |
 | `backend/runtime/prompt_accounting/provider_cache_ledger.py` | 记录 sidecar miss 旧语义 | 记录 physical spine roles/locations/segment identity | ledger 可复盘 included/blocker/family selector |
 | `backend/runtime/model_gateway/model_runtime.py` | usage reconcile 依赖旧诊断字段 | 读取新 physical spine diagnostics | under-read 归因清楚 |
 | `backend/runtime/context_management/context_commit_record.py` | 记录 message prefix authority | 改为 physical spine authority | fork/commit 不携带旧权威 |
@@ -735,7 +735,7 @@ C:\Users\admin\.conda\envs\agent\python.exe -m py_compile ^
   backend\runtime\prompt_accounting\provider_payload_boundary.py ^
   backend\runtime\prompt_accounting\cache_planner.py ^
   backend\runtime\prompt_accounting\cache_baseline.py ^
-  backend\runtime\prompt_accounting\cache_break_detector.py ^
+  backend\runtime\prompt_accounting\cache_anomaly_detector.py ^
   backend\runtime\prompt_accounting\provider_cache_ledger.py ^
   backend\runtime\model_gateway\model_runtime.py
 ```
@@ -763,7 +763,7 @@ API:  http://127.0.0.1:8003/api
 2. 从干净 .next 启动前端。
 3. 启动后端 8003。
 4. 同一 session 跑三轮真实 CLI 请求。
-5. 检查 prompt_cache.jsonl、segments.jsonl、token_usage.jsonl、prompt_cache_breaks.jsonl。
+5. 检查 prompt_cache.jsonl、segments.jsonl、token_usage.jsonl、cache_anomalies.jsonl。
 ```
 
 三轮预期：

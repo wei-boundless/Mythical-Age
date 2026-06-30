@@ -17,18 +17,19 @@ from .context_segment_policy import (
     DEFAULT_PROVIDER_ADAPTER_CONTRACT,
     context_append_order_key,
     context_segment_policy_for_spec,
+    context_segment_policy_is_provider_visible_sealable,
     context_segment_policy_metadata,
 )
 from .context_candidates import ContextCommitCandidate
 
 
-PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION = 2
-PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT = DEFAULT_PROVIDER_ADAPTER_CONTRACT
-PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS = "confirmed_provider_visible"
+PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION = 2
+PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT = DEFAULT_PROVIDER_ADAPTER_CONTRACT
+PROVIDER_VISIBLE_APPEND_CONFIRMED_STATUS = "confirmed_provider_visible"
 PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
 
 
-def assemble_provider_visible_context_specs(
+def assemble_provider_visible_append_specs(
     items: list[tuple[int, dict[str, Any]]],
     *,
     storage_root: Path | None,
@@ -38,20 +39,20 @@ def assemble_provider_visible_context_specs(
     compaction_generation: str = "",
     provider: str = "",
     model: str = "",
-    adapter_contract: str = PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+    adapter_contract: str = PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
 ) -> list[tuple[int, dict[str, Any]]]:
     """Return current provider-visible append candidates.
 
     The provider-visible ledger records and de-duplicates append candidates,
-    but it is not allowed to replay old context into provider messages. Old
-    context replay is owned only by the physical prefix frame ledger.
+    but it is not allowed to replay confirmed provider messages. Replay is owned
+    only by the physical prefix frame ledger.
 
     """
 
     normalized_scope = str(scope or "default").strip() or "default"
     normalized_inherited_scope = str(inherited_scope or "").strip()
     normalized_generation = _normalize_compaction_generation(compaction_generation)
-    normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT).strip()
+    normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT).strip()
     inherited_entries, _inherited_recovery_events = _inherited_ledger_entries_for_anchor(
         storage_root=storage_root,
         scope=normalized_inherited_scope,
@@ -59,7 +60,7 @@ def assemble_provider_visible_context_specs(
         compaction_generation=normalized_generation,
         adapter_contract=normalized_adapter,
     )
-    ledger = load_provider_visible_context_ledger(storage_root=storage_root, scope=normalized_scope)
+    ledger = load_provider_visible_append_ledger(storage_root=storage_root, scope=normalized_scope)
     failure = _ledger_failure(ledger, scope=normalized_scope, adapter_contract=normalized_adapter)
     if failure:
         ledger = _new_ledger(scope=normalized_scope, provider=provider, model=model, adapter_contract=normalized_adapter)
@@ -124,7 +125,7 @@ def assemble_provider_visible_context_specs(
         current_append_specs.append(
             (
                 int(original_order or 0),
-                _current_context_append_spec_from_candidate(
+                _current_append_spec_from_candidate(
                     spec,
                     item_key=item_key,
                     provider_visible_message=provider_message,
@@ -147,40 +148,40 @@ def assemble_provider_visible_context_specs(
         adapter_contract=normalized_adapter,
     )
     if changed:
-        save_provider_visible_context_ledger(storage_root=storage_root, scope=normalized_scope, ledger=ledger)
+        save_provider_visible_append_ledger(storage_root=storage_root, scope=normalized_scope, ledger=ledger)
 
     return [*current_append_specs]
 
 
-def provider_visible_context_append_candidate_spec(
+def provider_visible_append_candidate_spec(
     spec: dict[str, Any],
     *,
     storage_root: Path | None,
     scope: str,
     provider: str = "",
     model: str = "",
-    adapter_contract: str = PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+    adapter_contract: str = PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
 ) -> dict[str, Any]:
-    """Return a provider-visible append candidate without replaying old context.
+    """Return a provider-visible append candidate without injecting replay messages.
 
     This is for append-only callers that already hold the immutable provider
     prefix in memory. The ledger may confirm this candidate after provider
-    success, but it must not inject or reorder replayed entries into the
+    success, but it must not inject or reorder replay entries into the
     caller's current message sequence.
     """
 
     payload = dict(spec or {})
     normalized_scope = str(scope or "default").strip() or "default"
-    normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT).strip()
+    normalized_adapter = str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT).strip()
     policy = context_segment_policy_for_spec(payload)
-    if not _provider_visible_context_append_candidate_allowed(payload, policy=policy):
+    if not _provider_visible_append_candidate_allowed(payload, policy=policy):
         return payload
     provider_message = _provider_visible_message_from_spec(payload)
     if not provider_message:
         return payload
     provider_hash = _stable_json_hash(provider_message)
     item_key = _provider_visible_item_key(payload, provider_visible_hash=provider_hash, policy=policy)
-    return _current_context_append_spec_from_candidate(
+    return _current_append_spec_from_candidate(
         payload,
         item_key=item_key,
         provider_visible_message=provider_message,
@@ -194,8 +195,10 @@ def provider_visible_context_append_candidate_spec(
     )
 
 
-def _provider_visible_context_append_candidate_allowed(payload: dict[str, Any], *, policy: Any) -> bool:
+def _provider_visible_append_candidate_allowed(payload: dict[str, Any], *, policy: Any) -> bool:
     metadata = dict(dict(payload or {}).get("metadata") or {})
+    if not context_segment_policy_is_provider_visible_sealable(policy):
+        return False
     kind = str(payload.get("kind") or metadata.get("kind") or "").strip()
     if kind in CURRENT_CONTROL_TAIL_KINDS:
         return False
@@ -218,7 +221,7 @@ def _provider_visible_context_append_candidate_allowed(payload: dict[str, Any], 
     return semantic_commit_class != "current_runtime_control"
 
 
-def confirm_provider_visible_context_entries(
+def confirm_provider_visible_append_entries(
     candidates: list[ContextCommitCandidate] | tuple[ContextCommitCandidate, ...],
     *,
     default_storage_root: Path | str | None = None,
@@ -226,6 +229,7 @@ def confirm_provider_visible_context_entries(
     provider: str = "",
     model: str = "",
     request_id: str = "",
+    turn_id: str = "",
     response_ref: str = "",
     provider_payload_prefix_hash: str = "",
     provider_payload_messages_hash: str = "",
@@ -242,7 +246,8 @@ def confirm_provider_visible_context_entries(
 
     typed_candidates = list(candidates or [])
     if any(not isinstance(item, ContextCommitCandidate) for item in typed_candidates):
-        raise TypeError("confirm_provider_visible_context_entries requires ContextCommitCandidate items")
+        raise TypeError("confirm_provider_visible_append_entries requires ContextCommitCandidate items")
+    normalized_turn_id = str(turn_id or "").strip()
 
     grouped: dict[tuple[str, str], list[ContextCommitCandidate]] = {}
     for raw_candidate in list(candidates or []):
@@ -262,11 +267,11 @@ def confirm_provider_visible_context_entries(
 
     for (storage_value, scope), refs in grouped.items():
         storage_root = Path(storage_value) if storage_value else (Path(default_storage_root) if default_storage_root else None)
-        ledger = load_provider_visible_context_ledger(storage_root=storage_root, scope=scope)
+        ledger = load_provider_visible_append_ledger(storage_root=storage_root, scope=scope)
         failure = _ledger_failure(
             ledger,
             scope=scope,
-            adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+            adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
         )
         if failure:
             failures.append(failure)
@@ -276,7 +281,7 @@ def confirm_provider_visible_context_entries(
             scope=scope,
             provider=provider,
             model=model,
-            adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+            adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
         )
         active_entries = _active_confirmed_ledger_entries(ledger)
         entries_by_key = _entries_by_key({"entries": active_entries})
@@ -298,6 +303,7 @@ def confirm_provider_visible_context_entries(
                         "item_key": item_key,
                         "provider_visible_hash": expected_hash,
                         "request_id": str(request_id or ""),
+                        "turn_id": normalized_turn_id,
                         "candidate_id": str(ref.candidate_id or ""),
                     },
                 )
@@ -317,6 +323,7 @@ def confirm_provider_visible_context_entries(
                         "provider_visible_hash": expected_hash,
                         "computed_provider_visible_hash": computed_hash,
                         "request_id": str(request_id or ""),
+                        "turn_id": normalized_turn_id,
                     },
                 )
                 ledger = _record_recovery_event(ledger, failure)
@@ -324,8 +331,8 @@ def confirm_provider_visible_context_entries(
                 changed = True
                 group_failed = True
                 continue
-            candidate_adapter = str(ref.adapter_contract or ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
-            ledger_adapter = str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
+            candidate_adapter = str(ref.adapter_contract or ledger.get("adapter_contract") or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT)
+            ledger_adapter = str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT)
             if candidate_adapter and ledger_adapter and candidate_adapter != ledger_adapter:
                 failure = _structured_failure(
                     scope=scope,
@@ -337,6 +344,7 @@ def confirm_provider_visible_context_entries(
                         "adapter_contract": candidate_adapter,
                         "ledger_adapter_contract": ledger_adapter,
                         "request_id": str(request_id or ""),
+                        "turn_id": normalized_turn_id,
                         "candidate_id": str(ref.candidate_id or ""),
                     },
                 )
@@ -359,6 +367,7 @@ def confirm_provider_visible_context_entries(
                             "provider_visible_hash": expected_hash,
                             "stored_provider_visible_hash": stored_hash,
                             "request_id": str(request_id or ""),
+                            "turn_id": normalized_turn_id,
                         },
                     )
                     ledger = _record_recovery_event(ledger, failure)
@@ -372,6 +381,7 @@ def confirm_provider_visible_context_entries(
                     "item_key": item_key,
                     "status": str(existing.get("commit_status") or ""),
                     "already_confirmed": True,
+                    "confirmed_turn_id": str(existing.get("confirmed_turn_id") or ""),
                 }
                 confirmations.append(confirmation)
                 group_confirmations.append(confirmation)
@@ -391,6 +401,7 @@ def confirm_provider_visible_context_entries(
                 model=str(model or ref.model or ""),
                 adapter_contract=candidate_adapter,
                 confirmed_by_request_id=str(request_id or ""),
+                confirmed_turn_id=normalized_turn_id,
                 confirmed_response_ref=str(response_ref or ""),
                 semantic_visibility=str(ref.semantic_visibility or ""),
                 validity_scope=str(ref.validity_scope or ""),
@@ -414,8 +425,9 @@ def confirm_provider_visible_context_entries(
                 "scope": scope,
                 "entry_index": next_index,
                 "item_key": item_key,
-                "status": PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS,
+                "status": PROVIDER_VISIBLE_APPEND_CONFIRMED_STATUS,
                 "already_confirmed": False,
+                "confirmed_turn_id": normalized_turn_id,
             }
             confirmations.append(confirmation)
             group_confirmations.append(confirmation)
@@ -428,6 +440,7 @@ def confirm_provider_visible_context_entries(
                 provider=provider,
                 model=model,
                 request_id=request_id,
+                turn_id=normalized_turn_id,
                 response_ref=response_ref,
                 provider_payload_prefix_hash=provider_payload_prefix_hash,
                 provider_payload_messages_hash=provider_payload_messages_hash,
@@ -452,9 +465,9 @@ def confirm_provider_visible_context_entries(
                 scope=scope,
                 provider=provider,
                 model=model,
-                adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+                adapter_contract=str(ledger.get("adapter_contract") or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
             )
-            save_provider_visible_context_ledger(storage_root=storage_root, scope=scope, ledger=ledger)
+            save_provider_visible_append_ledger(storage_root=storage_root, scope=scope, ledger=ledger)
 
     return {
         "status": "ok" if not failures else "recovery_required",
@@ -465,19 +478,19 @@ def confirm_provider_visible_context_entries(
         "confirmations": confirmations,
         "provider_success_anchors": anchors,
         "failures": failures,
-        "authority": "runtime.context_management.provider_visible_context_ledger.confirm",
+        "authority": "runtime.context_management.provider_visible_append_ledger.confirm",
     }
 
 
-def latest_provider_visible_context_success_anchor(*, storage_root: Path | str | None, scope: str) -> dict[str, Any]:
-    ledger = load_provider_visible_context_ledger(
+def latest_provider_visible_append_success_anchor(*, storage_root: Path | str | None, scope: str) -> dict[str, Any]:
+    ledger = load_provider_visible_append_ledger(
         storage_root=Path(storage_root) if storage_root else None,
         scope=scope,
     )
     return _active_provider_success_anchor(ledger)
 
 
-def truncate_provider_visible_context_ledger_after_session_cutoff(
+def truncate_provider_visible_append_ledger_after_session_cutoff(
     *,
     storage_root: Path | str | None,
     scope: str,
@@ -489,21 +502,21 @@ def truncate_provider_visible_context_ledger_after_session_cutoff(
     kept = {str(item or "").strip() for item in list(kept_turn_ids or []) if str(item or "").strip()}
     cutoff_ts = float(cutoff_created_before or time.time())
     root = Path(storage_root) if storage_root else None
-    ledger = load_provider_visible_context_ledger(storage_root=root, scope=normalized_scope)
+    ledger = load_provider_visible_append_ledger(storage_root=root, scope=normalized_scope)
     active_entries = _active_confirmed_ledger_entries(ledger)
     if not active_entries:
         return {
-            "authority": "runtime.context_management.provider_visible_context_ledger.branch_cursor",
+            "authority": "runtime.context_management.provider_visible_append_ledger.branch_cursor",
             "scope": normalized_scope,
             "deactivated_count": 0,
             "active_count": 0,
-            "reason": "provider_visible_context_ledger_empty",
+            "reason": "provider_visible_append_ledger_empty",
         }
 
     target_position = -1
     for index, entry in enumerate(active_entries):
-        turn_id = _turn_id_from_provider_request_id(str(entry.get("confirmed_by_request_id") or ""))
-        if turn_id and turn_id in kept:
+        confirmed_turn_id = str(entry.get("confirmed_turn_id") or "").strip()
+        if confirmed_turn_id and confirmed_turn_id in kept:
             target_position = index
 
     payload = dict(ledger or {})
@@ -532,27 +545,27 @@ def truncate_provider_visible_context_ledger_after_session_cutoff(
         ],
         "deactivated_turn_ids": sorted(
             {
-                _turn_id_from_provider_request_id(str(item.get("confirmed_by_request_id") or ""))
+                str(item.get("confirmed_turn_id") or "").strip()
                 for item in deactivated_entries
-                if _turn_id_from_provider_request_id(str(item.get("confirmed_by_request_id") or ""))
+                if str(item.get("confirmed_turn_id") or "").strip()
             }
         ),
         "target_anchor_id": str(target_anchor.get("anchor_id") or ""),
         "target_terminal_entry_index": _safe_int(target_anchor.get("terminal_entry_index")),
         "target_terminal_entry_hash": str(target_anchor.get("terminal_entry_hash") or ""),
         "cursor_policy": "preserve_immutable_entries_switch_active_branch_head",
-        "authority": "runtime.context_management.provider_visible_context_ledger.branch_cursor",
+        "authority": "runtime.context_management.provider_visible_append_ledger.branch_cursor",
     }
     payload = _finalize_ledger(
         payload,
         scope=normalized_scope,
         provider=str(payload.get("provider") or ""),
         model=str(payload.get("model") or ""),
-        adapter_contract=str(payload.get("adapter_contract") or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+        adapter_contract=str(payload.get("adapter_contract") or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
     )
-    save_provider_visible_context_ledger(storage_root=root, scope=normalized_scope, ledger=payload)
+    save_provider_visible_append_ledger(storage_root=root, scope=normalized_scope, ledger=payload)
     return {
-        "authority": "runtime.context_management.provider_visible_context_ledger.branch_cursor",
+        "authority": "runtime.context_management.provider_visible_append_ledger.branch_cursor",
         "scope": normalized_scope,
         "deactivated_count": len(deactivated_entries),
         "active_count": len(target_entries),
@@ -568,18 +581,18 @@ def truncate_provider_visible_context_ledger_after_session_cutoff(
     }
 
 
-def load_provider_visible_context_ledger(*, storage_root: Path | None, scope: str) -> dict[str, Any]:
+def load_provider_visible_append_ledger(*, storage_root: Path | None, scope: str) -> dict[str, Any]:
     normalized_scope = str(scope or "default").strip() or "default"
-    path = provider_visible_context_ledger_path(storage_root=storage_root, scope=normalized_scope)
+    path = provider_visible_append_ledger_path(storage_root=storage_root, scope=normalized_scope)
     if path is None or not path.exists():
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
         return {
-            "authority": "runtime.context_management.provider_visible_context_ledger.load",
-            "schema_version": PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION,
-            "adapter_contract": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+            "authority": "runtime.context_management.provider_visible_append_ledger.load",
+            "ledger_schema_revision": PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION,
+            "adapter_contract": PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
             "scope": normalized_scope,
             "status": "recovery_required",
             "items": {},
@@ -593,9 +606,9 @@ def load_provider_visible_context_ledger(*, storage_root: Path | None, scope: st
         }
     if not isinstance(payload, dict):
         return {
-            "authority": "runtime.context_management.provider_visible_context_ledger.load",
-            "schema_version": PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION,
-            "adapter_contract": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+            "authority": "runtime.context_management.provider_visible_append_ledger.load",
+            "ledger_schema_revision": PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION,
+            "adapter_contract": PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
             "scope": normalized_scope,
             "status": "recovery_required",
             "items": {},
@@ -610,8 +623,8 @@ def load_provider_visible_context_ledger(*, storage_root: Path | None, scope: st
     return dict(payload or {})
 
 
-def save_provider_visible_context_ledger(*, storage_root: Path | None, scope: str, ledger: dict[str, Any]) -> None:
-    path = provider_visible_context_ledger_path(storage_root=storage_root, scope=scope)
+def save_provider_visible_append_ledger(*, storage_root: Path | None, scope: str, ledger: dict[str, Any]) -> None:
+    path = provider_visible_append_ledger_path(storage_root=storage_root, scope=scope)
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -621,20 +634,20 @@ def save_provider_visible_context_ledger(*, storage_root: Path | None, scope: st
     )
 
 
-def provider_visible_context_ledger_path(*, storage_root: Path | None, scope: str) -> Path | None:
+def provider_visible_append_ledger_path(*, storage_root: Path | None, scope: str) -> Path | None:
     if storage_root is None:
         return None
     try:
         runtime_state_dir = ProjectLayout.from_runtime_root(Path(storage_root)).runtime_state_dir.resolve()
     except Exception:
         runtime_state_dir = Path(storage_root).resolve()
-    safe_scope = safe_provider_visible_context_ledger_filename(scope)
+    safe_scope = safe_provider_visible_append_ledger_filename(scope)
     if not safe_scope:
         return None
-    return runtime_state_dir / "provider_visible_context_ledger" / f"{safe_scope}.json"
+    return runtime_state_dir / "provider_visible_append_ledger" / f"{safe_scope}.json"
 
 
-def safe_provider_visible_context_ledger_filename(value: str) -> str:
+def safe_provider_visible_append_ledger_filename(value: str) -> str:
     text = str(value or "").strip()
     result = []
     for char in text:
@@ -660,7 +673,7 @@ def _ledger_for_append(
     if not ledger:
         return _new_ledger(scope=scope, provider=provider, model=model, adapter_contract=adapter_contract)
     payload = dict(ledger or {})
-    payload.setdefault("schema_version", PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION)
+    payload.setdefault("ledger_schema_revision", PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION)
     payload.setdefault("adapter_contract", adapter_contract)
     payload.setdefault("scope", scope)
     payload.setdefault("status", "ok")
@@ -673,9 +686,9 @@ def _ledger_for_append(
 
 def _new_ledger(*, scope: str, provider: str, model: str, adapter_contract: str) -> dict[str, Any]:
     return {
-        "authority": "runtime.context_management.provider_visible_context_ledger",
-        "schema_version": PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION,
-        "adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+        "authority": "runtime.context_management.provider_visible_append_ledger",
+        "ledger_schema_revision": PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION,
+        "adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
         "scope": str(scope or "default"),
         "provider": str(provider or ""),
         "model": str(model or ""),
@@ -694,15 +707,15 @@ def _ledger_failure(ledger: dict[str, Any], *, scope: str, adapter_contract: str
         return failure
     if not ledger:
         return {}
-    schema_version = _safe_int(ledger.get("schema_version"))
-    if schema_version != PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION:
+    ledger_schema_revision = _safe_int(ledger.get("ledger_schema_revision"))
+    if ledger_schema_revision != PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION:
         return _structured_failure(
             scope=scope,
-            code="ledger_schema_version_mismatch",
-            message="provider-visible context ledger schema version does not match",
+            code="ledger_schema_revision_mismatch",
+            message="provider-visible context ledger schema revision does not match",
             details={
-                "schema_version": schema_version,
-                "expected_schema_version": PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION,
+                "ledger_schema_revision": ledger_schema_revision,
+                "expected_ledger_schema_revision": PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION,
             },
         )
     existing_adapter = str(ledger.get("adapter_contract") or "")
@@ -735,6 +748,7 @@ def _record_provider_success_anchor(
     provider: str,
     model: str,
     request_id: str,
+    turn_id: str,
     response_ref: str,
     provider_payload_prefix_hash: str,
     provider_payload_messages_hash: str,
@@ -747,6 +761,7 @@ def _record_provider_success_anchor(
     normalized_request_id = str(request_id or "").strip()
     if not normalized_request_id:
         return dict(ledger or {}), {}
+    normalized_turn_id = str(turn_id or "").strip()
     payload = dict(ledger or {})
     selected_entries = (
         [dict(item) for item in list(active_entries or []) if isinstance(item, dict)]
@@ -767,6 +782,7 @@ def _record_provider_success_anchor(
     anchor_seed = {
         "scope": str(scope or "default"),
         "request_id": normalized_request_id,
+        "turn_id": normalized_turn_id,
         "response_ref": str(response_ref or ""),
         "entry_count": len(entry_indexes),
         "terminal_entry_index": entry_indexes[-1],
@@ -776,6 +792,7 @@ def _record_provider_success_anchor(
     anchor = {
         "anchor_id": "provider-success-anchor:" + _stable_json_hash(anchor_seed).split(":", 1)[-1][:16],
         "request_id": normalized_request_id,
+        "turn_id": normalized_turn_id,
         "response_ref": str(response_ref or ""),
         "scope": str(scope or "default"),
         "provider": str(provider or payload.get("provider") or ""),
@@ -794,7 +811,7 @@ def _record_provider_success_anchor(
         "transport_contract_hash": str(transport_contract_hash or ""),
         "request_message_count": _safe_int(request_message_count),
         "created_at": time.time(),
-        "authority": "runtime.context_management.provider_visible_context_ledger.provider_success_anchor",
+        "authority": "runtime.context_management.provider_visible_append_ledger.provider_success_anchor",
     }
     existing = [
         dict(item)
@@ -816,9 +833,9 @@ def _finalize_ledger(
     adapter_contract: str,
 ) -> dict[str, Any]:
     payload = dict(ledger or {})
-    payload["authority"] = "runtime.context_management.provider_visible_context_ledger"
-    payload["schema_version"] = PROVIDER_VISIBLE_CONTEXT_LEDGER_SCHEMA_VERSION
-    payload["adapter_contract"] = str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT)
+    payload["authority"] = "runtime.context_management.provider_visible_append_ledger"
+    payload["ledger_schema_revision"] = PROVIDER_VISIBLE_APPEND_LEDGER_SCHEMA_REVISION
+    payload["adapter_contract"] = str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT)
     payload["scope"] = str(scope or payload.get("scope") or "default")
     payload["provider"] = str(provider or payload.get("provider") or "")
     payload["model"] = str(model or payload.get("model") or "")
@@ -865,6 +882,7 @@ def _ledger_entry(
     model: str,
     adapter_contract: str,
     confirmed_by_request_id: str = "",
+    confirmed_turn_id: str = "",
     confirmed_response_ref: str = "",
     semantic_visibility: str = "",
     validity_scope: str = "",
@@ -872,16 +890,15 @@ def _ledger_entry(
     cache_spine_hash: str = "",
     provider_tool_protocol: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    replay_only = str(semantic_commit_class or "").startswith("provider_visible_replay_only")
     payload = {
         "entry_index": int(entry_index or 0),
         "item_key": str(item_key or ""),
         "provider": str(provider or ""),
         "model": str(model or ""),
-        "adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+        "adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
         "context_section": "context_memory_prefix",
         "ledger_lane": PROVIDER_VISIBLE_CONTEXT_PREFIX,
-        "semantic_visibility": str(semantic_visibility or ("historical_only" if replay_only else "active")),
+        "semantic_visibility": str(semantic_visibility or "active"),
         "validity_scope": str(validity_scope or ""),
         "compaction_generation": str(compaction_generation or ""),
         "cache_spine_hash": str(cache_spine_hash or ""),
@@ -892,9 +909,10 @@ def _ledger_entry(
         "provider_visible_message": _provider_visible_message(provider_visible_message),
         "provider_visible_hash": str(provider_visible_hash or ""),
         "previous_entry_hash": str(previous_entry_hash or ""),
-        "commit_status": PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS,
+        "commit_status": PROVIDER_VISIBLE_APPEND_CONFIRMED_STATUS,
         "confirmed_at": time.time(),
         "confirmed_by_request_id": str(confirmed_by_request_id or ""),
+        "confirmed_turn_id": str(confirmed_turn_id or ""),
         "confirmed_response_ref": str(confirmed_response_ref or ""),
         "confirmation_authority": "runtime.model_gateway.model_runtime.provider_success",
         "created_at": time.time(),
@@ -934,7 +952,7 @@ def _inherited_ledger_entries_for_anchor(
                 },
             )
         ]
-    ledger = load_provider_visible_context_ledger(storage_root=storage_root, scope=normalized_scope)
+    ledger = load_provider_visible_append_ledger(storage_root=storage_root, scope=normalized_scope)
     failure = _ledger_failure(ledger, scope=normalized_scope, adapter_contract=adapter_contract)
     if failure:
         return [], [failure]
@@ -947,7 +965,7 @@ def _inherited_ledger_entries_for_anchor(
         return [], [
             _structured_failure(
                 scope=normalized_scope,
-                code="fork_inherited_provider_visible_ledger_anchor_empty",
+                code="fork_inherited_provider_visible_append_anchor_empty",
                 message="fork provider-visible context anchor points to an empty or missing parent ledger range",
                 details={
                     "anchor_id": str(normalized_anchor.get("anchor_id") or ""),
@@ -1021,19 +1039,7 @@ def _anchor_terminal_entry_index(anchor: dict[str, Any]) -> int:
     return 0
 
 
-def _turn_id_from_provider_request_id(request_id: str) -> str:
-    text = str(request_id or "").strip()
-    prefix = "modelreq:rtpacket:"
-    if text.startswith(prefix):
-        rest = text[len(prefix):]
-        for marker in (":single_agent_turn", ":task_execution", ":recovery"):
-            marker_index = rest.find(marker)
-            if marker_index > 0:
-                return rest[:marker_index]
-    return ""
-
-
-def _current_context_append_spec_from_candidate(
+def _current_append_spec_from_candidate(
     spec: dict[str, Any],
     *,
     item_key: str,
@@ -1052,7 +1058,7 @@ def _current_context_append_spec_from_candidate(
     fixed_context_package = "context_memory_prefix" if policy_section == CONTEXT_MEMORY_PREFIX else "context_memory_append"
     semantic_commit_class = str(
         dict(payload.get("metadata") or {}).get("semantic_commit_class")
-        or getattr(policy, "semantic_slot", "")
+        or getattr(policy, "semantic_commit_class", "")
         or ""
     )
     metadata = {
@@ -1060,21 +1066,21 @@ def _current_context_append_spec_from_candidate(
         **context_segment_policy_metadata(policy),
         "context_cache_section": policy_section,
         "fixed_context_package": fixed_context_package,
-        "provider_visible_context_ledger_scope": str(scope or ""),
-        "provider_visible_context_ledger_storage_root": storage_root_text,
-        "provider_visible_context_ledger_commit_stage": "provider_success_required",
-        "provider_visible_context_ledger_item_key": str(item_key or ""),
-        "provider_visible_context_ledger_authority": "runtime.context_management.provider_visible_context_ledger",
+        "provider_visible_append_ledger_scope": str(scope or ""),
+        "provider_visible_append_ledger_storage_root": storage_root_text,
+        "provider_visible_append_commit_stage": "provider_success_required",
+        "provider_visible_append_item_key": str(item_key or ""),
+        "provider_visible_append_ledger_authority": "runtime.context_management.provider_visible_append_ledger",
         "provider_visible_hash": str(provider_visible_hash or ""),
         "provider_visible_payload_form": "provider_chat_completion_message",
-        "provider_visible_payload_authority": "runtime.context_management.provider_visible_context_ledger.current_append",
-        "provider_visible_context_candidate_message": _provider_visible_message(provider_visible_message),
-        "provider_visible_context_candidate_kind": str(payload.get("kind") or ""),
-        "provider_visible_context_candidate_source_ref": str(payload.get("source_ref") or ""),
-        "provider_visible_context_candidate_semantic_commit_class": semantic_commit_class,
-        "provider_visible_context_candidate_provider": str(provider or ""),
-        "provider_visible_context_candidate_model": str(model or ""),
-        "provider_adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT),
+        "provider_visible_payload_authority": "runtime.context_management.provider_visible_append_ledger.current_append",
+        "provider_visible_append_candidate_message": _provider_visible_message(provider_visible_message),
+        "provider_visible_append_candidate_kind": str(payload.get("kind") or ""),
+        "provider_visible_append_candidate_source_ref": str(payload.get("source_ref") or ""),
+        "provider_visible_append_candidate_semantic_commit_class": semantic_commit_class,
+        "provider_visible_append_candidate_provider": str(provider or ""),
+        "provider_visible_append_candidate_model": str(model or ""),
+        "provider_adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
     }
     payload["cache_scope"] = str(getattr(policy, "prefix_cache_scope", "") or payload.get("cache_scope") or "session")
@@ -1109,7 +1115,7 @@ def _provider_visible_item_key(spec: dict[str, Any], *, provider_visible_hash: s
     metadata = dict(spec.get("metadata") or {})
     prefix_identity = dict(spec.get("prefix_identity") or metadata.get("prefix_identity") or {})
     explicit = str(
-        metadata.get("provider_visible_context_ledger_item_key")
+        metadata.get("provider_visible_append_item_key")
         or metadata.get("append_only_context_item_key")
         or ""
     ).strip()
@@ -1127,11 +1133,10 @@ def _provider_visible_item_key(spec: dict[str, Any], *, provider_visible_hash: s
         metadata.get("context_origin_authority")
         or metadata.get("prefix_origin_authority")
         or metadata.get("origin_authority")
-        or metadata.get("content_source")
+        or prefix_identity.get("origin_authority")
         or metadata.get("context_semantic_source")
         or metadata.get("semantic_source")
-        or metadata.get("source_kind")
-        or metadata.get("context_source_kind")
+        or spec.get("source_ref")
         or spec.get("kind")
         or ""
     ).strip()
@@ -1144,15 +1149,15 @@ def _provider_visible_item_key(spec: dict[str, Any], *, provider_visible_hash: s
         or prefix_identity.get("logical_segment_ref")
         or metadata.get("logical_segment_ref")
         or spec.get("logical_segment_ref")
-        or metadata.get("provider_visible_context_candidate_source_ref")
+        or metadata.get("provider_visible_append_candidate_source_ref")
         or spec.get("source_ref")
         or ""
     ).strip()
     if origin_ref:
         return _stable_json_hash(
             {
-                "schema": "provider_visible_context_item_identity.v1",
-                "normalization": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+                "schema": "provider_visible_context_item_identity",
+                "normalization": PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
                 "identity_policy": identity_policy or "origin_ref_stable",
                 "kind": str(spec.get("kind") or ""),
                 "semantic_slot": semantic_slot,
@@ -1162,8 +1167,8 @@ def _provider_visible_item_key(spec: dict[str, Any], *, provider_visible_hash: s
         )
     return _stable_json_hash(
         {
-            "schema": "provider_visible_context_item_identity.v1",
-            "normalization": PROVIDER_VISIBLE_CONTEXT_LEDGER_ADAPTER_CONTRACT,
+            "schema": "provider_visible_context_item_identity",
+            "normalization": PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
             "identity_policy": "missing_origin_ref_diagnostic",
             "kind": str(spec.get("kind") or ""),
             "semantic_slot": semantic_slot,
@@ -1207,7 +1212,7 @@ def _previous_entry_hash(ledger: dict[str, Any]) -> str:
 
 def _ledger_entry_confirmed(entry: dict[str, Any]) -> bool:
     status = str(dict(entry or {}).get("commit_status") or "").strip()
-    return status == PROVIDER_VISIBLE_CONTEXT_LEDGER_CONFIRMED_STATUS
+    return status == PROVIDER_VISIBLE_APPEND_CONFIRMED_STATUS
 
 
 def _confirmed_ledger_entries(ledger: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1223,9 +1228,6 @@ def _active_provider_success_anchor(ledger: dict[str, Any]) -> dict[str, Any]:
     active = payload.get("active_provider_success_anchor")
     if isinstance(active, dict) and active:
         return dict(active)
-    legacy = payload.get("last_provider_success_anchor")
-    if isinstance(legacy, dict) and legacy:
-        return dict(legacy)
     return {}
 
 
@@ -1336,6 +1338,7 @@ def _provider_success_anchor_for_terminal_entries(
     return {
         "anchor_id": "provider-branch-anchor:" + _stable_json_hash(anchor_seed).split(":", 1)[-1][:16],
         "request_id": str(terminal.get("confirmed_by_request_id") or ""),
+        "turn_id": str(terminal.get("confirmed_turn_id") or ""),
         "response_ref": str(terminal.get("confirmed_response_ref") or ""),
         "scope": str(scope or "default"),
         "provider": str(terminal.get("provider") or dict(ledger or {}).get("provider") or ""),
@@ -1355,7 +1358,7 @@ def _provider_success_anchor_for_terminal_entries(
         "request_message_count": 0,
         "created_at": time.time(),
         "reason": str(reason or ""),
-        "authority": "runtime.context_management.provider_visible_context_ledger.branch_anchor",
+        "authority": "runtime.context_management.provider_visible_append_ledger.branch_anchor",
     }
 
 
@@ -1377,15 +1380,11 @@ def _set_active_provider_visible_cursor(
         payload["active_success_anchor_id"] = str(active_anchor.get("anchor_id") or "")
         payload["active_terminal_entry_index"] = _safe_int(active_anchor.get("terminal_entry_index"))
         payload["active_terminal_entry_hash"] = str(active_anchor.get("terminal_entry_hash") or "")
-        payload["last_provider_success_anchor"] = active_anchor
-        payload["last_success_anchor_id"] = str(active_anchor.get("anchor_id") or "")
     else:
         payload["active_provider_success_anchor"] = {}
         payload["active_success_anchor_id"] = ""
         payload["active_terminal_entry_index"] = 0
         payload["active_terminal_entry_hash"] = ""
-        payload["last_provider_success_anchor"] = {}
-        payload["last_success_anchor_id"] = ""
     payload["active_ledger_entry_indexes"] = entry_indexes
     payload["active_ledger_entry_count"] = len(entry_indexes)
     payload["branch_cursor_policy"] = "immutable_entries_active_head"
@@ -1396,7 +1395,7 @@ def _ledger_entry_hash(entry: dict[str, Any]) -> str:
     payload = dict(entry or {})
     return _stable_json_hash(
         {
-            "schema": "provider_visible_context_ledger_entry_hash_v3",
+            "schema": "provider_visible_append_ledger_entry_hash",
             "entry_index": _safe_int(payload.get("entry_index")),
             "item_key": str(payload.get("item_key") or ""),
             "provider": str(payload.get("provider") or ""),
@@ -1421,14 +1420,14 @@ def _ledger_entry_hash(entry: dict[str, Any]) -> str:
 
 def _structured_failure(*, scope: str, code: str, message: str, details: dict[str, Any]) -> dict[str, Any]:
     return {
-        "code": str(code or "provider_visible_context_ledger_failure"),
+        "code": str(code or "provider_visible_append_ledger_failure"),
         "message": str(message or ""),
         "scope": str(scope or "default"),
         "severity": "p0",
         "recovery_policy": "insert_recovery_context_checkpoint_before_resuming_append_only_ledger",
         "recovery_position": "context_memory_prefix",
         "details": dict(details or {}),
-        "authority": "runtime.context_management.provider_visible_context_ledger.structured_failure",
+        "authority": "runtime.context_management.provider_visible_append_ledger.structured_failure",
     }
 
 

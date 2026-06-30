@@ -11,7 +11,7 @@ from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.session_output_commit_projection import project_session_output_commit_state
 
 from .activity import RuntimeActivityControlContext, activity_is_monitor_visible, activity_sort_rank, with_runtime_activity
-from .contract import build_envelope, build_navigation_target, build_task_detail_envelope, monitor_revision
+from .contract import MONITOR_ITEM_AUTHORITY, build_envelope, build_navigation_target, build_task_detail_envelope, monitor_revision
 from .lifecycle import (
     BLOCKED_TASK_RUN_STATUSES,
     COMPLETED_TASK_RUN_STATUSES,
@@ -311,7 +311,7 @@ class RunMonitorProjector:
             "project_runtime_status": None,
             "has_graph_run": has_graph_run,
             "event_count": event_count,
-            "authority": "harness.run_monitor.v1.item",
+            "authority": MONITOR_ITEM_AUTHORITY,
         }
         return with_runtime_activity(item)
 
@@ -528,7 +528,7 @@ class RunMonitorProjector:
             "project_runtime_status": None,
             "has_graph_run": False,
             "event_count": 0,
-            "authority": "harness.run_monitor.v1.item",
+            "authority": MONITOR_ITEM_AUTHORITY,
         }
         return with_runtime_activity(
             item,
@@ -941,7 +941,7 @@ class RunMonitorProjector:
 
     def _is_internal_child_run(self, task_run: Any) -> bool:
         task_id = str(getattr(task_run, "task_id", "") or "")
-        contract_ref = str(getattr(task_run, "task_contract_ref", "") or "")
+        contract_ref = str(getattr(task_run, "task_run_contract_ref", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         if task_id.startswith("task_graph.graph_module.") or contract_ref.startswith("task_graph.graph_module."):
             return True
@@ -986,11 +986,9 @@ class RunMonitorProjector:
             value = self._public_text(diagnostics.get(key))
             if value:
                 return value
-        contract = dict(diagnostics.get("contract") or {})
-        for key in ("user_visible_goal", "task_run_goal", "goal", "title"):
-            value = self._public_text(contract.get(key))
-            if value:
-                return value
+        contract_title = self._task_run_contract_title(task_run)
+        if contract_title:
+            return contract_title
         task_id = self._public_task_id(getattr(task_run, "task_id", ""))
         if task_id:
             return task_id
@@ -1007,6 +1005,39 @@ class RunMonitorProjector:
         if lifecycle == "stale":
             return "运行状态需诊断"
         return "会话运行中"
+
+    def _task_run_contract_title(self, task_run: Any) -> str:
+        contract_ref = str(getattr(task_run, "task_run_contract_ref", "") or "").strip()
+        if not contract_ref:
+            return ""
+        runtime_objects = getattr(self.runtime_host, "runtime_objects", None)
+        get_object = getattr(runtime_objects, "get_object", None)
+        if get_object is None:
+            return ""
+        try:
+            payload = dict(get_object(contract_ref) or {})
+        except Exception:
+            return ""
+        contract = dict(payload.get("task_run_contract") or payload)
+        for key in ("user_visible_goal", "task_run_goal", "goal", "title"):
+            value = self._public_text(contract.get(key))
+            if value:
+                return value
+        goal_contract = dict(contract.get("goal_contract") or {})
+        for key in ("user_visible_goal", "task_run_goal", "agent_goal", "goal", "title"):
+            value = self._public_text(goal_contract.get(key))
+            if value:
+                return value
+        for mode in list(contract.get("work_modes") or []):
+            mode_payload = dict(mode or {}) if isinstance(mode, dict) else {}
+            if str(mode_payload.get("mode_kind") or "").strip() != "goal":
+                continue
+            mode_contract = dict(mode_payload.get("contract") or {})
+            for key in ("user_visible_goal", "task_run_goal", "agent_goal", "goal", "title"):
+                value = self._public_text(mode_contract.get(key))
+                if value:
+                    return value
+        return ""
 
     def _public_text(self, value: Any) -> str:
         candidate = str(value or "").strip()
@@ -1688,4 +1719,3 @@ def _graph_next_action(*, status: str, ready_count: int, failed_count: int, bloc
     if status in {"completed", "success", "succeeded"}:
         return "已完成"
     return "等待进展"
-

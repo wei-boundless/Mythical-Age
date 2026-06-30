@@ -112,7 +112,7 @@ backend/harness/loop/single_agent_turn.py
 当前合同已经包含：
 
 ```text
-action_type=respond|ask_user|tool_call|request_task_run|active_work_control|resume_recoverable_work|block
+action_type=respond|ask_user|tool_call|request_task_run|active_work_control|resume_task_recovery|block
 task_run_contract_seed
 public_progress_note
 public_action_state
@@ -466,7 +466,7 @@ TaskRunContract 和 WorkModeContract 的作者可以有三类。
 ```json
 {
   "contract_id": "task-run-contract:...",
-  "contract_version": "task_run_contract_v1",
+  "contract_version": "task_run_contract",
   "contract_origin": {
     "author_type": "agent|user|system",
     "source": "request_task_run|task_editor|workflow|graph|automation",
@@ -489,7 +489,7 @@ TaskRunContract 和 WorkModeContract 的作者可以有三类。
       "system_may_infer_transition": false,
       "requires_accepted_event": true
     },
-    "authority": "task_run_contract_v1"
+    "authority": "task_run_contract"
   },
   "work_modes": [
     {

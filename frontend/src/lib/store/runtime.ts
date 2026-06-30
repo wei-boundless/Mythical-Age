@@ -156,6 +156,8 @@ type PendingVisibleStreamFlush = {
 
 const DEFAULT_SESSION_TITLE = "New Session";
 const VISIBLE_STREAM_FLUSH_FRAME_FALLBACK_MS = 16;
+const VISIBLE_STREAM_INTERRUPT_SIGNAL_KEY_PREFIX = "agentWorkbench.visibleStreamInterrupt.";
+const VISIBLE_STREAM_INTERRUPT_SIGNAL_SCHEMA = 1;
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
@@ -175,6 +177,7 @@ export class WorkspaceRuntime {
   private tokenStatsRefreshInFlight = false;
   private lastMonitorTokenStatsRefreshAt = 0;
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">>();
+  private visibleRuntimeProjectionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">>();
   private activeChatStreamBindings = new Map<string, ActiveChatStreamBinding>();
   private chatStreamEpochBySession = new Map<string, number>();
   private pendingChatStreamInterruptions = new Map<string, PendingChatStreamInterruption>();
@@ -1483,6 +1486,19 @@ export class WorkspaceRuntime {
     ) {
       return this.mergeActiveStreamProjectionMessages(current.messages, refreshedMessages);
     }
+    if (
+      current.currentSessionId === sessionId
+      && current.messages.some((message) => this.messageHasRuntimeVolatileState(message))
+    ) {
+      return this.mergeActiveStreamProjectionMessages(current.messages, refreshedMessages);
+    }
+    if (
+      current.currentSessionId === sessionId
+      && current.messages.length > 0
+      && this.visibleStreamInterruptSignalPresent(sessionId)
+    ) {
+      return this.mergeActiveStreamProjectionMessages(current.messages, refreshedMessages);
+    }
     return refreshedMessages;
   }
 
@@ -1749,6 +1765,141 @@ export class WorkspaceRuntime {
       || message.stageStatus
       || this.messageHasRecoverableTransientAssistantContent(message)
     );
+  }
+
+  private rememberVisibleRuntimeProjection(
+    sessionId: string,
+    snapshot: Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">,
+  ) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const hasProjectionState = Object.keys(snapshot.activeProjectionsByKey ?? {}).length > 0
+      || snapshot.messages.some((message) => this.messageHasRuntimeVolatileState(message))
+      || (snapshot.messages.length > 0 && this.visibleStreamInterruptSignalPresent(normalizedSessionId));
+    if (!hasProjectionState) {
+      this.visibleRuntimeProjectionCache.delete(normalizedSessionId);
+      return;
+    }
+    this.visibleRuntimeProjectionCache.set(normalizedSessionId, {
+      messages: snapshot.messages,
+      activeProjectionsByKey: snapshot.activeProjectionsByKey,
+      harnessTurnSnapshot: snapshot.harnessTurnSnapshot,
+      activeTurnSnapshot: snapshot.activeTurnSnapshot,
+    });
+  }
+
+  private visibleRuntimeProjectionSnapshot(
+    sessionId: string,
+    state: StoreState = this.store.getState(),
+  ): Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot"> | null {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return null;
+    }
+    if (
+      state.currentSessionId === normalizedSessionId
+      && (
+        Object.keys(state.activeProjectionsByKey ?? {}).length > 0
+        || state.messages.some((message) => this.messageHasRuntimeVolatileState(message))
+        || (state.messages.length > 0 && this.visibleStreamInterruptSignalPresent(normalizedSessionId))
+      )
+    ) {
+      return {
+        messages: state.messages,
+        activeProjectionsByKey: state.activeProjectionsByKey,
+        harnessTurnSnapshot: state.harnessTurnSnapshot,
+        activeTurnSnapshot: state.activeTurnSnapshot,
+      };
+    }
+    return this.visibleRuntimeProjectionCache.get(normalizedSessionId) ?? null;
+  }
+
+  private visibleStreamInterruptSignalKey(sessionId: string) {
+    return `${VISIBLE_STREAM_INTERRUPT_SIGNAL_KEY_PREFIX}${encodeURIComponent(String(sessionId || "").trim())}`;
+  }
+
+  private rememberVisibleStreamInterruptSignal(
+    sessionId: string,
+    event: string,
+    data: Record<string, unknown> = {},
+  ) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    storageSet(this.visibleStreamInterruptSignalKey(normalizedSessionId), JSON.stringify({
+      schema: VISIBLE_STREAM_INTERRUPT_SIGNAL_SCHEMA,
+      sessionId: normalizedSessionId,
+      event: runtimeText(event),
+      streamRunId: runtimeText(data.stream_run_id) || runtimeText(data.streamRunId),
+      eventLogId: runtimeText(data.event_log_id) || runtimeText(data.eventLogId),
+      lastEventOffset: Number(data.event_offset ?? data.lastEventOffset ?? -1),
+      reason: runtimeText(data.reason) || runtimeText(data.terminal_reason) || runtimeText(data.status),
+      updatedAt: Date.now(),
+    }));
+  }
+
+  private clearVisibleStreamInterruptSignal(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (normalizedSessionId) {
+      storageRemove(this.visibleStreamInterruptSignalKey(normalizedSessionId));
+    }
+  }
+
+  private visibleStreamInterruptSignalPresent(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return false;
+    }
+    const raw = storageGet(this.visibleStreamInterruptSignalKey(normalizedSessionId));
+    if (!raw) {
+      return false;
+    }
+    try {
+      const payload = JSON.parse(raw) as Record<string, unknown>;
+      return Number(payload.schema) === VISIBLE_STREAM_INTERRUPT_SIGNAL_SCHEMA
+        && runtimeText(payload.sessionId) === normalizedSessionId;
+    } catch {
+      storageRemove(this.visibleStreamInterruptSignalKey(normalizedSessionId));
+      return false;
+    }
+  }
+
+  private visibleStreamEventIsInterruptSignal(event: string, data: Record<string, unknown>) {
+    const eventName = runtimeText(event).toLowerCase();
+    if (eventName === "stream_recoverable_interruption") {
+      return true;
+    }
+    const values = [
+      eventName,
+      runtimeText(data.status).toLowerCase(),
+      runtimeText(data.state).toLowerCase(),
+      runtimeText(data.reason).toLowerCase(),
+      runtimeText(data.terminal_reason).toLowerCase(),
+      runtimeText(data.completion_state).toLowerCase(),
+      runtimeText(data.runtime_interruption_code).toLowerCase(),
+      runtimeText(data.recovery_kind).toLowerCase(),
+    ];
+    return values.some((value) =>
+      value === "interrupted"
+      || value === "runtime_interruption_closed"
+      || value === "runtime_stream_interrupted"
+      || value === "runtime_process_restarted"
+      || value === "runtime_cell_missing_after_restart"
+    );
+  }
+
+  private visibleStreamEventClearsInterruptSignal(event: string, data: Record<string, unknown>) {
+    if (this.visibleStreamEventIsInterruptSignal(event, data)) {
+      return false;
+    }
+    const eventName = runtimeText(event).toLowerCase();
+    if (eventName === "done") {
+      return true;
+    }
+    return eventName === "turn_completed" && runtimeText(data.status).toLowerCase() === "completed";
   }
 
   private messageHasRecoverableTransientAssistantContent(message: Message) {
@@ -2249,6 +2400,19 @@ export class WorkspaceRuntime {
         activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
       });
     }
+    if (visibleSessionId) {
+      if (latency && this.visibleStreamEventIsInterruptSignal(latency.event, latency.data)) {
+        this.rememberVisibleStreamInterruptSignal(visibleSessionId, latency.event, latency.data);
+      } else if (latency && this.visibleStreamEventClearsInterruptSignal(latency.event, latency.data)) {
+        this.clearVisibleStreamInterruptSignal(visibleSessionId);
+      }
+      this.rememberVisibleRuntimeProjection(visibleSessionId, {
+        messages: mergedMessages,
+        activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
+        harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
+        activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
+      });
+    }
     if (latency) {
       this.recordChatStreamLatency(latency.sessionId, latency.event, latency.data);
     }
@@ -2262,6 +2426,7 @@ export class WorkspaceRuntime {
     return !event
       || event === "user_input_queued"
       || event === "stream_cursor_restore_started"
+      || event === "stream_recoverable_interruption"
       || event === "stream_reconnecting"
       || event === "stream_reconnect_failed";
   }
@@ -2979,9 +3144,9 @@ export class WorkspaceRuntime {
     }
     rememberSessionRef(normalized);
     this.persistCurrentSessionRef(normalized);
+    const currentState = this.store.getState();
     const streamingCache = this.streamingSessionCache.get(normalized.sessionId);
-    if (this.store.getState().activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
-      const currentState = this.store.getState();
+    if (currentState.activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
       const selectedSession = currentState.sessions.find((session) => session.id === normalized.sessionId);
       const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
         ? this.activeEnvironmentForSession(selectedSession) ?? currentState.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
@@ -3010,7 +3175,7 @@ export class WorkspaceRuntime {
       void this.refreshWorkspaceTree().catch(() => undefined);
       return true;
     }
-    const currentState = this.store.getState();
+    const visibleProjectionSnapshot = this.visibleRuntimeProjectionSnapshot(normalized.sessionId, currentState);
     const selectedSession = currentState.sessions.find((session) => session.id === normalized.sessionId);
     const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
       ? this.activeEnvironmentForSession(selectedSession) ?? currentState.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
@@ -3027,10 +3192,10 @@ export class WorkspaceRuntime {
       permissionMode,
       selectedChatModelId,
       selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
-      messages: [],
-      activeProjectionsByKey: {},
-      harnessTurnSnapshot: null,
-      activeTurnSnapshot: null,
+      messages: visibleProjectionSnapshot?.messages ?? [],
+      activeProjectionsByKey: visibleProjectionSnapshot?.activeProjectionsByKey ?? {},
+      harnessTurnSnapshot: visibleProjectionSnapshot?.harnessTurnSnapshot ?? null,
+      activeTurnSnapshot: visibleProjectionSnapshot?.activeTurnSnapshot ?? null,
       taskGraphLiveMonitor: null,
       tokenStats: null
     }, normalized.sessionId));
@@ -3046,41 +3211,54 @@ export class WorkspaceRuntime {
     }
     this.recoveringStreamSessionIds.add(sessionId);
     try {
+      const scope = this.sessionScopeForSession(sessionId);
+      const cursor = readChatStreamCursor(sessionId);
       let latestRunLookupFailed = false;
-      const latestRun = await getLatestChatRunForSession(sessionId, this.sessionScopeForSession(sessionId)).catch(() => {
+      const latestRun = await getLatestChatRunForSession(sessionId, scope).catch(() => {
         latestRunLookupFailed = true;
         return null;
       });
+      const cursorRun = latestRun ? null : await this.chatRunFromCursor(sessionId, cursor);
+      const latestRestorableRun = latestRun || cursorRun
+        ? null
+        : await getLatestChatRunForSession(sessionId, scope, { activeOnly: false, restoreOnly: true })
+          .catch(() => null);
+      const restorableRun = latestRun
+        ?? cursorRun
+        ?? (this.chatRunRestorable(latestRestorableRun) ? latestRestorableRun : null);
+
       if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-        if (latestRunLookupFailed) {
+        if (latestRunLookupFailed && !restorableRun) {
           if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
             await this.refreshSessionDetails(sessionId).catch(() => undefined);
           }
           return true;
         }
-        if (!latestRun) {
+        if (!restorableRun) {
           this.releaseActiveChatStreamForSwitch(sessionId);
           clearChatStreamCursor(sessionId);
           await this.refreshSessionDetails(sessionId).catch(() => undefined);
           return false;
         }
-        if (latestRun && !this.activeChatStreamMatchesRun(sessionId, latestRun)) {
-          this.releaseActiveChatStreamForSwitch(sessionId);
-          clearChatStreamCursor(sessionId);
-        } else {
+        if (this.chatRunLiveReconnectable(restorableRun) && this.activeChatStreamMatchesRun(sessionId, restorableRun)) {
           if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
             await this.refreshSessionDetails(sessionId).catch(() => undefined);
           }
           return true;
         }
+        this.releaseActiveChatStreamForSwitch(sessionId);
+        if (cursor?.streamRunId && cursor.streamRunId !== restorableRun.stream_run_id) {
+          clearChatStreamCursor(sessionId);
+        }
       }
-      if (!latestRun) {
-        clearChatStreamCursor(sessionId);
+      if (!restorableRun) {
+        if (!latestRunLookupFailed) {
+          clearChatStreamCursor(sessionId);
+        }
         return false;
       }
-      const cursor = readChatStreamCursor(sessionId);
-      const latestRunCursor = this.chatRunCursorFromActiveRun(latestRun);
-      if (!latestRunCursor) {
+      const latestRunCursor = this.chatRunCursorFromRestorableRun(restorableRun);
+      if (!latestRunCursor || !this.chatRunRestorable(restorableRun)) {
         clearChatStreamCursor(sessionId);
         return false;
       }
@@ -3091,26 +3269,26 @@ export class WorkspaceRuntime {
         clearChatStreamCursor(sessionId);
       }
       const streamRunId = latestRunCursor.streamRunId;
-      const cursorRun = latestRun;
+      const selectedRun = restorableRun;
       if (
-        !cursorRun
-        || cursorRun.session_id !== sessionId
-        || cursorRun.event_log_id !== effectiveCursor.eventLogId
-        || !this.chatRunLiveReconnectable(cursorRun)
+        !selectedRun
+        || selectedRun.session_id !== sessionId
+        || selectedRun.event_log_id !== effectiveCursor.eventLogId
+        || !this.chatRunRestorable(selectedRun)
       ) {
         clearChatStreamCursor(sessionId);
         return false;
       }
-      if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, effectiveCursor)) {
+      if (!this.chatRunReplayRestorable(selectedRun) && this.chatRunCursorAlreadyReachedTerminal(selectedRun, effectiveCursor)) {
         clearChatStreamCursor(sessionId);
         await this.refreshSessionDetails(sessionId).catch(() => undefined);
         return false;
       }
-      this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(cursorRun));
-      if (this.visibleSessionNeedsHistoryHydration(sessionId)) {
+      this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(selectedRun));
+      if (this.chatRunReplayRestorable(selectedRun) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
         await this.refreshSessionDetails(sessionId).catch(() => undefined);
       }
-      this.startRecoveredChatRunStream(sessionId, streamRunId, effectiveCursor, cursorRun);
+      this.startRecoveredChatRunStream(sessionId, streamRunId, effectiveCursor, selectedRun);
       return true;
     } finally {
       this.recoveringStreamSessionIds.delete(sessionId);
@@ -3132,10 +3310,26 @@ export class WorkspaceRuntime {
     void this.hydrateLatestHarnessTurnSnapshot(normalizedSessionId).catch(() => undefined);
   }
 
-  private chatRunCursorFromActiveRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
+  private async chatRunFromCursor(sessionId: string, cursor: ChatStreamCursor | null): Promise<ChatRun | null> {
+    if (!cursor?.streamRunId || !cursor.eventLogId) {
+      return null;
+    }
+    const run = await getChatRun(cursor.streamRunId).catch(() => null);
+    if (
+      !run
+      || run.session_id !== sessionId
+      || run.event_log_id !== cursor.eventLogId
+      || !this.chatRunRestorable(run)
+    ) {
+      return null;
+    }
+    return run;
+  }
+
+  private chatRunCursorFromRestorableRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
     const streamRunId = runtimeText(run?.stream_run_id);
     const eventLogId = runtimeText(run?.event_log_id);
-    if (!streamRunId || !eventLogId || !this.chatRunLiveReconnectable(run)) {
+    if (!streamRunId || !eventLogId || !this.chatRunRestorable(run)) {
       return null;
     }
     return {
@@ -3148,6 +3342,14 @@ export class WorkspaceRuntime {
 
   private chatRunLiveReconnectable(run: ChatRun | null | undefined) {
     return run?.live_reconnectable === true;
+  }
+
+  private chatRunReplayRestorable(run: ChatRun | null | undefined) {
+    return run?.replay_available === true && run?.recoverable_interruption === true;
+  }
+
+  private chatRunRestorable(run: ChatRun | null | undefined) {
+    return this.chatRunLiveReconnectable(run) || this.chatRunReplayRestorable(run);
   }
 
   private visibleSessionNeedsHistoryHydration(sessionId: string) {
@@ -3320,6 +3522,10 @@ export class WorkspaceRuntime {
     this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
     this.streamAbortControllers.delete(sessionId);
+    const snapshot = this.streamingSessionCache.get(sessionId) ?? this.visibleRuntimeProjectionSnapshot(sessionId);
+    if (snapshot) {
+      this.rememberVisibleRuntimeProjection(sessionId, snapshot);
+    }
     this.streamingSessionCache.delete(sessionId);
     this.activeChatStreamBindings.delete(sessionId);
     this.store.setState((prev) => this.removeActiveStreamSession(prev, sessionId));
@@ -3449,6 +3655,26 @@ export class WorkspaceRuntime {
     ];
   }
 
+  private recoverableChatRunActivity(run: ChatRun | null): StoreState["sessionActivity"] {
+    const detail = "公开投影已按事件日志恢复；旧轮已中断闭合，工作状态会作为下一轮记忆读取。";
+    return {
+      level: "waiting",
+      title: "中断记忆已保存",
+      detail,
+      event: "stream_recoverable_interruption",
+      receipt: {
+        level: "waiting",
+        title: "中断记忆已保存",
+        body: detail,
+        debug: {
+          event: "stream_recoverable_interruption",
+          stream_run_id: runtimeText(run?.stream_run_id),
+        },
+      },
+      updatedAt: Date.now(),
+    };
+  }
+
   private startRecoveredChatRunStream(
     sessionId: string,
     streamRunId: string,
@@ -3514,7 +3740,11 @@ export class WorkspaceRuntime {
 
     void (async () => {
       let streamEndedWithError = false;
+      let streamEndedWithRecoverableInterruption = false;
       try {
+        const replayOnlyRecovery = run
+          ? !this.chatRunLiveReconnectable(run) && this.chatRunReplayRestorable(run)
+          : false;
         const streamResult = await streamExistingChatRun(
           sessionId,
           streamRunId,
@@ -3569,10 +3799,26 @@ export class WorkspaceRuntime {
           },
           {
             signal: abortController.signal,
-            initialCursor: cursor,
+            initialCursor: replayOnlyRecovery ? null : cursor,
+            replayFromStart: replayOnlyRecovery,
+            replayOnly: replayOnlyRecovery,
           }
         );
         streamEndedWithError = streamResult.terminalStatus === "failed";
+        streamEndedWithRecoverableInterruption = streamResult.terminalStatus === "recoverable_interruption";
+        if (streamEndedWithRecoverableInterruption) {
+          const updatedAt = Date.now();
+          streamState = this.captureSessionActivity({
+            ...streamState,
+            chatStreamConnectionStatus: {
+              state: "paused",
+              reason: "runtime_restart_waiting_resume",
+              lastEventOffset: streamResult.lastEventOffset,
+              updatedAt,
+            },
+            sessionActivity: this.recoverableChatRunActivity(run),
+          }, sessionId);
+        }
         if (streamResult.terminalStatus === "stopped") {
           this.stoppedStreamingSessionIds.add(sessionId);
         }
@@ -3629,19 +3875,25 @@ export class WorkspaceRuntime {
             ...next.sessionActivitiesById,
             [sessionId]: streamState.sessionActivity,
           };
-          if (streamEndedWithError) {
+          if (streamEndedWithError || streamEndedWithRecoverableInterruption) {
             next.sessionActivity = next.currentSessionId === sessionId
               ? streamState.sessionActivity
               : this.visibleSessionActivity(next);
           }
           return next;
         });
+        this.rememberVisibleRuntimeProjection(sessionId, {
+          messages: streamState.messages,
+          activeProjectionsByKey: streamState.activeProjectionsByKey,
+          harnessTurnSnapshot: streamState.harnessTurnSnapshot,
+          activeTurnSnapshot: streamState.activeTurnSnapshot,
+        });
         this.streamingSessionCache.delete(sessionId);
         const streamSessionWasRemoved = this.removedStreamingSessionIds.has(sessionId);
         const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
         this.removedStreamingSessionIds.delete(sessionId);
         this.stoppedStreamingSessionIds.delete(sessionId);
-        if (!streamSessionWasRemoved) {
+        if (!streamSessionWasRemoved && !streamEndedWithRecoverableInterruption) {
           await this.hydrateCommittedProjectionIfPending(sessionId);
         }
         if (
@@ -3649,6 +3901,7 @@ export class WorkspaceRuntime {
           && !streamSessionWasRemoved
           && !streamSessionWasStopped
           && !streamEndedWithError
+          && !streamEndedWithRecoverableInterruption
         ) {
           this.requestFirstUserSessionTitleInBackground(sessionId);
         }
@@ -3656,6 +3909,7 @@ export class WorkspaceRuntime {
           !streamSessionWasRemoved
           && !streamSessionWasStopped
           && !streamEndedWithError
+          && !streamEndedWithRecoverableInterruption
           && this.store.getState().currentSessionId === sessionId
         ) {
           await this.hydrateLatestHarnessTurnSnapshot(sessionId);
@@ -3975,6 +4229,12 @@ export class WorkspaceRuntime {
         }
         return next;
       });
+      this.rememberVisibleRuntimeProjection(sessionId, {
+        messages: streamState.messages,
+        activeProjectionsByKey: streamState.activeProjectionsByKey,
+        harnessTurnSnapshot: streamState.harnessTurnSnapshot,
+        activeTurnSnapshot: streamState.activeTurnSnapshot,
+      });
       this.streamingSessionCache.delete(sessionId);
       const streamSessionWasRemoved = this.removedStreamingSessionIds.has(sessionId);
       const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
@@ -4019,7 +4279,6 @@ export class WorkspaceRuntime {
     const released = this.releaseStoppedChatStreamBoundary(sessionId, "user_interrupted_for_resume", {
       taskRunId,
       turnId: expectedTurnId,
-      preserveActiveWorkContext: true,
     });
     if (!released) {
       return;
@@ -4087,8 +4346,18 @@ export class WorkspaceRuntime {
       this.streamAbortControllers.get(normalizedSessionId)?.abort();
       this.streamAbortControllers.delete(normalizedSessionId);
     }
-    this.streamingSessionCache.delete(normalizedSessionId);
     const streamBinding = this.activeChatStreamBindings.get(normalizedSessionId);
+    const snapshot = this.streamingSessionCache.get(normalizedSessionId) ?? this.visibleRuntimeProjectionSnapshot(normalizedSessionId);
+    if (reason === "user_interrupted_for_resume") {
+      this.rememberVisibleStreamInterruptSignal(normalizedSessionId, "user_interrupted_for_resume", {
+        stream_run_id: streamBinding?.streamRunId,
+        reason,
+      });
+    }
+    if (snapshot) {
+      this.rememberVisibleRuntimeProjection(normalizedSessionId, snapshot);
+    }
+    this.streamingSessionCache.delete(normalizedSessionId);
     const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
     const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
     this.activeChatStreamBindings.delete(normalizedSessionId);
@@ -4122,7 +4391,7 @@ export class WorkspaceRuntime {
     this.setChatInterruptionActivity({
       level: "running",
       title: "正在中断",
-      detail: "输出流已断开，正在把任务进度和运行事实交给后端保存。",
+      detail: "输出流已断开，正在把本轮工作状态保存为记忆包。",
       event: "chat_stream_interrupt_requested",
       taskRunId,
       streamRunId: normalizedStreamRunId,
@@ -4143,11 +4412,17 @@ export class WorkspaceRuntime {
       this.setChatInterruptionActivity({
         level: "idle",
         title: "已中断",
-        detail: "上下文已保持连续，任务断开事实会交给下一轮 agent 判断。",
+        detail: "本轮已按中断闭合，下一条输入会开启新轮并读取这份记忆。",
         event: "chat_stream_interrupt_recorded",
         taskRunId,
         streamRunId: normalizedStreamRunId,
       });
+      if (currentSessionId) {
+        this.rememberVisibleStreamInterruptSignal(currentSessionId, "chat_stream_interrupt_recorded", {
+          stream_run_id: normalizedStreamRunId,
+          reason: "interrupt_for_resume",
+        });
+      }
     } catch (error) {
       this.setChatInterruptionActivity({
         level: "error",
@@ -4519,7 +4794,7 @@ export class WorkspaceRuntime {
       return false;
     }
     const snapshotState = String(snapshot?.state ?? "").trim();
-    return snapshotState !== "terminal";
+    return snapshotState !== "terminal" && snapshotState !== "interrupting";
   }
 
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
@@ -5219,6 +5494,8 @@ export class WorkspaceRuntime {
     const deletedActivity = beforeDelete.sessionActivitiesById[sessionId] ?? null;
     const deletedEditorContext = beforeDelete.sessionEditorContexts[sessionId] ?? null;
     this.streamingSessionCache.delete(sessionId);
+    this.visibleRuntimeProjectionCache.delete(sessionId);
+    this.clearVisibleStreamInterruptSignal(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
     this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();

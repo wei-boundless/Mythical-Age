@@ -14,6 +14,7 @@ from context_system.compaction.semantic_worker import (
     semantic_compactor_registration_from_worker,
 )
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
+from runtime.prompt_accounting.provider_lane import PROVIDER_LANE_COMPACTION
 
 from .assembly import assemble_runtime
 from .compiler import RuntimeCompiler
@@ -83,7 +84,11 @@ class RegisteredSemanticCompactionWorker:
                     "turn_id": turn_id,
                     "task_run_id": task_run_id,
                     "source": "harness.runtime.semantic_compaction_adapter",
-                    "prompt_manifest": dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                    "provider_lane": PROVIDER_LANE_COMPACTION,
+                    "prompt_manifest": {
+                        **dict(compilation.packet.diagnostics.get("prompt_manifest") or {}),
+                        "provider_lane": PROVIDER_LANE_COMPACTION,
+                    },
                     "segment_plan": dict(compilation.packet.segment_plan or {}),
                     "cache_metric_scope": "semantic_compaction_worker",
                 },

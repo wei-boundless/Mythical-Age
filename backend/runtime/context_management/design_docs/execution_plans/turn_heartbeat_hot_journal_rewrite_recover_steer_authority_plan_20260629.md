@@ -289,7 +289,7 @@ frontend/src/lib/store/runtime.ts
 backend/api/sessions.py
   POST /sessions/{session_id}/messages/truncate
   -> session_manager.truncate_messages_from(session_id, message_index)
-  -> reset_prompt_cache_baseline(reason=session_history_truncated)
+  -> reset_prefix_state(reason=session_history_truncated)
 ```
 
 目标算法：
@@ -299,7 +299,7 @@ edit latest user message
 -> validate latest editable user message
 -> reject if active stream/session is running
 -> truncate session messages and api_transcript from sourceIndex
--> reset prompt cache baseline
+-> invalidate prefix state
 -> supersede old TurnMemory branch after cutoff
 -> create new branch_id if needed
 -> create new TurnMemory for edited user text

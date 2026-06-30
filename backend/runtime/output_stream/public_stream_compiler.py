@@ -33,6 +33,7 @@ from runtime.output_stream.public_contract import (
     TOOL_PERMISSION_DECIDED_EVENT,
     TURN_COMPLETED_EVENT,
 )
+from runtime.shared.file_observation_policy import READ_FILE_MAX_LINE_COUNT
 from runtime.shared.stream_replay import sanitize_public_stream_event_data_for_replay
 from runtime.shared.tool_identity import permission_decision_id
 
@@ -64,8 +65,10 @@ TOOL_FAILURE_FEEDBACK_RE = re.compile(
     flags=re.IGNORECASE,
 )
 LINE_NUMBERED_TOOL_OUTPUT_RE = re.compile(r"(?m)^\s*\d{1,6}\s*\|")
-PUBLIC_READ_WINDOW_MAX_CHARS = 50000
-PUBLIC_READ_WINDOW_MAX_LINES = 500
+PUBLIC_READ_WINDOW_MAX_CHARS = 500000
+PUBLIC_READ_WINDOW_MAX_LINES = READ_FILE_MAX_LINE_COUNT
+READ_FILE_CONTENT_WINDOW_AUTHORITY = "runtime.output_stream.read_file_content_window"
+READ_FILE_REUSE_WINDOW_AUTHORITY = "runtime.output_stream.read_file_reuse_window"
 
 PUBLIC_EVENT_DATA_ALLOWLIST = {
     "chat_run_started": {"status"},
@@ -153,7 +156,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "public_action_state",
         "task_run_contract_seed",
         "active_work_control",
-        "recovery_resume",
+        "task_recovery_resume",
     },
     "model_action_admission": {
         "request_id",
@@ -260,7 +263,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
     "output_boundary": {"boundary", "summary", "artifacts"},
     "token": {"content"},
     ASSISTANT_TEXT_DELTA_EVENT: {
-        "frame_schema_version",
+        "frame_schema_id",
         "event_type",
         "frame_id",
         "stream_ref",
@@ -285,7 +288,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "segment_role",
     },
     ASSISTANT_TEXT_FINAL_EVENT: {
-        "frame_schema_version",
+        "frame_schema_id",
         "event_type",
         "stream_ref",
         "message_ref",
@@ -311,7 +314,7 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "segment_role",
     },
     ASSISTANT_STREAM_REPAIR_EVENT: {
-        "frame_schema_version",
+        "frame_schema_id",
         "event_type",
         "stream_ref",
         "message_ref",
@@ -617,7 +620,7 @@ def _turn_completed_status_from_agent_terminal(value: Any) -> str:
     status = str(value or "").strip().lower()
     if status in {"failed", "error"}:
         return "failed"
-    if status in {"stopped", "aborted", "cancelled", "canceled", "blocked"}:
+    if status in {"stopped", "aborted", "interrupted", "cancelled", "canceled", "blocked"}:
         return "stopped"
     return "completed"
 
@@ -749,7 +752,7 @@ def _model_action_request_public_data(raw_data: dict[str, Any]) -> dict[str, Any
                 "public_action_state": _record(request.get("public_action_state")),
                 "task_run_contract_seed": _record(request.get("task_run_contract_seed")),
                 "active_work_control": _record(request.get("active_work_control")),
-                "recovery_resume": _record(request.get("recovery_resume")),
+                "task_recovery_resume": _record(request.get("task_recovery_resume")),
             }
         )
     )
@@ -1376,7 +1379,7 @@ def _read_file_content_window_payload(
         "preview_lines": preview_lines,
         "preview_truncated": preview_truncated,
         "content_sha256": str(tool_result.get("content_sha256") or "").strip(),
-        "authority": "runtime.output_stream.read_file_content_window.v1",
+        "authority": READ_FILE_CONTENT_WINDOW_AUTHORITY,
     }
 
 
@@ -1423,7 +1426,7 @@ def _read_file_reuse_content_window_payload(*, tool_result: dict[str, Any]) -> d
         "exact_artifact_ref": str(tool_result.get("exact_artifact_ref") or "").strip(),
         "reusable_result_ref": str(tool_result.get("reusable_result_ref") or "").strip(),
         "reuse_text_source": str(tool_result.get("reuse_text_source") or "").strip(),
-        "authority": "runtime.output_stream.read_file_reuse_window.v1",
+        "authority": READ_FILE_REUSE_WINDOW_AUTHORITY,
     }
 
 
@@ -1671,6 +1674,8 @@ def _public_runtime_reason_label(reason: str) -> str:
         "failed": "处理失败",
         "stopped": "运行已停止",
         "aborted": "运行已停止",
+        "interrupted": "运行已中断",
+        "runtime_interruption_closed": "运行已中断",
         "cancelled": "运行已停止",
         "canceled": "运行已停止",
     }.get(normalized, "")

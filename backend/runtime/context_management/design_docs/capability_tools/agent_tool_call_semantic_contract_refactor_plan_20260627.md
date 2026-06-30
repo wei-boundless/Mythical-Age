@@ -153,7 +153,7 @@ RuntimeDeltaProjector
 
 JSON 体系保留，但必须分离：
 
-- 控制动作：`respond / ask_user / block / request_task_run / active_work_control / resume_recoverable_work` 使用 action object。
+- 控制动作：`respond / ask_user / block / request_task_run / active_work_control / resume_task_recovery` 使用 action object。
 - 工具后备：仅当 provider tools 不可用、运行模式显式要求、或调试策略切换时，工具请求才走 action object。
 - JSON/action-object 不得和 provider-native 工具提交同时提示给 agent。
 - JSON/action-object 的 agent 可见说明要写成“提交本次行动对象”，不要写成“满足 JSON 协议”。
@@ -199,9 +199,9 @@ ToolCallContract(
     invocation_kind: str,
     mounted_tool_names: tuple[str, ...],
     ordinary_tool_submission: Literal["provider_tool_selection", "action_object", "none"],
-    control_action_submission: Literal["action_object", "none"],
+    control_action_submission: Literal["provider_tool_selection", "action_object", "none"],
     provider_tools_enabled: bool,
-    action_object_tool_fallback_enabled: bool,
+    provider_control_tools_enabled: bool,
     multi_tool_calls_allowed: bool,
     agent_visible_instruction: dict[str, Any],
     hidden_transport_policy: dict[str, Any],
@@ -215,6 +215,7 @@ ToolCallContract(
 - agent 可见部分不得包含 provider/native/sidecar/JSON transport 词。
 - hidden policy 可以包含工程字段，但只能用于 provider payload、parser 和 diagnostics。
 - 合同由 `RuntimeToolPlan` 派生，不允许 parser 或 model gateway 自己重新判断工具集合。
+- transport 由 `ordinary_tool_submission` / `control_action_submission` 一次性决定；不得再使用 `action_object_tool_fallback_enabled` 或 provider 错误文本自动切换到 JSON action。
 
 ## 5. Prompt 语义标准
 

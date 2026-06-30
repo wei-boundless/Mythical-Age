@@ -227,7 +227,7 @@ _LAYER_CACHE_POLICY = {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "task_contract_context": {
+    "task_run_contract_context": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },

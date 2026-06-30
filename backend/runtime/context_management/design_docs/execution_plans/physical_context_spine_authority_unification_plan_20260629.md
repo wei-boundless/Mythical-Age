@@ -62,7 +62,7 @@ first_break_segment = {}
 | `backend/harness/loop/single_agent_turn.py` | single-agent tool loop | follow-up 走 `_single_agent_turn_followup_prompt_payload()`，基于当前 `model_messages` 做 append-only rebase，并标记 `append_only_followup_order=True`。 |
 | `backend/runtime/context_management/followup_context_rebase.py` | follow-up base/current append 重新分类 | 非动态尾巴会被重标为 sealed 或 current append，但这套分类不等同于 initial 的 ledger replay。 |
 | `backend/runtime/model_gateway/provider_payload.py` | provider payload manifest/cache spine | 已经能输出 physical cache spine，但它只反映当前请求 payload，不负责跨请求继承权威。 |
-| `backend/runtime/prompt_accounting/cache_break_detector.py` | cache break 检测 | `_record_scope_matches()` 在 `current.run_id` 存在时要求 previous record 同 run，漏掉跨 turn 物理前缀断点。 |
+| `backend/runtime/prompt_accounting/cache_anomaly_detector.py` | cache anomaly 检测 | `_record_scope_matches()` 在 `current.run_id` 存在时要求 previous record 同 run，漏掉跨 turn 物理前缀断点。 |
 
 ### 2.3 深层原因
 
@@ -127,7 +127,7 @@ assistant(tool_calls)
 
 只有闭合工具轮可以进入 confirmed old context。未闭合工具轮必须停留在 current append 或 dynamic tail，不能被 physical spine 声明为稳定前缀。
 
-### 3.6 cache break 检测按 cache scope 比较，不按 run 截断
+### 3.6 cache anomaly 检测按 cache scope 比较，不按 run 截断
 
 缓存断点的比较范围应是：
 
@@ -490,9 +490,14 @@ item_key
 provider_visible_message
 provider_visible_hash
 confirmed_by_request_id
+confirmed_turn_id
 ```
 
-但它不再拥有全量 replay 顺序权威。旧上下文顺序由 `PhysicalPrefixFrame.segments[]` 决定。
+但它不再拥有全量 replay 顺序权威，也不从 `confirmed_by_request_id` 反解析 turn 身份。旧上下文顺序由 `PhysicalPrefixFrame.segments[]` 决定，turn 归属来自 provider success 确认时写入的 `confirmed_turn_id`。
+
+`context_prefix_identity` 不再通过 `physical_prefix_frame_*` kind、`source_kind` 或 `content_source` 判断 confirmed frame replay。frame replay 必须由显式 replay contract 标记；provider protocol replay 单独作为 provider protocol replay 生命周期，不能伪装成 physical frame replay。
+
+同一原则也适用于 historical-only 可见性：`semantic_commit_class` 名称不再承担隐藏开关，历史可见性必须由 `semantic_visibility`、`provider_visible_replay_only`、`context_memory_visible=false` 或 `historical_only_on_replay` 这类显式字段表达。
 
 ## 7. 模块改造计划
 
@@ -515,7 +520,7 @@ confirmed_by_request_id
 | `single_agent_turn.py` | follow-up 从 append-only message order 切换为 `PhysicalContextAssembler`；移除 `append_only_followup_order` 作为物理顺序权威。 |
 | `provider_payload.py` | build manifest 后校验 manifest spine 与 PhysicalPrefixFrame 的 old prefix/hash 对齐。 |
 | `model_runtime.py` | provider 成功后同时确认 provider-visible entries 和写入 new PhysicalPrefixFrame。 |
-| `cache_break_detector.py` | 比较范围改为 cache scope/session，不被 run_id 截断；新增跨 turn physical frame drift reason。 |
+| `cache_anomaly_detector.py` | 比较范围改为 cache scope/session，不被 run_id 截断；新增跨 turn physical frame drift reason。 |
 | `provider_cache_ledger.py` | ledger record 引用 `physical_prefix_frame_id`，报告 frame diff，不只报告 local no break。 |
 | `cache_planner.py` | expected cacheable tokens 从 physical frame + manifest spine 读取；未闭合工具轮进入 expected miss/blocker。 |
 | `stability_report.py` | stable/volatile 报告降为诊断，不作为缓存权威。 |
@@ -683,14 +688,14 @@ provider success 后才写入下一 frame
 涉及文件：
 
 ```text
-cache_break_detector.py
+cache_anomaly_detector.py
 provider_cache_ledger.py
 cache_planner.py
 stability_report.py
 context_usage_meter.py
 ```
 
-新增 break reason：
+新增 anomaly reason：
 
 ```text
 physical_prefix_frame_changed
@@ -762,7 +767,7 @@ rg 检查旧 authority 标记不可达
 | `provider_tool_protocol.py` | 工具轮结构 | 增加 confirmed-prefix eligibility 判断 | 未闭合工具轮不能进 frame |
 | `provider_payload.py` | provider manifest/cache spine | 与 frame 双向校验 | manifest spine 和 frame prefix 可复算一致 |
 | `model_runtime.py` | provider success commit | 成功后写 PhysicalPrefixFrame | provider 失败不晋升 current append |
-| `cache_break_detector.py` | break 检测 | 跨 run 按 cache scope 比较 frame | 能报告跨 turn 首个物理分歧 |
+| `cache_anomaly_detector.py` | break 检测 | 跨 run 按 cache scope 比较 frame | 能报告跨 turn 首个物理分歧 |
 | `provider_cache_ledger.py` | cache ledger | 写入 frame refs 和 frame diff | ledger 不再只显示 no_local_physical_break |
 | `cache_planner.py` | expected cacheable tokens | 从 frame/manifest spine 计算 | expected miss 家族不混 semantic stable |
 | `stability_report.py` | stable/volatile 报告 | 降为语义诊断 | 不再作为 cache authority |
@@ -899,4 +904,3 @@ tool schema/transport contract 改变
 ```
 
 7. 不再出现“明明插线到一个上下文段，却吃不到稳定缓存还解释不清”的结构性问题。
-

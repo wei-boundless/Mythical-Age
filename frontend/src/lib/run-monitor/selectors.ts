@@ -1,7 +1,7 @@
 import type { RunMonitorEnvelope, RunMonitorSignal } from "./types";
 
 const ATTENTION_STATES = new Set(["waiting", "attention", "stale", "failed"]);
-const TERMINAL_STATES = new Set(["completed", "stopped", "done", "terminal"]);
+const TERMINAL_STATES = new Set(["completed", "stopped", "interrupted", "done", "terminal"]);
 const PROJECT_LIVE_STATES = new Set(["active", "running"]);
 const PROJECT_ATTENTION_STATES = new Set(["attention", "stale", "failed"]);
 

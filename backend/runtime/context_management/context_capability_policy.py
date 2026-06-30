@@ -21,7 +21,7 @@ from .context_segment_registry import (
 STATIC_IDENTITY = "static_identity"
 RUNTIME_CONTRACTS = "runtime_contracts"
 ACTION_CONTRACTS = "action_contracts"
-TASK_CONTRACTS = "task_contracts"
+TASK_RUN_CONTRACTS = "task_run_contracts"
 TOOL_CONTEXT = "tool_context"
 CONTEXT_MEMORY = "context_memory"
 TASK_STATE_CONTEXT = "task_state_context"
@@ -40,7 +40,7 @@ DEFAULT_CONTEXT_CAPABILITY_GROUPS = (
     STATIC_IDENTITY,
     RUNTIME_CONTRACTS,
     ACTION_CONTRACTS,
-    TASK_CONTRACTS,
+    TASK_RUN_CONTRACTS,
     TOOL_CONTEXT,
     CONTEXT_MEMORY,
     TASK_STATE_CONTEXT,
@@ -57,6 +57,64 @@ DEFAULT_CONTEXT_CAPABILITY_GROUPS = (
 
 _DISABLED_TEXT = {"disabled", "disable", "off", "false", "0", "none", "omit", "omitted", "hidden"}
 _ENABLED_TEXT = {"enabled", "enable", "on", "true", "1", "yes", "include", "included", "visible"}
+
+_PROMPT_RULE_KIND_GROUPS: dict[str, str] = {
+    "agent.role": STATIC_IDENTITY,
+    "personality.identity_style": STATIC_IDENTITY,
+    "worker.role": STATIC_IDENTITY,
+    "runtime.protocol": RUNTIME_CONTRACTS,
+    "runtime.system_call_protocol": ACTION_CONTRACTS,
+    "runtime.turn_decision_alignment": ACTION_CONTRACTS,
+    "runtime.tool_use": TOOL_CONTEXT,
+    "harness.runtime.output_boundary": REPAIR_FEEDBACK,
+    "runtime.error_recovery": REPAIR_FEEDBACK,
+    "runtime.context_memory": CONTEXT_MEMORY,
+    "runtime.permission_denial": ACTION_CONTRACTS,
+    "runtime.subagent_delegation": SUBAGENT_SYSTEM,
+    "runtime.subagent_invocation_protocol": SUBAGENT_SYSTEM,
+    "runtime.multi_tool_scheduling": TOOL_CONTEXT,
+    "runtime.plan_mode_boundary": ACTION_CONTRACTS,
+    "runtime.turn_state_orientation": TURN_STATE_CONTROL,
+    "tool.guidance": TOOL_CONTEXT,
+    "file_management.generic": STATIC_IDENTITY,
+    "coding.inspection": STATIC_IDENTITY,
+    "coding.core_work_protocol": STATIC_IDENTITY,
+    "coding.large_scope_exploration": STATIC_IDENTITY,
+    "coding.editing": STATIC_IDENTITY,
+    "coding.verification": STATIC_IDENTITY,
+    "coding.debug_discipline": STATIC_IDENTITY,
+    "coding.git_safety": STATIC_IDENTITY,
+    "coding.windows_shell": STATIC_IDENTITY,
+    "coding.task_progress": STATIC_IDENTITY,
+    "environment.boundary": STATIC_IDENTITY,
+    "graph.contract": RUNTIME_CONTRACTS,
+    "system.foundation.local_collaboration": STATIC_IDENTITY,
+    "system.foundation.current_request_authority": STATIC_IDENTITY,
+    "system.foundation.truth_and_verification": STATIC_IDENTITY,
+    "system.foundation.response_and_reporting": STATIC_IDENTITY,
+    "system.foundation.security_and_injection": STATIC_IDENTITY,
+    "system.foundation.context_memory_cache": STATIC_IDENTITY,
+    "system.foundation.user_change_protection": STATIC_IDENTITY,
+}
+
+_CONTRACT_SLOT_GROUPS: dict[str, str] = {
+    "action_contract": ACTION_CONTRACTS,
+    "answer_evidence_alignment_contract": EVIDENCE_ALIGNMENT,
+    "capability_catalog": TOOL_CONTEXT,
+    "evidence_alignment_contract": EVIDENCE_ALIGNMENT,
+    "provider_visible_ledger_recovery": REPAIR_FEEDBACK,
+    "runtime_control_contract": TURN_STATE_CONTROL,
+    "runtime_followup_contract": ACTION_CONTRACTS,
+    "tool_context_contract": TOOL_CONTEXT,
+    "tool_dispatch": TOOL_CONTEXT,
+    "tool_index": TOOL_CONTEXT,
+    "tool_observation_recovery": REPAIR_FEEDBACK,
+    "tool_transcript": TOOL_CONTEXT,
+    "turn_operating_contract": TURN_STATE_CONTROL,
+    "turn_state_guidance": TURN_STATE_CONTROL,
+    "visible_prefix_recovery_context": REPAIR_FEEDBACK,
+    "visible_prefix_recovery_contract": REPAIR_FEEDBACK,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,39 +153,22 @@ def build_context_capability_profile(
     *,
     invocation_kind: str = "",
     profile_payload: dict[str, Any] | None = None,
-    context_policy: dict[str, Any] | None = None,
-    memory_policy: dict[str, Any] | None = None,
-    prompt_policy: dict[str, Any] | None = None,
     override: dict[str, Any] | None = None,
 ) -> ContextCapabilityProfile:
     profile = dict(profile_payload or {})
-    context = _merge_dicts(
-        profile.get("context_policy"),
-        context_policy,
-    )
-    memory = _merge_dicts(
-        profile.get("memory_policy"),
-        memory_policy,
-    )
-    prompt = _merge_dicts(
-        profile.get("prompt_policy"),
-        prompt_policy,
-    )
     raw_profile = _merge_dicts(
-        context.get("context_capability_profile"),
-        prompt.get("context_capability_profile"),
+        profile,
+        profile.get("context_capability_profile"),
         override,
     )
-    group_config = _group_config_from_policy(raw_profile, context=context, memory=memory)
+    group_config = _group_config_from_policy(raw_profile)
     explicit_enabled = _string_set(
         raw_profile.get("enabled_groups")
         or raw_profile.get("enabled_context_capability_groups")
-        or context.get("enabled_context_capability_groups")
     )
     explicit_disabled = _string_set(
         raw_profile.get("disabled_groups")
         or raw_profile.get("disabled_context_capability_groups")
-        or context.get("disabled_context_capability_groups")
     )
     enabled = set(DEFAULT_CONTEXT_CAPABILITY_GROUPS)
     if explicit_enabled:
@@ -143,9 +184,6 @@ def build_context_capability_profile(
         else:
             disabled.add(group_id)
             enabled.discard(group_id)
-    for group in _groups_disabled_by_legacy_policy(context=context, memory=memory):
-        disabled.add(group)
-        enabled.discard(group)
     seed = {
         "invocation_kind": str(invocation_kind or ""),
         "enabled_groups": sorted(enabled),
@@ -159,7 +197,6 @@ def build_context_capability_profile(
         group_config=dict(group_config),
         diagnostics={
             "default_enabled": True,
-            "legacy_policy_bridge": bool(context or memory),
             "physical_plan_note": "capability switches only connect or omit semantic groups before PhysicalContextPlan",
             "authority": "runtime.context_management.context_capability_policy.profile_builder",
         },
@@ -351,18 +388,19 @@ def _capability_group_for_prompt_resource(resource: dict[str, Any]) -> tuple[str
         return _normalize_group(explicit), explicit_slot, explicit_member, "explicit_prompt_context_capability_group"
     category = str(resource.get("category") or "").strip()
     subtype = str(resource.get("subtype") or "").strip()
-    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
-    if category == "system" and prompt_ref.startswith("system.foundation."):
-        return STATIC_IDENTITY, subtype or prompt_ref, "contract", "stable_system_foundation_prompt"
-    if category == "runtime" and prompt_ref.startswith("runtime."):
-        return RUNTIME_CONTRACTS, subtype or prompt_ref, "contract", "stable_runtime_contract_prompt"
     prompt_rule = dict(metadata.get("prompt_rule") or {})
     rule_kind = str(prompt_rule.get("rule_kind") or "").strip()
     if rule_kind:
         group = _group_for_rule_kind(rule_kind)
-        return group, rule_kind, "contract", "prompt_rule_kind_capability_catalog"
-    if category == "environment" and subtype.startswith("guidance_"):
-        slot = subtype.removeprefix("guidance_")
+        if group:
+            return group, rule_kind, "contract", "prompt_rule_kind_capability_catalog"
+    if category == "system" and subtype == "foundation":
+        return STATIC_IDENTITY, subtype, "contract", "stable_system_foundation_prompt"
+    if category == "runtime":
+        return RUNTIME_CONTRACTS, subtype or "runtime", "contract", "runtime_prompt_category"
+    environment_guidance_slot = str(metadata.get("environment_guidance_slot") or "").strip()
+    if category == "environment" and environment_guidance_slot:
+        slot = environment_guidance_slot
         return _group_for_environment_guidance_slot(slot), slot, "contract", "environment_guidance_slot"
     if category == "agent":
         return STATIC_IDENTITY, "agent_role", "contract", "agent_prompt"
@@ -371,46 +409,28 @@ def _capability_group_for_prompt_resource(resource: dict[str, Any]) -> tuple[str
     if category == "environment":
         return STATIC_IDENTITY, subtype or "environment", "contract", "environment_prompt"
     if category in {"task", "graph_node"}:
-        return TASK_CONTRACTS, subtype or "task_contract", "contract", "task_contract_prompt"
-    if prompt_ref.startswith("runtime."):
-        return RUNTIME_CONTRACTS, subtype or prompt_ref, "contract", "runtime_prompt"
+        return TASK_RUN_CONTRACTS, subtype or "task_run_contract", "contract", "task_run_contract_prompt"
     return STATIC_IDENTITY, subtype or category or "prompt", "contract", "fallback_static_prompt"
 
 
 def _contract_group_for_slot(slot: str, *, kind: str) -> str:
     normalized = str(slot or "").strip()
-    if normalized in {"runtime_control_contract", "turn_state_guidance", "turn_operating_contract"}:
-        return TURN_STATE_CONTROL
-    if normalized in {"answer_evidence_alignment_contract", "evidence_alignment_contract"}:
-        return EVIDENCE_ALIGNMENT
-    if normalized in {"action_contract", "visible_prefix_recovery_contract"}:
-        return ACTION_CONTRACTS if normalized == "action_contract" else REPAIR_FEEDBACK
-    if "tool" in normalized or str(kind or "").startswith("tool_"):
-        return TOOL_CONTEXT
+    if normalized in _CONTRACT_SLOT_GROUPS:
+        return _CONTRACT_SLOT_GROUPS[normalized]
+    semantic_group = _SEMANTIC_SLOT_GROUPS.get(normalized)
+    if semantic_group:
+        return semantic_group[0]
+    registry_capability = context_segment_kind_capability(kind)
+    if registry_capability:
+        group, _slot, member = registry_capability
+        if str(member or "").strip() in {"contract", "control", "feedback"}:
+            return group
     return ACTION_CONTRACTS
 
 
 def _group_for_rule_kind(rule_kind: str) -> str:
     value = str(rule_kind or "").strip()
-    if value in {"runtime.context_memory"} or "context_memory" in value:
-        return CONTEXT_MEMORY
-    if "error_recovery" in value or "output_boundary" in value:
-        return REPAIR_FEEDBACK
-    if "evidence_alignment" in value or "answer_evidence" in value:
-        return EVIDENCE_ALIGNMENT
-    if "reasoning_projection" in value:
-        return REASONING_PROJECTION
-    if "subagent" in value:
-        return SUBAGENT_SYSTEM
-    if "tool" in value or "multi_tool" in value:
-        return TOOL_CONTEXT
-    if "permission" in value or "system_call" in value or "turn_decision" in value or "plan_mode" in value:
-        return ACTION_CONTRACTS
-    if "turn_state" in value:
-        return TURN_STATE_CONTROL
-    if value.startswith("coding.") or value.startswith("file_management."):
-        return STATIC_IDENTITY
-    return RUNTIME_CONTRACTS
+    return _PROMPT_RULE_KIND_GROUPS.get(value, "")
 
 
 def _group_for_environment_guidance_slot(slot: str) -> str:
@@ -462,15 +482,11 @@ _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
 
 def _group_config_from_policy(
     raw_profile: dict[str, Any],
-    *,
-    context: dict[str, Any],
-    memory: dict[str, Any],
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for value in (
         raw_profile.get("groups"),
         raw_profile.get("context_capability_groups"),
-        context.get("context_capability_groups"),
     ):
         if isinstance(value, dict):
             result.update(value)
@@ -478,26 +494,7 @@ def _group_config_from_policy(
         for key in (group, f"include_{group}", f"{group}_enabled"):
             if key in raw_profile:
                 result[group] = raw_profile[key]
-            if key in context:
-                result[group] = context[key]
-            if key in memory and group in {CONTEXT_MEMORY, MEMORY_WRITE}:
-                result[group] = memory[key]
     return result
-
-
-def _groups_disabled_by_legacy_policy(*, context: dict[str, Any], memory: dict[str, Any]) -> tuple[str, ...]:
-    disabled: list[str] = []
-    read_scope = str(memory.get("read_scope") or memory.get("enabled") or "").strip().lower()
-    if read_scope in _DISABLED_TEXT:
-        disabled.append(CONTEXT_MEMORY)
-    write_scope = str(memory.get("write_scope") or memory.get("write_enabled") or "").strip().lower()
-    if write_scope in _DISABLED_TEXT:
-        disabled.append(MEMORY_WRITE)
-    if _policy_value_enabled(context.get("task_run_context", context.get("task_context")), default=True) is False:
-        disabled.append(TASK_STATE_CONTEXT)
-    if _policy_value_enabled(context.get("dynamic_tail", context.get("runtime_dynamic_control")), default=True) is False:
-        disabled.append(CURRENT_DYNAMIC_CONTROL)
-    return tuple(disabled)
 
 
 def _policy_value_enabled(value: Any, *, default: bool) -> bool:

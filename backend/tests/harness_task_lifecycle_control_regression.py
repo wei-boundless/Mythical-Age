@@ -18,6 +18,7 @@ from harness.loop.task_lifecycle import contract_from_action_request, start_task
 from harness.loop.turn_to_task_context_handoff import build_turn_to_task_context_handoff_seed
 from harness.task_run_state_view import task_run_state_view
 from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
+from runtime.prompt_accounting.provider_cache_bus import publish_provider_cache_usage
 from runtime.shared.models import AgentRun
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
@@ -269,7 +270,7 @@ def test_task_lifecycle_records_turn_to_task_handoff_and_materializes_file_state
         turn_id=turn_id,
         action_type="request_task_run",
         public_progress_note="Start task.",
-        task_contract_seed=_canonical_task_contract_seed(
+        task_run_contract_seed=_compact_task_start_intent(
             {
                 "user_visible_goal": "Verify handoff",
                 "task_run_goal": "Verify task start handoff",
@@ -617,7 +618,7 @@ def test_task_run_tool_lifecycle_preserves_model_tool_call_id(tmp_path) -> None:
     observation_event = next(event for event in events if event.event_type == "task_tool_observation_recorded")
     observation = dict(dict(observation_event.payload or {}).get("observation") or {})
     tool_payload = dict(observation.get("payload") or {})
-    completed = _project_public_stream_event(
+    completed = project_public_stream_event(
         "task_tool_observation_recorded",
         {"event": observation_event.to_dict()},
     )
@@ -2165,7 +2166,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
                     "task_environment_id": "env.coding.vibe_workspace",
                     "allowed_operations": ["op.model_response", "op.read_file"],
                     "system_issued_contract": True,
-                    "task_contract": {
+                    "task_run_contract": {
                         "contract_id": "contract:explicit:test",
                         "user_visible_goal": "交付显式合同任务。",
                         "task_run_goal": "根据显式合同创建并执行任务。",
@@ -2198,7 +2199,7 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     task_run = dict(payload.get("task_run") or {})
     task_run_id = str(task_run.get("task_run_id") or "")
     stored_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
-    contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(str(getattr(stored_task, "task_contract_ref", "") or "")) or {})
+    contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(str(getattr(stored_task, "task_run_contract_ref", "") or "")) or {})
 
     assert branch.get("branch_kind") == "explicit_contract_task"
     assert branch.get("invocation_kind") == "task_execution_start"
@@ -2208,14 +2209,14 @@ def test_explicit_contract_task_starts_lifecycle_without_model_action_loop() -> 
     assert "harness_run_started" in stream_types
     assert task_run_id.startswith("taskrun:")
     assert stored_task is not None
-    assert contract["contract_source"] == "explicit_contract"
+    assert contract["contract_source"] == "user_direct_request"
     assert contract["source_contract_ref"] == "contract:explicit:test"
     assert contract["task_environment_id"] == "env.coding.vibe_workspace"
     assert contract["runtime_profile"]["execution_permit"]["allowed_operations"] == ["op.model_response", "op.read_file"]
     runtime_contract = dict(dict(getattr(stored_task, "diagnostics", {}) or {}).get("runtime_contract") or {})
     assert runtime_contract["allowed_operations"] == ["op.model_response", "op.read_file"]
     assert dict(runtime_contract["runtime_profile"])["execution_permit"]["allowed_operations"] == ["op.model_response", "op.read_file"]
-    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "explicit_contract"
+    assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_kind") == "user_direct_request"
     assert dict(getattr(stored_task, "diagnostics", {}) or {}).get("origin_authority") == "harness.explicit_contract_task"
 
 
@@ -2235,7 +2236,7 @@ def test_invalid_explicit_contract_fails_closed_without_model_action_loop() -> N
                 runtime_contract={
                     "task_environment_id": "env.coding.vibe_workspace",
                     "system_issued_contract": True,
-                    "task_contract": {
+                    "task_run_contract": {
                         "contract_id": "contract:explicit:invalid",
                     },
                 },
@@ -2315,7 +2316,7 @@ def test_task_model_action_stream_failure_does_not_non_stream_resample() -> None
     assert fallback_called is False
 
 
-def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
+def test_plain_task_run_contract_selection_does_not_bypass_agent_turn() -> None:
     runtime = build_harness_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             content="我会先判断是否需要启动任务。",
@@ -2334,7 +2335,7 @@ def test_plain_task_contract_selection_does_not_bypass_agent_turn() -> None:
                 message="这个只是普通会话输入，不能直接启动任务。",
                 runtime_contract={
                     "task_environment_id": "env.coding.vibe_workspace",
-                    "task_contract": {
+                    "task_run_contract": {
                         "contract_id": "contract:plain:test",
                         "user_visible_goal": "普通输入里的合同片段。",
                         "task_run_goal": "不应由路由直接启动。",
@@ -2364,7 +2365,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
             content="",
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed=_canonical_task_contract_seed({
+                task_run_contract_seed=_compact_task_start_intent({
                     "user_visible_goal": "交付一个真实可验证产物。",
                     "task_run_goal": "交付一个真实可验证产物。",
                     "required_artifacts": [{"artifact_kind": "test_artifact", "user_visible_name": "测试交付物"}],
@@ -2423,7 +2424,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert dict(dict(task_run.diagnostics or {}).get("origin") or {}).get("origin_authority") == "harness.loop.single_agent_turn"
     assert dict(task_run.diagnostics or {}).get("model_selection") == model_selection
     assert dict(dict(task_run.diagnostics or {}).get("model_selection_binding") or {}).get("scope") == "task_run"
-    contract = runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref)
+    contract = runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_run_contract_ref)
     assert dict(contract or {}).get("origin", {}).get("origin_kind") == "single_agent_turn_json_action"
 
 def test_invalid_single_agent_task_request_reports_error_without_task_run() -> None:
@@ -2487,7 +2488,7 @@ def test_task_lifecycle_start_does_not_rewrite_request_to_current_session_handof
             turn_id="turn:lifecycle-no-current-handoff",
             action_type="request_task_run",
             public_progress_note="我会开始处理新的持续任务。",
-            task_contract_seed=_canonical_task_contract_seed({
+            task_run_contract_seed=_compact_task_start_intent({
                 "user_visible_goal": "启动一个新的持续任务。",
                 "task_run_goal": "验证 lifecycle 层不把模型请求改写成 current-session handoff。",
                 "completion_criteria": ["必须创建新的 TaskRun"],
@@ -2548,7 +2549,7 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
             request_id="model-action:contract-fields:invalid",
             turn_id="turn-contract-fields",
             action_type="request_task_run",
-            task_contract_seed={
+            task_run_contract_seed={
                 "goal": "旧字段不能替代正式合同字段",
                 "completion_criteria": ["需要真实验收"],
             },
@@ -2565,7 +2566,7 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
             request_id="model-action:contract-fields:valid",
             turn_id="turn-contract-fields",
             action_type="request_task_run",
-                task_contract_seed=_canonical_task_contract_seed({
+                task_run_contract_seed=_compact_task_start_intent({
                     "user_visible_goal": "交付可运行示例",
                     "task_run_goal": "创建并验证可运行示例",
                     "completion_criteria": ["示例可以被验证"],
@@ -2595,7 +2596,7 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
             content="",
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed=_canonical_task_contract_seed({
+                task_run_contract_seed=_compact_task_start_intent({
                     "user_visible_goal": "交付开发环境产物。",
                     "task_run_goal": "在用户选择的开发环境中交付产物。",
                     "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "可运行页面"}],
@@ -2628,7 +2629,7 @@ def test_agent_requested_task_run_inherits_selected_runtime_environment() -> Non
     task_run_id = str(dict(started.get("task_run") or {}).get("task_run_id") or "")
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     assert task_run is not None
-    contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref) or {})
+    contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_run_contract_ref) or {})
     runtime_contract = dict(dict(task_run.diagnostics or {}).get("runtime_contract") or {})
 
     assert contract["task_environment_id"] == "env.coding.vibe_workspace"
@@ -2668,7 +2669,7 @@ def test_task_run_permission_without_tools_uses_single_agent_turn_for_direct_ans
     assert any(event.get("type") == "done" and str(event.get("content") or "") == "可以直接回答。" for event in events)
 
 def test_single_agent_turn_native_request_task_run_repairs_to_json_before_lifecycle() -> None:
-    task_seed = _canonical_task_contract_seed(
+    task_seed = _compact_task_start_intent(
         {
             "user_visible_goal": "交付一个真实页面。",
             "task_run_goal": "创建并验证一个真实 HTML 页面。",
@@ -2700,7 +2701,7 @@ def test_single_agent_turn_native_request_task_run_repairs_to_json_before_lifecy
         recovery_action=_action_request(
             action_type="request_task_run",
             public_progress_note="我先把页面目标转成可执行任务，然后推进实现和文件验证。",
-            task_contract_seed=task_seed,
+            task_run_contract_seed=task_seed,
         ),
     )
     runtime = build_harness_runtime(model_runtime=model)
@@ -2760,7 +2761,7 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
                 _action_request(
                     action_type="request_task_run",
                     public_progress_note="我先把 JSON 页面目标转成持续任务，然后推进实现和验证。",
-                    task_contract_seed=_canonical_task_contract_seed({
+                    task_run_contract_seed=_compact_task_start_intent({
                         "user_visible_goal": "交付一个 JSON 协议页面。",
                         "task_run_goal": "通过 JSON action 创建页面任务。",
                         "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "页面"}],
@@ -2810,7 +2811,7 @@ def test_single_agent_turn_json_request_task_run_starts_real_task_lifecycle() ->
 
 
 def test_single_agent_turn_surrounding_text_fenced_request_task_run_starts_lifecycle_without_recovery() -> None:
-    task_seed = _canonical_task_contract_seed({
+    task_seed = _compact_task_start_intent({
         "user_visible_goal": "修复 agent 输出吞没问题。",
         "task_run_goal": "修复控制契约恢复链路，确保被拒绝 action 能准确回传给 agent。",
         "required_artifacts": [{"artifact_kind": "code_change", "user_visible_name": "恢复契约修复"}],
@@ -2820,7 +2821,7 @@ def test_single_agent_turn_surrounding_text_fenced_request_task_run_starts_lifec
     action = _action_request(
         action_type="request_task_run",
         public_progress_note="我已判断需要进入持续任务，并会保留可验证的完成标准。",
-        task_contract_seed=task_seed,
+        task_run_contract_seed=task_seed,
     )
 
     class SurroundingTextFencedJsonTaskRunModelRuntime:
@@ -3059,7 +3060,7 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
             response = await super().invoke_messages(messages, **kwargs)
             context = dict(kwargs.get("accounting_context") or {})
             if self.ledger is not None and context:
-                request_id = str(context.get("request_id") or "modelreq:test")
+                request_id = str(context.get("request_id") or "providerreq:test")
                 run_id = str(context.get("run_id") or context.get("task_run_id") or "")
                 task_run_id = str(context.get("task_run_id") or "")
                 segment_map = self.serializer.build_segment_map(
@@ -3102,8 +3103,13 @@ def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
                     created_at=2.0,
                 )
                 self.ledger.record_token_usage(provider_usage)
-                self.ledger.record_prompt_cache(
-                    self.cache_planner.with_provider_usage(self.cache_planner.plan(segment_map), provider_usage)
+                cache_plan = self.cache_planner.plan(segment_map)
+                self.ledger.record_cache_plan(cache_plan)
+                publish_provider_cache_usage(
+                    ledger=self.ledger,
+                    cache_plan=self.cache_planner.with_provider_usage(cache_plan, provider_usage),
+                    provider_usage=provider_usage,
+                    previous_cache_plans=(),
                 )
             return response
 

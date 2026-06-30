@@ -18,7 +18,7 @@ from runtime.context_management.session_compaction import (
     prompt_accounting_ledger,
 )
 from runtime.prompt_accounting import (
-    PROMPT_CACHE_FILE,
+    CACHE_PLANS_FILE,
     PROVIDER_CACHE_BUS_FILE,
     TOKEN_OBSERVATIONS_FILE,
     build_provider_cache_log_view,
@@ -139,7 +139,7 @@ def _session_tokens_cache_signature(
     return (
         session_signature,
         _ledger_file_signature(ledger, TOKEN_OBSERVATIONS_FILE),
-        _ledger_file_signature(ledger, PROMPT_CACHE_FILE),
+        _ledger_file_signature(ledger, CACHE_PLANS_FILE),
         _ledger_file_signature(ledger, PROVIDER_CACHE_BUS_FILE),
         _turn_memory_signature(runtime, session_id=session_id),
     )
@@ -205,10 +205,10 @@ def _build_session_tokens_payload(
     prompt_usage = ledger.summarize_session(session_id)
 
     raw_messages = list(record.get("messages", []))
-    api_transcript_loader = getattr(runtime.session_manager, "load_session_for_api", None)
-    cumulative_messages = (
-        list(api_transcript_loader(session_id))
-        if callable(api_transcript_loader)
+    provider_protocol_timeline_loader = getattr(runtime.session_manager, "load_provider_protocol_timeline", None)
+    provider_protocol_timeline_messages = (
+        list(provider_protocol_timeline_loader(session_id))
+        if callable(provider_protocol_timeline_loader)
         else raw_messages
     )
     context_snapshot = build_context_usage_snapshot(
@@ -232,7 +232,7 @@ def _build_session_tokens_payload(
     )
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))
-    cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
+    provider_protocol_timeline_tokens = _count_tokens(_messages_token_text(provider_protocol_timeline_messages))
     history_status = _history_compaction_status(
         runtime,
         session_id=session_id,
@@ -240,10 +240,10 @@ def _build_session_tokens_payload(
     )
     raw_history_tokens = int(history_status.get("raw_history_tokens") or 0)
     history_tokens = int(history_status.get("history_tokens") or raw_history_tokens)
-    compression_saved_tokens = max(cumulative_transcript_tokens - history_tokens, 0)
+    compression_saved_tokens = max(provider_protocol_timeline_tokens - history_tokens, 0)
     compression_ratio = (
-        min(history_tokens / cumulative_transcript_tokens, 1.0)
-        if cumulative_transcript_tokens > 0
+        min(history_tokens / provider_protocol_timeline_tokens, 1.0)
+        if provider_protocol_timeline_tokens > 0
         else 1.0
     )
     history_budget_tokens = int(history_status.get("history_budget_tokens") or 0)
@@ -285,8 +285,8 @@ def _build_session_tokens_payload(
         "provider_cache_log": provider_cache_log,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
-        "cumulative_transcript_tokens": cumulative_transcript_tokens,
-        "cumulative_transcript_message_count": len(cumulative_messages),
+        "provider_protocol_timeline_tokens": provider_protocol_timeline_tokens,
+        "provider_protocol_timeline_message_count": len(provider_protocol_timeline_messages),
         "compression_saved_tokens": compression_saved_tokens,
         "compression_ratio": round(compression_ratio, 4),
         "raw_history_tokens": raw_history_tokens,
@@ -464,7 +464,7 @@ def _context_recovery_package_status(
         "present": True,
         "fresh": bool(dict(validation or {}).get("ok")) and not stale_reason,
         "source": str(package.get("source") or ""),
-        "schema_version": str(package.get("schema_version") or ""),
+        "package_schema_id": str(package.get("package_schema_id") or ""),
         "covered_message_count": int(coverage.get("covered_message_count") or 0),
         "covered_event_run_id": str(coverage.get("covered_event_run_id") or ""),
         "covered_event_offset_end": coverage.get("covered_event_offset_end"),

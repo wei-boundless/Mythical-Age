@@ -17,7 +17,7 @@ class ReplacementRecord:
     source_id: str
     content_hash: str
     projection_policy_hash: str
-    projector_version: str
+    projector_id: str
     projection: dict[str, Any]
     task_run_id: str = ""
     rehydration_plan: dict[str, Any] = field(default_factory=dict)
@@ -32,7 +32,7 @@ class ReplacementRecord:
             "source_id": self.source_id,
             "content_hash": self.content_hash,
             "projection_policy_hash": self.projection_policy_hash,
-            "projector_version": self.projector_version,
+            "projector_id": self.projector_id,
             "projection": dict(self.projection),
             "task_run_id": self.task_run_id,
             "rehydration_plan": dict(self.rehydration_plan),
@@ -54,14 +54,14 @@ class ReplacementStore:
         source_id: str,
         content_hash: str,
         projection_policy_hash: str,
-        projector_version: str,
+        projector_id: str,
     ) -> str:
         seed = {
             "source_kind": str(source_kind or ""),
             "source_id": str(source_id or ""),
             "content_hash": str(content_hash or ""),
             "projection_policy_hash": str(projection_policy_hash or ""),
-            "projector_version": str(projector_version or ""),
+            "projector_id": str(projector_id or ""),
         }
         return "replacement:" + stable_json_hash(seed).removeprefix("sha256:")[:24]
 
@@ -90,7 +90,7 @@ class ReplacementStore:
         task_run_id: str = "",
         content: Any,
         projection_policy: dict[str, Any],
-        projector_version: str,
+        projector_id: str,
     ) -> tuple[dict[str, Any], ReplacementRecord] | None:
         identity = self._identity(
             source_kind=source_kind,
@@ -98,7 +98,7 @@ class ReplacementStore:
             task_run_id=task_run_id,
             content=content,
             projection_policy=projection_policy,
-            projector_version=projector_version,
+            projector_id=projector_id,
         )
         payload = self.get_record(identity["replacement_key"])
         if not payload:
@@ -117,7 +117,7 @@ class ReplacementStore:
             source_id=identity["scoped_source_id"],
             content_hash=identity["content_hash"],
             projection_policy_hash=identity["projection_policy_hash"],
-            projector_version=str(projector_version or ""),
+            projector_id=str(projector_id or ""),
             projection=selected_projection,
             task_run_id=identity["task_run_id"],
             rehydration_plan=rehydration_plan,
@@ -140,7 +140,7 @@ class ReplacementStore:
         task_run_id: str = "",
         content: Any,
         projection_policy: dict[str, Any],
-        projector_version: str,
+        projector_id: str,
         projection: dict[str, Any],
         budget_decision: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], ReplacementRecord]:
@@ -150,7 +150,7 @@ class ReplacementStore:
             task_run_id=task_run_id,
             content=content,
             projection_policy=projection_policy,
-            projector_version=projector_version,
+            projector_id=projector_id,
         )
         replacement_key = identity["replacement_key"]
         existing_payload = self.get_record(replacement_key)
@@ -171,7 +171,7 @@ class ReplacementStore:
             source_id=identity["scoped_source_id"],
             content_hash=identity["content_hash"],
             projection_policy_hash=identity["projection_policy_hash"],
-            projector_version=str(projector_version or ""),
+            projector_id=str(projector_id or ""),
             projection=selected_projection,
             task_run_id=identity["task_run_id"],
             rehydration_plan=rehydration_plan,
@@ -197,7 +197,7 @@ class ReplacementStore:
         task_run_id: str,
         content: Any,
         projection_policy: dict[str, Any],
-        projector_version: str,
+        projector_id: str,
     ) -> dict[str, str]:
         normalized_task_run_id = str(task_run_id or "").strip()
         normalized_source_id = str(source_id or "")
@@ -213,7 +213,7 @@ class ReplacementStore:
             source_id=scoped_source_id,
             content_hash=content_hash,
             projection_policy_hash=projection_policy_hash,
-            projector_version=projector_version,
+            projector_id=projector_id,
         )
         return {
             "task_run_id": normalized_task_run_id,

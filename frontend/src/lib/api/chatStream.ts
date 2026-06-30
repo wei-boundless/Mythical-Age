@@ -293,7 +293,13 @@ const CHAT_STREAM_RECONNECT_MAX_DELAY_MS = 30_000;
 const CHAT_STREAM_RECONNECT_MAX_ATTEMPTS = 6;
 const CHAT_STREAM_CONSUME_BURST_EVENT_LIMIT = 64;
 const CHAT_STREAM_CONSUME_BURST_TIME_MS = 12;
-const CHAT_LIVE_PROTOCOL = "agent-live.v1";
+const CHAT_LIVE_PROTOCOL = "agent-live";
+const TOOL_LIFECYCLE_PAINT_EVENTS = new Set([
+  "tool_call_requested",
+  "tool_permission_decided",
+  "tool_item_started",
+  "tool_item_completed",
+]);
 
 type ChatStreamError = Error & {
   status?: number;
@@ -508,9 +514,16 @@ export async function interruptChatRun(streamRunId: string, payload: ChatRunInte
   });
 }
 
-export async function getLatestChatRunForSession(sessionId: string, scope?: Partial<SessionScope>) {
+export async function getLatestChatRunForSession(
+  sessionId: string,
+  scope?: Partial<SessionScope>,
+  options: { activeOnly?: boolean; restoreOnly?: boolean } = {},
+) {
   const params = sessionScopeQuery(scope);
-  params.set("active_only", "true");
+  params.set("active_only", options.activeOnly === false ? "false" : "true");
+  if (options.restoreOnly === true) {
+    params.set("restore_only", "true");
+  }
   return request<LatestChatRunResult>(`/chat/sessions/${encodeURIComponent(sessionId)}/latest-run?${params.toString()}`);
 }
 
@@ -596,6 +609,25 @@ async function yieldAfterBufferedStreamBurst(budget: ChatStreamConsumeBudget, si
   resetChatStreamConsumeBudget(budget);
 }
 
+async function yieldForToolLifecyclePaint(
+  budget: ChatStreamConsumeBudget,
+  signal?: AbortSignal,
+) {
+  resetChatStreamConsumeBudget(budget);
+  await delay(0, signal);
+  resetChatStreamConsumeBudget(budget);
+}
+
+function streamEventShouldYieldForPaint(eventName: string, data: Record<string, unknown>) {
+  if (TOOL_LIFECYCLE_PAINT_EVENTS.has(String(eventName || ""))) {
+    return true;
+  }
+  const frame = data.public_projection_frame && typeof data.public_projection_frame === "object" && !Array.isArray(data.public_projection_frame)
+    ? data.public_projection_frame as Record<string, unknown>
+    : {};
+  return TOOL_LIFECYCLE_PAINT_EVENTS.has(String(frame.source_event_type || ""));
+}
+
 async function consumeChatRunLive(
   run: ChatRun,
   sessionId: string,
@@ -605,9 +637,11 @@ async function consumeChatRunLive(
     initialCursor?: ChatStreamCursor | null;
     replayFromStart?: boolean;
     persistCursor?: boolean;
+    replayOnly?: boolean;
   } = {}
 ): Promise<StreamResult> {
   const persistCursor = options.persistCursor !== false;
+  const replayOnly = options.replayOnly === true;
   let lastEventOffset = options.replayFromStart
     ? -1
     : Number(options.initialCursor?.lastEventOffset ?? -1);
@@ -707,6 +741,8 @@ async function consumeChatRunLive(
     if (TERMINAL_STREAM_EVENTS.has(eventName) || envelope.terminal === true) {
       terminalEvent = TURN_COMPLETED_EVENT;
       terminalStatus = terminalStatusFromTurnCompleted(data);
+    } else if (streamEventShouldYieldForPaint(eventName, data)) {
+      await yieldForToolLifecyclePaint(consumeBudget, options.signal);
     } else {
       await yieldAfterBufferedStreamBurst(consumeBudget, options.signal);
     }
@@ -719,7 +755,7 @@ async function consumeChatRunLive(
       await consumeEnvelope(event, null);
       if (terminalEvent) break;
     }
-    if (!terminalEvent && replay.terminal && replay.latest_event_offset <= lastEventOffset) {
+    if (!terminalEvent && replay.terminal && run.recoverable_interruption !== true && replay.latest_event_offset <= lastEventOffset) {
       terminalEvent = TURN_COMPLETED_EVENT;
       terminalStatus = "completed";
     }
@@ -735,6 +771,33 @@ async function consumeChatRunLive(
       });
     }
   };
+
+  if (replayOnly) {
+    await replayFromHttp("recoverable_interruption_replay", { notifyIfPending: false });
+    if (terminalEvent) {
+      if (persistCursor) {
+        clearChatStreamCursor(sessionId);
+      }
+      return {
+        terminalEvent,
+        terminalStatus: terminalStatus || "completed",
+        streamRunId: run.stream_run_id,
+        eventLogId: run.event_log_id,
+        lastEventOffset,
+      };
+    }
+    if (run.recoverable_interruption === true) {
+      persistCurrentCursor();
+      return {
+        terminalEvent: "recoverable_interruption",
+        terminalStatus: "recoverable_interruption",
+        streamRunId: run.stream_run_id,
+        eventLogId: run.event_log_id,
+        lastEventOffset,
+      };
+    }
+    throw nonReconnectableChatStreamError("chat_run_not_live_reconnectable");
+  }
 
   while (!terminalEvent) {
     if (options.signal?.aborted) {
@@ -952,6 +1015,7 @@ export async function streamExistingChatRun(
     initialCursor?: ChatStreamCursor | null;
     replayFromStart?: boolean;
     persistCursor?: boolean;
+    replayOnly?: boolean;
   } = {}
 ) {
   const run = await getChatRun(streamRunId);
@@ -965,6 +1029,7 @@ export async function streamChat(
   options: {
     signal?: AbortSignal;
     persistCursor?: boolean;
+    replayOnly?: boolean;
   } = {}
 ): Promise<StreamResult> {
   const run = await createChatRun(payload);

@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from prompt_library.strategy_prototypes import strategy_prototype_for_task_goal
+from task_system.contracts.task_run_signal import task_run_contract_signal_from_context
 from task_system.goal_profiles import bind_task_goal_profile, get_task_goal_profile
 
 
@@ -73,15 +74,18 @@ def build_task_requirement_contract(
         **dict(current_turn.get("explicit_inputs") or {}),
     }
     obligation = dict(execution_obligation or current_turn.get("execution_obligation") or {})
-    canonical_seed = _canonical_task_contract_seed(current_turn)
-    canonical_goal_spec = _canonical_goal_profile_spec(canonical_seed=canonical_seed, current_turn=current_turn)
+    task_run_signal = task_run_contract_signal_from_context(
+        current_turn_context=current_turn,
+        query_understanding=understanding,
+    )
+    task_run_goal_spec = _task_run_goal_profile_spec(task_run_signal=task_run_signal, current_turn=current_turn)
     legacy_goal_diagnostics = _legacy_goal_field_diagnostics(current_turn)
     task_goal_type = _resolve_task_goal_type(
         user_goal=user_goal,
         materials=(),
         query_understanding=understanding,
         current_turn_context=current_turn,
-        task_contract_seed=canonical_seed,
+        task_run_signal=task_run_signal,
     )
     materials = tuple(
         _filter_output_materials(
@@ -95,8 +99,8 @@ def build_task_requirement_contract(
                 [dict(item) for item in list(obligation.get("required_reads") or []) if isinstance(item, dict)],
             ),
             execution_obligation=obligation,
-            semantic_contract_outputs=_structured_output_paths_from_canonical_contract(
-                canonical_seed=canonical_seed,
+            semantic_contract_outputs=_structured_output_paths_from_task_run_signal(
+                task_run_signal=task_run_signal,
                 current_turn=current_turn,
             ),
         )
@@ -106,7 +110,7 @@ def build_task_requirement_contract(
         session_id=session_id,
         task_id=task_id,
         task_goal_type=task_goal_type,
-        task_goal_spec=canonical_goal_spec,
+        task_goal_spec=task_run_goal_spec,
     )
     profile = str(getattr(goal_profile, "professional_profile_id", "") or _professional_profile_id(task_goal_type))
     prototype = strategy_prototype_for_task_goal(task_goal_type)
@@ -114,7 +118,7 @@ def build_task_requirement_contract(
         task_goal_type=task_goal_type,
         obligation=obligation,
     )
-    domain_value = str(getattr(goal_profile, "task_domain", "") or _domain_for_goal_type(task_goal_type, understanding))
+    domain_value = str(getattr(goal_profile, "task_domain", "") or _domain_for_goal_type(task_goal_type, task_run_signal))
     task_domain_binding = _system_task_domain_binding(current_turn=current_turn, inputs=inputs)
     required_actions = _contract_required_actions(
         task_goal_type=task_goal_type,
@@ -156,7 +160,7 @@ def build_task_requirement_contract(
         validation_schema=_validation_schema_for_goal_type(task_goal_type, execution_obligation=obligation),
         professional_profile_id=profile,
         diagnostics={
-            "canonical_task_contract_seed": canonical_seed,
+            "task_run_contract_signal": task_run_signal,
             "legacy_goal_fields": legacy_goal_diagnostics,
             **({"task_domain_binding": task_domain_binding} if task_domain_binding else {}),
             "task_goal_profile_binding": goal_profile_binding.to_dict(),
@@ -219,32 +223,19 @@ def _system_task_domain_binding(
     return {}
 
 
-def _canonical_task_contract_seed(current_turn: dict[str, Any]) -> dict[str, Any]:
-    for candidate in (
-        current_turn.get("task_contract_seed"),
-        dict(current_turn.get("model_turn_decision") or {}).get("task_contract_seed"),
-        dict(current_turn.get("agent_turn_action_request") or {}).get("task_contract_seed"),
-    ):
-        if isinstance(candidate, dict) and candidate:
-            return dict(candidate)
-    return {}
-
-
-def _canonical_goal_profile_spec(
+def _task_run_goal_profile_spec(
     *,
-    canonical_seed: dict[str, Any],
+    task_run_signal: dict[str, Any],
     current_turn: dict[str, Any],
 ) -> dict[str, Any]:
-    seed = dict(canonical_seed or {})
+    signal = dict(task_run_signal or {})
     requirement_contract = dict(current_turn.get("task_requirement_contract") or {})
-    task_goal_type = str(seed.get("task_goal_type") or requirement_contract.get("task_goal_type") or "").strip()
-    capability_intent = dict(seed.get("capability_intent") or {})
-    acceptance_contract = dict(seed.get("acceptance_contract") or seed.get("observation_contract") or {})
+    task_goal_type = str(signal.get("task_goal_type") or requirement_contract.get("task_goal_type") or "").strip()
+    capability_intent = dict(signal.get("capability_intent") or {})
     completion_criteria = [
         str(item).strip()
         for item in [
-            *list(seed.get("completion_criteria") or []),
-            *list(acceptance_contract.get("completion_criteria") or []),
+            *list(signal.get("completion_criteria") or []),
         ]
         if str(item).strip()
     ]
@@ -255,25 +246,24 @@ def _canonical_goal_profile_spec(
             for item in list(capability_intent.get("needed_capability_groups") or [])
             if str(item).strip()
         ],
-        "success_criteria": [{"title": item, "source": "canonical_task_contract_seed"} for item in completion_criteria],
-        "required_verifications": _canonical_required_verifications(seed),
-        "authority": "task_system.canonical_task_contract.goal_profile_spec",
+        "success_criteria": [{"title": item, "source": "task_run_contract_signal"} for item in completion_criteria],
+        "required_verifications": _task_run_required_verifications(signal),
+        "authority": "task_system.task_run_contract_signal.goal_profile_spec",
     }
 
 
-def _canonical_required_verifications(seed: dict[str, Any]) -> list[dict[str, Any]]:
+def _task_run_required_verifications(signal: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    acceptance_contract = dict(seed.get("acceptance_contract") or seed.get("observation_contract") or {})
-    for item in list(acceptance_contract.get("required_verifications") or []):
+    for item in list(signal.get("required_verifications") or []):
         if isinstance(item, dict):
-            result.append({**dict(item), "source": "canonical_task_contract_seed"})
+            result.append({**dict(item), "source": "task_run_contract_signal"})
         elif str(item).strip():
             result.append(
                 {
                     "kind": "evidence",
                     "title": str(item).strip(),
                     "required": True,
-                    "source": "canonical_task_contract_seed",
+                    "source": "task_run_contract_signal",
                 }
             )
     return result
@@ -288,7 +278,7 @@ def _legacy_goal_field_diagnostics(current_turn: dict[str, Any]) -> dict[str, An
         legacy[key] = {
             "present": True,
             "runtime_authority": "ignored",
-            "migration_target": "task_contract_seed",
+            "replacement_authority": "task_run_contract_signal",
         }
     if not legacy:
         return {}
@@ -304,11 +294,11 @@ def _resolve_task_goal_type(
     materials: tuple[dict[str, Any], ...],
     query_understanding: dict[str, Any],
     current_turn_context: dict[str, Any],
-    task_contract_seed: dict[str, Any] | None = None,
+    task_run_signal: dict[str, Any] | None = None,
 ) -> str:
     if _is_task_graph_node_runtime_context(current_turn_context):
         return "task_graph_node_execution"
-    seed_goal_type = str(dict(task_contract_seed or {}).get("task_goal_type") or "").strip()
+    seed_goal_type = str(dict(task_run_signal or {}).get("task_goal_type") or "").strip()
     if seed_goal_type:
         return seed_goal_type
     model_decision = dict(current_turn_context.get("model_turn_decision") or {})
@@ -454,13 +444,13 @@ def _filter_output_materials(
     ]
 
 
-def _structured_output_paths_from_canonical_contract(
+def _structured_output_paths_from_task_run_signal(
     *,
-    canonical_seed: dict[str, Any],
+    task_run_signal: dict[str, Any],
     current_turn: dict[str, Any],
 ) -> list[str]:
     paths: list[str] = []
-    for item in list(dict(canonical_seed or {}).get("required_artifacts") or []):
+    for item in list(dict(task_run_signal or {}).get("required_artifacts") or []):
         if not isinstance(item, dict):
             continue
         for key in ("path", "artifact_path", "target_path", "output_path"):
@@ -589,21 +579,21 @@ def _last_marker_index(text: str, markers: tuple[str, ...]) -> int:
     return max(indexes) if indexes else -1
 
 
-def _domain_for_goal_type(task_goal_type: str, query_understanding: dict[str, Any]) -> str:
+def _domain_for_goal_type(task_goal_type: str, task_run_signal: dict[str, Any]) -> str:
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None:
         return profile.task_domain
-    seed = dict(dict(query_understanding or {}).get("task_contract_seed") or {})
-    working_scope = dict(seed.get("working_scope") or {})
-    capability_intent = dict(seed.get("capability_intent") or {})
+    signal = dict(task_run_signal or {})
+    working_scope = dict(signal.get("working_scope") or {})
+    capability_intent = dict(signal.get("capability_intent") or {})
     capability_groups = {
         str(item).strip()
         for item in list(capability_intent.get("needed_capability_groups") or [])
         if str(item).strip()
     }
-    if str(seed.get("task_goal_type") or "").strip() == "external_research":
+    if str(signal.get("task_goal_type") or "").strip() == "external_research":
         return "external_web"
-    if list(seed.get("required_artifacts") or []) or "artifact_generation" in capability_groups:
+    if list(signal.get("required_artifacts") or []) or "artifact_generation" in capability_groups:
         return "development"
     if list(working_scope.get("target_objects") or []) or "file_work" in capability_groups:
         return "workspace"
@@ -831,5 +821,3 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
-

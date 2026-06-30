@@ -280,7 +280,7 @@ function statusEventFromFrame(normalized: NormalizedProjectionFrame): StatusProj
   const statusSubkind = text(frame.status_subkind || frame.status_kind);
   const diagnostics = record(frame.diagnostics);
   const stableReasoningId = statusSubkind === "reasoning_projection_state"
-    ? text(frameRecord.model_request_id || frame.anchor?.turn_run_id || frame.anchor?.task_run_id || frame.anchor?.turn_id || normalized.keyString)
+    ? text(frameRecord.provider_request_id || frame.anchor?.turn_run_id || frame.anchor?.task_run_id || frame.anchor?.turn_id || normalized.keyString)
     : "";
   const id = text(frame.item_id || frame.source_item_id || frame.frame_id || frame.projection_id)
     || (stableReasoningId ? `reasoning:${stableReasoningId}` : `${statusKind}:${normalized.offset}`);
@@ -654,7 +654,7 @@ function lifecycleStateRank(state: string) {
   const normalized = state.toLowerCase();
   if (["failed", "error", "blocked"].includes(normalized)) return 5;
   if (["done", "complete", "completed", "success", "passed"].includes(normalized)) return 4;
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(normalized)) return 3;
+  if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(normalized)) return 3;
   if (["waiting", "queued", "paused"].includes(normalized)) return 2;
   if (["running"].includes(normalized)) return 1;
   return 0;

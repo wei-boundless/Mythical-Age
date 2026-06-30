@@ -64,9 +64,9 @@ def test_task_execution_emits_evidence_index_cursor_outside_volatile_task_state(
     assert "evidence_confidence" not in serialized_current_state
     assert bound_runtime_payload["bound_task_runtime_context"]["known_task_files"][0]["path"] == "src/app.py"
 
-    cache_record = _cache_record_for_packet(result.packet)
-    assert cache_record.diagnostics["evidence_index_cursor_predicted_tokens"] > 0
-    assert cache_record.diagnostics["volatile_task_state_predicted_tokens"] > 0
+    cache_plan = _cache_plan_for_packet(result.packet)
+    assert cache_plan.diagnostics["evidence_index_cursor_predicted_tokens"] > 0
+    assert cache_plan.diagnostics["volatile_task_state_predicted_tokens"] > 0
 
 
 def test_single_agent_turn_moves_session_file_state_out_of_dynamic_runtime(tmp_path: Path) -> None:
@@ -136,9 +136,9 @@ def _optional_payload_with_title(packet, title: str) -> dict[str, object]:
     return {}
 
 
-def _cache_record_for_packet(packet):
+def _cache_plan_for_packet(packet):
     segment_map = CanonicalPromptSerializer().build_segment_map(
-        request_id="modelreq:evidence-index",
+        request_id="providerreq:evidence-index",
         messages=packet.model_messages,
         provider="deepseek",
         model="deepseek-v4-pro",

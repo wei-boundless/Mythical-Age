@@ -8,7 +8,7 @@ from prompt_composition import (
     render_model_messages_from_projection,
 )
 from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
-from runtime.model_gateway.model_request import ModelRequestBuilder
+from runtime.model_gateway.provider_request import ProviderRequestBuilder
 from harness.runtime.compiler import RuntimeCompiler, _render_model_messages_from_prompt_composition
 
 
@@ -42,7 +42,7 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
                 cache_role="session_stable",
             ),
             _spec(
-                kind="task_contract_stable",
+                kind="task_run_contract_stable",
                 content="Task contract\n{\"goal\":\"fix cache\"}",
                 cache_scope="session",
                 cache_role="session_stable",
@@ -69,7 +69,7 @@ def test_prompt_assembly_plan_is_the_topology_authority() -> None:
     assert [spec["kind"] for spec in materialized.message_specs] == [
         "global_static",
         "agent_stable",
-        "task_contract_stable",
+        "task_run_contract_stable",
         "volatile_task_state",
     ]
     assert assembly_plan.diagnostics["assembly_order_policy"] == "source_lineage_order_pre_physical_assembly"

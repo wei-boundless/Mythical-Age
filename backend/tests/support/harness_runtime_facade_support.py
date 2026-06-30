@@ -13,8 +13,9 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.entrypoint.models import HarnessRuntimeRequest
+from harness.task_contract_normalization import contract_string_tuple
 from api.chat import (
-    _project_public_stream_event,
+    project_public_stream_event,
     _runtime_run_refs_from_event,
 )
 from runtime.shared.models import AgentRunResult, TaskRun, TurnRun
@@ -55,7 +56,7 @@ from runtime.prompt_accounting import (
     PromptCachePlanner,
     extract_provider_usage,
 )
-from runtime.model_gateway.model_request import ModelRequestBuilder
+from runtime.model_gateway.provider_request import ProviderRequestBuilder
 
 
 _VISIBLE_RUNTIME_INTERNAL_MARKERS = (
@@ -100,7 +101,7 @@ def _action_request(
     user_question: str = "",
     blocking_reason: str = "",
     public_progress_note: str = "正在处理当前请求。",
-    task_contract_seed: dict[str, object] | None = None,
+    task_run_contract_seed: dict[str, object] | None = None,
     tool_call: dict[str, object] | None = None,
     active_work_control: dict[str, object] | None = None,
     diagnostics: dict[str, object] | None = None,
@@ -119,7 +120,7 @@ def _action_request(
         "user_question": user_question,
         "blocking_reason": blocking_reason,
         "tool_call": dict(tool_call or {}),
-        "task_contract_seed": dict(task_contract_seed or {}),
+        "task_run_contract_seed": dict(task_run_contract_seed or {}),
         "completion_contract": {},
         "permission_request": {},
         "active_work_control": dict(active_work_control or {}),
@@ -127,7 +128,7 @@ def _action_request(
     }
 
 
-def _canonical_task_contract_seed(
+def _compact_task_start_intent(
     seed: dict[str, object] | None = None,
     *,
     target_objects: list[object] | None = None,
@@ -141,24 +142,52 @@ def _canonical_task_contract_seed(
 ) -> dict[str, object]:
     del capability_groups, tool_namespaces, selected_skill_ids, candidate_skill_ids, capability_reason, evidence_policy
     payload = dict(seed or {})
-    if "working_scope" not in payload:
-        payload["working_scope"] = {
-            "target_objects": list(
-                target_objects
-                or [
-                    str(
-                        payload.get("task_run_goal")
-                        or payload.get("user_visible_goal")
-                        or "测试任务对象"
-                    )
-                ]
+    goal = str(
+        payload.get("task_run_goal")
+        or payload.get("user_visible_goal")
+        or payload.get("summary")
+        or "测试任务对象"
+    ).strip()
+    working_scope = dict(payload.get("working_scope") or {}) if isinstance(payload.get("working_scope"), dict) else {}
+    working_scope = {
+        "target_objects": list(
+            target_objects
+            or working_scope.get("target_objects")
+            or [goal]
+        ),
+        "workspace_refs": list(working_scope.get("workspace_refs") or []),
+        "source_refs": list(working_scope.get("source_refs") or []),
+        "excluded_scope": list(working_scope.get("excluded_scope") or []),
+        "known_constraints": list(known_constraints or working_scope.get("known_constraints") or []),
+    }
+    criteria = list(contract_string_tuple(payload.get("completion_criteria") or payload.get("criteria")))
+    mode_payload = dict(payload.get("mode_payload") or {}) if isinstance(payload.get("mode_payload"), dict) else {}
+    minimum_next_step = str(payload.get("minimum_viable_next_step") or mode_payload.get("summary") or goal).strip()
+    steps = list(contract_string_tuple(mode_payload.get("steps"))) or [minimum_next_step]
+    return {
+        "contract_shape": "compact_task_start_intent",
+        "primary_mode": str(payload.get("primary_mode") or "plan").strip() or "plan",
+        "task_shape": str(payload.get("task_shape") or "standard").strip() or "standard",
+        "minimum_viable_next_step": minimum_next_step,
+        "working_scope": working_scope,
+        "acceptance": {
+            "mode": str(payload.get("acceptance_mode") or "checkpoint").strip() or "checkpoint",
+            "criteria": criteria,
+            "final_answer_requirements": list(
+                contract_string_tuple(payload.get("final_answer_requirements"))
             ),
-            "workspace_refs": [],
-            "source_refs": [],
-            "excluded_scope": [],
-            "known_constraints": list(known_constraints or []),
-        }
-    return payload
+        },
+        "mode_payload": {
+            "summary": str(mode_payload.get("summary") or goal).strip(),
+            "steps": steps,
+            "success_definition": str(payload.get("success_definition") or mode_payload.get("success_definition") or goal).strip(),
+            "notes": list(contract_string_tuple(mode_payload.get("notes"))),
+        },
+        "todo_tool_contract": {
+            "todo_is_tool": True,
+            "cursor_updates": [],
+        },
+    }
 
 
 def _project_backend_dir() -> Path:
@@ -391,7 +420,7 @@ class _ProtocolRepairPromptProbeModelRuntime:
                 content=json.dumps(
                     _action_request(
                         action_type="request_task_run",
-                        task_contract_seed=_canonical_task_contract_seed({
+                        task_run_contract_seed=_compact_task_start_intent({
                             "user_visible_goal": "协议恢复。",
                             "task_run_goal": "协议恢复。",
                             "completion_criteria": ["完成"],
@@ -486,7 +515,7 @@ def _seed_active_work(
             task_run_id=task_run_id,
             session_id=session_id,
             task_id=f"task:{task_run_id}",
-            task_contract_ref=contract_ref,
+            task_run_contract_ref=contract_ref,
             agent_profile_id="main_interactive_agent",
             execution_runtime_kind="single_agent_task",
             status=status,
@@ -503,4 +532,3 @@ def _seed_active_work(
     return task_run_id
 
 __all__ = [name for name in globals() if not name.startswith('__')]
-

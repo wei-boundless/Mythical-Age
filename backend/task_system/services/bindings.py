@@ -52,7 +52,7 @@ def default_task_binding(definition: TaskDefinition) -> TaskBindingRecord:
         required_operations=required_operations,
         denied_operations=denied_operations,
         review_policy=definition.review_policy,
-        metadata={"skill_authority": "environment_or_explicit_task_contract"},
+        metadata={"skill_authority": "environment_or_explicit_task_run_contract"},
     )
 
 
@@ -74,7 +74,7 @@ def merge_task_bindings(bindings: list[TaskBindingRecord]) -> TaskBindingRecord:
         review_policy="required" if any(binding.review_policy == "required" for binding in bindings) else "optional",
         approval_policy=bindings[-1].approval_policy,
         metadata={
-            "skill_authority": "environment_or_explicit_task_contract",
+            "skill_authority": "environment_or_explicit_task_run_contract",
             "merged_binding_count": len(bindings),
         },
     )

@@ -449,7 +449,7 @@ request 19: 48981 prompt / 43776 cached / hit_rate 0.8937 / miss 5205
 segment map: tool_segments=[]
 ```
 
-这证明 provider sidecar 是实际 cache break 贡献项。第 15 轮同类请求在携带 sidecar 时约为：
+这证明 provider sidecar 是实际 cache anomaly 贡献项。第 15 轮同类请求在携带 sidecar 时约为：
 
 ```text
 prompt_tokens=50579

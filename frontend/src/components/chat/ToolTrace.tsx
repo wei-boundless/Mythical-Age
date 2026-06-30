@@ -265,7 +265,7 @@ function fallbackReadContentWindow(
     ? "等待读取内容返回..."
     : "本次历史事件没有返回可展示的内容窗口。";
   return {
-    authority: "frontend.tool_trace.read_file_window_fallback.v1",
+    authority: "frontend.tool_trace.read_file_window_fallback",
     content_available: false,
     kind: active ? "read_file_pending" : "read_file_missing_window",
     path,
@@ -286,6 +286,23 @@ function ToolContentWindow({ contentWindow }: { contentWindow: NonNullable<Activ
   const reuseWindow = contentWindow.kind === "read_file_reuse";
   const missingWindow = !contentAvailable && !reuseWindow;
   const truncated = Boolean(contentWindow.preview_truncated || contentWindow.truncated || contentWindow.has_more);
+  const previewTruncated = Boolean(contentWindow.preview_truncated);
+  const visibleLineCount = readWindowTextLineCount(contentWindow.text);
+  const previewLineCount = positiveInteger(contentWindow.preview_lines) ?? visibleLineCount;
+  const canFoldContent = contentAvailable && visibleLineCount > 36;
+  const [contentExpanded, setContentExpanded] = useState(false);
+  const showFoldedContent = canFoldContent && !contentExpanded;
+  const previewLabel = readWindowPreviewLabel(contentWindow, previewLineCount);
+
+  useEffect(() => {
+    setContentExpanded(false);
+  }, [
+    path,
+    contentWindow.content_sha256,
+    contentWindow.start_line,
+    contentWindow.end_line,
+    visibleLineCount,
+  ]);
 
   const copyContent = async () => {
     const text = String(contentWindow.text || "");
@@ -304,6 +321,9 @@ function ToolContentWindow({ contentWindow }: { contentWindow: NonNullable<Activ
       className="public-run-activity__tool-content-window"
       aria-label="读取到的文件内容"
       data-content-available={contentAvailable ? "true" : "false"}
+      data-content-collapsed={showFoldedContent ? "true" : "false"}
+      data-content-expanded={contentExpanded ? "true" : "false"}
+      data-preview-truncated={previewTruncated ? "true" : "false"}
       data-window-kind={contentWindow.kind || "read_file"}
     >
       <header className="public-run-activity__tool-content-window-head">
@@ -317,25 +337,41 @@ function ToolContentWindow({ contentWindow }: { contentWindow: NonNullable<Activ
         <span className="public-run-activity__tool-content-window-meta">
           {rangeLabel ? <span>{rangeLabel}</span> : null}
           {countLabel ? <span>{countLabel}</span> : null}
+          {previewLabel ? <span>{previewLabel}</span> : null}
           {reuseWindow ? <span>复用</span> : null}
           {missingWindow ? <span>待返回</span> : null}
-          {truncated ? <span>预览</span> : null}
+          {truncated && !previewLabel ? <span>预览</span> : null}
+          {showFoldedContent ? <span>已折叠</span> : null}
         </span>
-        <button
-          aria-label={copied ? "已复制读取内容" : "复制读取内容"}
-          className="public-run-activity__tool-content-window-copy"
-          onClick={copyContent}
-          type="button"
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-        </button>
+        <span className="public-run-activity__tool-content-window-actions">
+          {canFoldContent ? (
+            <button
+              aria-label={contentExpanded ? "折叠读取内容" : "展开读取内容"}
+              className="public-run-activity__tool-content-window-toggle"
+              data-open={contentExpanded ? "true" : "false"}
+              onClick={() => setContentExpanded((value) => !value)}
+              title={contentExpanded ? "折叠" : "展开"}
+              type="button"
+            >
+              <ChevronDown size={13} />
+            </button>
+          ) : null}
+          <button
+            aria-label={copied ? "已复制读取内容" : "复制读取内容"}
+            className="public-run-activity__tool-content-window-copy"
+            onClick={copyContent}
+            type="button"
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        </span>
       </header>
       <pre className="public-run-activity__tool-content-window-code" tabIndex={0}>
         <code>{contentWindow.text}</code>
       </pre>
       {truncated ? (
         <footer className="public-run-activity__tool-content-window-foot">
-          {contentWindow.preview_truncated ? <span>内容窗口已按性能上限截断。</span> : null}
+          {contentWindow.preview_truncated ? <span>{readWindowPreviewNotice(contentWindow, previewLineCount)}</span> : null}
           {contentWindow.has_more && contentWindow.next_start_line ? <span>可从第 {contentWindow.next_start_line} 行继续读取。</span> : null}
         </footer>
       ) : null}
@@ -348,6 +384,35 @@ function ToolContentWindow({ contentWindow }: { contentWindow: NonNullable<Activ
       ) : null}
     </section>
   );
+}
+
+function readWindowTextLineCount(value: unknown) {
+  const text = String(value || "");
+  if (!text) return 0;
+  return text.split("\n").length;
+}
+
+function readWindowPreviewLabel(
+  contentWindow: NonNullable<ActivityEntry["contentWindow"]>,
+  previewLineCount: number,
+) {
+  if (!contentWindow.preview_truncated) return "";
+  const returned = positiveInteger(contentWindow.returned_lines);
+  if (returned && previewLineCount && previewLineCount < returned) {
+    return `预览 ${previewLineCount}/${returned} 行`;
+  }
+  return previewLineCount ? `预览 ${previewLineCount} 行` : "预览";
+}
+
+function readWindowPreviewNotice(
+  contentWindow: NonNullable<ActivityEntry["contentWindow"]>,
+  previewLineCount: number,
+) {
+  const returned = positiveInteger(contentWindow.returned_lines);
+  if (returned && previewLineCount && previewLineCount < returned) {
+    return `当前只收到 ${previewLineCount}/${returned} 行预览。`;
+  }
+  return "当前只收到读取预览。";
 }
 
 function useLiveToolNow(active: boolean) {

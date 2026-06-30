@@ -151,7 +151,7 @@ def test_active_turn_binds_task_without_owning_steer_queue(tmp_path: Path) -> No
         request_id="model-action:test",
         turn_id="turn:session:test:1",
         action_type="request_task_run",
-        task_contract_seed={},
+        task_run_contract_seed={},
     )
     contract = TaskRunContract(
         contract_id="contract:test",
@@ -999,5 +999,4 @@ def _pending_tool_approval(task_run_id: str) -> dict[str, object]:
         "tool_args_hash": f"hash:{task_run_id}",
         "created_at": 1.0,
     }
-
 

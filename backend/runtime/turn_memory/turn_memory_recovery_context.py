@@ -8,7 +8,7 @@ from .turn_memory_recovery import decide_turn_memory_recovery
 
 TURN_MEMORY_RECOVERY_CONTEXT_AUTHORITY = "runtime.turn_memory.recovery_context"
 
-_TURN_MEMORY_RECOVERY_STATUSES = frozenset({"handoff_ready", "commit_pending", "frame_pending"})
+_TURN_MEMORY_RECOVERY_STATUSES = frozenset({"commit_pending", "frame_pending"})
 _TURN_MEMORY_RECOVERY_COMMIT_STATES = frozenset({"pending_commit", "pending_frame_promotion"})
 
 
@@ -82,10 +82,7 @@ def _turn_memory_record_is_recovery_candidate(record: Any) -> bool:
     commit_state = str(getattr(record, "commit_state", "") or "").strip()
     if commit_state in _TURN_MEMORY_RECOVERY_COMMIT_STATES:
         return True
-    return bool(
-        str(getattr(record, "assistant_draft_ref", "") or "").strip()
-        or str(getattr(record, "assistant_draft_sha256", "") or "").strip()
-    )
+    return False
 
 
 def _drop_empty_turn_memory_payload(payload: dict[str, Any]) -> dict[str, Any]:

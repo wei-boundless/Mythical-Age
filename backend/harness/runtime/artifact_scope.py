@@ -34,7 +34,7 @@ def runtime_artifact_scope_from_environment(environment_payload: dict[str, Any] 
     return RuntimeArtifactScope(artifact_root=_normalize_logical_path(storage.get("artifact_root")))
 
 
-def canonicalize_task_contract_artifacts(
+def canonicalize_task_run_contract_artifacts(
     contract: dict[str, Any] | None,
     *,
     environment_payload: dict[str, Any] | None = None,

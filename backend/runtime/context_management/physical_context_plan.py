@@ -5,8 +5,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from runtime.shared.protected_context import protected_old_context_spec
-
 from .context_segment_policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
@@ -16,6 +14,7 @@ from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_is_provider_visible_sealable,
 )
+from .provider_message_replay_contract import provider_message_byte_preservation_required
 from .provider_tool_protocol import provider_tool_protocol_order
 
 
@@ -249,11 +248,9 @@ def physical_lane_for_spec(spec: dict[str, Any] | None, *, policy: ContextSegmen
 
 
 def _historical_only_metadata(metadata: dict[str, Any]) -> bool:
-    semantic_class = str(metadata.get("semantic_commit_class") or "").strip()
     return (
         metadata.get("provider_visible_replay_only") is True
-        or metadata.get("semantic_memory_visible") is False
-        or semantic_class.startswith("provider_visible_replay_only")
+        or metadata.get("context_memory_visible") is False
         or _historical_only_on_replay(metadata)
     )
 
@@ -335,12 +332,12 @@ def _spec_content_hash(spec: dict[str, Any]) -> str:
 
 
 def _must_preserve_model_message_hash(spec: dict[str, Any]) -> bool:
-    return protected_old_context_spec(spec)
+    return provider_message_byte_preservation_required(spec)
 
 
 def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[Any, ...]:
     lane_rank = PHYSICAL_CONTEXT_LANE_RANK.get(segment.lane, 999)
-    ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_context_ledger_entry_index"))
+    ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_append_entry_index"))
     provider_round_start = 0
     provider_round_order = 0
     if ledger_entry_index > 0 and segment.lane == PROVIDER_VISIBLE_CONTEXT_PREFIX:

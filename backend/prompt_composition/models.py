@@ -123,7 +123,6 @@ class RuntimePromptSlot:
     load_phase: str
     phase_order: int
     compression_role: str
-    authority_class: str
     render_contract: dict[str, Any] = field(default_factory=dict)
     message_spec: dict[str, Any] = field(default_factory=dict)
     content_hash: str = ""
@@ -176,7 +175,6 @@ class RuntimeContextLoadEntry:
     source_ref: str
     prefix_tier: str
     dynamic_tier: str
-    authority_class: str
     render_contract: dict[str, Any] = field(default_factory=dict)
     message_spec: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)

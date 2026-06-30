@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-PHYSICAL_PREFIX_FRAME_SCHEMA_VERSION = 1
+PHYSICAL_PREFIX_FRAME_LEDGER_SCHEMA_REVISION = 1
 PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS = "confirmed"
 
 

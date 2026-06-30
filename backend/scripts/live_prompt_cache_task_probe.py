@@ -19,11 +19,10 @@ from bootstrap.app_runtime import AppRuntime
 from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.loop.task_executor import stop_task_run
 from scripts.live_five_floor_dungeon_prompt_cache_e2e import (
-    _cache_record_projection,
+    _cache_plan_projection,
     _cache_summary,
     _code_review_runtime_contract,
     _packet_summary,
-    _stability_projection,
     _usage_projection,
     _write_json,
 )
@@ -119,19 +118,19 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     ledger = host.prompt_accounting_ledger
     usage_rows = [item.to_dict() for item in ledger.list_token_usage(task_run_id=task_run_id)]
     provider_usage = [row for row in usage_rows if str(row.get("source") or "") == "provider_usage"]
-    cache_records = [item.to_dict() for item in ledger.list_prompt_cache(task_run_id=task_run_id)]
-    segment_maps = ledger.list_segment_maps(task_run_id=task_run_id)
-    stability_reports = [item.to_dict() for item in ledger.list_prompt_stability(task_run_id=task_run_id)]
-    cache_breaks = [item.to_dict() for item in ledger.list_prompt_cache_breaks(task_run_id=task_run_id)]
+    cache_plans = [item.to_dict() for item in ledger.list_cache_plans(task_run_id=task_run_id)]
+    prompt_manifests = ledger.list_prompt_manifests(task_run_id=task_run_id)
+    prefix_state_records = [item.to_dict() for item in ledger.list_prefix_state(task_run_id=task_run_id)]
+    cache_anomalies = [item.to_dict() for item in ledger.list_cache_anomalies(task_run_id=task_run_id)]
     trace = host.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
 
     must_hit_cache_audit = _must_hit_cache_audit(
         provider_usage=provider_usage,
-        cache_records=cache_records,
-        segment_maps=segment_maps,
+        cache_plans=cache_plans,
+        segment_maps=prompt_manifests,
     )
     report = {
-        "measurement_ok": bool(provider_usage) and bool(segment_maps),
+        "measurement_ok": bool(provider_usage) and bool(prompt_manifests),
         "cache_contract_ok": bool(must_hit_cache_audit.get("ok")),
         "authority": "backend.scripts.live_prompt_cache_task_probe",
         "run_id": run_id,
@@ -143,23 +142,23 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "model_selection": model_selection,
         "wait_report": wait_report,
         "summary": _cache_summary(provider_usage),
-        "packet_summary": _packet_summary(segment_maps),
+        "packet_summary": _packet_summary(prompt_manifests),
         "provider_usage": _usage_projection(provider_usage),
-        "cache_records": _cache_record_projection(cache_records),
+        "cache_plans": _cache_plan_projection(cache_plans),
         "must_hit_cache_audit": must_hit_cache_audit,
-        "cache_breaks": cache_breaks,
-        "stability_reports": _stability_projection(stability_reports),
+        "cache_anomalies": cache_anomalies,
+        "prefix_state": _prefix_state_projection(prefix_state_records),
         "trace_event_types": _trace_event_counts(trace),
         "stream_event_types": [str(item.get("type") or "") for item in stream_events],
     }
     _write_json(report_dir / "stream_events.json", stream_events)
     _write_json(report_dir / "trace.json", trace)
     _write_json(report_dir / "provider_usage.json", provider_usage)
-    _write_json(report_dir / "prompt_cache.json", cache_records)
-    _write_json(report_dir / "segment_maps.json", segment_maps)
+    _write_json(report_dir / "cache_plans.json", cache_plans)
+    _write_json(report_dir / "prompt_manifests.json", prompt_manifests)
     _write_json(report_dir / "must_hit_cache_audit.json", must_hit_cache_audit)
-    _write_json(report_dir / "prompt_stability.json", stability_reports)
-    _write_json(report_dir / "prompt_cache_breaks.json", cache_breaks)
+    _write_json(report_dir / "prefix_state.json", prefix_state_records)
+    _write_json(report_dir / "cache_anomalies.json", cache_anomalies)
     _write_json(report_dir / "report.json", report)
     await runtime.shutdown()
     return report
@@ -293,10 +292,27 @@ def _trace_event_counts(trace: dict[str, Any] | None) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _prefix_state_projection(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "request_id": str(row.get("request_id") or ""),
+            "state_id": str(row.get("state_id") or ""),
+            "status": str(row.get("status") or ""),
+            "generation": int(row.get("generation") or 0),
+            "stable_token_count": int(row.get("stable_token_count") or 0),
+            "volatile_token_count": int(row.get("volatile_token_count") or 0),
+            "provider_payload_prefix_hash": str(row.get("provider_payload_prefix_hash") or ""),
+            "first_changed_section": dict(row.get("first_changed_section") or {}),
+            "provider_cache_read_expectation_summary": dict(row.get("provider_cache_read_expectation_summary") or {}),
+        }
+        for row in rows
+    ]
+
+
 def _must_hit_cache_audit(
     *,
     provider_usage: list[dict[str, Any]],
-    cache_records: list[dict[str, Any]],
+    cache_plans: list[dict[str, Any]],
     segment_maps: list[dict[str, Any]],
 ) -> dict[str, Any]:
     usage_by_request = {
@@ -306,7 +322,7 @@ def _must_hit_cache_audit(
     }
     cache_by_request = {
         str(dict(row).get("request_id") or ""): dict(row)
-        for row in list(cache_records or [])
+        for row in list(cache_plans or [])
         if str(dict(row).get("request_id") or "")
     }
     segment_by_request = {
@@ -476,8 +492,8 @@ def _cacheable_after_dynamic_tail_violations(segments: list[dict[str, Any]]) -> 
     return violations
 
 
-def _coverage_by_ordinal(cache_record: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    diagnostics = dict(cache_record.get("diagnostics") or {})
+def _coverage_by_ordinal(cache_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    diagnostics = dict(cache_plan.get("diagnostics") or {})
     result: dict[int, dict[str, Any]] = {}
     for key in (
         "provider_cache_read_stable_segment_coverage",
@@ -537,7 +553,7 @@ def _row_request_id(row: Any) -> str:
     if request_id:
         return request_id
     metadata = dict(payload.get("metadata") or {})
-    return str(metadata.get("model_request_ref") or "")
+    return str(metadata.get("provider_request_ref") or "")
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

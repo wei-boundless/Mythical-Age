@@ -33,12 +33,12 @@ from harness.entrypoint.current_work_boundary import (
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.context_management.session_compaction import auto_compact_session_if_needed, compact_session_history
 from runtime.shared.history_assembler import assemble_runtime_history
-from runtime.turn_memory import build_turn_memory_recovery_context
+from runtime.turn_memory import build_prior_work_memory_context, build_turn_memory_recovery_context
 from permissions.policy import normalize_permission_mode
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.identity import normalize_agent_id
 from capability_system.catalog_projection import build_base_unit_catalog
-from harness.task_contract_normalization import contract_dict_tuple, contract_string_tuple
+from harness.task_run_contract_normalization import contract_dict_tuple, contract_string_tuple
 from harness.runtime.commit_gate import build_user_message_commit_decision
 from core.project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
@@ -125,7 +125,7 @@ class HarnessRuntimeFacade:
         self.runtime_memory_context_provider = RuntimeMemoryContextProvider(
             bundle_service_getter=lambda: getattr(getattr(self, "memory_facade", None), "bundle_service", None),
             session_record_loader=lambda session_id: self.session_manager.load_session_record(session_id),
-            recent_messages_loader=self._load_recent_api_messages_for_memory,
+            recent_messages_loader=self._load_recent_provider_protocol_messages_for_memory,
             logger=logger,
         )
         self.model_runtime = model_runtime
@@ -286,21 +286,27 @@ class HarnessRuntimeFacade:
             turn_id=exclude_current_user_turn_id,
             user_message=exclude_current_user_message,
         )
-        api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
-        api_transcript = (
-            api_transcript_loader(session_id)
-            if callable(api_transcript_loader)
+        provider_protocol_timeline_loader = getattr(self.session_manager, "load_provider_protocol_timeline", None)
+        provider_protocol_timeline = (
+            provider_protocol_timeline_loader(session_id)
+            if callable(provider_protocol_timeline_loader)
             else list(raw_history or [])
         )
+        if exclude_current_user_turn_id:
+            provider_protocol_timeline = _history_without_current_user_request(
+                list(provider_protocol_timeline or []),
+                turn_id=exclude_current_user_turn_id,
+                user_message=exclude_current_user_message,
+            )
         history_assembly = assemble_runtime_history(
             history=raw_history,
             compressed_context=str(history_record.get("compressed_context") or ""),
         )
         session_context = dict(base_session_context or {})
         session_context["compressed_context"] = history_assembly.compressed_context
-        session_context["api_transcript"] = [
+        session_context["provider_protocol_timeline"] = [
             dict(item)
-            for item in list(api_transcript or [])
+            for item in list(provider_protocol_timeline or [])
             if isinstance(item, dict)
         ]
         session_context = _attach_fork_snapshot_to_session_context(session_context, history_record)
@@ -414,14 +420,17 @@ class HarnessRuntimeFacade:
         if str(runtime_profile.get("precommitted_user_message_turn_id") or "").strip():
             return request
         history_record = self.session_manager.load_session_record(request.session_id)
-        turn_index = len(history_record.get("messages", [])) + 1
-        turn_id = f"turn:{request.session_id}:{turn_index}"
+        turn_id = _next_session_turn_id(
+            request.session_id,
+            history_record=history_record,
+            turn_memory_store=self.single_agent_runtime_host.turn_memory_store,
+        )
         message_id = str(getattr(request, "client_message_id", "") or "").strip() or f"user:{stream_run_id}"
         attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
         self._commit_user_message(
             session_id=request.session_id,
             content=request.message,
-            api_content=str(request.message or ""),
+            provider_protocol_content=str(request.message or ""),
             attachments=attachments,
             turn_id=turn_id,
             message_id=message_id,
@@ -484,15 +493,15 @@ class HarnessRuntimeFacade:
                 turn_id=precommitted_turn_id,
                 user_message=model_user_message,
             )
-        api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
-        api_transcript = (
-            api_transcript_loader(request.session_id)
-            if callable(api_transcript_loader) and not request.history
+        provider_protocol_timeline_loader = getattr(self.session_manager, "load_provider_protocol_timeline", None)
+        provider_protocol_timeline = (
+            provider_protocol_timeline_loader(request.session_id)
+            if callable(provider_protocol_timeline_loader) and not request.history
             else list(raw_history or [])
         )
         if precommitted_turn_id:
-            api_transcript = _history_without_current_user_request(
-                list(api_transcript or []),
+            provider_protocol_timeline = _history_without_current_user_request(
+                list(provider_protocol_timeline or []),
                 turn_id=precommitted_turn_id,
                 user_message=model_user_message,
             )
@@ -503,7 +512,7 @@ class HarnessRuntimeFacade:
         history = [dict(item) for item in history_assembly.model_history]
         session_context = {
             "compressed_context": history_assembly.compressed_context,
-            "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
+            "provider_protocol_timeline": [dict(item) for item in list(provider_protocol_timeline or []) if isinstance(item, dict)],
         }
         session_context = _attach_fork_snapshot_to_session_context(session_context, history_record)
         context_recovery_package = (
@@ -539,8 +548,11 @@ class HarnessRuntimeFacade:
         if attachments:
             session_context["turn_input_attachments"] = attachments
         semantic_request = replace(request, message=model_user_message)
-        turn_index = len(history_record.get("messages", [])) + 1
-        turn_id = precommitted_turn_id or f"turn:{request.session_id}:{turn_index}"
+        turn_id = precommitted_turn_id or _next_session_turn_id(
+            request.session_id,
+            history_record=history_record,
+            turn_memory_store=self.single_agent_runtime_host.turn_memory_store,
+        )
         started_active_turn_id = ""
         request_permission_mode = _request_permission_mode(
             request,
@@ -552,7 +564,7 @@ class HarnessRuntimeFacade:
             input_commit_gate = self._commit_user_message(
                 session_id=request.session_id,
                 content=request.message,
-                api_content=model_user_message,
+                provider_protocol_content=model_user_message,
                 attachments=attachments,
                 turn_id=turn_id,
                 message_id=str(
@@ -652,14 +664,20 @@ class HarnessRuntimeFacade:
                     active_work_present=active_work_context is not None,
                 )
                 continuation_record = continuation_selection.record
-                interrupted_turn_record = continuation_selection.interrupted_turn
                 turn_memory_recovery_context = build_turn_memory_recovery_context(
                     self.single_agent_runtime_host.turn_memory_store,
                     session_id=request.session_id,
                 )
+                prior_work_memory_context = (
+                    build_prior_work_memory_context(
+                        self.single_agent_runtime_host.turn_memory_store,
+                        session_id=request.session_id,
+                    )
+                    if active_work_context is None
+                    else {}
+                )
                 if (
                     continuation_record is not None
-                    or interrupted_turn_record is not None
                     or turn_memory_recovery_context
                 ):
                     selection_payload = continuation_selection.to_dict()
@@ -672,12 +690,10 @@ class HarnessRuntimeFacade:
                     session_context["continuation_selection"] = selection_payload
                 if turn_memory_recovery_context:
                     session_context["turn_memory_recovery"] = turn_memory_recovery_context
+                if prior_work_memory_context:
+                    session_context["prior_work_memory_context"] = prior_work_memory_context
                 recent_work_outcome: dict[str, Any] = {}
-                recoverable_work_candidate: dict[str, Any] = {}
-                if continuation_record is not None and continuation_record.state != "terminal_read_only":
-                    recoverable_work_candidate = continuation_record.to_dict()
-                    session_context["recoverable_work"] = recoverable_work_candidate
-                elif continuation_record is not None and continuation_record.state == "terminal_read_only":
+                if continuation_record is not None and continuation_record.state == "terminal_read_only":
                     recent_work_outcome = self._recent_work_outcome_from_continuation_record(continuation_record.to_dict())
                     if recent_work_outcome:
                         session_context["recent_work_outcome"] = recent_work_outcome
@@ -696,7 +712,6 @@ class HarnessRuntimeFacade:
                     recovery_input_policy=str(getattr(request, "recovery_input_policy", "") or "auto").strip() or "auto",
                     active_turn=active_turn,
                     active_work_candidate=active_work_context,
-                    recoverable_work_candidate=recoverable_work_candidate,
                     recent_work_outcome_candidate=recent_work_outcome,
                     environment_binding=request_environment_binding,
                     runtime_profile=dict(request.runtime_profile or {}),
@@ -911,7 +926,7 @@ class HarnessRuntimeFacade:
                 current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                 active_work_context=active_work_context,
             ),
-            apply_recoverable_work_resume=lambda action_request: self._run_recoverable_work_resume_action_request(
+            apply_task_recovery_resume=lambda action_request: self._run_task_recovery_resume_action_request(
                 request=request,
                 turn_id=turn_id,
                 action_request=action_request,
@@ -962,7 +977,7 @@ class HarnessRuntimeFacade:
             committer=self._apply_assistant_message_commit_async,
         )
 
-    async def _run_recoverable_work_resume_action_request(
+    async def _run_task_recovery_resume_action_request(
         self,
         *,
         request: HarnessRuntimeRequest,
@@ -971,7 +986,7 @@ class HarnessRuntimeFacade:
         continuation_record: Any | None,
         current_work_boundary_receipt: dict[str, Any],
     ):
-        resume_payload = dict(action_request.recovery_resume or {})
+        resume_payload = dict(action_request.task_recovery_resume or {})
         expected_task_run_id = str(resume_payload.get("task_run_id") or getattr(request, "expected_task_run_id", "") or "").strip()
         expected_continuation_id = str(resume_payload.get("continuation_id") or getattr(request, "expected_continuation_id", "") or "").strip()
         recovery_boundary_input = build_recovery_boundary_input(
@@ -991,8 +1006,8 @@ class HarnessRuntimeFacade:
             "receipt": recovery_receipt.to_dict(),
             "model_action_request": action_request.to_dict(),
         }
-        if recovery_decision.action == "resume_recoverable_work":
-            async for event in self._run_recovery_resume_request(
+        if recovery_decision.action == "resume_task_recovery":
+            async for event in self._run_task_recovery_resume_request(
                 request=request,
                 turn_id=turn_id,
                 recovery_decision=recovery_decision.to_dict(),
@@ -1049,7 +1064,7 @@ class HarnessRuntimeFacade:
             extra={"recovery_boundary_receipt": recovery_receipt},
         )
 
-    async def _run_recovery_resume_request(
+    async def _run_task_recovery_resume_request(
         self,
         *,
         request: HarnessRuntimeRequest,
@@ -1060,7 +1075,7 @@ class HarnessRuntimeFacade:
         record = dict(recovery_decision.get("continuation_record") or {})
         task_run_id = str(recovery_decision.get("task_run_id") or record.get("task_run_id") or "").strip()
         if not task_run_id:
-            for event in await self._recovery_resume_failure_events(
+            for event in await self._task_recovery_resume_failure_events(
                 request=request,
                 turn_id=turn_id,
                 content="恢复请求缺少 task_run_id。",
@@ -1097,19 +1112,19 @@ class HarnessRuntimeFacade:
         resume_result = self._resume_task_run_through_control_gateway(
             session_id=request.session_id,
             task_run_id=task_run_id,
-            reason="conversation_recovery_resume",
+            reason="conversation_task_recovery_resume",
             turn_id=turn_id,
-            scheduler="conversation_recovery_resume",
+            scheduler="conversation_task_recovery_resume",
             max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
         )
         if not resume_result.get("ok"):
             payload = _active_work_control_failure_payload(resume_result)
-            for event in await self._recovery_resume_failure_events(
+            for event in await self._task_recovery_resume_failure_events(
                 request=request,
                 turn_id=turn_id,
                 content=str(payload.get("content") or "当前工作没有成功恢复。"),
                 title="恢复请求未执行",
-                terminal_reason=str(payload.get("terminal_reason") or "recovery_resume_failed"),
+                terminal_reason=str(payload.get("terminal_reason") or "task_recovery_resume_failed"),
                 recovery_receipt=recovery_receipt,
                 extra={"resume_result": resume_result},
             ):
@@ -1124,7 +1139,7 @@ class HarnessRuntimeFacade:
         schedule_result = dict(resume_result.get("schedule") or {})
         if not _schedule_result_allows_progress(schedule_result):
             payload = _active_work_schedule_failure_payload(schedule_result)
-            for event in await self._recovery_resume_failure_events(
+            for event in await self._task_recovery_resume_failure_events(
                 request=request,
                 turn_id=turn_id,
                 content=str(payload.get("content") or "恢复请求已记录，但任务调度没有启动。"),
@@ -1147,8 +1162,8 @@ class HarnessRuntimeFacade:
             turn_id=turn_id,
             content=response,
             answer_source="harness.continuation.recovery_boundary",
-            execution_posture="recovery_resume",
-            terminal_reason="conversation_recovery_resume",
+            execution_posture="task_recovery_resume",
+            terminal_reason="conversation_task_recovery_resume",
             run_id=task_run_id,
             task_run_id=task_run_id,
             refs={
@@ -1159,7 +1174,7 @@ class HarnessRuntimeFacade:
         )
         output_content = commit_result.decision.content
         yield {
-            "type": "recovery_resume_accepted",
+            "type": "task_recovery_resume_accepted",
             "summary": output_content,
             "status": "accepted",
             "runtime_task_run_id": task_run_id,
@@ -1174,8 +1189,8 @@ class HarnessRuntimeFacade:
             "title": "恢复续跑已启动",
             "detail": output_content,
             "state": "running",
-            "phase": "recovery_resume",
-            "terminal_reason": "conversation_recovery_resume",
+            "phase": "task_recovery_resume",
+            "terminal_reason": "conversation_task_recovery_resume",
             "runtime_task_run_id": task_run_id,
             "task_run_id": task_run_id,
             "turn_id": turn_id,
@@ -1186,8 +1201,8 @@ class HarnessRuntimeFacade:
             content=output_content,
             answer_channel="conversation",
             answer_source="harness.continuation.recovery_boundary",
-            terminal_reason="conversation_recovery_resume",
-            execution_posture="recovery_resume",
+            terminal_reason="conversation_task_recovery_resume",
+            execution_posture="task_recovery_resume",
             extra={
                 "runtime_task_run_id": task_run_id,
                 "task_run_id": task_run_id,
@@ -1196,7 +1211,7 @@ class HarnessRuntimeFacade:
             },
         )
 
-    async def _recovery_resume_failure_events(
+    async def _task_recovery_resume_failure_events(
         self,
         *,
         request: HarnessRuntimeRequest,
@@ -1212,7 +1227,7 @@ class HarnessRuntimeFacade:
             turn_id=turn_id,
             content=str(content or "恢复请求未执行。").strip(),
             answer_source="harness.continuation.recovery_boundary",
-            execution_posture="recovery_resume_failed",
+            execution_posture="task_recovery_resume_failed",
             terminal_reason=terminal_reason,
             refs={"recovery_boundary_receipt_ref": str(recovery_receipt.get("receipt_id") or "")},
         )
@@ -1227,7 +1242,7 @@ class HarnessRuntimeFacade:
                 "title": title,
                 "detail": output_content,
                 "state": "blocked",
-                "phase": "recovery_resume",
+                "phase": "task_recovery_resume",
                 "terminal_reason": terminal_reason,
                 **event_extra,
             },
@@ -1236,7 +1251,7 @@ class HarnessRuntimeFacade:
                 answer_channel="conversation",
                 answer_source="harness.continuation.recovery_boundary",
                 terminal_reason=terminal_reason,
-                execution_posture="recovery_resume_failed",
+                execution_posture="task_recovery_resume_failed",
                 extra=event_extra,
             ),
         ]
@@ -1273,7 +1288,7 @@ class HarnessRuntimeFacade:
                 "recovery_packet": packet,
                 "recovery_packet_ref": packet_ref,
                 "recovery_boundary_receipt": dict(recovery_receipt or {}),
-                "recovery_resume_authority": "harness.continuation.recovery_boundary",
+                "task_recovery_resume_authority": "harness.continuation.recovery_boundary",
             },
         )
         self.single_agent_runtime_host.state_index.upsert_task_run(updated)
@@ -1791,7 +1806,7 @@ class HarnessRuntimeFacade:
             continuation_kind = "waiting"
         contract = {}
         try:
-            contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(str(getattr(task_run, "task_contract_ref", "") or "")) or {})
+            contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(str(getattr(task_run, "task_run_contract_ref", "") or "")) or {})
         except Exception:
             contract = {}
         goal = str(
@@ -1873,7 +1888,7 @@ class HarnessRuntimeFacade:
         except Exception:
             monitor = {}
         contract = {}
-        contract_ref = str(getattr(latest, "task_contract_ref", "") or "").strip()
+        contract_ref = str(getattr(latest, "task_run_contract_ref", "") or "").strip()
         if contract_ref:
             try:
                 contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(contract_ref) or {})
@@ -2498,7 +2513,7 @@ class HarnessRuntimeFacade:
             task_run_id=node_task_run_id,
             session_id=node_session_id or str(dict(graph_run or {}).get("session_id") or work_order.graph_run_id),
             task_id=work_order.task_ref,
-            task_contract_ref=contract_ref,
+            task_run_contract_ref=contract_ref,
             owner_agent_seat_id=work_order.node_id,
             agent_id=node_agent_id,
             agent_profile_id=node_profile_id,
@@ -2637,7 +2652,7 @@ class HarnessRuntimeFacade:
         session_id: str,
         content: str,
         turn_id: str,
-        api_content: str | None = None,
+        provider_protocol_content: str | None = None,
         attachments: list[dict[str, Any]] | None = None,
         message_id: str = "",
         client_message_id: str = "",
@@ -2671,14 +2686,14 @@ class HarnessRuntimeFacade:
                 client_message_id=normalized_client_message_id,
                 turn_id=turn_id,
                 content=str(payload.get("content") or ""),
-                api_transcript=False,
+                use_provider_protocol_timeline=False,
             ):
                 self.session_manager.append_messages(session_id, [public_payload])
-            append_api = getattr(self.session_manager, "append_api_messages", None)
-            if callable(append_api):
-                api_payload = {
+            append_provider_protocol = getattr(self.session_manager, "append_provider_protocol_messages", None)
+            if callable(append_provider_protocol):
+                provider_protocol_payload = {
                     "role": payload.get("role"),
-                    "content": str(api_content if api_content is not None else payload.get("content") or ""),
+                    "content": str(provider_protocol_content if provider_protocol_content is not None else payload.get("content") or ""),
                     "turn_id": turn_id,
                     "source": source,
                 }
@@ -2687,10 +2702,10 @@ class HarnessRuntimeFacade:
                     message_id=normalized_message_id,
                     client_message_id=normalized_client_message_id,
                     turn_id=turn_id,
-                    content=str(api_payload.get("content") or ""),
-                    api_transcript=True,
+                    content=str(provider_protocol_payload.get("content") or ""),
+                    use_provider_protocol_timeline=True,
                 ):
-                    append_api(session_id, [api_payload])
+                    append_provider_protocol(session_id, [provider_protocol_payload])
         return decision
 
     def _session_contains_user_message(
@@ -2701,11 +2716,11 @@ class HarnessRuntimeFacade:
         client_message_id: str,
         turn_id: str,
         content: str,
-        api_transcript: bool,
+        use_provider_protocol_timeline: bool,
     ) -> bool:
         loader = (
-            getattr(self.session_manager, "load_session_for_api", None)
-            if api_transcript
+            getattr(self.session_manager, "load_provider_protocol_timeline", None)
+            if use_provider_protocol_timeline
             else getattr(self.session_manager, "load_session", None)
         )
         if not callable(loader):
@@ -2791,17 +2806,17 @@ class HarnessRuntimeFacade:
                 }
             ],
         )
-        append_api = getattr(self.session_manager, "append_api_messages", None)
-        if callable(append_api):
+        append_provider_protocol = getattr(self.session_manager, "append_provider_protocol_messages", None)
+        if callable(append_provider_protocol):
             protocol_messages = [
                 dict(item)
-                for item in list(payload.get("api_protocol_messages") or [])
+                for item in list(payload.get("provider_protocol_messages_to_append") or [])
                 if isinstance(item, dict)
             ]
             if protocol_messages:
-                append_api(session_id, protocol_messages)
+                append_provider_protocol(session_id, protocol_messages)
             else:
-                append_api(
+                append_provider_protocol(
                     session_id,
                     [
                         {
@@ -2965,8 +2980,8 @@ class HarnessRuntimeFacade:
             recent_work_outcome=recent_work_outcome,
         )
 
-    def _load_recent_api_messages_for_memory(self, session_id: str) -> list[dict[str, Any]]:
-        loader = getattr(self.session_manager, "load_session_for_api", None)
+    def _load_recent_provider_protocol_messages_for_memory(self, session_id: str) -> list[dict[str, Any]]:
+        loader = getattr(self.session_manager, "load_provider_protocol_timeline", None)
         if not callable(loader):
             return []
         try:
@@ -3215,7 +3230,7 @@ def _refresh_existing_graph_node_task_run(
     updated = TaskRun(
         **{
             **task_run.to_dict(),
-            "task_contract_ref": contract_ref,
+            "task_run_contract_ref": contract_ref,
             "updated_at": now,
             "diagnostics": diagnostics,
         }
@@ -3373,7 +3388,7 @@ def _explicit_contract_action_request(
             runtime_contract=runtime_contract,
         ),
         diagnostics={
-            "origin_kind": "explicit_contract",
+            "origin_kind": "user_direct_request",
             "origin_authority": "harness.explicit_contract_task",
             "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or ""),
         },
@@ -3438,7 +3453,7 @@ def _explicit_contract_task_seed(
     )
     primary_ref = "work-mode:plan:primary"
     return {
-        "contract_version": "task_run_contract_v1",
+        "contract_id": "task_run_contract",
         "container_contract": {
             "entry_reason": _first_contract_text(
                 source.get("entry_reason"),
@@ -3541,11 +3556,11 @@ def _task_run_contract_from_explicit_contract(
         return None, errors
     contract = replace(
         contract,
-        contract_source="explicit_contract",
+        contract_source="user_direct_request",
         source_contract_ref=str(source.get("contract_id") or source.get("source_ref") or "").strip(),
         external_plan_ref=str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
         origin={
-            "origin_kind": "explicit_contract",
+            "origin_kind": "user_direct_request",
             "origin_authority": "harness.explicit_contract_task",
             "turn_id": turn_id,
         },
@@ -3725,6 +3740,39 @@ def _public_status_text(value: Any, *, limit: int = 900) -> str:
 
 def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _next_session_turn_id(session_id: str, *, history_record: dict[str, Any], turn_memory_store: Any | None) -> str:
+    normalized_session = str(session_id or "").strip()
+    prefix = f"turn:{normalized_session}:"
+    max_index = len(list(dict(history_record or {}).get("messages") or []))
+    for message in list(dict(history_record or {}).get("messages") or []):
+        if not isinstance(message, dict):
+            continue
+        for key in ("turn_id", "sourceTurnId", "source_turn_id", "active_turn_id"):
+            max_index = max(max_index, _turn_id_index(message.get(key), prefix=prefix))
+    lister = getattr(turn_memory_store, "list_session_turns", None)
+    if callable(lister):
+        try:
+            records = list(lister(normalized_session, include_released=True) or [])
+        except Exception:
+            records = []
+        for record in records:
+            max_index = max(max_index, _turn_id_index(getattr(record, "turn_id", ""), prefix=prefix))
+    return f"{prefix}{max_index + 1}"
+
+
+def _turn_id_index(value: Any, *, prefix: str) -> int:
+    text = str(value or "").strip()
+    if not text.startswith(prefix):
+        return 0
+    suffix = text[len(prefix):]
+    if not suffix.isdigit():
+        return 0
+    try:
+        return max(0, int(suffix))
+    except ValueError:
+        return 0
 
 
 def _safe_compaction_boundary_timestamp(value: Any) -> float:

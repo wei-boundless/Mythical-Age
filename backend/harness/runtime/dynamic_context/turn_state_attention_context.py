@@ -10,22 +10,22 @@ def build_turn_state_attention_contexts(
     task_state: dict[str, Any],
     *,
     task_run_id: str = "",
-    task_contract: dict[str, Any] | None = None,
+    task_run_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if not _work_modes_from_task_contract(task_contract):
+    if not _work_modes_from_task_run_contract(task_run_contract):
         return {}
     goal_context = _task_goal_context(
         task_run_id=task_run_id,
-        goal_contract=_goal_contract_from_task_contract(task_contract),
+        goal_contract=_goal_contract_from_task_run_contract(task_run_contract),
     )
     plan_context = _task_plan_context(
         task_run_id=task_run_id,
-        plan_contract=_plan_contract_from_task_contract(task_contract),
+        plan_contract=_plan_contract_from_task_run_contract(task_run_contract),
     )
     todo_context = _task_todo_context(
         task_state,
         task_run_id=task_run_id,
-        todo_contract=_todo_contract_from_task_contract(task_contract),
+        todo_contract=_todo_contract_from_task_run_contract(task_run_contract),
     )
     return drop_empty(
         {
@@ -56,8 +56,8 @@ def _task_goal_context(*, task_run_id: str, goal_contract: dict[str, Any]) -> di
                 "event": "goal_work_mode_active",
                 "goal_ref": goal_ref,
                 "goal_sha256": goal_sha256,
-                "goal_contract_ref": "task_run_contract_stable.task_run_contract.goal_contract",
-                "working_scope_ref": "task_run_contract_stable.task_run_contract.working_scope",
+                "goal_contract_ref": "task_run_contract_stable.task_run_contract.goal_context",
+                "working_scope_ref": "task_run_contract_stable.task_run_contract.goal_context.contract.working_scope",
                 "agent_use_contract": "Use this as the current turn goal anchor. Full goal/scope authority remains in the task resource contract.",
                 "authority": "harness.runtime.dynamic_context.turn_goal_resource_ref",
             },
@@ -190,9 +190,9 @@ def _task_todo_context(
     )
 
 
-def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> dict[str, Any]:
-    contract = dict(task_contract or {})
-    plan_mode = _work_mode_from_task_contract(contract, "plan")
+def _plan_contract_from_task_run_contract(task_run_contract: dict[str, Any] | None) -> dict[str, Any]:
+    contract = dict(task_run_contract or {})
+    plan_mode = _work_mode_from_task_run_contract(contract, "plan")
     raw = dict(plan_mode.get("contract") or {}) if plan_mode else {}
     if not raw:
         return {}
@@ -216,9 +216,9 @@ def _plan_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     )
 
 
-def _goal_contract_from_task_contract(task_contract: dict[str, Any] | None) -> dict[str, Any]:
-    contract = dict(task_contract or {})
-    goal_mode = _work_mode_from_task_contract(contract, "goal")
+def _goal_contract_from_task_run_contract(task_run_contract: dict[str, Any] | None) -> dict[str, Any]:
+    contract = dict(task_run_contract or {})
+    goal_mode = _work_mode_from_task_run_contract(contract, "goal")
     raw = dict(goal_mode.get("contract") or {}) if goal_mode else {}
     if not raw:
         return {}
@@ -246,9 +246,9 @@ def _goal_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     )
 
 
-def _todo_contract_from_task_contract(task_contract: dict[str, Any] | None) -> dict[str, Any]:
-    contract = dict(task_contract or {})
-    todo_mode = _work_mode_from_task_contract(contract, "todo")
+def _todo_contract_from_task_run_contract(task_run_contract: dict[str, Any] | None) -> dict[str, Any]:
+    contract = dict(task_run_contract or {})
+    todo_mode = _work_mode_from_task_run_contract(contract, "todo")
     raw = dict(todo_mode.get("contract") or {}) if todo_mode else {}
     if not raw:
         return {}
@@ -282,19 +282,19 @@ def _todo_contract_from_task_contract(task_contract: dict[str, Any] | None) -> d
     )
 
 
-def _work_mode_from_task_contract(task_contract: dict[str, Any], mode_kind: str) -> dict[str, Any]:
-    work_modes = _work_modes_from_task_contract(task_contract)
+def _work_mode_from_task_run_contract(task_run_contract: dict[str, Any], mode_kind: str) -> dict[str, Any]:
+    work_modes = _work_modes_from_task_run_contract(task_run_contract)
     if not work_modes:
         return {}
-    contract = dict(task_contract or {})
-    task_run_contract = (
+    contract = dict(task_run_contract or {})
+    task_run_contract_root = (
         dict(contract.get("task_run_contract") or {})
         if isinstance(contract.get("task_run_contract"), dict)
         else contract
     )
     container_contract = (
-        dict(task_run_contract.get("container_contract") or {})
-        if isinstance(task_run_contract.get("container_contract"), dict)
+        dict(task_run_contract_root.get("container_contract") or {})
+        if isinstance(task_run_contract_root.get("container_contract"), dict)
         else {}
     )
     primary_ref = str(container_contract.get("primary_work_mode_ref") or "").strip()
@@ -311,16 +311,16 @@ def _work_mode_from_task_contract(task_contract: dict[str, Any], mode_kind: str)
     return candidate
 
 
-def _work_modes_from_task_contract(task_contract: dict[str, Any] | None) -> list[dict[str, Any]]:
-    contract = dict(task_contract or {})
-    task_run_contract = (
+def _work_modes_from_task_run_contract(task_run_contract: dict[str, Any] | None) -> list[dict[str, Any]]:
+    contract = dict(task_run_contract or {})
+    task_run_contract_root = (
         dict(contract.get("task_run_contract") or {})
         if isinstance(contract.get("task_run_contract"), dict)
         else contract
     )
     return [
         dict(item)
-        for item in list(task_run_contract.get("work_modes") or [])
+        for item in list(task_run_contract_root.get("work_modes") or [])
         if isinstance(item, dict)
     ]
 

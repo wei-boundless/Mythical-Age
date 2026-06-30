@@ -13,7 +13,7 @@ _ORDINAL_FOLLOWUP_RE = re.compile(r"(?:第\s*([一二三四五六七八九十\d]
 _ORDINAL_MULTI_FOLLOWUP_RE = re.compile(r"第\s*([一二三四五六七八九十\d]+)\s*个?\s*(?:和|、|,|，)\s*第?\s*([一二三四五六七八九十\d]+)\s*个?\s*子任务")
 
 
-class ContextResolver:
+class TurnContextResolver:
     """Resolves current-turn truth from explicit input plus candidate-only state."""
 
     def resolve(
@@ -621,6 +621,5 @@ def _identity(value: str) -> str:
 def _slug(value: str) -> str:
     compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", str(value or "").lower()).strip("-")
     return compact[:48] or "main"
-
 
 

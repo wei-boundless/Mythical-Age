@@ -55,7 +55,6 @@ def build_runtime_prompt_slot_plan(
                 load_phase=slot_policy.load_phase,
                 phase_order=slot_policy.phase_order,
                 compression_role=slot_policy.compression_role,
-                authority_class=slot_policy.authority_class,
                 render_contract=_render_contract(spec, source_kind=slot_policy.source_kind),
                 message_spec=spec,
                 content_hash=content_hash,
@@ -126,7 +125,6 @@ def composition_slots_from_runtime_slot_plan(slot_plan: RuntimePromptSlotPlan) -
                 message_kinds=(slot.slot_kind,),
                 metadata={
                     "runtime_prompt_slot_plan_id": slot_plan.plan_id,
-                    "authority_class": slot.authority_class,
                     "dynamic_tier": slot.dynamic_tier,
                     "load_phase": slot.load_phase,
                     "phase_order": slot.phase_order,

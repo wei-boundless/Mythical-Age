@@ -577,7 +577,7 @@ function reasoningMetaFromBlock(block: StatusProjectionBlock) {
 function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTone {
   const state = [...entries].reverse().map((entry) => cleanText(entry.state).toLowerCase()).find(Boolean) ?? "";
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state)) return "stopped";
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
@@ -594,7 +594,7 @@ function statusBlockTone(block: StatusProjectionBlock): PublicTimelineActivityTo
   if (block.kind === "terminal_event") {
     const state = cleanText(block.state).toLowerCase();
     if (["failed", "error", "blocked"].includes(state)) return "soft_error";
-    if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+    if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state)) return "stopped";
     if (["completed", "complete", "done", "success"].includes(state)) return "done";
     return "stopped";
   }
@@ -685,7 +685,7 @@ function toolInvocationTarget(block: ToolProjectionBlock) {
 function toolWindowStatusTone(block: ToolProjectionBlock): PublicTimelineActivityTone {
   const state = cleanText(block.state).toLowerCase();
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state)) return "stopped";
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";

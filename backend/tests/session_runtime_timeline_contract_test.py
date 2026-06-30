@@ -104,8 +104,15 @@ def _public_ledger_record(
     task_run_id: str = "taskrun:turn:session-a:1:abc",
     message_id: str = "history-message:turn:session-a:1:assistant",
 ) -> dict:
+    event_data = dict(data)
+    if (
+        public_event_type == ASSISTANT_TEXT_FINAL_EVENT
+        and event_data.get("content")
+        and not event_data.get("content_sha256")
+    ):
+        event_data["content_sha256"] = f"sha256:test-final:{offset}"
     payload = {
-        **data,
+        **event_data,
         "public_anchor": {
             "session_id": session_id,
             "turn_id": turn_id,
@@ -128,7 +135,7 @@ def _public_ledger_record(
         "created_at": float(offset),
         "public_event_type": public_event_type,
         "terminal": public_event_type == SESSION_OUTPUT_COMMIT_ACK_EVENT,
-        "data": {**data, "public_projection_frame": frame},
+        "data": {**event_data, "public_projection_frame": frame},
         "public_projection_frame": frame,
     }
 
@@ -223,7 +230,7 @@ def test_session_runtime_timeline_closed_task_uses_public_ledger_closeout_surfac
     assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:1"
     assert attachment["projection_anchor"]["anchor_message_id"] == "history-message:turn:session-a:1:assistant"
     slice_ = _projection_slice(attachment)
-    assert slice_["schema_version"] == "chronological_projection"
+    assert slice_["projection_schema_id"] == "chronological_projection"
     assert slice_["event_log_id"] == "chatrun:session-a:1"
     assert slice_["start_offset"] == 1
     assert slice_["end_offset"] == 3

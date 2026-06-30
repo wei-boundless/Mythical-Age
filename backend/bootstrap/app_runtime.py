@@ -21,8 +21,7 @@ from health_system.graph_breakpoint_command_supervisor import GraphBreakpointCom
 from health_system.graph_breakpoint_supervisor import GraphBreakpointSupervisor
 from sessions import SessionManager
 from runtime import ModelRuntime
-from runtime.prompt_accounting import PromptAccountingLedger
-from runtime.prompt_accounting.provider_lane import PROVIDER_LANE_AGENT_TOOL_LOOP, normalize_provider_lane
+from runtime.prompt_accounting import PromptAccountingLedger, build_provider_cache_log_view
 from core.project_layout import ProjectLayout
 
 
@@ -145,31 +144,63 @@ class AppRuntime:
     def _microcompact_cache_state(self, payload: dict[str, object]) -> dict[str, object]:
         model_runtime = self.model_runtime
         ledger = getattr(model_runtime, "prompt_accounting_ledger", None) if model_runtime is not None else None
-        if ledger is None or not hasattr(ledger, "list_prompt_cache"):
+        if ledger is None:
             return {"cache_temperature": "unknown", "source": "app_runtime.no_prompt_accounting_ledger"}
         session_id = str(dict(payload or {}).get("session_id") or "")
         task_run_id = str(dict(payload or {}).get("task_run_id") or "")
         run_id = str(dict(payload or {}).get("run_id") or "")
-        records = ledger.list_prompt_cache(run_id=run_id, task_run_id=task_run_id, session_id=session_id)
+        cache_log = build_provider_cache_log_view(
+            ledger,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            limit=20,
+            authority="bootstrap.app_runtime.microcompact_cache_state",
+        )
+        summary = dict(cache_log.get("summary") or {})
+        records = [dict(item) for item in list(cache_log.get("records") or []) if isinstance(item, dict)]
         if not records:
-            return {"cache_temperature": "unknown", "source": "app_runtime.prompt_cache_empty"}
-        agent_tool_loop_records = [
-            record
-            for record in records
-            if normalize_provider_lane(dict(getattr(record, "diagnostics", {}) or {}).get("provider_lane")) == PROVIDER_LANE_AGENT_TOOL_LOOP
-        ]
-        latest = (agent_tool_loop_records or records)[-1]
-        cached_tokens = max(int(getattr(latest, "cached_tokens", 0) or 0), int(getattr(latest, "cache_read_tokens", 0) or 0))
+            return {"cache_temperature": "unknown", "source": "app_runtime.provider_cache_bus_empty"}
+        latest = records[0]
+        latest_health = dict(summary.get("latest_prefix_health") or latest.get("provider_prefix_cache_health") or {})
+        latest_under_read_tokens = max(
+            0,
+            int(
+                summary.get("latest_under_read_tokens")
+                or latest.get("provider_under_read_tokens")
+                or latest_health.get("under_read_tokens")
+                or 0
+            ),
+        )
+        current_prefix_covered = bool(summary.get("current_prefix_covered") is True)
+        latest_status = str(summary.get("latest_status") or latest.get("cache_status") or "")
+        latest_verdict = str(latest_health.get("verdict") or "")
+        cache_temperature = (
+            "warm"
+            if current_prefix_covered and latest_under_read_tokens <= 0 and latest_verdict == "covered"
+            else "cold"
+        )
         return {
-            "cache_temperature": "warm" if str(getattr(latest, "status", "") or "") == "hit" or cached_tokens > 0 else "cold",
-            "cache_record_id": str(getattr(latest, "cache_record_id", "") or ""),
-            "cache_key": str(getattr(latest, "cache_key", "") or ""),
-            "prefix_hash": str(getattr(latest, "prefix_hash", "") or ""),
-            "provider_lane": normalize_provider_lane(dict(getattr(latest, "diagnostics", {}) or {}).get("provider_lane")),
-            "status": str(getattr(latest, "status", "") or ""),
-            "cached_tokens": cached_tokens,
+            "cache_temperature": cache_temperature,
+            "cache_temperature_source": "provider_cache_bus.current_prefix_covered",
+            "cache_bus_record_id": str(latest.get("bus_record_id") or ""),
+            "provider_cache_bus_record_id": str(latest.get("bus_record_id") or ""),
+            "request_id": str(latest.get("request_id") or ""),
+            "physical_cache_spine_hash": str(summary.get("current_cache_spine_hash") or latest.get("physical_cache_spine_hash") or ""),
+            "transport_contract_hash": str(summary.get("current_transport_contract_hash") or latest.get("transport_contract_hash") or ""),
+            "provider_lane": str(latest.get("provider_lane") or ""),
+            "status": latest_status,
+            "cache_status": latest_status,
+            "prefix_health_verdict": latest_verdict,
+            "latest_prefix_health": latest_health,
+            "current_prefix_covered": current_prefix_covered,
+            "latest_under_read_tokens": latest_under_read_tokens,
+            "first_missing_expected_prefix_identity": dict(latest_health.get("first_missing_expected_prefix_identity") or {}),
+            "cached_tokens": int(latest.get("cached_tokens") or 0),
+            "hit_rate": float(summary.get("hit_rate") or latest.get("hit_rate") or 0.0),
             "provider_cache_editing_supported": False,
-            "source": "app_runtime.latest_prompt_cache_record",
+            "source": "app_runtime.provider_cache_bus_prefix_health",
+            "authority": "bootstrap.app_runtime.microcompact_cache_state",
         }
 
     def _on_context_compact_boundary(self, receipt: object) -> dict[str, object]:
@@ -184,10 +215,10 @@ class AppRuntime:
             return {"allowed": True, "reason": "compact_no_prompt_rewrite"}
         model_runtime = self.model_runtime
         ledger = getattr(model_runtime, "prompt_accounting_ledger", None) if model_runtime is not None else None
-        if ledger is None or not hasattr(ledger, "reset_prompt_cache_baseline"):
+        if ledger is None or not hasattr(ledger, "reset_prefix_state"):
             return {"allowed": True, "reason": "prompt_accounting_ledger_unavailable"}
-        reset = ledger.reset_prompt_cache_baseline(
-            request_id=f"pcachebaseline-reset:{payload.get('request_id') or 'context_compact'}",
+        reset = ledger.reset_prefix_state(
+            request_id=f"prefix-state-reset:{payload.get('request_id') or 'context_compact'}",
             session_id=str(payload.get("session_id") or ""),
             task_run_id=str(payload.get("task_run_id") or ""),
             reason=f"context_compaction:{applied_strategy or 'unknown'}",
@@ -200,8 +231,8 @@ class AppRuntime:
         )
         return {
             "allowed": True,
-            "reason": "prompt_cache_baseline_reset_after_compact",
-            "diagnostics": {"baseline_reset_id": reset.baseline_id},
+            "reason": "prefix_state_reset_after_compact",
+            "diagnostics": {"prefix_state_reset_id": reset.state_id},
         }
 
     def require_ready(self) -> "AppRuntime":

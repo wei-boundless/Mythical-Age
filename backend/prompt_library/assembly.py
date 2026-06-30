@@ -40,6 +40,7 @@ class PromptAssemblyService:
             pack_refs = (default_ref,) if default_ref else ()
         prompt_refs: list[str] = []
         rejected: list[dict[str, Any]] = []
+        omitted: list[dict[str, Any]] = []
         for pack_ref in pack_refs:
             pack = self.registry.get_pack(pack_ref)
             if pack is None:
@@ -81,6 +82,9 @@ class PromptAssemblyService:
                 system_wiring_manifest=system_wiring_manifest,
             )
             if wiring_reason:
+                if _is_system_group_disabled_reason(wiring_reason):
+                    omitted.append({"ref": prompt_ref, "reason": wiring_reason})
+                    continue
                 rejected.append({"ref": prompt_ref, "reason": wiring_reason})
                 continue
             context_capability_metadata = _resource_context_wiring_metadata(
@@ -103,6 +107,7 @@ class PromptAssemblyService:
                     metadata={
                         "version": resource.version,
                         "resource_type": resource.resource_type,
+                        "source_type": dict(resource.metadata or {}).get("source_type"),
                         "authority_scope": dict(resource.metadata or {}).get("authority_scope"),
                         "prompt_rule": dict(resource.metadata or {}).get("prompt_rule"),
                         **context_capability_metadata,
@@ -158,6 +163,7 @@ class PromptAssemblyService:
             "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(pack_refs),
             "rejected_refs": [dict(item) for item in rejected],
+            "omitted_refs": [dict(item) for item in omitted],
             "cache_scope_order": [item.cache_scope for item in sections],
             "cache_boundary": _assembly_cache_boundary_report(tuple(sections)),
             "layer_summary": _assembly_layer_summary(tuple(sections)),
@@ -170,7 +176,11 @@ class PromptAssemblyService:
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
-        rule_diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=request.invocation_kind)
+        rule_diagnostics = build_rule_diagnostics(
+            tuple(sections),
+            invocation_kind=request.invocation_kind,
+            omitted_rule_refs=tuple(str(item.get("ref") or "") for item in omitted),
+        )
         if rule_diagnostics.get("rejected_rules"):
             rejected.extend(dict(item) for item in list(rule_diagnostics.get("rejected_rules") or []))
             manifest["rejected_refs"] = [dict(item) for item in rejected]
@@ -250,6 +260,10 @@ def _resource_context_wiring_rejection_reason(
     return ""
 
 
+def _is_system_group_disabled_reason(reason: str) -> bool:
+    return str(reason or "").strip().startswith("system_group_disabled:")
+
+
 def _resource_context_wiring_metadata(
     resource: dict[str, Any],
     *,
@@ -290,16 +304,13 @@ def _resource_context_wiring_metadata(
 
 
 def _resource_is_stable_prompt_contract(resource: dict[str, Any]) -> bool:
-    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
     category = str(resource.get("category") or "").strip()
+    subtype = str(resource.get("subtype") or "").strip()
     metadata = dict(resource.get("metadata") or {})
-    if category == "system" and prompt_ref.startswith("system.foundation."):
-        return True
-    if category == "runtime" and prompt_ref.startswith("runtime."):
-        return True
     if bool(metadata.get("builtin_runtime_prompt") is True):
         return True
-    if str(metadata.get("source_type") or "").strip() == "builtin_system_foundation_prompt":
+    source_type = str(metadata.get("source_type") or "").strip()
+    if category == "system" and subtype == "foundation" and source_type == "builtin_system_foundation_prompt":
         return True
     return False
 
@@ -441,12 +452,8 @@ def build_prompt_authority_manifest(sections: tuple[PromptSection, ...]) -> dict
 
 def _prompt_section_layer(section: PromptSection) -> str:
     category = str(section.category or "").strip()
-    subtype = str(section.subtype or "").strip()
     owner_layer = str(section.owner_layer or "").strip()
     resource_type = str(dict(section.metadata or {}).get("resource_type") or "").strip()
-    prompt_ref = str(section.prompt_ref or "").strip()
-    if category == "environment" and (subtype.startswith("guidance_") or ".guidance." in prompt_ref):
-        return "environment"
     if category in {"task", "graph_node"}:
         return "contract"
     if category in {"utility", "mcp"}:

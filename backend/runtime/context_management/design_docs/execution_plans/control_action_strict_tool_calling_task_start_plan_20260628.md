@@ -91,7 +91,7 @@ backend/prompt_library/utility_prompts.py
 - `control_action_schema.py` 已能把 `request_task_run` 暴露为 provider-native strict control action，并把 native tool call 转成 `ModelActionRequest` payload。
 - `tool_call_contract.py` 已区分 `ordinary_tool_submission` 与 `control_action_submission`。
 - `provider_tool_schema.py` 和 `lightweight_chat_model.py` 已支持 per-tool `strict` 标志进入 provider payload。
-- `model_action_protocol.py` 已有 `compact_task_start_intent_v1 -> task_run_contract_seed -> canonical layers` 的归一化雏形。
+- `model_action_protocol.py` 使用 `compact_task_start_intent -> task_run_contract_seed -> canonical layers` 的归一化入口。
 - `task_lifecycle.py` 的 `contract_from_action_request` 是 `TaskRunContract` 的 runtime 生成入口。
 - `single_agent_turn.py` 已有 native control action parse、repair template 和混合动作拒绝逻辑。
 - `compiler.py` 已有 action schema、prompt contract 和 `Current Task Attention Index` 的初步实现。
@@ -291,7 +291,7 @@ prompt 必须写成 agent 能直接执行的职责说明，不写成开发说明
 不要把 request_task_run 当成“我会继续处理”的表达。
 不要因为用户用了“任务”“启动”“开始”“继续”等词就机械选择它。
 不要在目标、第一步、范围或验收任一项不清楚时选择它。
-不要用它控制已有任务；控制已有任务用 active_work_control，恢复已有工作用 resume_recoverable_work。
+不要用它控制已有任务；控制已有任务用 active_work_control，恢复已有工作用 resume_task_recovery。
 
 如果你选择 request_task_run，只提交 TaskStartIntent。
 TaskStartIntent 要让后续执行立刻知道：做什么、从哪里开始、看哪些对象、避开哪些范围、怎样结束。
@@ -314,7 +314,7 @@ public_progress_note 只向用户说明你正在开启一条持续任务线；�
 
 这段文案应放在 action schema 附近，而不是藏在长文档尾部。
 
-## 7. TaskStartIntent v1
+## 7. TaskStartIntent
 
 agent-facing `request_task_run` 参数保持紧凑：
 
@@ -362,7 +362,7 @@ strict schema 规则：
 - provider schema 要求字段完整，空数组/空字符串可用于当前不适用字段。
 - `task_objective / primary_mode / minimum_viable_next_step / working_scope / acceptance` 是 runtime 创建任务容器所需的机器字段。
 - `public_progress_note / public_action_state` 只服务公开反馈和动作一致性，不参与 runtime 判断是否应该启动任务。
-- backend intake 允许只把这些字段归入 `task_run_contract_seed.contract_shape=compact_task_start_intent_v1`。
+- backend intake 允许只把这些字段归入 `task_run_contract_seed.contract_shape=compact_task_start_intent`。
 - backend 将其扩展为内部 canonical `container_contract / work_modes / lifecycle_contract / feedback_contract / memory_contract / acceptance_contract / runtime_requirements`。
 - 内部合同字段不得作为 agent-facing 必填大骨架出现。
 
@@ -555,7 +555,7 @@ acceptance focus
 
 主要动作：
 
-- `model_action_protocol.py` 保持 `compact_task_start_intent_v1` 作为 agent-facing 合同。
+- `model_action_protocol.py` 保持 `compact_task_start_intent` 作为 agent-facing 合同。
 - 为 `goal / plan / todo / investigation / recovery / monitor / open_work` 建立同等级 primary WorkModeContract 归一化入口。
 - 清理旧的 full contract skeleton prompt guidance。
 - `task_lifecycle.py` 继续从 normalized seed 生成 `TaskRunContract`。
@@ -648,7 +648,7 @@ python -m backend.cli.main --api-base http://127.0.0.1:8003/api task-run goal "�
 - 新主链路是 provider strict control action。
 - 不保留旧 full `TaskRunContract` skeleton prompt 作为兼容入口。
 - action-object fallback 不得作为长期旧链路存在；若短期保留，必须复用同一个 compact schema，并标明清理条件。
-- `task_contract_seed` 等旧 alias 只可作为 intake 迁移层，不得继续出现在 agent-facing guidance。
+- `task_contract_seed` 等旧 alias 只可作为 intake 错误诊断，不得继续出现在 agent-facing guidance，也不得被系统迁移成新合同。
 - 清理旧测试文件或旧 prompt 断言时，不能通过删断言、mock 或硬编码制造通过；本项目按用户要求不新增回归测试文件。
 - 若实现中发现需要跨更多模块或改变本文权责链，必须暂停并重新确认。
 

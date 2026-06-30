@@ -100,8 +100,8 @@ def test_runtime_artifact_maintenance_compacts_prompt_accounting_old_details(tmp
     old = time.time() - (8 * 24 * 60 * 60)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:old:provider_usage",
-            request_id="modelreq:old",
+            usage_id="tokuse:providerreq:old:provider_usage",
+            request_id="providerreq:old",
             task_run_id="taskrun:old",
             session_id="session:old",
             source="provider_usage",
@@ -151,8 +151,8 @@ def test_runtime_artifact_maintenance_keeps_active_prompt_accounting_details(tmp
     old = time.time() - (8 * 24 * 60 * 60)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:active:provider_usage",
-            request_id="modelreq:active",
+            usage_id="tokuse:providerreq:active:provider_usage",
+            request_id="providerreq:active",
             task_run_id=active_task_run_id,
             session_id="session:active",
             source="provider_usage",
@@ -176,8 +176,8 @@ def test_runtime_artifact_maintenance_pressure_mode_reports_time_buckets(tmp_pat
     ledger = PromptAccountingLedger(project / "storage" / "runtime_state")
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:bucketed:provider_usage",
-            request_id="modelreq:bucketed",
+            usage_id="tokuse:providerreq:bucketed:provider_usage",
+            request_id="providerreq:bucketed",
             task_run_id="taskrun:bucketed",
             session_id="session:bucketed",
             source="provider_usage",

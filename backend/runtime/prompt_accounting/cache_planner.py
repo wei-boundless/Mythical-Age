@@ -9,7 +9,7 @@ from typing import Any
 
 from runtime.prompt_accounting.cache_policy import is_cache_eligible_prefix, is_prefix_eligible_for_tier
 
-from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegmentMap
+from .models import ModelTokenUsageRecord, CachePlanRecord, PromptSegmentMap
 from .prefix_cache_health import evaluate_prefix_cache_health
 from .provider_payload_boundary import (
     provider_payload_boundary_diagnostics,
@@ -53,9 +53,9 @@ class PromptCachePlanner:
         *,
         provider: str = "",
         model: str = "",
-        model_request: Any | None = None,
+        provider_request: Any | None = None,
         created_at: float | None = None,
-    ) -> PromptCacheRecord:
+    ) -> CachePlanRecord:
         combined_stable_prefix = []
         provider_global_prefix = []
         session_prefix = []
@@ -101,21 +101,21 @@ class PromptCachePlanner:
             ),
             **_prompt_manifest_cache_diagnostics(segment_map),
         }
-        provider_boundary = provider_payload_cache_boundary(model_request)
+        provider_boundary = provider_payload_cache_boundary(provider_request)
         if provider_boundary:
             provider_record = _plan_from_provider_payload_boundary(
                 segment_map=segment_map,
                 provider=str(provider or segment_map.provider or ""),
                 model=str(model or segment_map.model or ""),
-                model_request=model_request,
+                provider_request=provider_request,
                 boundary=provider_boundary,
                 timestamp=timestamp,
                 diagnostics=diagnostics,
             )
             if provider_record is not None:
                 return provider_record
-        return PromptCacheRecord(
-            cache_record_id=f"pcache:{segment_map.request_id}",
+        return CachePlanRecord(
+            cache_plan_id=f"pcache:{segment_map.request_id}",
             request_id=segment_map.request_id,
             provider=str(provider or segment_map.provider or ""),
             model=str(model or segment_map.model or ""),
@@ -134,9 +134,9 @@ class PromptCachePlanner:
 
     def with_provider_usage(
         self,
-        record: PromptCacheRecord,
+        record: CachePlanRecord,
         usage: ModelTokenUsageRecord | None,
-    ) -> PromptCacheRecord:
+    ) -> CachePlanRecord:
         if usage is None:
             return record
         cached = max(int(usage.cached_tokens or 0), int(usage.cache_read_tokens or 0))
@@ -392,8 +392,8 @@ def _physical_cache_spine_boundary_diagnostics(segment_map: PromptSegmentMap) ->
             "prefix_tier": str(segment.prefix_tier or ""),
             "predicted_tokens": tokens,
             "cumulative_predicted_tokens": cumulative,
-            "authority_class": str(segment.authority_class or ""),
             "source": str(segment.source or ""),
+            **_segment_contract_projection(dict(segment.metadata or {})),
         }
         boundaries.append(item)
         if _requires_provider_cache_read_coverage(segment_kind=str(segment.kind or ""), metadata=dict(segment.metadata or {})):
@@ -635,6 +635,12 @@ def _provider_cache_under_read_blockers(
             "boundary_participation": str(first_uncovered.get("boundary_participation") or ""),
             "prefix_tier": str(first_uncovered.get("prefix_tier") or ""),
             "cache_role": str(first_uncovered.get("cache_role") or ""),
+            "context_contract_node_ref": str(first_uncovered.get("context_contract_node_ref") or ""),
+            "context_contract_edge_refs": _string_list(first_uncovered.get("context_contract_edge_refs")),
+            "connection_contract_ref": str(first_uncovered.get("connection_contract_ref") or ""),
+            "agent_domain": str(first_uncovered.get("agent_domain") or ""),
+            "control_signal": str(first_uncovered.get("control_signal") or ""),
+            "cache_expectation": str(first_uncovered.get("cache_expectation") or ""),
             "provider_scaled_cumulative_tokens": int(first_uncovered.get("provider_scaled_cumulative_tokens") or 0),
             "provider_scaled_under_read_tokens": int(first_uncovered.get("provider_scaled_under_read_tokens") or 0),
         }
@@ -682,11 +688,11 @@ def _plan_from_provider_payload_boundary(
     segment_map: PromptSegmentMap,
     provider: str,
     model: str,
-    model_request: Any | None,
+    provider_request: Any | None,
     boundary: dict[str, Any],
     timestamp: float,
     diagnostics: dict[str, Any],
-) -> PromptCacheRecord | None:
+) -> CachePlanRecord | None:
     key_tier = "physical_cache_spine"
     selected_prefix = provider_payload_physical_cache_spine(boundary)
     prefix_hash = str(
@@ -698,7 +704,7 @@ def _plan_from_provider_payload_boundary(
         or ""
     )
     provider_diagnostics = provider_payload_boundary_diagnostics(
-        model_request=model_request,
+        provider_request=provider_request,
         boundary=boundary,
     )
     token_diagnostics = _provider_payload_prefix_token_diagnostics(
@@ -723,8 +729,8 @@ def _plan_from_provider_payload_boundary(
         target_diagnostics=target_diagnostics,
     )
     if not prefix_hash:
-        return PromptCacheRecord(
-            cache_record_id=f"pcache:{segment_map.request_id}",
+        return CachePlanRecord(
+            cache_plan_id=f"pcache:{segment_map.request_id}",
             request_id=segment_map.request_id,
             provider=provider,
             model=model,
@@ -756,8 +762,8 @@ def _plan_from_provider_payload_boundary(
             "boundary_content_hash": str(selected_prefix.get("boundary_content_hash") or ""),
         },
     )
-    return PromptCacheRecord(
-        cache_record_id=f"pcache:{segment_map.request_id}",
+    return CachePlanRecord(
+        cache_plan_id=f"pcache:{segment_map.request_id}",
         request_id=segment_map.request_id,
         provider=provider,
         model=model,
@@ -939,8 +945,8 @@ def _provider_payload_selected_prefix_boundaries(
             "prefix_tier": str(item.get("prefix_tier") or ""),
             "predicted_tokens": tokens,
             "cumulative_predicted_tokens": cumulative,
-            "authority_class": "",
             "source": str(item.get("source_ref") or ""),
+            **_segment_contract_projection(item),
         }
         boundaries.append(boundary)
         if _requires_provider_cache_read_coverage(segment_kind=kind, metadata={}):
@@ -978,6 +984,17 @@ def _provider_payload_selected_prefix_segments(selected_prefix: dict[str, Any]) 
     ]
 
 
+def _segment_contract_projection(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "context_contract_node_ref": str(payload.get("context_contract_node_ref") or ""),
+        "context_contract_edge_refs": _string_list(payload.get("context_contract_edge_refs")),
+        "connection_contract_ref": str(payload.get("connection_contract_ref") or payload.get("context_connection_contract_ref") or ""),
+        "agent_domain": str(payload.get("agent_domain") or payload.get("context_agent_domain") or ""),
+        "control_signal": str(payload.get("control_signal") or payload.get("context_control_signal") or ""),
+        "cache_expectation": str(payload.get("cache_expectation") or ""),
+    }
+
+
 def _provider_payload_token_lookup(segment_map: PromptSegmentMap) -> dict[tuple[str, str, str, str], int]:
     result: dict[tuple[str, str, str, str], int] = {}
     for segment in tuple(segment_map.segments or ()):
@@ -993,6 +1010,20 @@ def _provider_payload_token_lookup(segment_map: PromptSegmentMap) -> dict[tuple[
         result.setdefault(("", "", kind, content_hash), tokens)
         result.setdefault(("", "", "", content_hash), tokens)
     return result
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple, set)):
+        result: list[str] = []
+        for item in value:
+            text = str(item or "").strip()
+            if text:
+                result.append(text)
+        return result
+    return []
 
 
 def _provider_payload_selected_segment_predicted_tokens(

@@ -823,7 +823,6 @@ class MemoryMaintenanceAgent:
             prefix_tier=task_guidance_prefix_tier,
             compression_role="preserve",
             metadata={
-                "authority_class": "memory_maintenance_task_contract",
                 "cache_impact": "stable_after_shared_main_agent_prefix",
                 "shared_main_agent_prefix_message_count": len(shared_messages),
             },
@@ -840,7 +839,6 @@ class MemoryMaintenanceAgent:
             prefix_tier="session",
             compression_role="preserve",
             metadata={
-                "authority_class": "memory_maintenance_output_contract",
                 "cache_impact": "stable_output_contract",
             },
         )
@@ -863,7 +861,6 @@ class MemoryMaintenanceAgent:
                 prefix_tier="session",
                 compression_role="ref_only",
                 metadata={
-                    "authority_class": "memory_maintenance_append_only_coverage",
                     "cache_impact": "append_only_provider_visible_context_prefix",
                     "message_coverage_index": index,
                     "message_coverage_ref": entry_ref,
@@ -882,7 +879,6 @@ class MemoryMaintenanceAgent:
             prefix_tier="volatile",
             compression_role="summarize",
             metadata={
-                "authority_class": "memory_maintenance_current_delta",
                 "cache_impact": "volatile_suffix_only",
                 "volatility_reason": "current run id, previous session memory, manifest headers, and latest message slice can change each maintenance run",
             },

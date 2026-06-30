@@ -12,8 +12,13 @@ from .context_segment_registry import (
     context_segment_kind_declarations,
     context_segment_semantic_slot_defaults,
 )
+from .provider_message_replay_contract import (
+    physical_prefix_frame_replay_metadata,
+    provider_protocol_append_candidate_metadata,
+    provider_protocol_replay_metadata,
+)
 
-DEFAULT_PROVIDER_ADAPTER_CONTRACT = "deepseek_v4_provider_visible_message_v1"
+DEFAULT_PROVIDER_ADAPTER_CONTRACT = "deepseek_v4_provider_visible_message"
 
 DEFAULT_CONTEXT_APPEND_SLOT_RANKS: dict[str, int] = {
     "recovery_or_recent_work_facts": 10,
@@ -22,8 +27,10 @@ DEFAULT_CONTEXT_APPEND_SLOT_RANKS: dict[str, int] = {
     "task_goal_context": 21,
     "task_plan_context": 22,
     "task_todo_context": 23,
+    "active_execution_lease": 24,
     "current_user_intent": 30,
     "active_user_steer_content": 35,
+    "evidence_acquisition_horizon": 36,
     "evidence_refs_and_file_state_facts": 40,
     "tool_transcript": 70,
     "context_memory_append": 90,
@@ -47,31 +54,24 @@ MEMORY_CONTEXT_KINDS = set(context_segment_declared_kinds(section=CONTEXT_APPEND
 )
 APPEND_ONLY_CONTEXT_KINDS = set(context_segment_declared_kinds(append_only=True))
 CURRENT_CONTROL_TAIL_KINDS = set(context_segment_declared_kinds(section=DYNAMIC_TAIL))
-
-MEMORY_DYNAMIC_TIERS = {
-    "append_only_runtime_evidence",
-    "attachment_context_index",
-    "editor_context_index",
-    "evidence_index_cursor",
-    "history_replay",
-    "runtime_memory_context",
+CURRENT_PRESENT_ONLY_CONTEXT_KINDS = {
+    "current_turn_user_context",
+    "single_agent_turn_user_steer_context",
 }
-
-CONTROL_DYNAMIC_TIERS = {
-    "active_skills",
-    "assistant_completion_prefix",
-    "current_exact_evidence",
-    "current_runtime_cursor",
-    "dynamic_context_tail",
-    "runtime_cursor",
-    "runtime_cursor_prefix",
-    "runtime_delta_tail",
-    "user_editor_volatile",
+CURRENT_ONLY_REPLAY_POLICIES = {
+    "current_dynamic_tail_only",
+    "current_turn_present_only",
+    "current_turn_semantic_history_tail_only",
 }
-
+CURRENT_ONLY_IDENTITY_POLICIES = {
+    "current_invocation_only",
+    "turn_scope_runtime_tail",
+    "current_turn_only",
+}
 
 @dataclass(frozen=True, slots=True)
 class ContextSegmentPolicy:
+    kind: str
     section: str
     prefix_cache_scope: str
     prefix_cache_role: str
@@ -184,6 +184,7 @@ def _install_builtin_policy_defaults() -> None:
         "task_goal_context": 21,
         "task_plan_context": 22,
         "task_todo_context": 23,
+        "evidence_acquisition_horizon": 36,
     }.items():
         register_context_segment_policy_defaults(
             kind=kind,
@@ -197,19 +198,31 @@ def _install_builtin_policy_defaults() -> None:
             replay_policy="current_dynamic_tail_only",
             identity_policy="task_run_contract_ref_stable",
         )
-    for kind in {"session_history", "session_history_context"}:
-        register_context_segment_policy_defaults(
-            kind=kind,
-            section=CONTEXT_APPEND,
-            prefix_cache_scope="none",
-            prefix_cache_role="never_cache",
-            prefix_tier="none",
-            semantic_slot="semantic_history_tail",
-            semantic_slot_rank=18,
-            commit_policy="never_commit",
-            replay_policy="current_turn_semantic_history_tail_only",
-            identity_policy="origin_ref_stable",
-        )
+    register_context_segment_policy_defaults(
+        kind="active_execution_lease",
+        section=DYNAMIC_TAIL,
+        prefix_cache_scope="none",
+        prefix_cache_role="volatile",
+        prefix_tier="volatile",
+        semantic_slot="active_execution_lease",
+        semantic_slot_rank=24,
+        commit_policy="never_commit",
+        replay_policy="current_dynamic_tail_only",
+        identity_policy="current_invocation_only",
+        contract_slot="active_execution_lease",
+    )
+    register_context_segment_policy_defaults(
+        kind="session_history",
+        section=CONTEXT_APPEND,
+        prefix_cache_scope="none",
+        prefix_cache_role="never_cache",
+        prefix_tier="none",
+        semantic_slot="semantic_history_tail",
+        semantic_slot_rank=18,
+        commit_policy="never_commit",
+        replay_policy="current_turn_semantic_history_tail_only",
+        identity_policy="origin_ref_stable",
+    )
     for kind, slot in {
         "turn_state_guidance": "turn_state_guidance",
         "turn_attention_index": "turn_attention_index",
@@ -253,7 +266,13 @@ def context_segment_policy_for_spec(
     payload = dict(spec or {})
     metadata = dict(payload.get("metadata") or {})
     defaults = _policy_defaults(payload, metadata=metadata)
-    kind = str(payload.get("kind") or metadata.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
+    kind = str(
+        payload.get("kind")
+        or metadata.get("context_segment_kind")
+        or metadata.get("provider_visible_append_candidate_kind")
+        or metadata.get("kind")
+        or "unknown_unplanned"
+    ).strip() or "unknown_unplanned"
     section = _first_text(
         _section_from_authoritative_context_metadata(payload, metadata=metadata),
         defaults.section,
@@ -289,6 +308,7 @@ def context_segment_policy_for_spec(
     )
     semantic_slot = _semantic_slot(payload, metadata=metadata)
     return ContextSegmentPolicy(
+        kind=kind,
         section=section,
         prefix_cache_scope=resolved_scope,
         prefix_cache_role=resolved_role,
@@ -355,6 +375,7 @@ def context_segment_policy_metadata(policy: ContextSegmentPolicy) -> dict[str, A
     provider_visible_boundary = _provider_visible_boundary_for_policy(policy)
     return {
         "context_segment_policy": policy.to_dict(),
+        "context_segment_kind": policy.kind,
         "context_cache_section": policy.section,
         "context_prefix_cache_scope": policy.prefix_cache_scope,
         "context_prefix_cache_role": policy.prefix_cache_role,
@@ -388,15 +409,26 @@ def context_segment_is_provider_visible_sealable_spec(spec: dict[str, Any] | Non
 
 
 def context_segment_policy_is_provider_visible_sealable(policy: ContextSegmentPolicy) -> bool:
-    if str(policy.commit_policy or "").strip() == "never_commit":
-        return False
     if str(policy.section or "").strip() not in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return False
-    cache_role = str(policy.prefix_cache_role or "").strip()
-    prefix_tier = str(policy.prefix_tier or "").strip()
-    if cache_role not in {"cacheable_prefix", "session_stable"}:
+    kind = str(policy.kind or "").strip()
+    if kind in CURRENT_PRESENT_ONLY_CONTEXT_KINDS or kind in CURRENT_CONTROL_TAIL_KINDS:
         return False
-    return prefix_tier not in {"volatile", "none"}
+    commit_policy = str(policy.commit_policy or "").strip()
+    if commit_policy == "never_commit":
+        return False
+    replay_policy = str(policy.replay_policy or "").strip()
+    if replay_policy in CURRENT_ONLY_REPLAY_POLICIES:
+        return False
+    identity_policy = str(policy.identity_policy or "").strip()
+    if identity_policy in CURRENT_ONLY_IDENTITY_POLICIES:
+        return False
+    semantic_commit_class = str(policy.semantic_commit_class or "").strip()
+    if semantic_commit_class == "current_runtime_control":
+        return False
+    if str(policy.section or "").strip() == CONTEXT_MEMORY_PREFIX:
+        return True
+    return commit_policy == "append_then_seal"
 
 
 def _provider_visible_boundary_for_policy(policy: ContextSegmentPolicy) -> str:
@@ -476,26 +508,24 @@ def _section_from_authoritative_context_metadata(payload: dict[str, Any], *, met
         or metadata.get("context_policy_section")
         or ""
     ).strip()
-    if explicit_section == DYNAMIC_TAIL:
-        return DYNAMIC_TAIL
+    if explicit_section in {STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND, DYNAMIC_TAIL}:
+        return explicit_section
     if str(metadata.get("context_commit_policy") or metadata.get("memory_commit_policy") or "").strip() == "never_commit":
         return DYNAMIC_TAIL
     replay_policy = str(metadata.get("context_replay_policy") or "").strip()
     if replay_policy == "current_dynamic_tail_only":
         return DYNAMIC_TAIL
-    if replay_policy == "current_turn_exact_old_context":
+    if physical_prefix_frame_replay_metadata(metadata) or provider_protocol_replay_metadata(metadata):
         return CONTEXT_MEMORY_PREFIX
-    if metadata.get("provider_visible_context_ledger_entry_index"):
+    if provider_protocol_append_candidate_metadata(metadata):
+        return CONTEXT_APPEND
+    if metadata.get("provider_visible_append_entry_index"):
         return CONTEXT_MEMORY_PREFIX
-    if str(metadata.get("provider_visible_context_ledger_commit_stage") or "").strip() == "provider_success_required":
+    if str(metadata.get("provider_visible_append_commit_stage") or "").strip() == "provider_success_required":
         return CONTEXT_APPEND
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
-    if history_status in {"sealed_from_physical_prefix_frame", "current_turn_exact_old_context"}:
-        return CONTEXT_MEMORY_PREFIX
     if history_status == "current_tool_round_pending_provider_success":
         return CONTEXT_APPEND
-    if explicit_section in {STATIC_PREFIX, CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND, DYNAMIC_TAIL}:
-        return explicit_section
     fixed_package = str(metadata.get("fixed_context_package") or payload.get("fixed_context_package") or "").strip()
     if fixed_package == "context_memory_prefix":
         return CONTEXT_MEMORY_PREFIX
@@ -521,14 +551,7 @@ def _section_for_payload(
         return DYNAMIC_TAIL
     if kind in MEMORY_CONTEXT_KINDS:
         return CONTEXT_APPEND
-    dynamic_tier = str(metadata.get("prompt_assembly_dynamic_tier") or metadata.get("dynamic_tier") or "").strip()
-    if dynamic_tier in MEMORY_DYNAMIC_TIERS:
-        return CONTEXT_APPEND
-    if dynamic_tier in CONTROL_DYNAMIC_TIERS:
-        return DYNAMIC_TAIL
-    if _is_cache_stable(payload):
-        return STATIC_PREFIX
-    return DYNAMIC_TAIL
+    return ""
 
 
 def _cache_policy_for_section(
@@ -560,12 +583,19 @@ def _cache_policy_for_section(
         return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
     if section == CONTEXT_APPEND:
         role = _cache_role(cache_role)
-        if role == "never_cache":
-            return "none", "never_cache", "none"
+        if role in {"volatile", "never_cache"}:
+            scope = _cache_scope(cache_scope, default="none")
+            if role == "never_cache":
+                return "none", "never_cache", "none"
+            if scope == "none":
+                return "none", "volatile", _prefix_tier(prefix_tier, cache_scope="none", cache_role="volatile")
+            return scope, "volatile", _prefix_tier(prefix_tier, cache_scope=scope, cache_role="volatile")
         scope = _cache_scope(cache_scope, default="session")
         if scope == "none":
             scope = "session"
-        return scope, "session_stable", "session"
+        if role not in {"cacheable_prefix", "session_stable"}:
+            role = "session_stable"
+        return scope, role, _prefix_tier(prefix_tier, cache_scope=scope, cache_role=role)
     return "none", "volatile", "volatile"
 
 
@@ -595,18 +625,6 @@ def _memory_commit_policy(*, kind: str, section: str) -> str:
     if kind in APPEND_ONLY_CONTEXT_KINDS or section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return "append_then_seal"
     return "preserve_if_stable"
-
-
-def _is_cache_stable(payload: dict[str, Any]) -> bool:
-    cache_role = _cache_role(payload.get("cache_role"))
-    if cache_role not in {"cacheable_prefix", "session_stable"}:
-        return False
-    prefix_tier = _prefix_tier(
-        payload.get("prefix_tier"),
-        cache_scope=str(payload.get("cache_scope") or "none"),
-        cache_role=cache_role,
-    )
-    return prefix_tier not in {"volatile", "none"}
 
 
 def _cache_role(value: Any) -> str:

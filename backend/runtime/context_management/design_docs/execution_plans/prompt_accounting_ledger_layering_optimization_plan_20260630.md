@@ -40,7 +40,7 @@ token_usage.jsonl
 | `segments.jsonl` | 每个 prompt segment 的明细行 | 与 `segment_maps.jsonl` 内嵌 segments 物理重复 |
 | `segment_maps.jsonl` | 每次请求的完整 prompt segment map | 名字偏底层，实际是 prompt manifest |
 | `token_usage.jsonl` | local prediction 和 provider usage | 同一 request 两条记录，phase 只能靠 `source` 理解 |
-| `prompt_cache.jsonl` | 请求前 cache plan 和 provider 回填后的 cache result | 同一 `cache_record_id` 双写，容易被误读为重复命中 |
+| `prompt_cache.jsonl` | 请求前 cache plan 和 provider 回填后的 cache result | 同一旧 cache record identity 双写，容易被误读为重复命中 |
 | `prompt_cache_baselines.jsonl` | 跨请求 prefix baseline | 与 stability hash 信息重叠 |
 | `prompt_stability.jsonl` | prefix 稳定性、stable/volatile sections、provider usage 回填 | 同一 report 双写，且与 baseline 重叠 |
 | `provider_cache_ledger.jsonl` | provider cache 展示/诊断投影 | 应是 UI 权威，但命名仍像底层账本 |
@@ -57,24 +57,31 @@ token_usage.jsonl
 | `prompt_stability.jsonl` | 10 | 5 |
 | `provider_cache_ledger.jsonl` | 5 | 0 |
 
-### 2. 双写来自 preflight 和 provider result 两阶段
+### 2. 重构前双写来自 preflight 和 provider result 两阶段
 
-`backend/runtime/model_gateway/model_runtime.py` 当前在请求前写：
+重构前，`backend/runtime/model_gateway/model_runtime.py` 在请求前写：
 
 - `ledger.record_segment_map(segment_map)`
 - `ledger.record_token_usage(prediction)`
-- `ledger.record_prompt_cache(cache_record)`
+- 旧 cache plan 写入入口
 - `ledger.record_prompt_stability(stability_report)`
 - `ledger.record_prompt_cache_baseline(baseline_record)`
 
 provider 返回后又写：
 
 - `ledger.record_token_usage(provider_usage)`
-- `ledger.record_prompt_cache(updated_cache_record)`
+- 旧 provider cache result 回填入口
 - `publish_provider_cache_usage(...)`
 - `ledger.record_prompt_stability(updated_stability_report)`
 
-这个流程本身合理：一个阶段是本地预测和组装事实，另一个阶段是 provider 实测。但目前它们写入同名文件，造成“记录相互覆盖语义但没有覆盖物理行”的观感。
+这个流程本身合理：一个阶段是本地预测和组装事实，另一个阶段是 provider 实测。但重构前它们写入同名文件，造成“记录相互覆盖语义但没有覆盖物理行”的观感。
+
+当前实现已经改为：
+
+- preflight 写 `record_segment_map(...)`、`record_token_usage(...)`、`record_cache_plan(...)`、`record_prefix_state(...)`。
+- provider result 写 `record_token_usage(...)`、`publish_provider_cache_usage(...)`，异常时写 `record_cache_anomaly(...)`。
+- provider usage 不再回填 `cache_plans.jsonl`。
+- provider cache bus 记录从 `ProviderPayloadSegment` 继承 `context_contract_node_ref`、`agent_domain`、`connection_contract_ref`、`control_signal`；under-read 断点可回指 ContextContract。
 
 ### 3. 展示链路已经接近正确，但 summary 仍会误导
 
@@ -114,9 +121,9 @@ runtime/model request
 | `prompt_manifests.jsonl` | 组装事实层 | provider payload / segment map | 记录每次请求实际发送前的 segment manifest，内嵌 segment 列表 | `segment_maps.jsonl` |
 | `token_observations.jsonl` | 原始观测层 | local prediction / provider usage | 记录 token 预测和 provider 实测，必须有 `phase` | `token_usage.jsonl` |
 | `cache_plans.jsonl` | 本地计划层 | cache planner | 记录本地选定的 cache boundary、prefix hash、safety reasons，一次请求只写一次 | `prompt_cache.jsonl` 的 preflight 部分 |
-| `prefix_state.jsonl` | prefix 状态层 | baseline tracker + stability reporter | 合并 baseline、stability、changed sections、continuity，一次请求只写一次 state record | `prompt_cache_baselines.jsonl` + `prompt_stability.jsonl` |
-| `provider_cache_bus.jsonl` | 展示总线层 | provider usage + cache plan + prefix health | 记录 provider cache 当前裁决，API/frontend 唯一读取源 | `provider_cache_ledger.jsonl` |
-| `cache_anomalies.jsonl` | 异常层 | break detector / bus | 只记录异常事件，不参与正常展示汇总 | `prompt_cache_breaks.jsonl` |
+| `prefix_state.jsonl` | prefix 状态层 | PrefixStateReporter + PrefixStateDiffReporter | 合并原 baseline、diff、changed sections、continuity，一次请求只写一次 state record | `prompt_cache_baselines.jsonl` + `prompt_stability.jsonl` |
+| `provider_cache_bus.jsonl` | 展示总线层 | provider usage + cache plan + prefix health + ContextContract refs | 记录 provider cache 当前裁决，API/frontend 唯一读取源，缓存断点必须能定位到 agent_domain/contract node | `provider_cache_ledger.jsonl` |
+| `cache_anomalies.jsonl` | 异常层 | cache anomaly detector / bus | 只记录异常事件，不参与正常展示汇总 | 原生异常事件账本 |
 
 ### 不再保留为主账本
 
@@ -139,7 +146,7 @@ runtime/model request
 | `model_runtime.py` | 只协调两次提交：`record_preflight_accounting()` 和 `record_provider_result_accounting()` | 禁止直接散落调用 5-8 个 `ledger.record_*` |
 | `ledger.py` | 只负责 append、list、retention、prune，不判断 cache 是否命中 | 禁止在 ledger 内重算 prefix/cache 裁决 |
 | `cache_planner.py` | 只生成 local cache plan | 禁止写 provider hit/miss 结论 |
-| `prefix_state.py` | 唯一拥有 prefix baseline/stability/continuity | 禁止 baseline 与 stability 分散到两个文件 |
+| `prefix_state.py` | 唯一拥有 prefix continuity/generation/reset | 禁止 baseline 与 diff 分散成第二状态权威 |
 | `provider_cache_bus.py` | 唯一发布 provider cache 展示裁决 | 禁止前端/API 直接读 `cache_plans` 或 `token_observations` 重算命中 |
 
 ### 读取权责
@@ -234,8 +241,8 @@ runtime/model request
 - 新增或重写 `backend/runtime/prompt_accounting/prefix_state.py`。
 - 合并现有：
   - `cache_baseline.py`
-  - `stability_report.py`
-  - `stability_models.py`
+  - `prefix_state_diff.py`
+  - `prefix_state_diff_models.py`
 - `PrefixStateRecord` 必须包含：
   - `request_id`
   - `provider`
@@ -276,6 +283,9 @@ runtime/model request
   - 输出字段拆分：
     - `latest_status`
     - `latest_prefix_health`
+    - `current_context_contract_node_refs`
+    - `current_agent_domains`
+    - `current_connection_contract_refs`
     - `latest_under_read_tokens`
     - `warm_provider_under_read_tokens`
     - `cold_start_under_read_tokens`
@@ -416,7 +426,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/api/tokens/session/<ses
 
 ## 2026-06-30 实施记录
 
-本轮已完成 Phase 1、Phase 2、Phase 5 的主链路切换；Phase 3、Phase 4、Phase 6 保持为后续结构性阶段，不在本轮用兼容双读掩盖旧账本。
+本轮已完成 Phase 1、Phase 2、Phase 3、Phase 4、Phase 5，并完成 Phase 6 中与 prefix state、cache plan 相关的旧文件入口清理。`cache_plans.jsonl` 现在只记录 preflight local cache plan；provider result 不再回写 plan，而是进入 `provider_cache_bus.jsonl`。
 
 ### 已完成
 
@@ -439,17 +449,77 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/api/tokens/session/<ses
 - `backend/health_system/governance.py` 的展示支线改为 `provider_cache_bus` 和 `prompt_manifests` 命名。
 - `frontend/src/components/chat/ChatPanel.tsx` 的当前缓存告警只看 latest bus 裁决，不再用历史 under-read 改写当前压力条状态。
 - `frontend/src/lib/api/types.ts` 增加 provider cache bus summary 字段。
+- 新增 `backend/runtime/prompt_accounting/prefix_state.py`，`PrefixStateRecord` 合并 legacy baseline、prefix diff、四段 lane hash、generation、previous state ref 和 provider cache 读取预期。
+- `model_runtime.py` 新请求不再写 `prompt_cache_baselines.jsonl` / `prompt_stability.jsonl`；`PrefixStateReporter` 直接拥有 continuity、generation、changed_tiers 和 provider prefix seal 计算，最终只写一条 `prefix_state.jsonl`。
+- `cache_baseline.py` 已从 active code 删除；`ProviderPayloadSegment.consumer_contracts` 和 serializer consumer contracts 均改指向 `runtime.prompt_accounting.prefix_state`。
+- `stability_report.py` / `stability_models.py` 已从 active code 移除；当前 diff helper 为 `prefix_state_diff.py` / `prefix_state_diff_models.py`，导出名为 `PrefixStateDiffReporter` / `PrefixStateDiffReport`。
+- `prefix_state.py` 不再读取旧 `diagnostics.baseline.provider_prefix_seal`；provider prefix continuity 只接受当前 `provider_prefix_seal` 字段。
+- `prefix_state.memory_segment_hash` 不再通过 `kind/source/authority` 文本包含关系判断 memory 段；现在只消费标准化 segment identity：显式 memory kind、registry `CONTEXT_MEMORY` capability、`agent_domain=ContextMemoryDomain` + `selected_memory_and_task_state_facts`、或 `semantic_commit_class=selected_memory_context`。`authority_class`、`content_source`、`authority=memory_system.*` 只描述来源，不能单独让未知段进入 memory hash，避免把 TaskStateDomain 或来源相似段混入 memory state。
+- `provider_lane.py` 删除显式 `legacy_unscoped` 别名；未知 lane 仍统一归一到当前 canonical `unscoped`，但 active code 不再保留 legacy 命名分支。
+- `provider_lane_from_accounting_context()` 删除基于 `source/call_kind/request_id` 的字符串启发式归属，并移除 `call_kind` 接口参数；provider lane 只读 `accounting_context.provider_lane` 或 `prompt_manifest.provider_lane`。`context_pipeline.provider_lane_from_model_selection()` 不再构造伪 accounting context，只读取 `model_selection.provider_lane`。Utility 和 semantic compaction 已补显式 lane。
+- `unplanned_model_call` anomaly 的 severity 不再通过 `source.startswith("harness.")` 或 stream `call_kind` 判断；现在只由显式 `provider_lane` 裁决，`agent_tool_loop` / `agent_control_no_tool` 为 high，其它 lane 为 medium。
+- `ContextUsageMeter` 选择 agent runtime token observation 时不再解析 `request_id` / `packet_ref` 的 `modelreq:rtpacket` 字符串形状，也不再读取 `cache_metric_scope=agent_runtime`。上下文压力候选只由显式 `provider_lane` 识别；无显式 agent lane 的记录只能作为 `all_session_usage` 背景，不获得 agent runtime 身份。
+- `ProviderVisibleContextLedger` 的 provider success 确认新增显式 `confirmed_turn_id` 记录；`model_runtime.py` 从 `accounting_context.turn_id` 传入，session cutoff 截断只读取 `confirmed_turn_id`，不再从 `modelreq:rtpacket:*` request id 字符串反解析 turn 身份。
+- `context_prefix_identity` 的 replay 生命周期不再读取 `kind` 前缀、`source_kind` 或 `content_source` 字符串启发式；`confirmed_frame_replay` 只来自 physical prefix frame replay contract，`provider_protocol_replay` 单独表达并保持 expected read。
+- `context_prefix_identity` 的 origin authority 不再读取 `authority_class`；前缀身份只接受显式 origin/source 字段和稳定 source_ref/kind fallback，避免旧类别标签改变 logical segment ref。
+- `CanonicalPromptSerializer._authority_class()` 不再根据 `kind`、`role=user`、`compression_role` 猜测 authority class；只接受上游显式标准枚举，否则输出 `unknown`。
+- `CompressionBudgetPlanner._is_hard_required()` 不再读取 `authority_class`，也不再把 `cache_role=session_stable` 单独作为硬保留条件。硬保留只来自显式 `compression_role=preserve`、expected-read 物理前缀、capability `contract/control/feedback` member、以及显式 contract/recovery slot。
+- `context_commit_record` 的 tool transcript projection 不再读取 `authority_class=append_only_tool_transcript_delta`，只读标准 tool transcript kind 或 `semantic_slot=tool_transcript`。
+- `authority_class` 已从 active Python 代码退场：`PromptSegment` 不再有该字段，serializer 不再读取 planned metadata 中的该字段，cache planner 不再输出该诊断字段，prompt composition slot/load plan、context segment registry、harness compiler/context producers/follow-up specs 和 memory maintenance specs 均不再转发该旧标签。
+- `harness.runtime.compiler` 的 dynamic context metadata validation 不再通过 `kind.startswith("dynamic")` 判断动态段；动态校验只读 volatile cache role 或 ContextSegmentPolicy `dynamic_tail` section，sealed replay 例外统一读取 `provider_message_replay_contract`。
+- versioned compact task start intent 名称已退出 active code；`compact_task_start_intent` 是 agent-facing task start intake identity。旧 `task_contract_seed` / layered task contract seed 不再迁移成 canonical Work Mode，只作为 validation error / repair diagnostic。
+- dynamic context replacement identity 已退出 `*_v3` / `.v3` / `projector_version` 表达；`projector_id` 是当前稳定投影身份，provider-visible ledger entry hash salt 使用无版本后缀的稳定 schema。
+- 自有 runtime authority/protocol/schema identity 已继续去掉 `.v1` / `_v1` 后缀；缓存和 provider-visible adapter 链路使用稳定契约身份，不再用版本号表达主链路身份。模型族事实命名如 `deepseek_v4` 不属于本项目契约版本后缀。
+- task/file evidence 合同身份已统一为 `contract_id`；assistant stream frame、context recovery package、runtime cache manifest 和 session runtime projection slice 已统一使用 `*_schema_id` 稳定身份字段。Provider-visible ledger、physical prefix frame ledger、TurnMemory、context commit record 的落盘结构号已统一为 `*_schema_revision`，不再使用 `schema_version` 混淆缓存/上下文身份。
+- `session_runtime_timeline` 的 live projection 裁剪已收口为单点预算算法：按最近 projection root 选帧，并在预算内带上 tool lifecycle closure；旧的未用 closure helper 与泛化 semantic root 命名已从 active path 删除。
+- provider-native tool invocation 自动 fallback 到 JSON action object 已从 active path 删除；工具 transport 由 `ToolCallContract` 单点决定，执行层不再通过 provider 错误文本重选 transport。
+- provider-visible ledger 已删除 `last_provider_success_anchor` / `last_success_anchor_id` legacy alias；prefix/provider-visible replay 只读取 active provider success cursor。
+- `prompt_composition.fragments` 不再通过 `content_source.startswith("runtime.")` 或 `content_source=runtime.provider_protocol_replay` 决定使用 message spec 还是 fallback model message；byte-preserve 统一读取 `provider_message_replay_contract`。
+- `context_capability_policy` 不再通过 prompt rule kind 子串、contract slot 子串或 `tool_` kind 前缀决定能力组；prompt resource 和 context contract 的能力归属只读显式 metadata、精确 rule/slot 目录、registry capability 与资源 category/subtype。
+- `prompt_library.assembly` 不再通过 `system.foundation.*` / `runtime.*` prompt ref 前缀绕过 capability gate；稳定必入 prompt 只接受 `builtin_runtime_prompt=True` 或 `category=system/subtype=foundation/source_type=builtin_system_foundation_prompt`。
+- `prompt_library.rules` 不再通过 `rule_kind.startswith("system.foundation")` 判断 foundation coverage；`PromptSection.metadata.source_type` 由 prompt resource 显式透传。
+- `harness.runtime.assembly` 不再通过 `runtime.*` prompt ref 前缀把 prompt resource gate 降级为 diagnostic-only；`system_wiring_manifest.compiled.prompt_resource_gates` 由系统组显式 `prompt_resources` 列表生成。
+- `context_prefix_identity`、`provider_payload`、`serializer`、`provider_visible_context_ledger` 与 ContextContract authority projection 不再把 `content_source/source_kind/context_source_kind` 当作 prefix origin authority 或 provider-visible item identity。来源标签只保留为来源描述，prefix/logical/provider-visible 身份只读显式 origin、显式 semantic source、source_ref/kind fallback 或已生成 prefix identity。
+- `physical_context_plan` 与 `provider_visible_context_ledger` 不再通过 `semantic_commit_class.startswith("provider_visible_replay_only")` 推断 historical-only；历史可见性只由显式 visibility/replay flags 决定。
+- `context_pipeline.sealed_provider_visible_replay_spec()`、`physical_context_assembler._current_append_specs()` 和 `context_segment_policy` replay section 分类不再重复实现 replay 条件；sealed 判断、section 分类与 current append 分流统一委托 `provider_message_replay_contract`。
+- `provider_message_replay_contract.provider_protocol_replay_metadata()` 不再通过 `content_source=runtime.provider_protocol_replay` 授权 byte-preserve replay；provider protocol replay 必须由显式 boolean/policy/status/authority contract 字段声明。
+- provider result 阶段不再二次写 diff report；provider 实测缓存日志只写 `provider_cache_bus.jsonl`。
+- preflight 阶段调用 `ledger.record_cache_plan(...)` 写入 `cache_plans.jsonl`；provider result 阶段不再调用旧 cache result 回填入口，也不再把 provider usage 回填到 cache plan。
+- `provider_cache_bus_record.py` 构造 `ProviderCacheBusRecord`，引用字段为 `cache_plan_ref`，避免把 bus record 误读成 cache plan 本身。
+- `ProviderCacheLedgerRecord`、`provider_cache_ledger.py`、`break_status`、`first_break_segment` 已退出 active code；当前字段为 `ProviderCacheBusRecord`、`bus_record_id`、`physical_cache_spine_status`、`first_mismatch_segment`。
+- 旧 prompt cache 计划类已重命名为 `CachePlanRecord`；持久字段使用 `cache_plan_id`，summary 使用 `cache_plan_count`，不再把本地计划层称作 cache record。
+- `ledger.py` 删除 `record_prompt_cache_baseline`、`record_prompt_stability`、旧 baseline/stability list/reset 方法；`reset_prefix_state()` 成为 compact/truncate 后的状态失效入口。
+- `app_runtime.py` 与 `api/sessions.py` 的 compact/truncate prefix reset 均改为写 `prefix_state` invalidated 记录。
+- prompt cache 诊断脚本改读 `prompt_manifests.jsonl`、`token_observations.jsonl` 和 `prefix_state.jsonl`，不再读取 `segment_maps.jsonl`、`token_usage.jsonl`、`prompt_stability.jsonl`。
 
 ### 当前边界
 
-- `prompt_cache.jsonl` 仍暂作 cache plan/result 过渡通道，因为 Phase 3 尚未把 preflight plan 与 provider result 完整拆成 `cache_plans.jsonl`。
-- `prompt_cache_baselines.jsonl` 与 `prompt_stability.jsonl` 仍是 Phase 4 之前的 prefix state 组成件；本轮没有伪造 `prefix_state.jsonl` 外壳。
+- `cache_plans.jsonl` 已替代 active preflight cache plan 写入；旧热目录中可能仍有历史 `prompt_cache.jsonl`，但新代码不再把它作为 active plan/result 通道。
+- `prompt_cache_baselines.jsonl` 与 `prompt_stability.jsonl` 已退出 active runtime/code/script 写入读取路径；旧热目录中可能仍存在历史文件，但新代码不再把它们作为 previous state 或诊断入口。
 - 旧热目录中的旧文件不做 runtime 双读兼容。重启后旧 session 如果尚未产生新 `provider_cache_bus.jsonl`，`provider_cache_log.records` 会按新链路返回空数组；下一次真实 provider response 才会写入新 bus。
+- 新 session 的 prefix continuity previous 只从 `prefix_state` 读取；历史旧 state 不做双读迁移。
 
 ### 已验证
 
-- `python -m compileall backend/runtime/prompt_accounting backend/runtime/model_gateway backend/api backend/health_system` 通过。
+- `python -m compileall -q backend/runtime/context_management backend/runtime/model_gateway backend/runtime/prompt_accounting backend/harness/runtime backend/api backend/bootstrap backend/health_system` 通过。
+- `python -c` 内存 smoke 已验证 invalidated prefix state 不会跨 reset 读取更早 active state，且 `PrefixStateReporter.build()` 可直接生成 active state。
+- `python -c` 已验证 `provider_lane` 对空值、未知值和历史输入均归一为当前 canonical lane，不再通过 legacy alias 常量分支，也不再接受 `call_kind` 作为 lane 推断输入。
+- `python -c` 已验证 `unplanned_model_call` anomaly severity 只由 provider lane 决定。
+- `python -c` 已验证 `ContextUsageMeter` 的 agent runtime token observation 身份只由 provider lane 决定。
+- `python -c` 已验证 provider-visible ledger 写入 `confirmed_turn_id`，并且 session cutoff 截断只依据该字段保留/停用 entries，不从 `modelreq:rtpacket:*` request id 反解析 turn。
+- `python -c` 已验证 `context_prefix_identity` 只凭 `physical_prefix_frame_*` kind 不再生成 expected read；显式 physical frame replay contract 与 provider protocol replay contract 仍能生成 expected read。
+- `python -c` 已验证 compression budget 的硬保留不再读取 `authority_class`：`current_turn_tail + session_stable/session` 不再被当作 expected-read 硬保留，`provider_visible_context_prefix + included` 与 contract/control kind 仍被保护。
+- `python -c` 已验证 active Python 不再生成 prompt accounting / prompt composition `authority_class` 字段；`rg authority_class backend -g '*.py'` 无结果。
+- `python -c` 已验证 fragments source selection 不再读取 `content_source=runtime.provider_protocol_replay` 作为 fallback 条件；显式 `provider_protocol_replay=True` 才触发 provider byte-preserve fallback。
+- `python -c` 已验证 contract slot 能力归属不再读取 `tool` 子串或 `tool_` kind 前缀；精确 `tool_dispatch`、`tool_observation_recovery` 等 slot 仍按目录归属。
+- `python -c` 已验证 prompt stable gate 不再读取 prompt ref 前缀；只有显式 builtin runtime metadata 或 builtin system foundation metadata 才能 bypass gate。
+- `python -c` 已验证改变 `content_source/source_kind` 不再改变 `context_prefix_identity.logical_segment_ref` 或 `provider_visible_context_ledger` item key；显式 `context_origin_authority` 仍能改变身份。
+- `python -c` 已验证 `semantic_commit_class=provider_visible_replay_only_*` 不再隐式改写 historical-only；显式 `provider_visible_replay_only=True` 和显式 `semantic_visibility=historical_only` 仍然生效。
+- `python -c` 已验证 provider message replay contract 成为 sealed 判断和 assembler current append 分流的共同 owner：current append 不被 sealed，physical frame replay/provider protocol replay 会被排除出 current append。
+- `python -c` 已验证 `context_segment_policy` 的 replay section 分类也消费 `provider_message_replay_contract`：provider protocol replay / physical frame replay 进入 memory prefix，current append 仍为 append，dynamic tail 显式策略优先。
+- `python -c` 已验证 `content_source=runtime.provider_protocol_replay` 单独不再触发 provider protocol replay；显式 `provider_protocol_replay` boolean、policy、status、authority 仍然触发。
 - `npx tsc --noEmit` 通过。
+- `python -m pytest -q backend/tests/session_runtime_timeline_contract_test.py backend/tests/runtime_cache_manager_regression.py` 通过，确认 session runtime projection 裁剪和 cache manager 当前契约。
 - 固定端口已重启并验证：
   - 后端 `http://127.0.0.1:8003`
   - 前端 `http://127.0.0.1:3000`

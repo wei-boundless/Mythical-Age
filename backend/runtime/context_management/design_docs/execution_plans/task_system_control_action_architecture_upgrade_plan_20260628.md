@@ -281,7 +281,7 @@ TaskRun
 - 形态契约不能替代主执行契约。
 - 图任务节点以后可以直接引用这些契约。
 
-## 4. TaskStartIntent v3
+## 4. TaskStartIntent
 
 agent-facing `request_task_run` 参数：
 
@@ -746,7 +746,7 @@ task_shape 不能替代 primary_mode。
 
 ```text
 provider strict request_task_run
--> TaskStartIntent v3
+-> TaskStartIntent
 -> PrimaryModeContract normalizer
 -> TodoToolContract normalizer
 -> TaskShapeContract normalizer
@@ -862,7 +862,7 @@ provider strict request_task_run
 
 目标：
 
-- provider schema 使用 `TaskStartIntent v3`。
+- provider schema 使用 `TaskStartIntent`。
 - `primary_mode` enum 改为 `goal | plan`。
 - 新增 `task_shape` enum：`standard | investigation | recovery | monitor | open_work`。
 - 移除 agent-facing `entry_reason`。
@@ -893,7 +893,7 @@ provider strict request_task_run
 
 目标：
 
-- 归一化 `TaskStartIntent v3`。
+- 归一化 `TaskStartIntent`。
 - 验证 `primary_mode` 只能是 `goal / plan`。
 - 验证 `task_shape` 是合法任务形态。
 - 根据 `primary_mode` 规范化对应主契约。
@@ -1057,7 +1057,7 @@ python -m backend.cli task-run goal --shape standard --todo "修正文档;复查
 
 完成标准：
 
-- provider schema 使用 `TaskStartIntent v3`。
+- provider schema 使用 `TaskStartIntent`。
 - prompt 不再把 todo 或 task shape 当 primary mode。
 
 ### Phase 3：改造 action protocol 和 lifecycle

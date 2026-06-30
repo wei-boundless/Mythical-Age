@@ -21,21 +21,21 @@ from runtime.prompt_accounting.serializer import canonical_json
 _PREFIX_CONSUMER_CONTRACTS = (
     "runtime.prompt_accounting.serializer",
     "runtime.prompt_accounting.cache_planner",
-    "runtime.prompt_accounting.cache_baseline",
-    "runtime.prompt_accounting.cache_break_detector",
+    "runtime.prompt_accounting.prefix_state",
+    "runtime.prompt_accounting.cache_anomaly_detector",
     "runtime.prompt_accounting.provider_cache_bus",
 )
 _SEGMENT_IDENTITY_FORBIDDEN_AUTHORITIES = (
     "runtime.prompt_accounting.serializer.reclassify_prefix_family",
     "runtime.prompt_accounting.cache_planner.reclassify_prefix_family",
     "runtime.prompt_accounting.provider_cache_bus.reclassify_prefix_family",
-    "runtime.prompt_accounting.cache_break_detector.reclassify_prefix_family",
+    "runtime.prompt_accounting.cache_anomaly_detector.reclassify_prefix_family",
     "frontend.presentation.reclassify_prefix_family",
 )
 _NON_TOKEN_CONSUMER_CONTRACTS = (
     "runtime.model_gateway.provider_payload.transport_stable_contract",
     "runtime.prompt_accounting.cache_planner",
-    "runtime.prompt_accounting.cache_break_detector",
+    "runtime.prompt_accounting.cache_anomaly_detector",
 )
 
 
@@ -61,6 +61,12 @@ class ProviderPayloadSegment:
     prefix_segment_ref: str = ""
     semantic_slot: str = ""
     physical_prefix_lane: str = ""
+    context_contract_node_ref: str = ""
+    context_contract_edge_refs: tuple[str, ...] = ()
+    connection_contract_ref: str = ""
+    agent_domain: str = ""
+    control_signal: str = ""
+    cache_expectation: str = ""
     prefix_identity: dict[str, Any] = field(default_factory=dict)
     boundary_participation: str = "excluded"
     exclusion_reason: str = ""
@@ -130,7 +136,7 @@ def build_provider_payload_manifest(
         payload = canonical_json(message)
         payload_hash = _stable_text_hash(payload)
         metadata = {**dict(getattr(binding, "metadata", {}) or {}), "message_index": message_index}
-        source_ref = str(getattr(binding, "source_ref", "") or "model_request.message")
+        source_ref = str(getattr(binding, "source_ref", "") or "provider_request.message")
         identity = _message_structural_identity(
             kind=str(getattr(binding, "kind", "") or "message"),
             metadata=metadata,
@@ -166,6 +172,12 @@ def build_provider_payload_manifest(
                 prefix_segment_ref=str(identity.get("prefix_segment_ref") or identity.get("logical_segment_ref") or ""),
                 semantic_slot=str(identity.get("semantic_slot") or ""),
                 physical_prefix_lane=str(identity.get("physical_prefix_lane") or ""),
+                context_contract_node_ref=str(metadata.get("context_contract_node_ref") or ""),
+                context_contract_edge_refs=_tuple_text(metadata.get("context_contract_edge_refs")),
+                connection_contract_ref=str(metadata.get("connection_contract_ref") or metadata.get("context_connection_contract_ref") or ""),
+                agent_domain=str(metadata.get("agent_domain") or metadata.get("context_agent_domain") or ""),
+                control_signal=str(metadata.get("control_signal") or metadata.get("context_control_signal") or ""),
+                cache_expectation=str(metadata.get("cache_expectation") or ""),
                 prefix_identity=prefix_identity,
                 boundary_participation=str(identity.get("boundary_participation") or "excluded"),
                 exclusion_reason=str(identity.get("exclusion_reason") or ""),
@@ -184,7 +196,7 @@ def build_provider_payload_manifest(
         identity = _message_structural_identity(
             kind="unplanned_message",
             metadata=metadata,
-            source_ref="model_request.unplanned_message",
+            source_ref="provider_request.unplanned_message",
             content_version_hash=payload_hash,
             provider_serialized_hash=payload_hash,
             request_ordinal=ordinal,
@@ -197,7 +209,7 @@ def build_provider_payload_manifest(
                 transport_location="messages",
                 ordinal=ordinal,
                 role=str(dict(message).get("role") or ""),
-                source_ref="model_request.unplanned_message",
+                source_ref="provider_request.unplanned_message",
                 content_hash=payload_hash,
                 content_version_hash=str(prefix_identity.get("content_version_hash") or payload_hash),
                 provider_serialized_hash=str(prefix_identity.get("provider_serialized_hash") or payload_hash),
@@ -212,6 +224,11 @@ def build_provider_payload_manifest(
                 prefix_segment_ref=str(identity.get("prefix_segment_ref") or identity.get("logical_segment_ref") or ""),
                 semantic_slot=str(identity.get("semantic_slot") or ""),
                 physical_prefix_lane=str(identity.get("physical_prefix_lane") or ""),
+                context_contract_node_ref="",
+                connection_contract_ref="",
+                agent_domain="",
+                control_signal="",
+                cache_expectation="excluded",
                 prefix_identity=prefix_identity,
                 boundary_participation=str(identity.get("boundary_participation") or "excluded"),
                 exclusion_reason=str(identity.get("exclusion_reason") or ""),
@@ -238,7 +255,7 @@ def build_provider_payload_manifest(
                 transport_location="tools",
                 ordinal=ordinal,
                 role="tool_schema",
-                source_ref=str(profile.get("source_ref") or "model_request.tools"),
+                source_ref=str(profile.get("source_ref") or "provider_request.tools"),
                 content_hash=payload_hash,
                 content_version_hash=payload_hash,
                 provider_serialized_hash=payload_hash,
@@ -253,6 +270,11 @@ def build_provider_payload_manifest(
                 prefix_segment_ref=logical_segment_ref,
                 semantic_slot=str(profile.get("semantic_slot") or ""),
                 physical_prefix_lane=str(profile.get("physical_prefix_lane") or ""),
+                context_contract_node_ref=str(dict(profile.get("metadata") or {}).get("context_contract_node_ref") or ""),
+                connection_contract_ref=str(dict(profile.get("metadata") or {}).get("connection_contract_ref") or ""),
+                agent_domain=str(dict(profile.get("metadata") or {}).get("agent_domain") or ""),
+                control_signal=str(dict(profile.get("metadata") or {}).get("control_signal") or ""),
+                cache_expectation=str(dict(profile.get("metadata") or {}).get("cache_expectation") or ""),
                 boundary_participation=str(profile.get("boundary_participation") or "excluded"),
                 exclusion_reason=str(profile.get("exclusion_reason") or ""),
                 consumer_contracts=_tuple_text(profile.get("consumer_contracts")),
@@ -274,7 +296,7 @@ def build_provider_payload_manifest(
                 transport_location="tool_call_options",
                 ordinal=ordinal,
                 role="transport_contract",
-                source_ref="model_request.tool_call_options",
+                source_ref="provider_request.tool_call_options",
                 content_hash=payload_hash,
                 content_version_hash=payload_hash,
                 provider_serialized_hash=payload_hash,
@@ -284,11 +306,16 @@ def build_provider_payload_manifest(
                 prefix_tier="none",
                 compression_role="preserve",
                 prefix_family="transport_contract_family_selector",
-                semantic_source="model_request.tool_call_options",
+                semantic_source="provider_request.tool_call_options",
                 logical_segment_ref="tool_call_options",
                 prefix_segment_ref="tool_call_options",
                 semantic_slot="tool_call_options",
                 physical_prefix_lane="",
+                context_contract_node_ref="",
+                connection_contract_ref="provider_payload:tool_call_options",
+                agent_domain="ProviderTransportDomain",
+                control_signal="bind_tool_call_options",
+                cache_expectation="excluded",
                 boundary_participation="non_token_family_selector",
                 exclusion_reason="non_token_transport_contract",
                 consumer_contracts=_NON_TOKEN_CONSUMER_CONTRACTS,
@@ -307,7 +334,7 @@ def build_provider_payload_manifest(
                 transport_location="response_format",
                 ordinal=ordinal,
                 role="transport_contract",
-                source_ref="model_request.response_format",
+                source_ref="provider_request.response_format",
                 content_hash=payload_hash,
                 content_version_hash=payload_hash,
                 provider_serialized_hash=payload_hash,
@@ -317,11 +344,16 @@ def build_provider_payload_manifest(
                 prefix_tier="none",
                 compression_role="preserve",
                 prefix_family="transport_contract_family_selector",
-                semantic_source="model_request.response_format",
+                semantic_source="provider_request.response_format",
                 logical_segment_ref="response_format",
                 prefix_segment_ref="response_format",
                 semantic_slot="response_format",
                 physical_prefix_lane="",
+                context_contract_node_ref="",
+                connection_contract_ref="provider_payload:response_format",
+                agent_domain="ProviderTransportDomain",
+                control_signal="bind_response_format",
+                cache_expectation="excluded",
                 boundary_participation="non_token_family_selector",
                 exclusion_reason="non_token_transport_contract",
                 consumer_contracts=_NON_TOKEN_CONSUMER_CONTRACTS,
@@ -340,7 +372,7 @@ def build_provider_payload_manifest(
                 transport_location="request_params",
                 ordinal=ordinal,
                 role="transport_contract",
-                source_ref="model_request.cache_relevant_params",
+                source_ref="provider_request.cache_relevant_params",
                 content_hash=payload_hash,
                 content_version_hash=payload_hash,
                 provider_serialized_hash=payload_hash,
@@ -350,11 +382,16 @@ def build_provider_payload_manifest(
                 prefix_tier="none",
                 compression_role="preserve",
                 prefix_family="transport_contract_family_selector",
-                semantic_source="model_request.cache_relevant_params",
+                semantic_source="provider_request.cache_relevant_params",
                 logical_segment_ref="provider_params",
                 prefix_segment_ref="provider_params",
                 semantic_slot="provider_params",
                 physical_prefix_lane="",
+                context_contract_node_ref="",
+                connection_contract_ref="provider_payload:request_params",
+                agent_domain="ProviderTransportDomain",
+                control_signal="bind_request_params",
+                cache_expectation="excluded",
                 boundary_participation="non_token_family_selector",
                 exclusion_reason="non_token_transport_contract",
                 consumer_contracts=_NON_TOKEN_CONSUMER_CONTRACTS,
@@ -508,7 +545,7 @@ def _tool_schema_cache_profile(
     }
     return {
         "kind": "native_tool_binding_schema",
-        "source_ref": "model_request.tools",
+        "source_ref": "provider_request.tools",
         "cache_scope": str(tool_index.cache_scope or "session"),
         "cache_role": str(tool_index.cache_role or "session_stable"),
         "prefix_tier": str(tool_index.prefix_tier or "session"),
@@ -528,7 +565,7 @@ def _native_tool_binding_schema_never_cache(reason: str, **metadata: Any) -> dic
     normalized_reason = str(reason or "unknown")
     return {
         "kind": "native_tool_binding_schema",
-        "source_ref": "model_request.tools",
+        "source_ref": "provider_request.tools",
         "cache_scope": "none",
         "cache_role": "never_cache",
         "prefix_tier": "none",
@@ -586,10 +623,7 @@ def _message_structural_identity(
     semantic_source = _first_text(
         payload.get("context_semantic_source"),
         payload.get("semantic_source"),
-        payload.get("source_kind"),
-        payload.get("context_source_kind"),
-        payload.get("content_source"),
-        payload.get("runtime_fragment_role"),
+        source_ref,
         kind,
     )
     semantic_slot = _first_text(
@@ -988,6 +1022,12 @@ def _physical_cache_spine_prefix_diagnostics(
                 "prefix_identity": dict(segment.prefix_identity or {}),
                 "semantic_slot": segment.semantic_slot,
                 "physical_prefix_lane": lane,
+                "context_contract_node_ref": segment.context_contract_node_ref,
+                "context_contract_edge_refs": list(segment.context_contract_edge_refs),
+                "connection_contract_ref": segment.connection_contract_ref,
+                "agent_domain": segment.agent_domain,
+                "control_signal": segment.control_signal,
+                "cache_expectation": segment.cache_expectation,
                 "boundary_participation": segment.boundary_participation,
                 "exclusion_reason": segment.exclusion_reason,
                 "consumer_contracts": list(segment.consumer_contracts),
@@ -1064,6 +1104,12 @@ def _segment_projection(segment: ProviderPayloadSegment) -> dict[str, Any]:
         "prefix_identity": dict(segment.prefix_identity or {}),
         "semantic_slot": segment.semantic_slot,
         "physical_prefix_lane": segment.physical_prefix_lane,
+        "context_contract_node_ref": segment.context_contract_node_ref,
+        "context_contract_edge_refs": list(segment.context_contract_edge_refs),
+        "connection_contract_ref": segment.connection_contract_ref,
+        "agent_domain": segment.agent_domain,
+        "control_signal": segment.control_signal,
+        "cache_expectation": segment.cache_expectation,
         "boundary_participation": segment.boundary_participation,
         "exclusion_reason": segment.exclusion_reason,
         "consumer_contracts": list(segment.consumer_contracts),
@@ -1158,7 +1204,7 @@ def _provider_payload_segment_id(*, segment: ProviderPayloadSegment, ordinal: in
     digest = _stable_text_hash(
         canonical_json(
             {
-                "provider_payload_segment": "physical_segment_identity.v1",
+                "provider_payload_segment": "physical_segment_identity",
                 "ordinal": int(ordinal or 0),
                 "transport_location": str(segment.transport_location or ""),
                 "role": str(segment.role or ""),

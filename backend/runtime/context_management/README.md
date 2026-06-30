@@ -1,13 +1,13 @@
 # 上下文拼接系统 — 系统设计报告
 
 > 本报告基于对 `backend/runtime/context_management/` 及相关模块代码的完整审查编写。
-> 覆盖范围：context_pipeline、physical_context_plan、provider_visible_context_ledger、context_segment_policy、context_segment_registry、context_capability_policy、session_compaction、compactor、semantic_worker 等核心模块。
+> 覆盖范围：context_pipeline、physical_context_plan、provider_visible_append_ledger、physical_prefix_frame_ledger、context_segment_policy、context_segment_registry、context_capability_policy、session_compaction、compactor、semantic_worker 等核心模块。
 
 ---
 
 ## 一、系统总览
 
-上下文拼接系统是整个 agent runtime 的 **上下文管线**（Context Pipeline），负责把原始消息规格列表经过**能力过滤 → ledger 装配 → 物理计划 → Provider 交付**四个阶段，组装成最终发送给 LLM 的请求消息序列。
+上下文拼接系统是整个 agent runtime 的 **上下文管线**（Context Pipeline），负责把原始消息规格列表经过**能力过滤 → provider-visible append 候选 → 物理前缀帧 replay/物理计划 → Provider 交付**四个阶段，组装成最终发送给 LLM 的请求消息序列。
 
 ### 架构层级
 
@@ -21,7 +21,7 @@
 ├──────────┬──────────┬──────────┬────────────────┤
 │ Capabi-  │ Provider │ Physical │ Message        │
 │ lity     │ Visible  │ Context  │ Assembly       │
-│ Profile  │ Ledger   │ Plan     │ + Transport    │
+│ Profile  │ Append   │ Plan     │ + Transport    │
 │ Filter   │ Stage    │ Stage    │ Contract       │
 └──────────┴──────────┴──────────┴────────────────┘
          ↑                            ↑
@@ -45,23 +45,23 @@
 
 **函数：** `apply_context_capability_profile_to_specs()` (`context_pipeline.py:97`)
 
-- 用途：根据 LLM provider 的能力配置，**裁减**不支持的上下文类型。
-- 配置来源：`context_capability_profile` 参数或从 `system_wiring_manifest.compiled.context_capability_profile` 提取。
+- 用途：执行 runtime assembly 已编译的上下文能力边界，**裁减**当前 turn 不允许接入的上下文类型。
+- 配置来源：`context_capability_profile` 参数或从 `system_wiring_manifest.compiled.context_capability_profile` 提取；不再读取旧 `context_policy` / `memory_policy` 做二次裁决。
 - 过滤逻辑：
-  - `sealed_provider_visible_replay_spec()` — 已封装的 provider 重放消息**跳过过滤**（标记 `bypassed_for_sealed_provider_visible_replay`）。
+  - `provider_message_replay_contract` — 已确认的 provider message replay 契约会保留原始 provider message bytes。
   - 其他 specs 送入 `apply_context_capability_profile()` (`context_capability_policy.py`) 逐条判定。
   - 每条 spec 根据其 `kind` 查找 capability 声明，不符合 profile 的被丢弃并记录诊断。
-- **封印绕过机制**：已被 ledger 确认持久化的 replay specs 不走能力过滤，避免 replay 消息因 provider 差异被错误丢弃。
+- **replay 契约机制**：已被物理前缀帧或 provider protocol replay 标记的 specs 不被重新分类，避免 replay 消息因 provider 差异被错误改写。
 
-### 阶段 2：Provider 可见上下文 Ledger 装配
+### 阶段 2：Provider-visible append stage
 
-**函数：** `apply_provider_visible_context_ledger_to_specs()` (`context_pipeline.py:155`)
+**函数：** `apply_provider_visible_append_stage_to_specs()` (`context_pipeline.py`)
 
-这是整个系统最复杂的阶段，决定**哪些上下文片段进入长期缓存**以及**哪些从缓存 replay**。
+这一阶段只决定当前请求中哪些 provider-visible 片段可以作为 append candidate 等待 provider success 后确认。它不拥有下一轮 replay 顺序权威；confirmed replay 由 `physical_prefix_frame_ledger.py` 和 `physical_context_assembler.py` 承担。
 
 #### 触发条件
-- `invocation_kind` 必须属于 `PROVIDER_VISIBLE_CONTEXT_LEDGER_INVOCATIONS`（包括 `single_agent_turn`、`single_agent_turn_tool_followup`、`task_execution`、`tool_observation_followup`）
-- `provider_visible_context_scope` 必须有值
+- `invocation_kind` 必须属于 provider-visible append stage 管理的调用类型
+- `provider_visible_append_scope` 必须有值
 - `storage_root` 必须非空
 
 #### 核心逻辑：三段式分类
@@ -72,29 +72,26 @@
     ├── STATIC_PREFIX（系统 prompt）→ 直接保留在最前面
     │
     ├── CONTEXT_MEMORY_PREFIX / CONTEXT_APPEND
-    │   ├── 可 seal（可持久化到 ledger）→ provider_visible_candidates
+    │   ├── 可 seal（可作为 append candidate）→ provider_visible_append_candidates
     │   └── 不可 seal → 放到 current_turn_tail_specs
     │
     └── DYNAMIC_TAIL → 阻塞重放，放到 tail（blocked_dynamic_tail_replay_count）
 ```
 
 - **可 seal 判定**：`context_segment_policy_is_provider_visible_sealable(policy)` 检查 policy 的 `prefix_cache_scope != ""` 且 `prefix_cache_role != "volatile"`。
-- **分隔线原则**：`STATIC_PREFIX` 在最前，`current_turn_tail` 在最后，中间是 ledger 装配的 provider visible 上下文。
+- **分隔线原则**：`STATIC_PREFIX` 在最前，`current_turn_tail` 在最后，中间只放本轮可确认的 provider-visible append；已确认 replay 从 physical prefix frame 注入。
 
-#### Ledger 装配
+#### Append candidate 装配
 
-`assemble_provider_visible_context_specs()` (`provider_visible_context_ledger.py`)：
+`assemble_provider_visible_append_specs()` (`provider_visible_append_ledger.py`)：
 
-1. 从磁盘加载 `provider_visible_context_ledger.json`（按 scope 隔离）
-2. 确定继承锚点（如果存在 `inherited_scope` 且不同于当前 scope，说明这是一个 **fork 子会话**）
-3. 合并：
-   - 来自**当前轮候选**（provider_visible_candidates）的新消息
-   - 来自**继承 scope 的 ledger** 的旧确认消息
-4. 按 `original_order` 排序，保持消息相对顺序
-5. 写入最新 ledger 到磁盘
-6. 返回已排序的 ledger specs
+1. 从磁盘加载 `storage/runtime_state/provider_visible_append_ledger/<scope>.json`
+2. 根据统一 `context_segment_policy` 判断 candidate 是否可确认
+3. 为本轮可确认片段写入 `provider_visible_append_*` metadata
+4. 按 `original_order` 排序，保持当前 append 的相对顺序
+5. 返回等待 provider success 的 current append specs
 
-**输出排序：** `[static_prefix, ...ledger_specs, ...current_turn_tail_specs]`
+**输出排序：** physical assembler 最终组合为 `[static_prefix, ...physical_prefix_frame_replay, ...current_append, ...current_turn_tail]`
 
 ### 阶段 3：物理上下文计划（Physical Context Plan）
 
@@ -180,9 +177,9 @@ DYNAMIC_TAIL: tool_observation_followup
 
 **注册方式：** `register_context_segment_policy_defaults()` 在模块加载时调用，建立 kind → policy 的完整映射。
 
-### 3.3 Provider Visible Context Ledger (`provider_visible_context_ledger.py`)
+### 3.3 Provider Visible Append Ledger (`provider_visible_append_ledger.py`)
 
-**磁盘持久化文件：** `provider_visible_context_ledger.json`（按 scope 存放在 `storage_root` 下）
+**磁盘持久化目录：** `storage/runtime_state/provider_visible_append_ledger/*.json`（按 scope 隔离）
 
 **数据架构：**
 
@@ -195,7 +192,7 @@ DYNAMIC_TAIL: tool_observation_followup
       "entry_index": 1,
       "kind": "memory_context",
       "content_hash": "sha256:...",
-      "message_spec": { ... },
+      "provider_visible_message": { ... },
       "confirmed_at": "2026-06-27T...",
       "status": "confirmed"
     }
@@ -204,13 +201,13 @@ DYNAMIC_TAIL: tool_observation_followup
 ```
 
 **核心函数：**
-- `save_provider_visible_context_ledger()` — 写入 ledger 到磁盘
-- `load_provider_visible_context_ledger()` — 从磁盘加载
-- `assemble_provider_visible_context_specs()` — 合并候选 + 继承锚点
-- `confirm_provider_visible_context_entries()` — 在 provider 成功响应后确认条目
-- `latest_provider_visible_context_success_anchor()` — 获取最近的成功锚点（用于继承）
+- `save_provider_visible_append_ledger()` — 写入 append ledger 到磁盘
+- `load_provider_visible_append_ledger()` — 从磁盘加载
+- `assemble_provider_visible_append_specs()` — 生成本轮 current append candidates
+- `confirm_provider_visible_append_entries()` — 在 provider 成功响应后确认条目
+- `latest_provider_visible_append_success_anchor()` — 获取最近的成功 append anchor（用于 fork 继承）
 
-**注意风险：** ledger 在 Provider 请求**发出前**保存条目，确认（confirm）在 Provider 成功响应后。这意味着如果 Provider 请求成功但确认失败，会出现**幽灵条目**（已保存但未确认的条目）。
+**注意边界：** append ledger 记录“可确认候选”和 provider success 后的确认状态；它不负责下一轮 replay。下一轮 replay 的唯一物理权威是 `physical_prefix_frame_ledger.py` 生成的 confirmed frame。
 
 ### 3.4 物理上下文计划 (`physical_context_plan.py`)
 
@@ -288,7 +285,8 @@ DYNAMIC_TAIL: tool_observation_followup
 5. Provider 发送 + 响应
    │
 6. Post-turn 处理
-   │  ├─ confirm_provider_visible_context_entries()
+   │  ├─ confirm_provider_visible_append_entries()
+   │  ├─ append_physical_prefix_frame_from_provider_success()
    │  ├─ auto_compact_session_if_needed()
    │  └─ update context_commit_record
 ```
@@ -303,7 +301,7 @@ DYNAMIC_TAIL: tool_observation_followup
    物理重放顺序严格为 `global_static_prefix → provider_visible_context_prefix → current_turn_tail → never_replay_tail`。
 
 2. **可 seal 即锁定：**
-   只有 `prefix_cache_scope != ""` 且 `prefix_cache_role != "volatile"` 的 segment 才能进入 provider visible ledger。一旦进入 ledger，该消息成为"可重放的历史"，不会被能力过滤再次裁减。
+   只有统一 segment policy 判定为 provider-visible sealable 的 segment 才能进入 provider-visible append ledger。进入 append ledger 不等于可 replay；只有 provider success 后被 physical prefix frame 提升的消息，下一轮才可作为 confirmed replay 注入。
 
 3. **内容哈希驱动：**
    每条消息的 content_hash 决定它是否与之前相同。hash 相同 = 缓存可能命中。这是 LLM provider 前缀缓存的底层依据。
@@ -314,12 +312,12 @@ DYNAMIC_TAIL: tool_observation_followup
 ### 5.2 已识别的风险点
 
 #### 风险 1：Ledger 写入与确认的时序间隙
-- **描述：** `assemble_provider_visible_context_specs()` 在 provider 请求发送**前**就把条目写入了 ledger 文件。`confirm_provider_visible_context_entries()` 在 provider 成功响应后才调用。
-- **后果：** 如果 provider 请求发送后但确认前进程崩溃，ledger 中会存在**未确认（orphan）条目**。重启后这些条目可能被加载并作为"已确认的历史"重放，导致实际未发送成功的消息被错误地纳入上下文。
-- **缓解：** `sealed_provider_visible_replay_spec()` 检查 `provider_visible_context_ledger_commit_stage`，如果是 `provider_success_required` 且未确认，不会作为 replay spec 过滤通过。但恢复逻辑依赖检查点状态，时序风险未被完全消除。
+- **描述：** `assemble_provider_visible_append_specs()` 在 provider 请求发送前登记 current append candidate；`confirm_provider_visible_append_entries()` 在 provider 成功响应后才确认。
+- **后果：** 如果 provider 请求发送后但确认前进程崩溃，append ledger 中可能存在未确认条目。
+- **缓解：** `physical_context_assembler` 只从 physical prefix frame replay confirmed provider-visible 历史；未确认 append candidate 不会因为存在于 append ledger 而成为下一轮 replay。
 
 #### 风险 2：Fork 子会话的继承锚点
-- **描述：** 当 `inherited_scope` 指向一个父会话时，子会话从父会话的 ledger 加载继承条目。继承锚点通过多种 hash 关联（`fork_point_provider_request_commit_id`、`fork_point_cache_spine_hash` 等），任何 hash 不匹配都会导致继承失败（返回空）。
+- **描述：** 当 `inherited_scope` 指向一个父会话时，子会话通过 fork 点的 provider-visible append anchor 和 physical frame 继承已确认前缀。继承锚点通过多种 hash 关联（`fork_point_provider_request_commit_id`、`fork_point_cache_spine_hash` 等），任何 hash 不匹配都会导致继承失败（返回空）。
 - **后果：** hash 不匹配 → 继承空 anchor → 子会话失去所有父会话的上下文 → 子会话在"空历史"状态下运行。
 - **缓解：** 需要确保 fork 时所有 hash 正确传递；`provider_visible_context_inheritance_contract()` 只提取 `inherited_anchor`，不提供 fallback。
 
@@ -348,11 +346,11 @@ DYNAMIC_TAIL: tool_observation_followup
 | 症状 | 排查切入点 |
 |---|---|
 | 上下文缺失 | 检查 `context_capability_profile` 是否过滤了目标 kind；检查 ledger 文件是否存在且正确 |
-| 重复上下文 | 检查 `sealed_provider_visible_replay_spec()` 是否错误地将非 replay 消息标记为 sealed |
+| 重复上下文 | 检查 `provider_message_replay_contract` 是否错误地把非 replay 消息标记为 byte-preserve replay |
 | 缓存不命中 | 检查 `cache_spine_hash` 是否在连续轮之间变化，对比 transport_contract_hash |
 | 子会话无历史 | 检查 `inherited_anchor` 中的各个 hash 是否与父会话最终确认状态一致 |
 | 压缩后上下文变化 | 检查 `compaction_generation` 是否正确传递，对比压缩前后的 spec count 和 content_hash |
-| Ledger 膨胀 | 检查 `ledger_materialized_spec_count` 诊断值，确认是否有不可 seal 的条目被误放入 ledger |
+| Append ledger 膨胀 | 检查 `provider_visible_current_append_spec_count` 诊断值，确认是否有不可 seal 的条目被误放入 append ledger |
 | 工具结果不完整 | 检查 `ContentReplacement` 是否生效，确认 `replacement_id` 对应的实际内容可用 |
 
 ---
@@ -367,7 +365,8 @@ backend/runtime/context_management/
 ├── context_segment_registry.py          # 消息段 kind 注册表
 ├── context_capability_policy.py         # 能力过滤策略
 ├── physical_context_plan.py             # 物理车道规划 + 缓存脊柱
-├── provider_visible_context_ledger.py   # Provider 可见上下文账本（持久化）
+├── provider_visible_append_ledger.py    # Provider-visible current append 确认账本
+├── physical_prefix_frame_ledger.py      # Provider success 后的 confirmed replay frame
 ├── context_candidates.py                # 上下文候选与提交数据结构
 ├── context_candidate_registry.py        # 候选注册器
 ├── context_commit_record.py             # 提交记录持久化

@@ -103,7 +103,7 @@ physical_cache_spine.provider_tool_protocol_rounds[]
 physical_cache_spine.provider_tool_protocol_round_count
 ```
 
-这些字段用于结构诊断和 break reason，不替代 provider payload bytes。
+这些字段用于结构诊断和 anomaly reason，不替代 provider payload bytes。
 
 ## 5. Implemented Slice
 
@@ -115,7 +115,7 @@ physical_cache_spine.provider_tool_protocol_round_count
 | Follow-up and protocol history assembly | `single_agent_turn.py`, `compiler.py` | follow-up spec 与 compiler provider protocol history 都标记同一个工具轮模型，再生成 ledger commit candidate。 |
 | Ledger commit/replay | `context_candidates.py`, `provider_visible_context_ledger.py` | commit candidate 保存 `provider_tool_protocol`；ledger replay 优先按 round id 回放闭合工具轮。 |
 | Physical order/hash | `physical_context_plan.py` | provider prefix 内工具轮按 round order 排序；本地 content hash 纳入 `tool_calls/tool_call_id`。 |
-| Cache diagnostics | `provider_payload.py`, `provider_payload_boundary.py`, `cache_planner.py`, `cache_break_detector.py` | cache spine 暴露工具轮诊断；break detector 同时定位 prefix family 与工具协议轮变化。 |
+| Cache diagnostics | `provider_payload.py`, `provider_payload_boundary.py`, `cache_planner.py`, `cache_anomaly_detector.py` | cache spine 暴露工具轮诊断；break detector 同时定位 prefix family 与工具协议轮变化。 |
 
 ## 6. Remaining Governance Phases
 
@@ -127,7 +127,7 @@ physical_cache_spine.provider_tool_protocol_round_count
    - `provider_tool_round_grouping.annotated_provider_tool_round_count > 0`
    - `physical_cache_spine_tool_protocol_round_count > 0`
    - 无 `Messages with role 'tool' must be a response...`
-   - provider cache break reason 可指向 physical spine 或 tool protocol round。
+   - provider cache anomaly reason 可指向 physical spine 或 tool protocol round。
 
 ## 7. Validation
 

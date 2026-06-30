@@ -61,7 +61,7 @@ class GraphRuntime:
             task_run_id=task_run_id,
             session_id=session_id,
             task_id=root_task_ref,
-            task_contract_ref=graph_config.root_task_ref,
+            task_run_contract_ref="",
             owner_agent_seat_id="graph",
             agent_id=str(dict(graph_config.agents or {}).get("coordinator_agent_id") or "agent:0"),
             agent_profile_id=str(dict(graph_config.agents or {}).get("coordinator_agent_profile_id") or "task_graph_coordinator"),

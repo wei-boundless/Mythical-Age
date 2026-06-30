@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 
 TURN_MEMORY_AUTHORITY = "runtime.turn_memory"
-TURN_MEMORY_SCHEMA_VERSION = 1
+TURN_MEMORY_RECORD_SCHEMA_REVISION = 1
 
 TurnMemoryStatus = Literal[
     "active",
@@ -96,7 +96,7 @@ class TurnMemoryRecord:
     created_at: float = 0.0
     updated_at: float = 0.0
     authority: str = TURN_MEMORY_AUTHORITY
-    schema_version: int = TURN_MEMORY_SCHEMA_VERSION
+    record_schema_revision: int = TURN_MEMORY_RECORD_SCHEMA_REVISION
 
     def __post_init__(self) -> None:
         if not self.session_id:
@@ -175,7 +175,7 @@ class TurnMemoryRecord:
             created_at=_safe_float(item.get("created_at")),
             updated_at=_safe_float(item.get("updated_at")),
             authority=str(item.get("authority") or TURN_MEMORY_AUTHORITY),
-            schema_version=_safe_int(item.get("schema_version"), default=TURN_MEMORY_SCHEMA_VERSION),
+            record_schema_revision=_safe_int(item.get("record_schema_revision"), default=TURN_MEMORY_RECORD_SCHEMA_REVISION),
         )
 
 

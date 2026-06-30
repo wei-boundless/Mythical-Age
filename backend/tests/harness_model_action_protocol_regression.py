@@ -46,7 +46,7 @@ def test_json_request_task_run_normalizes_string_completion_criteria_without_cha
             request_id="model-action:json-task-string-criteria",
             turn_id="turn:json-task-string-criteria",
             action_type="request_task_run",
-            task_contract_seed={
+            task_run_contract_seed=_compact_task_start_intent({
                 "user_visible_goal": "审查项目。",
                 "task_run_goal": "逐模块审查项目。",
                 "working_scope": {
@@ -55,7 +55,7 @@ def test_json_request_task_run_normalizes_string_completion_criteria_without_cha
                 },
                 "completion_criteria": "后端核心模块审查完成；前端核心模块审查完成；生成书面报告。",
                 "required_artifacts": {"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},
-            },
+            }),
         ),
         packet_ref="packet:test",
     )
@@ -63,8 +63,7 @@ def test_json_request_task_run_normalizes_string_completion_criteria_without_cha
     assert errors == []
     assert contract is not None
     assert contract.completion_criteria == ("后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。")
-    assert contract.required_artifacts == ({"artifact_kind": "markdown_document", "user_visible_name": "审查报告"},)
-    assert contract.goal_contract["user_visible_goal"] == "审查项目。"
+    assert contract.user_visible_goal == "逐模块审查项目。"
     assert contract.environment_contract["working_scope"]["target_objects"] == ["后端核心模块", "前端核心模块"]
     assert contract.feedback_contract["feedback_identity_binding"] == "active_turn_or_task_run_required"
     assert contract.acceptance_contract["completion_criteria"] == ["后端核心模块审查完成", "前端核心模块审查完成", "生成书面报告。"]
@@ -76,7 +75,7 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
             request_id="model-action:json-task-string-criteria",
             turn_id="turn:json-task-string-criteria",
             action_type="request_task_run",
-            task_contract_seed={
+            task_run_contract_seed=_compact_task_start_intent({
                 "user_visible_goal": "审查交互投影。",
                 "task_run_goal": "验证 todo 投影和工具活动展示。",
                 "working_scope": {
@@ -84,7 +83,7 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
                     "known_constraints": ["只依据真实投影和工具观察判断"],
                 },
                 "completion_criteria": "1. todo 投影显示有效任务 2. 工具活动不展示低层噪声",
-            },
+            }),
         ),
         packet_ref="rtpacket:json-task-string-criteria",
     )
@@ -96,52 +95,41 @@ def test_json_request_task_run_normalizes_numbered_completion_criteria_without_c
     assert contract.acceptance_contract["evidence_refs_required"] is True
 
 
-def test_request_task_run_accepts_layered_task_contract_seed() -> None:
+def test_request_task_run_accepts_compact_task_start_intent() -> None:
     contract, errors = contract_from_action_request(
         ModelActionRequest(
-            request_id="model-action:layered-task-contract",
-            turn_id="turn:layered-task-contract",
+            request_id="model-action:compact-task-start",
+            turn_id="turn:compact-task-start",
             action_type="request_task_run",
-            task_contract_seed={
-                "goal_contract": {
-                    "user_visible_goal": "升级任务机制。",
-                    "task_run_goal": "落实任务机制主链路升级。",
-                    "success_definition": "Task 具备计划、反馈和验收边界。",
-                },
-                "plan_contract": {
-                    "plan_id": "plan:task-mechanism",
-                    "plan_status": "agent_managed",
-                    "major_steps": ["收紧触发", "分层合同", "验证反馈"],
-                },
-                "environment_contract": {"working_scope": {"target_objects": ["backend/harness/runtime"]}},
-                "feedback_contract": {"feedback_sources": ["tool_observation", "user_steer"]},
-                "acceptance_contract": {
-                    "completion_criteria": ["行为测试通过"],
-                    "required_verifications": [{"verification_kind": "pytest", "description": "运行回归测试"}],
-                },
-            },
+            task_run_contract_seed=_compact_task_start_intent({
+                "user_visible_goal": "升级任务机制。",
+                "task_run_goal": "落实任务机制主链路升级。",
+                "success_definition": "Task 具备计划、反馈和验收边界。",
+                "working_scope": {"target_objects": ["backend/harness/runtime"]},
+                "completion_criteria": ["行为链路可解释", "反馈边界清晰"],
+                "mode_payload": {"steps": ["收紧触发", "分层合同", "验证反馈"]},
+            }),
         ),
-        packet_ref="rtpacket:layered-task-contract",
+        packet_ref="rtpacket:compact-task-start",
     )
 
     assert errors == []
     assert contract is not None
-    assert contract.user_visible_goal == "升级任务机制。"
     assert contract.task_run_goal == "落实任务机制主链路升级。"
-    assert contract.plan_contract["plan_id"] == "plan:task-mechanism"
+    assert contract.primary_work_mode_instance_id == "work-mode:plan:primary"
+    assert contract.plan_contract["major_steps"] == ["收紧触发", "分层合同", "验证反馈"]
     assert contract.environment_contract["working_scope"]["target_objects"] == ["backend/harness/runtime"]
-    assert contract.feedback_contract["feedback_sources"][:2] == ["tool_observation", "user_steer"]
-    assert contract.acceptance_contract["required_verifications"][0]["verification_kind"] == "pytest"
+    assert contract.acceptance_contract["completion_criteria"] == ["行为链路可解释", "反馈边界清晰"]
 
 
-def test_request_task_run_parser_rejects_incomplete_task_contract_before_lifecycle() -> None:
+def test_request_task_run_parser_rejects_incomplete_compact_task_start_intent_before_lifecycle() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action_request, diagnostics = model_action_request_from_payload(
         {
             "authority": "harness.loop.model_action_request",
             "action_type": "request_task_run",
-            "task_contract_seed": {
+            "task_run_contract_seed": {
                 "working_scope": {"target_objects": ["backend"]},
             },
         },
@@ -151,21 +139,28 @@ def test_request_task_run_parser_rejects_incomplete_task_contract_before_lifecyc
 
     assert action_request is None
     errors = set(diagnostics["validation_errors"])
-    assert "user_visible_goal_required_for_request_task_run" in errors
-    assert "task_run_goal_required_for_request_task_run" in errors
-    assert "completion_evidence_required_for_request_task_run" in errors
+    assert "compact_task_start_intent.primary_mode_unsupported:" in errors
+    assert "compact_task_start_intent.minimum_viable_next_step_required" in errors
+    assert "compact_task_start_intent.acceptance_mode_required" in errors
 
 
 def test_single_agent_action_schema_keeps_turn_first_task_upgrade_boundary() -> None:
     from harness.runtime.compiler import model_action_request_schema
 
     schema = model_action_request_schema("turn:test:large-review")
-    rules = [str(item) for item in list(schema.get("action_selection_rules") or [])]
+    turn_attention = dict(schema.get("turn_attention") or {})
+    selection_rules = [str(item) for item in list(turn_attention.get("selection") or [])]
+    intent_contract = dict(schema.get("request_task_run_intent_contract") or {})
+    minimal_action = dict(intent_contract.get("minimal_action") or {})
+    minimal_seed = dict(minimal_action.get("task_run_contract_seed") or {})
 
-    assert any("复杂、跨文件或需要审查不自动等于 Task" in rule for rule in rules)
-    assert any("当前 turn 的自然边界不足以承载" in rule and "request_task_run" in rule for rule in rules)
-    assert any("普通 tool_call 是合法路径" in rule for rule in rules)
-    assert not any("必须主动选择 request_task_run" in rule for rule in rules)
+    assert "request_task_run" in list(schema.get("allowed_action_types") or [])
+    assert any("tool_call" in rule and "tool_calls" in rule for rule in selection_rules)
+    assert any("长任务资源" in rule and "request_task_run" in rule for rule in selection_rules)
+    assert intent_contract["contract_shape"] == "compact_task_start_intent"
+    assert minimal_seed["contract_shape"] == "compact_task_start_intent"
+    assert "todo" not in set(intent_contract.get("primary_mode") or {})
+    assert "payload" not in minimal_action
 
 
 def test_single_agent_model_feedback_identity_is_unique_per_tool_iteration() -> None:
@@ -197,11 +192,8 @@ def test_single_agent_model_feedback_identity_is_unique_per_tool_iteration() -> 
     )
 
     assert first != second
-    assert first.startswith("model-packet-public-feedback:rtpacket:turn:test:single_agent_turn:1:")
-    assert "tool-iteration:0" in first
-    assert "model-action:turn:test:tool:1" in first
-    assert "tool-iteration:1" in second
-    assert "model-action:turn:test:tool:2" in second
+    assert first == "model-action-feedback:model-action:turn:test:tool:1"
+    assert second == "model-action-feedback:model-action:turn:test:tool:2"
 
 
 def test_single_agent_tool_batch_timeout_overrides_inner_cancel_observation(monkeypatch) -> None:
@@ -275,17 +267,17 @@ def test_request_task_run_requires_scope_but_defaults_runtime_execution_settings
             request_id="model-action:legacy-task",
             turn_id="turn:legacy-task",
             action_type="request_task_run",
-            task_contract_seed={
+            task_run_contract_seed=_compact_task_start_intent({
                 "user_visible_goal": "旧任务。",
                 "task_run_goal": "旧任务。",
                 "completion_criteria": ["完成"],
-            },
+            }),
         ),
         packet_ref="rtpacket:legacy-task",
     )
 
-    assert contract is None
-    assert "working_scope_required_for_request_task_run" in errors
+    assert errors == []
+    assert contract is not None
     assert "capability_intent_required_for_request_task_run" not in errors
     assert "skill_intent_required_for_request_task_run" not in errors
     assert "observation_contract.evidence_policy_required" not in errors
@@ -297,12 +289,12 @@ def test_request_task_run_accepts_minimal_contract_without_execution_settings() 
             request_id="model-action:minimal-task",
             turn_id="turn:minimal-task",
             action_type="request_task_run",
-            task_contract_seed={
+            task_run_contract_seed=_compact_task_start_intent({
                 "user_visible_goal": "修复任务启动问题。",
                 "task_run_goal": "定位并修复 request_task_run 合同和提示问题。",
                 "working_scope": {"target_objects": ["backend/harness/loop", "backend/harness/runtime"]},
                 "completion_criteria": ["最小任务合同可启动", "相关回归测试通过"],
-            },
+            }),
         ),
         packet_ref="rtpacket:minimal-task",
     )
@@ -329,10 +321,22 @@ def test_native_request_task_run_accepts_canonical_control_signal() -> None:
                     "id": "call:task-gap",
                     "name": "request_task_run",
                     "args": {
-                        "user_visible_goal": "修复运行监控。",
-                        "task_run_goal": "修复运行监控和日志分离。",
+                        "primary_mode": "plan",
+                        "task_shape": "standard",
+                        "minimum_viable_next_step": "修复运行监控和日志分离。",
                         "working_scope": {"target_objects": ["runtime monitor"]},
-                        "completion_criteria": ["监控只读 canonical projection"],
+                        "acceptance": {
+                            "mode": "checkpoint",
+                            "criteria": ["监控只读 canonical projection"],
+                            "final_answer_requirements": [],
+                        },
+                        "mode_payload": {
+                            "summary": "修复运行监控和日志分离。",
+                            "steps": ["确认运行监控投影", "修复日志分离"],
+                            "success_definition": "运行监控只读取 canonical projection。",
+                            "notes": [],
+                        },
+                        "todo_tool_contract": {"todo_is_tool": True, "cursor_updates": []},
                         "public_progress_note": "我会进入持续任务来修复运行监控链路。",
                     },
                 }
@@ -344,17 +348,18 @@ def test_native_request_task_run_accepts_canonical_control_signal() -> None:
         iteration=1,
         allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
         phase="tool_loop",
+        allow_model_tool_calls=True,
     )
 
     assert parsed.error is None
     assert parsed.action_request is not None
     assert parsed.action_request.action_type == "request_task_run"
     assert parsed.action_request.public_progress_note == "我会进入持续任务来修复运行监控链路。"
-    assert parsed.action_request.task_contract_seed["task_run_goal"] == "修复运行监控和日志分离。"
-    assert "capability_intent" not in parsed.action_request.task_contract_seed
-    assert "skill_intent" not in parsed.action_request.task_contract_seed
-    assert "observation_contract" not in parsed.action_request.task_contract_seed
-    assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_native_request_task_run"
+    assert parsed.action_request.task_run_contract_seed["mode_payload"]["summary"] == "修复运行监控和日志分离。"
+    assert "capability_intent" not in parsed.action_request.task_run_contract_seed
+    assert "skill_intent" not in parsed.action_request.task_run_contract_seed
+    assert "observation_contract" not in parsed.action_request.task_run_contract_seed
+    assert parsed.action_request.diagnostics["origin_kind"] == "single_agent_turn_native_control_action"
     assert parsed.control_action is parsed.action_request
 
 
@@ -371,10 +376,22 @@ def test_native_request_task_run_rejects_execution_setting_fields() -> None:
                     "id": "call:task-gap",
                     "name": "request_task_run",
                     "args": {
-                        "user_visible_goal": "修复运行监控。",
-                        "task_run_goal": "修复运行监控和日志分离。",
+                        "primary_mode": "plan",
+                        "task_shape": "standard",
+                        "minimum_viable_next_step": "修复运行监控和日志分离。",
                         "working_scope": {"target_objects": ["runtime monitor"]},
-                        "completion_criteria": ["监控只读 canonical projection"],
+                        "acceptance": {
+                            "mode": "checkpoint",
+                            "criteria": ["监控只读 canonical projection"],
+                            "final_answer_requirements": [],
+                        },
+                        "mode_payload": {
+                            "summary": "修复运行监控和日志分离。",
+                            "steps": ["确认运行监控投影"],
+                            "success_definition": "运行监控只读 canonical projection。",
+                            "notes": [],
+                        },
+                        "todo_tool_contract": {"todo_is_tool": True, "cursor_updates": []},
                         "capability_intent": "file_work",
                     },
                 }
@@ -386,6 +403,7 @@ def test_native_request_task_run_rejects_execution_setting_fields() -> None:
         iteration=1,
         allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
         phase="tool_loop",
+        allow_model_tool_calls=True,
     )
 
     assert parsed.action_request is None
@@ -393,9 +411,9 @@ def test_native_request_task_run_rejects_execution_setting_fields() -> None:
     assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
     diagnostics = parsed.error["diagnostics"]
     native_errors = diagnostics["native_action_errors"]
-    validation_errors = set(native_errors[0]["model_action_diagnostics"]["validation_errors"])
-    assert "system_execution_field_not_allowed_in_task_contract:capability_intent" in validation_errors
-    assert "执行配置字段" in native_errors[0]["action_issue"]["repair_instruction"]
+    validation_errors = set(native_errors[0]["validation_errors"])
+    assert "native_control_action_arg_not_allowed:capability_intent" in validation_errors
+    assert "provider 参数 schema" in native_errors[0]["action_issue"]["repair_instruction"]
 
 
 def test_legacy_native_task_run_request_alias_is_rejected_not_canonicalized() -> None:
@@ -423,18 +441,21 @@ def test_legacy_native_task_run_request_alias_is_rejected_not_canonicalized() ->
         iteration=1,
         allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
         phase="tool_loop",
+        allow_model_tool_calls=True,
     )
 
     assert parsed.action_request is None
     assert parsed.error is not None
     native_errors = parsed.error["diagnostics"]["native_action_errors"]
-    assert native_errors[0]["code"] == "native_control_action_alias_not_allowed"
-    assert native_errors[0]["action_issue"]["code"] == "control_action_alias_not_allowed"
-    assert native_errors[0]["action_issue"]["requested_action_type"] == "task_run_request"
-    assert native_errors[0]["repair_contract"]["canonical_action_type"] == "request_task_run"
+    assert native_errors[0]["code"] == "action_object_required_for_control_action"
+    assert native_errors[0]["action_issue"]["code"] == "action_object_required_for_control_action"
+    assert native_errors[0]["action_issue"]["requested_action_type"] == "request_task_run"
+    assert native_errors[0]["action_issue"]["requested_tool_name"] == "task_run_request"
+    assert native_errors[0]["repair_contract"]["required_signal"] == "model_action_request"
+    assert native_errors[0]["repair_contract"]["action_type"] == "request_task_run"
 
 
-def test_legacy_control_alias_inside_command_transport_is_rejected_not_executed() -> None:
+def test_legacy_control_alias_text_inside_command_transport_is_not_interpreted_as_control_action() -> None:
     from types import SimpleNamespace
 
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
@@ -456,15 +477,15 @@ def test_legacy_control_alias_inside_command_transport_is_rejected_not_executed(
         iteration=1,
         allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
         phase="tool_loop",
+        allow_model_tool_calls=True,
     )
 
-    assert parsed.action_request is None
-    assert parsed.error is not None
-    native_errors = parsed.error["diagnostics"]["native_action_errors"]
-    assert native_errors[0]["code"] == "native_control_action_alias_not_allowed"
-    assert native_errors[0]["action_issue"]["requested_tool_name"] == "bash"
-    assert native_errors[0]["action_issue"]["requested_action_type"] == "task_run_request"
-    assert native_errors[0]["repair_contract"]["canonical_action_type"] == "request_task_run"
+    assert parsed.error is None
+    assert parsed.action_request is not None
+    assert parsed.action_request.action_type == "tool_call"
+    assert parsed.action_request.tool_call["tool_name"] == "bash"
+    assert parsed.action_request.tool_call["args"] == {"command": "echo task_run_request"}
+    assert parsed.control_action is None
 
 
 def test_single_agent_native_provider_tools_exclude_model_actions() -> None:
@@ -482,7 +503,13 @@ def test_single_agent_native_provider_tools_exclude_model_actions() -> None:
         ),
     )
 
-    assert [item["name"] for item in bindings] == ["read_file"]
+    names = [item["name"] for item in bindings]
+    assert "read_file" in names
+    assert "task_run_request" not in names
+    assert names.count("request_task_run") == 1
+    by_name = {item["name"]: item for item in bindings}
+    assert by_name["read_file"].get("metadata", {}).get("tool_plane") != "model_control_action"
+    assert by_name["request_task_run"]["metadata"]["tool_plane"] == "model_control_action"
 
 
 def test_single_agent_parser_accepts_surrounding_text_json_action_when_unambiguous() -> None:
@@ -510,7 +537,7 @@ def test_single_agent_parser_accepts_surrounding_text_json_action_when_unambiguo
         allowed_action_types=("respond", "ask_user", "block"),
         phase="protocol_recovery",
         require_json_action=True,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
 
     assert parsed.error is None
@@ -529,12 +556,12 @@ def test_single_agent_parser_executes_surrounding_text_request_task_run_action()
         "authority": "harness.loop.model_action_request",
         "action_type": "request_task_run",
         "public_progress_note": "我已判断需要进入持续任务。",
-        "task_contract_seed": {
+        "task_run_contract_seed": _compact_task_start_intent({
             "user_visible_goal": "修复 agent 输出吞没问题。",
             "task_run_goal": "修复控制契约恢复链路。",
             "working_scope": {"target_objects": ["backend/harness/loop/single_agent_turn.py"]},
             "completion_criteria": ["恢复提示保留被拒绝 action", "TaskRun 可在重提后启动"],
-        },
+        }),
     }
     parsed = _single_agent_action_request_from_response(
         SimpleNamespace(content="我已经掌握链路，现在发起持续任务。\n" + json.dumps(action, ensure_ascii=False)),
@@ -550,7 +577,7 @@ def test_single_agent_parser_executes_surrounding_text_request_task_run_action()
     assert parsed.error is None
     assert parsed.action_request is not None
     assert parsed.action_request.action_type == "request_task_run"
-    assert parsed.action_request.task_contract_seed["task_run_goal"] == "修复控制契约恢复链路。"
+    assert parsed.action_request.task_run_contract_seed["mode_payload"]["summary"] == "修复控制契约恢复链路。"
     assert parsed.action_request.diagnostics["parse_transport"]["embedded_action_object"] is True
     assert parsed.control_action is parsed.action_request
 
@@ -579,7 +606,7 @@ def test_single_agent_parser_rejects_nested_respond_payload_final_answer() -> No
         allowed_action_types=("respond", "ask_user", "block"),
         phase="tool_loop",
         require_json_action=True,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
 
     assert parsed.action_request is None
@@ -613,7 +640,7 @@ def test_single_agent_parser_rejects_nested_content_and_question_envelopes() -> 
         allowed_action_types=("respond", "ask_user", "block"),
         phase="tool_loop",
         require_json_action=True,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
     ask = _single_agent_action_request_from_response(
         SimpleNamespace(
@@ -634,7 +661,7 @@ def test_single_agent_parser_rejects_nested_content_and_question_envelopes() -> 
         allowed_action_types=("respond", "ask_user", "block"),
         phase="tool_loop",
         require_json_action=True,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
 
     assert respond.action_request is None
@@ -670,7 +697,7 @@ def test_single_agent_parser_accepts_plain_assistant_text_when_no_action_is_pres
         allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
         phase="tool_loop",
         require_json_action=False,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
 
     assert parsed.error is None
@@ -679,7 +706,7 @@ def test_single_agent_parser_accepts_plain_assistant_text_when_no_action_is_pres
     assert parsed.assistant_final_text.startswith("现在我看到了题目")
 
 
-def test_single_agent_parser_accepts_plain_assistant_text_even_when_action_transport_was_requested() -> None:
+def test_single_agent_parser_rejects_plain_assistant_text_when_action_transport_is_required() -> None:
     from harness.loop.single_agent_turn import _single_agent_action_request_from_response
 
     parsed = _single_agent_action_request_from_response(
@@ -697,13 +724,15 @@ def test_single_agent_parser_accepts_plain_assistant_text_even_when_action_trans
         allowed_action_types=("respond", "ask_user", "block", "request_task_run", "tool_call"),
         phase="tool_loop",
         require_json_action=True,
-        public_response_required=False,
+        public_feedback_expected=False,
     )
 
-    assert parsed.error is None
+    assert parsed.error is not None
+    assert parsed.error["code"] == "single_agent_turn_direct_visible_text_not_allowed"
+    assert "respond.final_answer" in parsed.error["diagnostics"]["action_issue"]["repair_instruction"]
     assert parsed.action_request is None
     assert parsed.tool_actions == ()
-    assert parsed.assistant_final_text.startswith("现在所有线索都串起来了")
+    assert parsed.assistant_final_text == ""
 
 
 def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_signal() -> None:
@@ -721,7 +750,7 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
             "next_action": "进入持续任务执行流程。",
         },
         "working_scope": {"target_objects": ["backend/prompt_library"]},
-        "task_contract_seed": {
+        "task_run_contract_seed": {
             "user_visible_goal": "完整审查 prompts 体系。",
             "task_run_goal": "读取 prompts 体系全部相关文件并输出报告。",
             "working_scope": {"target_objects": ["backend/prompt_library", "backend/harness/runtime/compiler.py"]},
@@ -745,9 +774,8 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
     action_issue = dict(parsed.error["diagnostics"]["action_issue"])
     assert action_issue["requested_action_type"] == "request_task_run"
     assert "放错层级" in action_issue["repair_instruction"]
-    assert "task_contract_seed 内" in action_issue["repair_instruction"]
+    assert "task_run_contract_seed 内" in action_issue["repair_instruction"]
     assert "不要使用 payload" in action_issue["repair_instruction"]
-    assert "最小合法骨架" in action_issue["repair_instruction"]
 
     signal = _model_protocol_violation_control_signal(
         turn_id="turn:test:misnested-task-contract",
@@ -764,7 +792,7 @@ def test_request_task_run_misnested_contract_fields_get_specific_runtime_repair_
     assert "放错层级" in signal["repair_instruction"]
     assert signal["structured_signal"]["message"] == signal["repair_instruction"]
     repair_example = dict(signal["structured_signal"]["repair_example"])
-    repair_seed = dict(repair_example["task_contract_seed"])
+    repair_seed = dict(repair_example["task_run_contract_seed"])
     assert repair_example["action_type"] == "request_task_run"
     assert "capability_intent" not in repair_seed
     assert "skill_intent" not in repair_seed
@@ -802,13 +830,13 @@ def test_agent_contract_feedback_lifecycle_uses_specific_command_transport_contr
 
     feedback_text = str(feedback["agent_feedback"])
     specific = dict(feedback["contract_failure"])["specific_feedback"]
-    assert "上一条输出没有进入会话" in feedback_text
+    assert "上一条输出没有形成可执行的动作合同" in feedback_text
     assert "命令文本" in feedback_text
     assert "canonical structured action" in feedback_text
     assert specific[0]["code"] == "control_action_command_transport_not_allowed"
-    assert "命令输出不是动作信号" in specific[0]["situation_feedback"]
-    assert "shell、bash、cmd" in specific[0]["repair_instruction"]
-    assert specific[0]["expected_next_action"] == "把控制动作从命令文本移出，提交同等语义的 canonical structured action。"
+    assert specific[0]["situation_feedback"] == "上一条输出不能进入执行或发布。"
+    assert specific[0]["repair_instruction"] == "命令文本不能伪装成控制动作；请提交 canonical structured action。"
+    assert specific[0]["expected_next_action"] == "不要重复提交 bash；按当前允许动作给出下一步。"
 
 
 def test_agent_contract_feedback_lifecycle_separates_json_and_empty_respond_failures() -> None:
@@ -851,8 +879,8 @@ def test_agent_contract_feedback_lifecycle_separates_json_and_empty_respond_fail
     json_specific = dict(json_feedback["contract_failure"])["specific_feedback"][0]
     empty_specific = dict(empty_respond_feedback["contract_failure"])["specific_feedback"][0]
 
-    assert "上一条输出无法可靠归类" in json_specific["situation_feedback"]
-    assert "JSON 对象" in json_specific["repair_instruction"]
+    assert "结构化动作" in json_specific["situation_feedback"]
+    assert "结构化动作" in json_specific["repair_instruction"]
     assert "respond、ask_user 或 block" in json_specific["expected_next_action"]
     assert "只看到状态或记录" in empty_specific["situation_feedback"]
     assert "final_answer" in empty_specific["repair_instruction"]
@@ -915,14 +943,14 @@ def test_agent_contract_feedback_lifecycle_gives_natural_internal_leak_feedback(
     feedback_text = str(feedback["agent_feedback"])
     specific = dict(feedback["contract_failure"])["specific_feedback"][0]
 
-    assert "上一条输出没有进入会话" in feedback_text
+    assert "上一条输出没有形成可执行的动作合同" in feedback_text
     assert "不能复述给用户" in feedback_text
     assert "不能作为用户回复" in specific["situation_feedback"]
     assert "改写成你自己的自然回复" in specific["repair_instruction"]
     assert "只保留用户需要知道的事实" in specific["expected_next_action"]
 
 
-def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_repair_signal() -> None:
+def test_resume_task_recovery_misnested_handle_fields_get_specific_runtime_repair_signal() -> None:
     from harness.loop.single_agent_turn import (
         _model_protocol_violation_control_signal,
         _single_agent_action_request_from_response,
@@ -930,7 +958,7 @@ def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_re
 
     invalid_action = {
         "authority": "harness.loop.model_action_request",
-        "action_type": "resume_recoverable_work",
+        "action_type": "resume_task_recovery",
         "public_progress_note": "我会从原任务断点继续。",
         "public_action_state": {"current_judgment": "已确认需要恢复原任务。"},
         "task_run_id": "taskrun:turn:session-a:1:abc",
@@ -943,7 +971,7 @@ def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_re
         turn_id="turn:test:misnested-recovery-resume",
         packet_ref="packet:test:misnested-recovery-resume",
         iteration=1,
-        allowed_action_types=("respond", "ask_user", "block", "resume_recoverable_work"),
+        allowed_action_types=("respond", "ask_user", "block", "resume_task_recovery"),
         phase="tool_loop",
     )
 
@@ -951,9 +979,9 @@ def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_re
     assert parsed.error is not None
     assert parsed.error["code"] == "single_agent_turn_invalid_json_action"
     action_issue = dict(parsed.error["diagnostics"]["action_issue"])
-    assert action_issue["requested_action_type"] == "resume_recoverable_work"
+    assert action_issue["requested_action_type"] == "resume_task_recovery"
     assert "恢复句柄字段放错层级" in action_issue["repair_instruction"]
-    assert "recovery_resume" in action_issue["repair_instruction"]
+    assert "task_recovery_resume" in action_issue["repair_instruction"]
     assert "不要从旧消息文本猜测" in action_issue["repair_instruction"]
 
     signal = _model_protocol_violation_control_signal(
@@ -961,7 +989,7 @@ def test_resume_recoverable_work_misnested_handle_fields_get_specific_runtime_re
         packet_ref="packet:test:misnested-recovery-resume",
         phase="tool_loop",
         protocol_error=parsed.error,
-        allowed_action_types=("respond", "ask_user", "block", "resume_recoverable_work"),
+        allowed_action_types=("respond", "ask_user", "block", "resume_task_recovery"),
         recovery_attempt=1,
         max_recovery_attempts=3,
         response_preview=json.dumps(invalid_action, ensure_ascii=False),
@@ -979,7 +1007,7 @@ def test_single_agent_parser_accepts_markdown_fenced_json_action_when_unambiguou
 
     action = _action_request(
         action_type="request_task_run",
-        task_contract_seed=_canonical_task_contract_seed(
+        task_run_contract_seed=_compact_task_start_intent(
             {
                 "user_visible_goal": "修复运行监控。",
                 "task_run_goal": "修复运行监控和日志分离。",
@@ -1003,7 +1031,7 @@ def test_single_agent_parser_accepts_markdown_fenced_json_action_when_unambiguou
     assert parsed.error is None
     assert parsed.action_request is not None
     assert parsed.action_request.action_type == "request_task_run"
-    assert parsed.action_request.task_contract_seed["task_run_goal"] == "修复运行监控和日志分离。"
+    assert parsed.action_request.task_run_contract_seed["mode_payload"]["summary"] == "修复运行监控和日志分离。"
     assert parsed.action_request.diagnostics["parse_transport"]["markdown_fence"] is True
 
 
@@ -1014,7 +1042,7 @@ def test_single_agent_parser_accepts_surrounded_markdown_fenced_json_action_when
 
     action = _action_request(
         action_type="request_task_run",
-        task_contract_seed=_canonical_task_contract_seed(
+        task_run_contract_seed=_compact_task_start_intent(
             {
                 "user_visible_goal": "修复运行监控。",
                 "task_run_goal": "修复运行监控和日志分离。",
@@ -1043,10 +1071,10 @@ def test_single_agent_parser_accepts_surrounded_markdown_fenced_json_action_when
     assert transport["markdown_fence"] is True
 
 
-def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_path: Path, monkeypatch) -> None:
+def test_single_agent_turn_consecutive_tool_failures_block_protocol_inside_agent_closeout(tmp_path: Path, monkeypatch) -> None:
     import harness.loop.single_agent_turn as single_agent_turn_module
 
-    monkeypatch.setattr(single_agent_turn_module, "_MAX_SINGLE_TURN_TOOL_ITERATIONS", 8)
+    monkeypatch.setattr(single_agent_turn_module, "_CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD", 3)
 
     class ProtocolRespondLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
@@ -1055,10 +1083,10 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
                     {
                         "content": "我先检查文件是否存在，再判断下一步。",
                         "tool_calls": [
-                            {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                            {"id": f"call-read-{index}", "name": "read_file", "args": {"path": "missing/tool-limit.txt"}},
                         ]
                     }
-                    for index in range(1, 10)
+                    for index in range(1, 5)
                 ]
             )
             self.plain_invocations = 0
@@ -1092,7 +1120,7 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     runtime = build_harness_runtime(
         base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"path_exists"}),
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -1105,13 +1133,13 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     done = next(event for event in events if event.get("type") == "done")
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
-    assert model.calls >= 9
+    assert model.calls >= 3
     assert model.plain_invocations == 2
     assert all(dict(item).get("segment_plan") for item in model.plain_accounting_contexts)
     assert all(dict(dict(item).get("prompt_manifest") or {}).get("segment_plan_ref") for item in model.plain_accounting_contexts)
     assert done["answer_source"] == "harness.single_agent_turn.agent_closeout"
     assert done["answer_channel"] == "conversation"
-    assert done["completion_state"] == "tool_limit_agent_closeout"
+    assert done["completion_state"] == "tool_failure_closeout"
     assert done["agent_closeout_attempt"] == 2
     assert "升级为项目级任务" in str(done.get("content") or "")
     assert assistant_messages
@@ -1119,10 +1147,10 @@ def test_single_agent_turn_tool_limit_blocks_protocol_inside_agent_closeout(tmp_
     assert "DSML" not in str(assistant_messages[-1].get("content") or "")
 
 
-def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_feedback_lifecycle(tmp_path: Path, monkeypatch) -> None:
+def test_single_agent_turn_consecutive_tool_failure_noncompliant_closeout_records_contract_feedback_lifecycle(tmp_path: Path, monkeypatch) -> None:
     import harness.loop.single_agent_turn as single_agent_turn_module
 
-    monkeypatch.setattr(single_agent_turn_module, "_MAX_SINGLE_TURN_TOOL_ITERATIONS", 8)
+    monkeypatch.setattr(single_agent_turn_module, "_CONSECUTIVE_TOOL_FAILURE_CLOSEOUT_THRESHOLD", 3)
 
     class NoncompliantCloseoutLoopModel(NativeToolCallSequenceModelRuntimeStub):
         def __init__(self) -> None:
@@ -1131,10 +1159,10 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_fee
                     {
                         "content": "我继续检查文件状态。",
                         "tool_calls": [
-                            {"id": f"call-exists-{index}", "name": "path_exists", "args": {"path": "requirements.txt"}},
+                            {"id": f"call-read-{index}", "name": "read_file", "args": {"path": "missing/noncompliant-closeout.txt"}},
                         ],
                     }
-                    for index in range(1, 10)
+                    for index in range(1, 5)
                 ]
             )
             self.closeout_invocations = 0
@@ -1149,7 +1177,7 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_fee
     runtime = build_harness_runtime(
         base_dir=_runtime_test_root(tmp_path),
         model_runtime=model,
-        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"path_exists"}),
+        tool_runtime=_tool_runtime_for_names(_project_backend_dir(), {"read_file"}),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -1159,7 +1187,8 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_fee
         return events
 
     events = asyncio.run(_collect())
-    done = next(event for event in events if event.get("type") == "done")
+    terminal = next(event for event in events if event.get("type") == "agent_turn_terminal")
+    terminal_payload = dict(dict(terminal.get("event") or {}).get("payload") or {})
     control_signals = [
         dict(dict(event.get("event") or {}).get("payload") or {}).get("runtime_control_signal")
         for event in events
@@ -1168,27 +1197,23 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_fee
     feedback_payloads = _agent_contract_feedback_payloads(events)
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
 
-    assert model.calls >= 9
+    assert model.calls >= 3
     assert model.closeout_invocations == 2
-    assert any(dict(signal or {}).get("signal_kind") == "tool_budget_exhausted" for signal in control_signals)
+    assert any(dict(signal or {}).get("signal_kind") == "consecutive_tool_failures" for signal in control_signals)
     assert not any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
     assert not any(event.get("type") == "error" for event in events)
-    assert done["terminal_reason"] == "agent_contract_feedback_required"
-    assert done["answer_source"] == "harness.single_agent_turn.agent_contract_feedback"
-    assert done["answer_channel"] == "runtime_control"
-    assert done["completion_state"] == "agent_contract_feedback_required"
-    assert str(done.get("content") or "") == ""
+    assert terminal_payload["terminal_reason"] == "agent_contract_feedback_required"
+    assert terminal_payload["status"] == "failed"
     assert feedback_payloads
     feedback = feedback_payloads[-1]
     assert feedback["signal_kind"] == "agent_contract_feedback_required"
-    assert "上一条输出没有进入会话" in str(feedback["agent_feedback"])
-    assert "不会展示给用户" in str(feedback["agent_feedback"])
-    assert "harness.loop.model_action_request" in str(feedback["agent_feedback"])
+    assert "上一条输出没有形成可执行的动作合同" in str(feedback["agent_feedback"])
+    assert "不能复述给用户" in str(feedback["agent_feedback"])
     specific = dict(feedback["contract_failure"])["specific_feedback"]
     assert any(
-        item.get("code") == "tool_budget_exhausted"
-        and "工具预算" in str(item.get("situation_feedback") or "")
-        and "path_exists" in str(item.get("situation_feedback") or "")
+        item.get("code") == "consecutive_tool_failures"
+        and "连续工具失败" in str(item.get("situation_feedback") or "")
+        and "read_file" in str(item.get("situation_feedback") or "")
         for item in specific
     )
     closeout_prompt_text = "\n".join(
@@ -1197,16 +1222,11 @@ def test_single_agent_turn_tool_limit_noncompliant_closeout_records_contract_fee
         for message in batch
         if isinstance(message, dict)
     )
-    assert "本轮已不能继续执行工具" in closeout_prompt_text
-    assert "你收到的是本轮收口生命周期 observation" in closeout_prompt_text
-    assert "你必须只输出一个 JSON action 对象" in closeout_prompt_text
-    assert "action_type 只能是 respond、ask_user 或 block" in closeout_prompt_text
-    assert '"closeout_lifecycle"' in closeout_prompt_text
-    assert '"lifecycle": "agent_authored_closeout"' in closeout_prompt_text
-    assert '"tool_channel": "closed"' in closeout_prompt_text
-    assert '"facts"' in closeout_prompt_text
+    assert "current_stop_context" in closeout_prompt_text
+    assert "tool_failure_closeout" in closeout_prompt_text
+    assert "不要逐字泄露内部字段" in closeout_prompt_text
     assert "runtime_control_signal" not in closeout_prompt_text
-    assert dict(feedback["observed_facts"])["successful_tool_observation_count"] >= 1
+    assert dict(feedback["observed_facts"])["failed_tool_observation_count"] >= 3
     assert not assistant_messages
 
 
@@ -1233,10 +1253,10 @@ def test_single_agent_parser_rejects_native_tool_call_when_json_action_required(
 
     assert parsed.action_request is None
     assert parsed.error is not None
-    assert parsed.error["code"] == "single_agent_turn_invalid_native_action"
-    assert parsed.error["reason"] == "native_tool_call_transport_not_available"
-    assert parsed.error["diagnostics"]["action_issue"]["category"] == "service_unavailable"
-    assert parsed.error["diagnostics"]["action_issue"]["code"] == "native_tool_call_transport_not_available"
+    assert parsed.error["code"] == "single_agent_turn_unexecuted_tool_intent"
+    assert parsed.error["reason"] == "tool_action_intent_not_executed"
+    assert parsed.error["diagnostics"]["action_issue"]["category"] == "action_not_executed"
+    assert parsed.error["diagnostics"]["action_issue"]["code"] == "tool_action_intent_not_in_current_connection"
 
 def test_malformed_agent_action_request_recovers_through_agent_closeout_with_protocol_reason() -> None:
     class MalformedThenCloseoutRuntime:
@@ -1427,7 +1447,8 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
     skipped_events = [event for event in events if event.get("type") == "session_output_commit_skipped"]
     feedback_payloads = _agent_contract_feedback_payloads(events)
     messages = runtime.session_manager.load_session(session_id)
-    done = next(event for event in events if event.get("type") == "done")
+    terminal = next(event for event in events if event.get("type") == "agent_turn_terminal")
+    terminal_payload = dict(dict(terminal.get("event") or {}).get("payload") or {})
     done_text = "\n".join(str(event.get("content") or "") for event in events if event.get("type") == "done")
 
     assert admissions
@@ -1439,10 +1460,9 @@ def test_protocol_control_signal_respond_with_runtime_protocol_disclosure_is_not
     assert any(dict(signal or {}).get("signal_kind") == "final_output_not_committable" for signal in control_signals)
     assert checked_events
     assert skipped_events
-    assert done["answer_source"] == "harness.single_agent_turn.agent_contract_feedback"
-    assert done["answer_channel"] == "runtime_control"
-    assert done["completion_state"] == "agent_contract_feedback_required"
-    assert str(done.get("content") or "") == ""
+    assert terminal_payload["terminal_reason"] == "agent_contract_feedback_required"
+    assert terminal_payload["status"] == "failed"
+    assert not any(event.get("type") == "done" for event in events)
     assert feedback_payloads
     assert "内部字段或动作说明" in str(feedback_payloads[-1]["agent_feedback"])
     assert "改写成你自己的自然回复" in str(feedback_payloads[-1]["agent_feedback"])
@@ -1528,19 +1548,19 @@ def test_single_agent_turn_native_control_actions_do_not_execute_original_when_r
         if event.get("type") == "turn_runtime_control_signal_observed"
     ]
     feedback_payloads = _agent_contract_feedback_payloads(events)
-    done = next(event for event in events if event.get("type") == "done")
+    terminal = next(event for event in events if event.get("type") == "agent_turn_terminal")
+    terminal_payload = dict(dict(terminal.get("event") or {}).get("payload") or {})
 
     assert not _admission_payloads(events)
     assert not any(event.get("type") == "done" and "当前环境缺少必要授权" in str(event.get("content") or "") for event in events)
     assert any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
-    assert done["answer_source"] == "harness.single_agent_turn.agent_contract_feedback"
-    assert done["answer_channel"] == "runtime_control"
-    assert done["completion_state"] == "agent_contract_feedback_required"
-    assert str(done.get("content") or "") == ""
+    assert terminal_payload["terminal_reason"] == "agent_contract_feedback_required"
+    assert terminal_payload["status"] == "failed"
+    assert not any(event.get("type") == "done" for event in events)
     assert feedback_payloads
     feedback_text = str(feedback_payloads[-1]["agent_feedback"])
     assert "没有提交本阶段要求的结构化动作" in feedback_text
-    assert "文本里只能有一个 action-like JSON 对象" in feedback_text
+    assert "重新选择 respond、ask_user 或 block" in feedback_text
     assistant_messages = [dict(item) for item in runtime.session_manager.messages if str(dict(item).get("role") or "") == "assistant"]
     assert not assistant_messages
 
@@ -1620,7 +1640,7 @@ def test_model_action_request_accepts_public_progress_note() -> None:
     assert action.public_progress_note == "正在整理当前回复。"
     assert action.public_action_state["next_action"] == "整理回复。"
 
-def test_task_model_action_request_requires_public_progress_note_for_public_response() -> None:
+def test_task_model_action_request_accepts_final_answer_without_separate_progress_note() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action, diagnostics = model_action_request_from_payload(
@@ -1634,14 +1654,16 @@ def test_task_model_action_request_requires_public_progress_note_for_public_resp
         },
         turn_id="taskrun:test:progress-required",
         require_public_progress_note=True,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
 
-    assert action is None
-    assert diagnostics["status"] == "invalid"
-    assert "public_progress_note_required" in diagnostics["validation_errors"]
+    assert action is not None
+    assert diagnostics["status"] == "accepted"
+    assert diagnostics["contract_gaps"] == []
+    assert action.final_answer == "已完成。"
 
-def test_public_response_required_rejects_tool_call_without_model_response() -> None:
+
+def test_public_feedback_expected_records_tool_call_feedback_gap_without_rejecting_action() -> None:
     from harness.loop.model_action_protocol import model_action_request_from_payload
 
     action, diagnostics = model_action_request_from_payload(
@@ -1655,14 +1677,17 @@ def test_public_response_required_rejects_tool_call_without_model_response() -> 
         turn_id="taskrun:test:progress-report-required",
         require_public_progress_note=True,
         require_public_action_state=True,
-        public_response_required=True,
+        public_feedback_expected=True,
     )
 
-    assert action is None
-    assert diagnostics["status"] == "invalid"
-    assert "public_response_required" in diagnostics["validation_errors"]
-    assert "public_progress_note_required" in diagnostics["validation_errors"]
-    assert "public_action_state_required" in diagnostics["validation_errors"]
+    assert action is not None
+    assert diagnostics["status"] == "accepted"
+    assert diagnostics["contract_gaps"] == [
+        "public_feedback_omitted_for_tool_call",
+        "public_progress_note_missing_for_tool_call",
+        "public_action_state_missing_for_tool_call",
+    ]
+    assert action.diagnostics["contract_gaps"] == diagnostics["contract_gaps"]
 
 
 def test_internal_tool_call_can_keep_public_response_empty() -> None:
@@ -1679,7 +1704,7 @@ def test_internal_tool_call_can_keep_public_response_empty() -> None:
         turn_id="taskrun:test:internal-tool",
         require_public_progress_note=True,
         require_public_action_state=True,
-        public_response_required=False,
+        public_feedback_expected=False,
     )
 
     assert action is not None
@@ -1732,7 +1757,8 @@ def test_single_agent_parser_allows_native_tool_call_without_model_preamble_as_d
         iteration=1,
         allowed_action_types=("respond", "ask_user", "block", "tool_call"),
         phase="tool_loop",
-        public_response_required=True,
+        allow_model_tool_calls=True,
+        public_feedback_expected=True,
     )
 
     assert parsed.error is None
@@ -1740,9 +1766,9 @@ def test_single_agent_parser_allows_native_tool_call_without_model_preamble_as_d
     action = parsed.tool_actions[0]
     assert action.action_type == "tool_call"
     assert action.tool_call["args"] == {"path": "README.md"}
-    assert dict(action.diagnostics or {}).get("public_response_required") is True
-    assert dict(action.diagnostics or {}).get("public_response_requirement_source") == "tool_observation_feedback"
-    assert "public_response_missing_for_native_tool_call" in dict(action.diagnostics or {}).get("contract_gaps", [])
+    assert dict(action.diagnostics or {}).get("public_feedback_recommended") is True
+    assert dict(action.diagnostics or {}).get("public_feedback_recommendation_source") == "tool_observation_feedback"
+    assert "public_feedback_omitted_for_native_tool_call" in dict(action.diagnostics or {}).get("contract_gaps", [])
 
 
 def test_single_agent_continues_corrected_tool_call_after_failed_tool_without_preamble(tmp_path: Path) -> None:
@@ -1821,7 +1847,7 @@ def test_single_agent_continues_corrected_tool_call_after_failed_tool_without_pr
     assert observations[0]["status"] == "error"
     assert observations[1]["status"] == "ok"
     assert [item["public_progress_note"] for item in public_feedback_events] == ["我先读取目标文件，确认当前结构。"]
-    assert "public_response_missing_for_native_tool_call" in dict(
+    assert "public_feedback_omitted_for_native_tool_call" in dict(
         tool_admissions[1].get("diagnostics") or {}
     ).get("contract_gaps", [])
     assert not any(dict(signal or {}).get("signal_kind") == "model_protocol_violation" for signal in control_signals)
@@ -1847,7 +1873,8 @@ def test_single_agent_parser_uses_native_tool_preamble_as_model_response() -> No
         iteration=1,
         allowed_action_types=("respond", "ask_user", "block", "tool_call"),
         phase="tool_loop",
-        public_response_required=True,
+        allow_model_tool_calls=True,
+        public_feedback_expected=True,
     )
 
     assert parsed.error is None

@@ -82,8 +82,8 @@ def explicit_task_selected(value: Any) -> bool:
     binding = context_binding(value)
     signals = turn_signals(value)
     return (
-        str(binding.get("kind") or "") == "explicit_task_contract"
-        or bool(signals.get("explicit_task_contract"))
+        str(binding.get("kind") or "") == "explicit_task_run_contract"
+        or bool(signals.get("explicit_task_run_contract"))
     )
 
 
@@ -97,5 +97,4 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
 

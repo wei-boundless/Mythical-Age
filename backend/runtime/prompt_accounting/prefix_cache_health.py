@@ -316,6 +316,12 @@ def _identity_projection(boundary: dict[str, Any]) -> dict[str, Any]:
         "physical_prefix_lane": str(boundary.get("physical_prefix_lane") or identity.get("physical_lane") or ""),
         "semantic_slot": str(boundary.get("semantic_slot") or identity.get("semantic_slot") or ""),
         "logical_segment_ref": str(boundary.get("logical_segment_ref") or identity.get("logical_segment_ref") or ""),
+        "context_contract_node_ref": str(boundary.get("context_contract_node_ref") or ""),
+        "context_contract_edge_refs": _string_list(boundary.get("context_contract_edge_refs")),
+        "connection_contract_ref": str(boundary.get("connection_contract_ref") or ""),
+        "agent_domain": str(boundary.get("agent_domain") or ""),
+        "control_signal": str(boundary.get("control_signal") or ""),
+        "cache_expectation": str(boundary.get("cache_expectation") or ""),
         "origin_authority": str(identity.get("origin_authority") or ""),
         "origin_ref": str(identity.get("origin_ref") or ""),
         "lifecycle_state": str(identity.get("lifecycle_state") or ""),
@@ -336,3 +342,17 @@ def _int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple, set)):
+        result: list[str] = []
+        for item in value:
+            text = str(item or "").strip()
+            if text:
+                result.append(text)
+        return result
+    return []

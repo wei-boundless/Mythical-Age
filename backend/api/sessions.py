@@ -23,8 +23,8 @@ from integrations.vscode_connection import get_vscode_connection_store
 from runtime.context_management.physical_prefix_frame_ledger import (
     truncate_physical_prefix_frame_ledger_after_session_cutoff,
 )
-from runtime.context_management.provider_visible_context_ledger import (
-    truncate_provider_visible_context_ledger_after_session_cutoff,
+from runtime.context_management.provider_visible_append_ledger import (
+    truncate_provider_visible_append_ledger_after_session_cutoff,
 )
 from sessions import InvalidSessionId, SessionProjectBindingConflict, SessionProjectBindingMissing
 from harness.runtime.session_timeline import build_session_runtime_projection, build_session_runtime_timeline
@@ -964,7 +964,7 @@ def _apply_session_truncate_context_cutoff(
     ]
     cutoff_recorded_at = time.time()
     try:
-        _reset_prompt_cache_baseline_after_session_truncate(
+        _reset_prefix_state_after_session_truncate(
             runtime,
             session_id=session_id,
             message_index=message_index,
@@ -983,7 +983,7 @@ def _apply_session_truncate_context_cutoff(
             kept_messages=messages,
             cutoff_created_before=cutoff_recorded_at,
         )
-        provider_visible_rollback = _rollback_provider_visible_context_ledger_after_session_truncate(
+        provider_visible_rollback = _rollback_provider_visible_append_ledger_after_session_truncate(
             runtime,
             session_id=session_id,
             message_index=message_index,
@@ -1000,16 +1000,16 @@ def _apply_session_truncate_context_cutoff(
         "kept_turn_ids": sorted(_kept_turn_ids_from_messages(messages)),
         "kept_sealed_turn_ids": sorted(_kept_sealed_turn_ids_from_messages(messages)),
         "physical_prefix_frame_rollback": physical_rollback,
-        "provider_visible_context_rollback": provider_visible_rollback,
+        "provider_visible_append_rollback": provider_visible_rollback,
     }
 
 
-def _reset_prompt_cache_baseline_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:
+def _reset_prefix_state_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:
     ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-    reset = getattr(ledger, "reset_prompt_cache_baseline", None)
+    reset = getattr(ledger, "reset_prefix_state", None)
     if callable(reset):
         reset(
-            request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{message_index}",
+            request_id=f"prefix-state-reset:session-truncate:{session_id}:{message_index}",
             session_id=session_id,
             reason="session_history_truncated",
             reset_ref=f"session:{session_id}:message_index:{message_index}",
@@ -1037,7 +1037,7 @@ def _rollback_physical_prefix_frame_after_session_truncate(
     )
 
 
-def _rollback_provider_visible_context_ledger_after_session_truncate(
+def _rollback_provider_visible_append_ledger_after_session_truncate(
     runtime: Any,
     *,
     session_id: str,
@@ -1048,7 +1048,7 @@ def _rollback_provider_visible_context_ledger_after_session_truncate(
     storage_root = getattr(runtime, "base_dir", None)
     if storage_root is None:
         storage_root = getattr(getattr(runtime, "harness_runtime", None), "root_dir", None)
-    return truncate_provider_visible_context_ledger_after_session_cutoff(
+    return truncate_provider_visible_append_ledger_after_session_cutoff(
         storage_root=storage_root,
         scope=session_id,
         kept_turn_ids=_kept_sealed_turn_ids_from_messages(kept_messages),
@@ -1107,6 +1107,11 @@ def _turn_memory_superseded_refs_after_edit_resend(
         if float(getattr(record, "created_at", 0.0) or 0.0) > cutoff_ts:
             continue
         if str(getattr(record, "status", "") or "") in {"released", "superseded"}:
+            continue
+        if (
+            str(getattr(record, "status", "") or "") == "terminal"
+            and str(getattr(record, "handoff_state", "") or "") == "interrupted_turn_memory_package"
+        ):
             continue
         refs.append(turn_id)
     return tuple(dict.fromkeys(refs))
