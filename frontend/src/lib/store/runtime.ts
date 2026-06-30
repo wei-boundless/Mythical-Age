@@ -1816,6 +1816,43 @@ export class WorkspaceRuntime {
     return this.visibleRuntimeProjectionCache.get(normalizedSessionId) ?? null;
   }
 
+  private visibleRuntimeProjectionSnapshotForRelease(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return null;
+    }
+    const pending = this.pendingVisibleStreamFlushes.get(normalizedSessionId);
+    const snapshot = pending
+      ? {
+          messages: pending.streamState.messages,
+          activeProjectionsByKey: pending.streamState.activeProjectionsByKey,
+          harnessTurnSnapshot: pending.streamState.harnessTurnSnapshot,
+          activeTurnSnapshot: pending.streamState.activeTurnSnapshot,
+        }
+      : this.streamingSessionCache.get(normalizedSessionId) ?? this.visibleRuntimeProjectionSnapshot(normalizedSessionId);
+    if (snapshot) {
+      this.rememberVisibleRuntimeProjection(normalizedSessionId, snapshot);
+    }
+    return snapshot;
+  }
+
+  private stateWithVisibleRuntimeProjectionSnapshot(
+    state: StoreState,
+    sessionId: string,
+    snapshot: Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot"> | null,
+  ): StoreState {
+    if (!snapshot || state.currentSessionId !== sessionId) {
+      return state;
+    }
+    return {
+      ...state,
+      messages: snapshot.messages,
+      activeProjectionsByKey: snapshot.activeProjectionsByKey,
+      harnessTurnSnapshot: snapshot.harnessTurnSnapshot,
+      activeTurnSnapshot: snapshot.activeTurnSnapshot,
+    };
+  }
+
   private visibleStreamInterruptSignalKey(sessionId: string) {
     return `${VISIBLE_STREAM_INTERRUPT_SIGNAL_KEY_PREFIX}${encodeURIComponent(String(sessionId || "").trim())}`;
   }
@@ -2057,6 +2094,8 @@ export class WorkspaceRuntime {
         void this.reattachChatRunForSession(sessionId).catch(() => undefined);
       }
     } catch (error) {
+      this.forgetQueuedVisibleUserInput(sessionId, messageId);
+      this.patchPendingVisibleStreamFlushWithQueuedInput(sessionId);
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: prev.currentSessionId === sessionId
@@ -2080,66 +2119,46 @@ export class WorkspaceRuntime {
   }
 
   private applyQueuedUserInputVisibleState(sessionId: string, content: string, messageId: string) {
-    const queuedMessage = this.queuedUserInputMessage(content, messageId);
-    const activityTitle = "已加入当前回合";
-    const activityDetail = "agent 下一次判断前会纳入这条补充。";
+    const queuedMessage = this.queuedUserInputMessage(
+      content,
+      messageId,
+      this.nextQueuedUserInputSourceIndex(sessionId),
+    );
     this.rememberQueuedVisibleUserInput(sessionId, queuedMessage);
     this.patchPendingVisibleStreamFlushWithQueuedInput(sessionId);
-    this.patchStreamingSessionCacheWithQueuedInput(sessionId);
     this.store.setState((prev) => {
-      const shouldPatchVisibleMessages = prev.currentSessionId === sessionId;
-      const alreadyVisible = prev.messages.some((message) => message.id === messageId);
-      const nextMessages = shouldPatchVisibleMessages
-        ? alreadyVisible
-          ? prev.messages.map((message) => message.id === messageId ? { ...message, content } : message)
-          : [...prev.messages, queuedMessage]
-        : prev.messages;
+      const queuedActivity = this.visibleQueuedUserInputActivity(sessionId);
       return {
         ...prev,
-        messages: nextMessages,
-        sessionActivity: prev.currentSessionId === sessionId
-          ? {
-              level: "running",
-              title: activityTitle,
-              detail: activityDetail,
-              event: "user_input_queued",
-              receipt: {
-                level: "running",
-                title: activityTitle,
-                body: activityDetail,
-                debug: { event: "user_input_queued" },
-              },
-              updatedAt: Date.now(),
-            }
+        sessionActivity: prev.currentSessionId === sessionId && queuedActivity
+          ? queuedActivity
           : prev.sessionActivity,
         sessionActivitiesById: {
           ...prev.sessionActivitiesById,
-          [sessionId]: {
-            level: "running",
-            title: activityTitle,
-            detail: activityDetail,
-            event: "user_input_queued",
-            receipt: {
-              level: "running",
-              title: activityTitle,
-              body: activityDetail,
-              debug: { event: "user_input_queued" },
-            },
-            updatedAt: Date.now(),
-          },
+          ...(queuedActivity ? { [sessionId]: queuedActivity } : {}),
         },
       };
     });
   }
 
-  private queuedUserInputMessage(content: string, messageId: string): Message {
+  private queuedUserInputMessage(content: string, messageId: string, sourceIndex?: number): Message {
     return {
       id: messageId,
       role: "user",
       content,
       toolCalls: [],
       retrievals: [],
+      sourceIndex,
     };
+  }
+
+  private nextQueuedUserInputSourceIndex(sessionId: string) {
+    const messageIndex = this.nextMessageSourceIndex(this.store.getState().messages);
+    const queuedIndex = this.queuedVisibleUserMessages(sessionId).reduce((max, message) => {
+      const sourceIndex = Number(message.sourceIndex ?? -1);
+      return Number.isFinite(sourceIndex) ? Math.max(max, Math.floor(sourceIndex) + 1) : max;
+    }, -1);
+    return Math.max(messageIndex, queuedIndex);
   }
 
   private rememberQueuedVisibleUserInput(sessionId: string, message: Message) {
@@ -2152,28 +2171,78 @@ export class WorkspaceRuntime {
     this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
   }
 
+  private forgetQueuedVisibleUserInput(sessionId: string, messageId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    const normalizedMessageId = String(messageId || "").trim();
+    if (!normalizedSessionId || !normalizedMessageId) {
+      return;
+    }
+    const existing = this.queuedVisibleUserInputsBySession.get(normalizedSessionId);
+    if (!existing) {
+      return;
+    }
+    existing.delete(normalizedMessageId);
+    if (existing.size) {
+      this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
+    } else {
+      this.queuedVisibleUserInputsBySession.delete(normalizedSessionId);
+    }
+  }
+
   private queuedVisibleUserMessages(sessionId: string) {
     return Array.from(this.queuedVisibleUserInputsBySession.get(sessionId)?.values() ?? []);
   }
 
-  private mergeQueuedVisibleUserInputs(sessionId: string, messages: Message[]) {
-    const queuedMessages = this.queuedVisibleUserMessages(sessionId);
-    if (!queuedMessages.length) {
-      return messages;
+  private promoteQueuedVisibleUserInputForProjectionFrame(
+    sessionId: string,
+    state: StoreState,
+    data: Record<string, unknown>,
+  ): StoreState {
+    const frame = projectionFrameFromRecord(data.public_projection_frame);
+    const anchor = frame?.anchor ?? {};
+    const turnId = runtimeText(anchor.turn_id);
+    if (!frame || !turnId) {
+      return state;
     }
-    const existingIds = new Set(messages.map((message) => message.id));
-    const merged = messages.map((message) => {
-      const queued = this.queuedVisibleUserInputsBySession.get(sessionId)?.get(message.id);
-      return queued && message.role === "user"
-        ? { ...message, content: queued.content, attachments: queued.attachments ?? message.attachments }
-        : message;
-    });
-    for (const queued of queuedMessages) {
-      if (!existingIds.has(queued.id)) {
-        merged.push(queued);
-      }
+    if (state.messages.some((message) => message.role === "user" && runtimeText(message.sourceTurnId) === turnId)) {
+      return state;
     }
-    return merged;
+    const queuedMessage = this.shiftQueuedVisibleUserInput(sessionId);
+    if (!queuedMessage) {
+      return state;
+    }
+    const promotedMessage: Message = {
+      ...queuedMessage,
+      sourceIndex: typeof queuedMessage.sourceIndex === "number"
+        ? queuedMessage.sourceIndex
+        : this.nextMessageSourceIndex(state.messages),
+      sourceTurnId: turnId,
+      sourceStreamRunId: queuedMessage.sourceStreamRunId || runtimeText(anchor.stream_run_id) || undefined,
+      sourceRunId: queuedMessage.sourceRunId || runtimeText(anchor.run_id) || undefined,
+      sourceTaskRunId: queuedMessage.sourceTaskRunId || runtimeText(anchor.task_run_id) || undefined,
+      sourceTurnRunId: queuedMessage.sourceTurnRunId || runtimeText(anchor.turn_run_id) || undefined,
+    };
+    const messages = state.messages.some((message) => message.id === promotedMessage.id)
+      ? state.messages.map((message) => message.id === promotedMessage.id ? { ...message, ...promotedMessage } : message)
+      : this.sortMessagesBySourceIndex([...state.messages, promotedMessage]);
+    return this.clearQueuedVisibleUserInputActivity(sessionId, { ...state, messages });
+  }
+
+  private shiftQueuedVisibleUserInput(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    const existing = this.queuedVisibleUserInputsBySession.get(normalizedSessionId);
+    const first = existing ? Array.from(existing.entries())[0] : undefined;
+    if (!existing || !first) {
+      return null;
+    }
+    const [messageId, message] = first;
+    existing.delete(messageId);
+    if (existing.size) {
+      this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
+    } else {
+      this.queuedVisibleUserInputsBySession.delete(normalizedSessionId);
+    }
+    return message;
   }
 
   private patchPendingVisibleStreamFlushWithQueuedInput(sessionId: string) {
@@ -2182,36 +2251,30 @@ export class WorkspaceRuntime {
       return;
     }
     const queuedActivity = this.visibleQueuedUserInputActivity(sessionId);
-    pending.streamState = {
-      ...pending.streamState,
-      messages: this.mergeQueuedVisibleUserInputs(sessionId, pending.streamState.messages),
-      sessionActivity: queuedActivity ?? pending.streamState.sessionActivity,
-      sessionActivitiesById: {
-        ...pending.streamState.sessionActivitiesById,
-        ...(queuedActivity
-          ? { [sessionId]: queuedActivity }
-          : {}),
-      },
-    };
-  }
-
-  private patchStreamingSessionCacheWithQueuedInput(sessionId: string) {
-    const cache = this.streamingSessionCache.get(sessionId);
-    if (!cache) {
-      return;
-    }
-    this.streamingSessionCache.set(sessionId, {
-      ...cache,
-      messages: this.mergeQueuedVisibleUserInputs(sessionId, cache.messages),
-    });
+    pending.streamState = queuedActivity
+      ? {
+          ...pending.streamState,
+          sessionActivity: queuedActivity,
+          sessionActivitiesById: {
+            ...pending.streamState.sessionActivitiesById,
+            [sessionId]: queuedActivity,
+          },
+        }
+      : this.clearQueuedVisibleUserInputActivity(sessionId, pending.streamState);
   }
 
   private visibleQueuedUserInputActivity(sessionId: string): StoreState["sessionActivity"] | null {
-    if (!this.queuedVisibleUserInputsBySession.get(sessionId)?.size) {
+    const queuedMessages = this.queuedVisibleUserMessages(sessionId);
+    if (!queuedMessages.length) {
       return null;
     }
-    const activityTitle = "已加入当前回合";
-    const activityDetail = "agent 下一次判断前会纳入这条补充。";
+    const latest = queuedMessages[queuedMessages.length - 1];
+    const moreCount = queuedMessages.length - 1;
+    const activityTitle = queuedMessages.length > 1
+      ? `${queuedMessages.length} 条补充要求排队中`
+      : "补充要求排队中";
+    const excerpt = runtimeText(latest?.content).replace(/\s+/g, " ").slice(0, 120);
+    const activityDetail = `${excerpt}${runtimeText(latest?.content).length > 120 ? "..." : ""}${moreCount ? `（另有 ${moreCount} 条）` : ""}`;
     return {
       level: "running",
       title: activityTitle,
@@ -2225,6 +2288,16 @@ export class WorkspaceRuntime {
       },
       updatedAt: Date.now(),
     };
+  }
+
+  private clearQueuedVisibleUserInputActivity(sessionId: string, state: StoreState): StoreState {
+    if (
+      state.sessionActivity.event !== "user_input_queued"
+      && state.sessionActivitiesById[sessionId]?.event !== "user_input_queued"
+    ) {
+      return state;
+    }
+    return this.clearSessionActivityFor(state, sessionId);
   }
 
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
@@ -2366,16 +2439,13 @@ export class WorkspaceRuntime {
       ? rebuildProjectionViews(streamState)
       : streamState;
     const visibleSessionId = String(latency?.sessionId || visibleStreamState.currentSessionId || this.store.getState().currentSessionId || "").trim();
-    const mergedMessages = visibleSessionId
-      ? this.mergeQueuedVisibleUserInputs(visibleSessionId, visibleStreamState.messages)
-      : visibleStreamState.messages;
     const queuedActivity = visibleSessionId ? this.visibleQueuedUserInputActivity(visibleSessionId) : null;
     const nextSessionActivity = queuedActivity && this.streamActivityCanKeepQueuedInputVisible(visibleStreamState.sessionActivity)
       ? queuedActivity
       : visibleStreamState.sessionActivity;
     this.store.setState((prev) => ({
       ...prev,
-      messages: mergedMessages,
+      messages: visibleStreamState.messages,
       activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
       harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
       activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -2394,7 +2464,7 @@ export class WorkspaceRuntime {
     }));
     if (latency?.sessionId) {
       this.streamingSessionCache.set(latency.sessionId, {
-        messages: mergedMessages,
+        messages: visibleStreamState.messages,
         activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
         harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
         activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -2407,7 +2477,7 @@ export class WorkspaceRuntime {
         this.clearVisibleStreamInterruptSignal(visibleSessionId);
       }
       this.rememberVisibleRuntimeProjection(visibleSessionId, {
-        messages: mergedMessages,
+        messages: visibleStreamState.messages,
         activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
         harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
         activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -3519,16 +3589,18 @@ export class WorkspaceRuntime {
   private releaseActiveChatStreamForSwitch(sessionId: string) {
     this.nextChatStreamEpoch(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
+    const snapshot = this.visibleRuntimeProjectionSnapshotForRelease(sessionId);
     this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
     this.streamAbortControllers.delete(sessionId);
-    const snapshot = this.streamingSessionCache.get(sessionId) ?? this.visibleRuntimeProjectionSnapshot(sessionId);
-    if (snapshot) {
-      this.rememberVisibleRuntimeProjection(sessionId, snapshot);
-    }
     this.streamingSessionCache.delete(sessionId);
     this.activeChatStreamBindings.delete(sessionId);
-    this.store.setState((prev) => this.removeActiveStreamSession(prev, sessionId));
+    this.store.setState((prev) =>
+      this.removeActiveStreamSession(
+        this.stateWithVisibleRuntimeProjectionSnapshot(prev, sessionId, snapshot),
+        sessionId,
+      )
+    );
   }
 
   private recordProjectionCommitAck(sessionId: string, data: Record<string, unknown>) {
@@ -3766,7 +3838,8 @@ export class WorkspaceRuntime {
               const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
                 ? this.store.getState()
                 : streamState;
-              const transition = reduceStreamEvent(baseState, transitionSession, event, data, { deferProjectionViewBuild });
+              const projectionBaseState = this.promoteQueuedVisibleUserInputForProjectionFrame(sessionId, baseState, data);
+              const transition = reduceStreamEvent(projectionBaseState, transitionSession, event, data, { deferProjectionViewBuild });
               this.recordProjectionCommitAck(sessionId, data);
               transitionSession = transition.session;
               const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
@@ -4129,7 +4202,8 @@ export class WorkspaceRuntime {
             const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
               ? this.store.getState()
               : streamState;
-            transition = reduceStreamEvent(baseState, transition.session, event, data, { deferProjectionViewBuild });
+            const projectionBaseState = this.promoteQueuedVisibleUserInputForProjectionFrame(sessionId, baseState, data);
+            transition = reduceStreamEvent(projectionBaseState, transition.session, event, data, { deferProjectionViewBuild });
             this.recordProjectionCommitAck(sessionId, data);
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
               ? this.store.getState().activeStreamSessionIds
@@ -4341,28 +4415,26 @@ export class WorkspaceRuntime {
     } else {
       this.removedStreamingSessionIds.add(normalizedSessionId);
     }
+    const snapshot = this.visibleRuntimeProjectionSnapshotForRelease(normalizedSessionId);
     this.clearPendingVisibleStreamFlush(normalizedSessionId);
     if (options.abortStream !== false) {
       this.streamAbortControllers.get(normalizedSessionId)?.abort();
       this.streamAbortControllers.delete(normalizedSessionId);
     }
     const streamBinding = this.activeChatStreamBindings.get(normalizedSessionId);
-    const snapshot = this.streamingSessionCache.get(normalizedSessionId) ?? this.visibleRuntimeProjectionSnapshot(normalizedSessionId);
     if (reason === "user_interrupted_for_resume") {
       this.rememberVisibleStreamInterruptSignal(normalizedSessionId, "user_interrupted_for_resume", {
         stream_run_id: streamBinding?.streamRunId,
         reason,
       });
     }
-    if (snapshot) {
-      this.rememberVisibleRuntimeProjection(normalizedSessionId, snapshot);
-    }
     this.streamingSessionCache.delete(normalizedSessionId);
     const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
     const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
     this.activeChatStreamBindings.delete(normalizedSessionId);
     this.store.setState((prev) => {
-      const detached = this.removeActiveStreamSession(prev, normalizedSessionId);
+      const projected = this.stateWithVisibleRuntimeProjectionSnapshot(prev, normalizedSessionId, snapshot);
+      const detached = this.removeActiveStreamSession(projected, normalizedSessionId);
       const nextState = options.connectionState === "stopped" && options.preserveActiveWorkContext !== true
         ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId)
         : detached;

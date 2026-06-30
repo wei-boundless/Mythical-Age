@@ -71,7 +71,6 @@ export function HealthSystemView() {
   } = useHealthSystemController();
   const {
     activeTokenBuckets,
-    cacheSavingsRatio,
     cacheSavingsTotal,
     cachedTokenTotal,
     efficiencyTasks,
@@ -316,9 +315,9 @@ export function HealthSystemView() {
             />
             <TokenStatCard
               accent="cache"
-              label="缓存节省"
-              value={tokenLabel(cacheSavingsTotal)}
-              detail={`${percentLabel(cacheSavingsRatio)} 节省率 · ${tokenLabel(cachedTokenTotal)} cached`}
+              label="缓存命中"
+              value={tokenLabel(cachedTokenTotal)}
+              detail={`${tokenLabel(cacheSavingsTotal)} 节省估算 · provider cached`}
             />
           </section>
 
@@ -339,7 +338,7 @@ export function HealthSystemView() {
               <span><b className="health-token-structure__trace" />旧估算 {traceEstimateTaskCount} 个</span>
               <span><b className="health-token-structure__missing" />无记录 {missingTokenTaskCount} 个</span>
             </div>
-            <p>宽度按运行记录数量计算，避免把预测、精确账单和缓存节省误加为同一笔成本。</p>
+            <p>宽度按运行记录数量计算，避免把预测、精确账单和缓存命中误加为同一笔成本。</p>
           </section>
 
           <section className="health-cost-grid">
@@ -384,14 +383,14 @@ export function HealthSystemView() {
                   <div className="health-token-table__head" role="row">
                     <span role="columnheader">{tokenChartBucketLabel}</span>
                     <span role="columnheader">有效消耗</span>
-                  <span role="columnheader">精确 / 预测 / 旧估算 / 缓存</span>
+                  <span role="columnheader">精确 / 预测 / 旧估算 / 命中</span>
                   </div>
                   {activeTokenBuckets.map((bucket) => {
                     const tokens = numberValue(bucket.tokens);
                     const exactTokens = numberValue(bucket.exact_tokens);
                     const predictedTokens = numberValue(bucket.predicted_tokens);
                     const traceTokens = numberValue(bucket.trace_estimate_tokens);
-                    const cacheTokens = numberValue(bucket.cache_savings_tokens);
+                    const cacheTokens = numberValue(bucket.cached_tokens ?? bucket.cache_savings_tokens);
                     return (
                       <div className="health-token-table__row" key={String(bucket.bucket)} role="row">
                         <span>{String(bucket.bucket)}</span>
@@ -532,7 +531,7 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
           const exact = numberValue(row.exact_token_total);
           const predicted = numberValue(row.predicted_token_total);
           const trace = numberValue(row.trace_estimate_token_total);
-          const cache = numberValue(row.cache_savings_tokens);
+          const cache = numberValue(row.cached_tokens ?? row.cache_savings_tokens);
           const effective = numberValue(row.token_total);
           return (
             <section className="health-token-task-row" key={`${String(row.task_run_id || index)}`}>
@@ -551,7 +550,7 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
                 <span>精确 <b>{tokenLabel(exact)}</b></span>
                 <span>预测 <b>{tokenLabel(predicted)}</b></span>
                 <span>旧估算 <b>{tokenLabel(trace)}</b></span>
-                <span>缓存 <b>{tokenLabel(cache)}</b></span>
+                <span>命中 <b>{tokenLabel(cache)}</b></span>
                 <span>风险 <b>{riskLabelValue(row.risk_level)}</b></span>
               </div>
             </section>
@@ -581,7 +580,7 @@ function TaskDetail({ task, detail, loading }: { task: HealthTaskRecord | null; 
             <Metric label="耗时" value={durationLabel(task.duration_seconds)} />
             <Metric label="精确 Token" value={tokenLabel(task.exact_token_total ?? 0)} />
             <Metric label="预测 Token" value={tokenLabel(task.predicted_token_total ?? 0)} />
-            <Metric label="缓存节省" value={tokenLabel(task.cache_savings_tokens ?? 0)} />
+            <Metric label="缓存命中" value={tokenLabel(task.cached_tokens ?? task.cache_savings_tokens ?? 0)} />
           </div>
           <section className="health-semantic-box">
             <span>任务记录</span>

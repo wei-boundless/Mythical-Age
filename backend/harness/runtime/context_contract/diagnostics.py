@@ -39,7 +39,17 @@ def diagnose_context_contract_manifest(
             issues.append(_issue(node, "missing_agent_domain", "Agent-visible context requires an explicit agent domain."))
         if visibility == "agent_visible" and not control_signal:
             issues.append(_issue(node, "missing_control_signal", "Agent-visible context requires an explicit control signal."))
+        if visibility == "agent_visible" and not physical_lane:
+            issues.append(_issue(node, "missing_physical_assembly_lane", "Agent-visible context must carry an assembler-written physical lane."))
         node_diagnostics = dict(node.get("diagnostics") or {})
+        if visibility == "agent_visible" and node_diagnostics.get("missing_physical_assembly_metadata") is True:
+            issues.append(
+                _issue(
+                    node,
+                    "missing_physical_assembly_metadata",
+                    "Agent-visible context must pass through physical_context_assembler before contract projection.",
+                )
+            )
         connection_contract_missing = (
             not str(node.get("connection_contract_ref") or "").strip()
             or node_diagnostics.get("missing_connection_contract") is True

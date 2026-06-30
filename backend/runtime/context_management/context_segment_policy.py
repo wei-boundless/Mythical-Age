@@ -169,12 +169,12 @@ def _install_builtin_policy_defaults() -> None:
         register_context_segment_policy_defaults(kind=declaration.kind, **defaults)
     register_context_segment_policy_defaults(
         kind="runtime_memory_context",
-        section=CONTEXT_MEMORY_PREFIX,
-        prefix_cache_scope="session",
-        prefix_cache_role="session_stable",
-        prefix_tier="session",
+        section=CONTEXT_APPEND,
+        prefix_cache_scope="none",
+        prefix_cache_role="volatile",
+        prefix_tier="volatile",
         commit_policy="append_then_seal",
-        replay_policy="physical_prefix_frame_replay",
+        replay_policy="current_append_commit_on_provider_success_then_next_physical_prefix_frame",
         identity_policy="origin_ref_stable",
     )
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():

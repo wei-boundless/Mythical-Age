@@ -3,23 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🏀 街头篮球 - 街机版</title>
+<title>🏀 街头篮球 - 3D 版</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   background: #1a1a2e;
   display: flex; justify-content: center; align-items: center;
   min-height: 100vh; font-family: 'Courier New', monospace;
+  overflow: hidden; user-select: none;
 }
 .game-wrapper {
-  background: #16213e; padding: 20px; border-radius: 16px;
+  background: #16213e; padding: 16px; border-radius: 16px;
   box-shadow: 0 0 40px rgba(0, 150, 255, 0.3), inset 0 0 20px rgba(0,0,0,0.5);
   border: 2px solid #0f3460;
 }
-canvas {
-  display: block; border-radius: 8px;
-  box-shadow: 0 0 20px rgba(255, 100, 0, 0.2);
-}
+canvas { display: block; border-radius: 8px; box-shadow: 0 0 20px rgba(255,100,0,0.2); }
 .controls {
   display: flex; justify-content: space-between; align-items: center;
   margin-top: 12px; color: #e0e0e0; font-size: 14px;
@@ -32,877 +30,581 @@ canvas {
 }
 .controls .key-group { display: inline-flex; align-items: center; gap: 6px; margin: 0 10px; }
 .title { color: #ff6b35; font-weight: bold; font-size: 16px; letter-spacing: 2px; }
+.loading-msg {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: #ff6b35; font-size: 18px; text-align: center; line-height: 1.8;
+}
+.loading-msg small { color: #888; font-size: 13px; display: block; }
 </style>
 </head>
 <body>
-<div class="game-wrapper">
+<div class="game-wrapper" style="position:relative">
   <canvas id="gameCanvas" width="800" height="550"></canvas>
+  <div class="loading-msg" id="loadingMsg">🏀 正在加载 3D 引擎...<small>首次加载需从 CDN 下载资源</small></div>
   <div class="controls">
-    <span class="title">🏀 街头篮球</span>
+    <span class="title">🏀 街头篮球 3D</span>
     <span>
-      <span class="key-group"><kbd>←</kbd><kbd>→</kbd> 移动</span>
-      <span class="key-group"><kbd>↑</kbd><kbd>Space</kbd> 跳跃</span>
+      <span class="key-group"><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> 移动</span>
+      <span class="key-group"><kbd>Space</kbd> 跳跃</span>
       <span class="key-group"><kbd>D</kbd> 投篮蓄力</span>
       <span class="key-group"><kbd>R</kbd> 重新开始</span>
     </span>
   </div>
 </div>
+
+<!-- 用 jsdelivr CDN，国内访问相对稳定 -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+
 <script>
+// 检测 Three.js 是否加载成功
+if (typeof THREE === 'undefined') {
+  document.getElementById('loadingMsg').innerHTML =
+    '❌ Three.js 加载失败<br><small>请检查网络连接，或尝试使用本地服务器打开此文件</small>';
+  throw new Error('Three.js failed to load');
+}
+
+// ======================== 基础设置 ========================
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
 const W = 800, H = 550;
+const ctx2d = canvas.getContext('2d');
 
-// ===== 游戏常量 =====
-const GROUND_Y = 460;
-const GRAVITY = 0.5;
-const PLAYER_SPEED = 3.5;
-const JUMP_FORCE = -10;
-const BALL_RADIUS = 10;
-const MAX_POWER = 14;
-const POWER_RATE = 0.15;
+document.getElementById('loadingMsg').style.display = 'none';
 
-// 篮筐与篮板位置
-const HOOP_X = 710;
-const HOOP_Y = 240;
-const HOOP_WIDTH = 42;
-const HOOP_RIM_RADIUS = 4;
-const BACKBOARD_X = 745;
-const BACKBOARD_TOP = 185;
-const BACKBOARD_BOTTOM = 295;
-const THREE_POINT_RADIUS = 200;
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    if (r > w/2) r = w/2; if (r > h/2) r = h/2;
+    this.moveTo(x+r, y); this.lineTo(x+w-r, y);
+    this.quadraticCurveTo(x+w, y, x+w, y+r);
+    this.lineTo(x+w, y+h-r); this.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+    this.lineTo(x+r, y+h); this.quadraticCurveTo(x, y+h, x, y+h-r);
+    this.lineTo(x, y+r); this.quadraticCurveTo(x, y, x+r, y);
+    return this;
+  };
+}
 
-// 游戏状态
-let gameState = 'playing'; // playing | celebrate | gameover
-let score = 0;
-let timeLeft = 60;
-let timer = 0;
-let celebrateTimer = 0;
-let particles = [];
-let scorePopups = [];
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a2e);
+scene.fog = new THREE.Fog(0x0a0a2e, 25, 45);
 
-// ===== 键盘输入 =====
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const camera = new THREE.PerspectiveCamera(40, W/H, 0.1, 100);
+camera.position.set(0, 14, 16);
+camera.lookAt(0, 0, 0);
+
+// ======================== 灯光 ========================
+scene.add(new THREE.AmbientLight(0x404070, 0.5));
+const dl = new THREE.DirectionalLight(0xffeedd, 1.0);
+dl.position.set(5, 18, 8); dl.castShadow = true;
+dl.shadow.mapSize.set(1024, 1024);
+dl.shadow.camera.near = 0.5; dl.shadow.camera.far = 35;
+dl.shadow.camera.left = -16; dl.shadow.camera.right = 16;
+dl.shadow.camera.top = 16; dl.shadow.camera.bottom = -16;
+scene.add(dl);
+const fl = new THREE.DirectionalLight(0x4488ff, 0.3);
+fl.position.set(-6, 6, -8); scene.add(fl);
+const rl = new THREE.DirectionalLight(0xff8844, 0.2);
+rl.position.set(0, 4, 10); scene.add(rl);
+
+// ======================== 游戏常量 ========================
+const COURT_W = 16, COURT_D = 12;
+const GROUND_Y = 0, GRAVITY = 0.35;
+const PLAYER_SPEED = 0.10;
+const JUMP_FORCE = 6.5;
+const BALL_R = 0.30;
+const POWER_RATE = 0.02;
+const HOOP_POS = new THREE.Vector3(7.0, 3.0, 0);
+const BACKBOARD_X = 8.0;
+const BACKBOARD_TOP = 1.8, BACKBOARD_BOTTOM = 4.2;
+const THREE_R = 5.0, LAYUP_D = 3.5, DUNK_D = 2.0;
+
+let gameState = 'playing';
+let score = 0, timeLeft = 60, timer = 0, celebrateTimer = 0;
+let particles = [], scorePopups = [];
+let shootCharging = false;
+const SHOOT_COOLDOWN = 25;
+
+// ======================== 键盘 ========================
 const keys = {};
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === 'r' || e.key === 'R') resetGame();
   if (e.key === 'd' || e.key === 'D') tryShoot();
+  if (e.key === ' ') e.preventDefault();
 });
 document.addEventListener('keyup', e => {
   keys[e.key] = false;
   if (e.key === 'd' || e.key === 'D') releaseShoot();
 });
 
-// ===== 玩家 =====
-const player = {
-  x: 200, y: GROUND_Y, w: 36, h: 54,
-  vx: 0, vy: 0,
-  onGround: true, facingRight: true,
-  isShooting: false, power: 0,
-  animFrame: 0, animTimer: 0,
-  shootCooldown: 0
-};
-
-// ===== AI 防守者 =====
-const defender = {
-  x: 450, y: GROUND_Y, w: 36, h: 54,
-  vx: 1.2, vy: 0, dir: 1,
-  onGround: true
-};
-
-// ===== 篮球 =====
-const ball = {
-  x: 0, y: 0, r: BALL_RADIUS,
-  vx: 0, vy: 0,
-  active: false, onGround: true,
-  trail: [], idleTimer: 0
-};
-
-// ===== 工具函数 =====
-function dist(x1, y1, x2, y2) {
-  return Math.sqrt((x1-x2)**2 + (y1-y2)**2);
+// ======================== 工具 ========================
+function dist3(x1,y1,z1, x2,y2,z2) {
+  return Math.sqrt((x1-x2)**2+(y1-y2)**2+(z1-z2)**2);
 }
+function rand(a,b) { return Math.random()*(b-a)+a; }
 
-function lerp(a, b, t) { return a + (b - a) * t; }
+// ======================== 球场 ========================
+function buildCourt() {
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(COURT_W, COURT_D),
+    new THREE.MeshStandardMaterial({ color: 0xc94c2e, roughness: 0.9 })
+  );
+  floor.rotation.x = -Math.PI/2;
+  floor.receiveShadow = true;
+  scene.add(floor);
 
-function rand(min, max) { return Math.random() * (max - min) + min; }
+  const lm = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+  const pts = [
+    [-COURT_W/2,0.01,-COURT_D/2],[COURT_W/2,0.01,-COURT_D/2],
+    [COURT_W/2,0.01,COURT_D/2],[-COURT_W/2,0.01,COURT_D/2],
+    [-COURT_W/2,0.01,-COURT_D/2]
+  ].map(p => new THREE.Vector3(p[0],p[1],p[2]));
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lm));
 
-// ===== 重置游戏 =====
-function resetGame() {
-  score = 0;
-  timeLeft = 60;
-  timer = 0;
-  gameState = 'playing';
-  particles = [];
-  scorePopups = [];
-  player.x = 200; player.y = GROUND_Y;
-  player.vx = 0; player.vy = 0;
-  player.onGround = true; player.isShooting = false;
-  player.power = 0; player.shootCooldown = 0;
-  ball.active = false;
-  ball.trail = [];
-  ball.idleTimer = 0;
-  defender.x = 450;
-  defendBounce();
-}
+  const mpts = [[0,0.01,-COURT_D/2],[0,0.01,COURT_D/2]]
+    .map(p => new THREE.Vector3(p[0],p[1],p[2]));
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(mpts), lm));
 
-// ===== 投篮逻辑 =====
-let shootCharging = false;
-const SHOOT_COOLDOWN = 25;
-
-function tryShoot() {
-  if (gameState !== 'playing') return;
-  if (player.shootCooldown > 0) return;
-  if (ball.active) return;
-  if (!shootCharging) {
-    shootCharging = true;
-    player.isShooting = true;
-    player.power = 0;
+  const am = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18 });
+  const apts = [];
+  for (let i = 0; i <= 28; i++) {
+    const a = -Math.PI*0.35 + (i/28)*Math.PI*0.7;
+    apts.push(new THREE.Vector3(
+      HOOP_POS.x + Math.cos(a)*THREE_R, 0.01, HOOP_POS.z + Math.sin(a)*THREE_R
+    ));
   }
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(apts), am));
+}
+
+// ======================== 篮筐 ========================
+function buildHoop() {
+  const g = new THREE.Group();
+
+  const bb = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3,2.4,1.3),
+    new THREE.MeshStandardMaterial({ color: 0xccccdd, transparent: true, opacity: 0.25, roughness: 0.3 })
+  );
+  bb.position.set(BACKBOARD_X, (BACKBOARD_TOP+BACKBOARD_BOTTOM)/2, 0);
+  bb.castShadow = true; g.add(bb);
+
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(0.3,2.4,1.3)),
+    new THREE.LineBasicMaterial({ color: 0xffffff })
+  );
+  edge.position.copy(bb.position); g.add(edge);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.45, 0.055, 8, 20),
+    new THREE.MeshStandardMaterial({ color: 0xff4444, roughness: 0.3, metalness: 0.4 })
+  );
+  ring.position.copy(HOOP_POS);
+  ring.rotation.x = Math.PI/2;
+  ring.castShadow = true; g.add(ring);
+
+  const net = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.40, 0.30, 0.5, 10, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, wireframe: true, side: THREE.DoubleSide })
+  );
+  net.position.set(HOOP_POS.x, HOOP_POS.y-0.25, HOOP_POS.z);
+  g.add(net);
+
+  const pm = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.7 });
+  for (const z of [-0.35, 0.35]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,3.3,4), pm);
+    pole.position.set(BACKBOARD_X-0.15, 1.7, z);
+    pole.rotation.z = 0.12; g.add(pole);
+  }
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5,0.3,1.4),
+    new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 })
+  );
+  base.position.set(BACKBOARD_X-0.3, 0.15, 0);
+  base.receiveShadow = true; g.add(base);
+  scene.add(g);
+}
+
+// ======================== 球员 ========================
+function makePlayer(isDefender) {
+  const g = new THREE.Group();
+  const bc = isDefender ? 0xe63946 : 0xff6b35;
+  const sc = isDefender ? 0xd4a373 : 0xe8b87a;
+  const pc = isDefender ? 0x1d3557 : 0x1a1a2e;
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.38,0.42,0.65,8), new THREE.MeshStandardMaterial({ color: bc, roughness: 0.6 }));
+  body.position.y = 0.75; body.castShadow = true; g.add(body);
+
+  const num = isDefender ? '21' : '23';
+  const cnv = document.createElement('canvas');
+  cnv.width = 32; cnv.height = 24;
+  const cx = cnv.getContext('2d');
+  cx.fillStyle = '#fff'; cx.font = 'bold 16px Arial'; cx.textAlign = 'center';
+  cx.fillText(num, 16, 18);
+  const tex = new THREE.CanvasTexture(cnv);
+  const numMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.18), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  numMesh.position.set(0, 0.75, 0.22); g.add(numMesh);
+
+  const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.38,0.28,8), new THREE.MeshStandardMaterial({ color: pc, roughness: 0.7 }));
+  pants.position.y = 0.32; g.add(pants);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28,10,10), new THREE.MeshStandardMaterial({ color: sc, roughness: 0.5 }));
+  head.position.y = 1.2; head.castShadow = true; g.add(head);
+
+  const hb = new THREE.Mesh(new THREE.TorusGeometry(0.28,0.04,5,10), new THREE.MeshStandardMaterial({ color: isDefender ? 0xe63946 : 0x1a1a2e }));
+  hb.position.y = 1.15; hb.rotation.x = Math.PI/2; g.add(hb);
+
+  const lg = new THREE.CylinderGeometry(0.07,0.09,0.3,5);
+  const lm = new THREE.MeshStandardMaterial({ color: sc });
+  const ll = new THREE.Mesh(lg, lm); ll.position.set(-0.12,0.15,0); g.add(ll);
+  const rl = new THREE.Mesh(lg, lm); rl.position.set(0.12,0.15,0); g.add(rl);
+
+  const sg = new THREE.BoxGeometry(0.1,0.05,0.18);
+  const sm = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+  const ls = new THREE.Mesh(sg, sm); ls.position.set(-0.12,0.025,0.02); g.add(ls);
+  const rs = new THREE.Mesh(sg, sm); rs.position.set(0.12,0.025,0.02); g.add(rs);
+
+  const ag = new THREE.CylinderGeometry(0.05,0.06,0.3,5);
+  const am = new THREE.MeshStandardMaterial({ color: sc });
+  const la = new THREE.Mesh(ag, am); la.position.set(-0.42,0.8,0); la.rotation.z = 0.35; g.add(la);
+
+  const ra = new THREE.Mesh(ag, am);
+  ra.position.set(0.42,0.8,0); ra.rotation.z = -0.35; g.add(ra);
+  g.userData.rightArm = ra;
+  return g;
+}
+
+// ======================== 游戏对象 ========================
+const player = {
+  x:-3, z:0, y:GROUND_Y, vx:0, vy:0, vz:0,
+  onGround:true, isShooting:false, power:0, shootCooldown:0,
+  mesh:null
+};
+const defender = {
+  x:2, z:0, y:GROUND_Y, vx:0, vy:0, vz:0,
+  dir:1, onGround:true, mesh:null
+};
+const ball = {
+  x:0, y:0, z:0, vx:0, vy:0, vz:0,
+  active:false, onGround:true, trail:[], idleTimer:0, shotType:'jump', mesh:null
+};
+
+// ======================== 重置 ========================
+function resetGame() {
+  score=0; timeLeft=60; timer=0; gameState='playing';
+  particles=[]; scorePopups=[];
+  player.x=-3; player.z=0; player.y=GROUND_Y;
+  player.vx=0; player.vy=0; player.vz=0;
+  player.onGround=true; player.isShooting=false; player.power=0; player.shootCooldown=0;
+  ball.active=false; ball.trail=[]; ball.idleTimer=0;
+  defender.x=2; defender.z=0; defender.dir=1;
+  defender.vx=0; defender.vy=0;
+  if (player.mesh) player.mesh.position.set(player.x, player.y, player.z);
+  if (defender.mesh) defender.mesh.position.set(defender.x, defender.y, defender.z);
+  if (ball.mesh) ball.mesh.visible = false;
+}
+
+// ======================== 投篮 ========================
+function tryShoot() {
+  if (gameState !== 'playing' || player.shootCooldown > 0 || ball.active || shootCharging) return;
+  shootCharging = true;
+  player.isShooting = true;
+  player.power = 0;
 }
 
 function releaseShoot() {
   if (!shootCharging) return;
   shootCharging = false;
-  if (player.power < 0.3) {
-    player.isShooting = false;
-    player.power = 0;
-    return;
-  }
-  // 出手！
+  if (player.power < 0.3) { player.isShooting = false; player.power = 0; return; }
+
+  const dx = Math.abs(HOOP_POS.x - player.x);
+  const dz = Math.abs(HOOP_POS.z - player.z);
+  const dh = Math.sqrt(dx*dx + dz*dz);
   const power = Math.min(player.power, 1.0);
-  const angleOffset = rand(-0.06, 0.06);
-  // 根据距离篮筐调整角度
-  const dx = HOOP_X - player.x;
-  const dy = (HOOP_Y - 20) - (player.y - player.h/2);
-  const baseAngle = Math.atan2(dy, dx);
-  const angle = baseAngle + angleOffset;
-  const force = power * MAX_POWER;
-  ball.x = player.x + (player.facingRight ? 15 : -15);
-  ball.y = player.y - player.h / 2 - 5;
-  ball.vx = Math.cos(angle) * force;
-  ball.vy = Math.sin(angle) * force - 2; // 额外向上的弧度
-  ball.active = true;
-  ball.trail = [];
-  player.isShooting = false;
-  player.power = 0;
+
+  if (dh < DUNK_D && player.onGround) dunk(power);
+  else if (dh < LAYUP_D) layup(power, dx, dz);
+  else jumpshot(power, dx, dz);
+
+  player.isShooting = false; player.power = 0;
   player.shootCooldown = SHOOT_COOLDOWN;
 }
 
-// ===== 物理更新 =====
+function jumpshot(power, dx, dz) {
+  const dh = Math.sqrt(dx*dx + dz*dz);
+  const angle = -1.00 - Math.min(dh, 8)*0.008;
+  const sinA = Math.sin(angle), cosA = Math.cos(angle);
+
+  ball.x = player.x; ball.y = player.y + 1.4; ball.z = player.z;
+  const hd = Math.max(0.1, dist3(ball.x,0,ball.z, HOOP_POS.x,0,HOOP_POS.z));
+  const dy = HOOP_POS.y - ball.y;
+  const tanA = sinA/cosA;
+  const denom = 2*cosA*cosA*(dy - hd*tanA);
+  const neededV = denom > 0.01 ? Math.sqrt((GRAVITY*hd*hd)/denom) : 22;
+
+  const force = neededV * (0.45 + power*0.65);
+  const a2h = Math.atan2(HOOP_POS.x - ball.x, HOOP_POS.z - ball.z);
+  const hs = cosA*force;
+  ball.vx = Math.sin(a2h)*hs; ball.vz = Math.cos(a2h)*hs;
+  ball.vy = sinA*force;
+  ball.active = true; ball.trail = []; ball.shotType = 'jump'; ball.mesh.visible = true;
+}
+
+function layup(power, dx, dz) {
+  const angle = -1.22, sinA=Math.sin(angle), cosA=Math.cos(angle);
+  ball.x = player.x; ball.y = player.y + 1.8; ball.z = player.z;
+  ball.shotType = 'layup';
+  const hd = Math.max(0.1, dist3(ball.x,0,ball.z, HOOP_POS.x,0,HOOP_POS.z));
+  const dy = HOOP_POS.y - ball.y;
+  const tanA = sinA/cosA;
+  const denom = 2*cosA*cosA*(dy - hd*tanA);
+  const neededV = denom > 0.01 ? Math.sqrt((GRAVITY*hd*hd)/denom) : 16;
+  const force = neededV*(0.7 + power*0.3);
+  const a2h = Math.atan2(HOOP_POS.x - ball.x, HOOP_POS.z - ball.z);
+  const hs = cosA*force;
+  ball.vx = Math.sin(a2h)*hs + rand(-0.1,0.1);
+  ball.vz = Math.cos(a2h)*hs + rand(-0.1,0.1);
+  ball.vy = sinA*force + rand(-0.2,0.2);
+  ball.active = true; ball.trail = []; ball.mesh.visible = true;
+  spawnParticles(ball.x, ball.y, ball.z, 0x00ff88, 6);
+}
+
+function dunk(power) {
+  ball.x = HOOP_POS.x + rand(-0.15,0.15);
+  ball.y = HOOP_POS.y - 0.2;
+  ball.z = HOOP_POS.z + rand(-0.15,0.15);
+  ball.vx = rand(-0.1,0.1); ball.vy = 0.4; ball.vz = rand(-0.1,0.1);
+  ball.shotType = 'dunk';
+  score += 2; ball.active = false;
+  ball.trail = []; ball.mesh.visible = false;
+  gameState = 'celebrate'; celebrateTimer = 70;
+  for (let i=0;i<50;i++) spawnParticles(HOOP_POS.x+rand(-0.5,0.5), HOOP_POS.y+rand(-0.4,0.4), HOOP_POS.z+rand(-0.5,0.5),
+    [0xff6b35,0xffd700,0xff4500,0xff0000,0xffffff,0x00ff88][Math.floor(Math.random()*6)], 30);
+  scorePopups.push({x:HOOP_POS.x,z:HOOP_POS.z,y:HOOP_POS.y+0.5,text:'💥 暴力扣篮！+2分！',life:100,vy:0.025,color:'#ff0000'});
+}
+
+// ======================== 物理更新 ========================
 function updatePlayer() {
   if (gameState === 'gameover') return;
+  player.vx = 0; player.vz = 0;
 
-  // 移动
-  player.vx = 0;
-  if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
-    player.vx = -PLAYER_SPEED;
-    player.facingRight = false;
-  }
-  if (keys['ArrowRight']) {
-    player.vx = PLAYER_SPEED;
-    player.facingRight = true;
-  }
+  if (keys['ArrowLeft']||keys['a']||keys['A']) player.vx = -PLAYER_SPEED;
+  if (keys['ArrowRight']) player.vx = PLAYER_SPEED;
+  if (keys['ArrowUp']||keys['w']||keys['W']) player.vz = -PLAYER_SPEED;
+  if (keys['ArrowDown']||keys['s']||keys['S']) player.vz = PLAYER_SPEED;
 
-  // 跳跃
-  if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
-    player.vy = JUMP_FORCE;
-    player.onGround = false;
-  }
+  if (keys[' '] && player.onGround) { player.vy = JUMP_FORCE; player.onGround = false; }
+  if (!player.onGround) player.vy -= GRAVITY;
 
-  // 重力
-  if (!player.onGround) {
-    player.vy += GRAVITY;
-  }
+  player.x += player.vx; player.z += player.vz; player.y += player.vy;
+  player.x = Math.max(-COURT_W/2+0.5, Math.min(COURT_W/2-0.5, player.x));
+  player.z = Math.max(-COURT_D/2+0.5, Math.min(COURT_D/2-0.5, player.z));
+  if (player.y <= GROUND_Y) { player.y = GROUND_Y; player.vy = 0; player.onGround = true; }
 
-  player.x += player.vx;
-  player.y += player.vy;
-  player.x = Math.max(20, Math.min(W - 20, player.x));
-
-  // 地面碰撞
-  if (player.y >= GROUND_Y) {
-    player.y = GROUND_Y;
-    player.vy = 0;
-    player.onGround = true;
-  }
-
-  // 蓄力更新
-  if (player.isShooting) {
-    player.power = Math.min(1.0, player.power + POWER_RATE);
-  }
-
+  if (player.isShooting) player.power = Math.min(1.0, player.power + POWER_RATE);
   if (player.shootCooldown > 0) player.shootCooldown--;
 
-  // 动画
-  if (Math.abs(player.vx) > 0 && player.onGround) {
-    player.animTimer++;
-    if (player.animTimer > 8) {
-      player.animTimer = 0;
-      player.animFrame = (player.animFrame + 1) % 4;
-    }
-  } else if (player.onGround) {
-    player.animFrame = 0;
-    player.animTimer = 0;
+  if (Math.abs(player.vx)>0.001||Math.abs(player.vz)>0.001) {
+    player.mesh.rotation.y = -Math.atan2(player.vz, player.vx) + Math.PI/2;
+  } else {
+    player.mesh.rotation.y = Math.atan2(HOOP_POS.x - player.x, HOOP_POS.z - player.z);
+  }
+  player.mesh.position.set(player.x, player.y, player.z);
+
+  if (player.mesh.userData.rightArm) {
+    player.mesh.userData.rightArm.rotation.z = player.isShooting ? -1.0 - player.power*0.8 : -0.35;
   }
 }
 
 function updateDefender() {
   if (gameState === 'gameover') return;
-  defender.x += defender.vx * defender.dir;
-  // 在球场上巡游
-  if (defender.x > 560) { defender.dir = -1; }
-  if (defender.x < 300) { defender.dir = 1; }
-  // 简单跳跃（偶尔随机跳）
-  if (defender.onGround && Math.random() < 0.01) {
-    defender.vy = JUMP_FORCE * 0.8;
-    defender.onGround = false;
-  }
-  if (!defender.onGround) {
-    defender.vy += GRAVITY;
-  }
+  defender.x += defender.dir * 0.035;
+  if (defender.x > 3.5) defender.dir = -1;
+  if (defender.x < 0) defender.dir = 1;
+  if (defender.onGround && Math.random() < 0.008) { defender.vy = JUMP_FORCE*0.7; defender.onGround = false; }
+  if (!defender.onGround) defender.vy -= GRAVITY;
   defender.y += defender.vy;
-  if (defender.y >= GROUND_Y) {
-    defender.y = GROUND_Y;
-    defender.vy = 0;
-    defender.onGround = true;
-  }
-}
-
-function defendBounce() {
-  if (defender.x > 560) defender.dir = -1;
-  if (defender.x < 300) defender.dir = 1;
+  if (defender.y <= GROUND_Y) { defender.y = GROUND_Y; defender.vy = 0; defender.onGround = true; }
+  defender.mesh.position.set(defender.x, defender.y, defender.z);
+  defender.mesh.rotation.y = Math.atan2(HOOP_POS.x - defender.x, HOOP_POS.z - defender.z);
 }
 
 function updateBall() {
   if (!ball.active) return;
-
-  // 保存轨迹
-  ball.trail.push({x: ball.x, y: ball.y});
-  if (ball.trail.length > 12) ball.trail.shift();
-
-  // 重力
-  ball.vy += GRAVITY;
-
-  ball.x += ball.vx;
-  ball.y += ball.vy;
-
-  // 空气阻力（轻微）
-  ball.vx *= 0.998;
-
-  // 篮筐碰撞检测 - 从上方穿过篮筐区域
+  ball.trail.push({x:ball.x,y:ball.y,z:ball.z});
+  if (ball.trail.length > 10) ball.trail.shift();
+  ball.vy -= GRAVITY;
+  ball.x += ball.vx; ball.y += ball.vy; ball.z += ball.vz;
+  ball.vx *= 0.997; ball.vz *= 0.997;
   checkScore();
 
-  // 篮板碰撞
-  if (ball.x + ball.r > BACKBOARD_X && ball.y > BACKBOARD_TOP && ball.y < BACKBOARD_BOTTOM) {
-    ball.x = BACKBOARD_X - ball.r;
-    ball.vx *= -0.6;
-    spawnParticles(ball.x, ball.y, '#ffffff', 5);
+  if (ball.x > BACKBOARD_X-0.15 && ball.y > BACKBOARD_TOP && ball.y < BACKBOARD_BOTTOM && Math.abs(ball.z) < 0.65) {
+    ball.x = BACKBOARD_X-0.15; ball.vx *= -0.6;
+    spawnParticles(ball.x,ball.y,ball.z,0xffffff,5);
   }
 
-  // 篮筐左右柱碰撞
-  const rimLeftX = HOOP_X - HOOP_WIDTH/2;
-  const rimRightX = HOOP_X + HOOP_WIDTH/2;
-  const rimY = HOOP_Y;
-
-  // 左柱
-  if (dist(ball.x, ball.y, rimLeftX, rimY) < ball.r + HOOP_RIM_RADIUS) {
-    const angle = Math.atan2(ball.y - rimY, ball.x - rimLeftX);
-    ball.vx = Math.cos(angle) * 4;
-    ball.vy = Math.sin(angle) * 4;
-    ball.x = rimLeftX + Math.cos(angle) * (ball.r + HOOP_RIM_RADIUS + 1);
-    ball.y = rimY + Math.sin(angle) * (ball.r + HOOP_RIM_RADIUS + 1);
-    spawnParticles(ball.x, ball.y, '#ff6b35', 4);
-  }
-  // 右柱
-  if (dist(ball.x, ball.y, rimRightX, rimY) < ball.r + HOOP_RIM_RADIUS) {
-    const angle = Math.atan2(ball.y - rimY, ball.x - rimRightX);
-    ball.vx = Math.cos(angle) * 4;
-    ball.vy = Math.sin(angle) * 4;
-    ball.x = rimRightX + Math.cos(angle) * (ball.r + HOOP_RIM_RADIUS + 1);
-    ball.y = rimY + Math.sin(angle) * (ball.r + HOOP_RIM_RADIUS + 1);
-    spawnParticles(ball.x, ball.y, '#ff6b35', 4);
+  const bdx=ball.x-HOOP_POS.x, bdz=ball.z-HOOP_POS.z, bdh=Math.sqrt(bdx*bdx+bdz*bdz);
+  if (Math.abs(bdh-0.45)<BALL_R+0.04 && ball.y>HOOP_POS.y-0.1 && ball.y<HOOP_POS.y+0.1) {
+    const ba=Math.atan2(bdz,bdx);
+    ball.vx=Math.cos(ba)*1.5; ball.vz=Math.sin(ba)*1.5; ball.vy=1.5;
+    spawnParticles(ball.x,ball.y,ball.z,0xff6b35,4);
   }
 
-  // 墙壁碰撞
-  if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx *= -0.6; }
-  if (ball.x + ball.r > W) { ball.x = W - ball.r; ball.vx *= -0.6; }
-
-  // 地面碰撞
-  if (ball.y + ball.r > GROUND_Y) {
-    ball.y = GROUND_Y - ball.r;
-    ball.vy *= -0.55;
-    ball.vx *= 0.85;
-    if (Math.abs(ball.vy) < 0.5) {
-      ball.vy = 0;
-      ball.onGround = true;
-    }
-    if (ball.onGround && Math.abs(ball.vx) < 0.1 && Math.abs(ball.vy) < 0.1) {
+  if (ball.y-BALL_R <= GROUND_Y) {
+    ball.y = GROUND_Y+BALL_R; ball.vy*=-0.5; ball.vx*=0.85; ball.vz*=0.85;
+    if (Math.abs(ball.vy)<0.3) { ball.vy=0; ball.onGround=true; }
+    if (ball.onGround&&Math.abs(ball.vx)<0.05&&Math.abs(ball.vz)<0.05&&Math.abs(ball.vy)<0.1) {
       ball.idleTimer++;
-      if (ball.idleTimer > 120) {
-        ball.active = false;
-        ball.trail = [];
-        ball.idleTimer = 0;
-      }
-    } else {
-      ball.idleTimer = 0;
-    }
+      if (ball.idleTimer>120) { ball.active=false; ball.trail=[]; ball.idleTimer=0; ball.mesh.visible=false; }
+    } else ball.idleTimer=0;
   }
 
-  // 如果球出界或静止太久
-  if (ball.y > H + 50 || (ball.onGround && ball.x > W - 20)) {
-    ball.active = false;
-    ball.trail = [];
-  }
+  if (Math.abs(ball.x)>COURT_W/2){ball.vx*=-0.6;ball.x=Math.sign(ball.x)*(COURT_W/2-BALL_R);}
+  if (Math.abs(ball.z)>COURT_D/2){ball.vz*=-0.6;ball.z=Math.sign(ball.z)*(COURT_D/2-BALL_R);}
+  if (ball.y<-5){ball.active=false;ball.trail=[];ball.mesh.visible=false;}
+  ball.mesh.position.set(ball.x,ball.y,ball.z);
 }
 
 function checkScore() {
-  // 检测篮球是否从上方穿过篮筐
-  const rimLeft = HOOP_X - HOOP_WIDTH/2 + 8;
-  const rimRight = HOOP_X + HOOP_WIDTH/2 - 8;
-
-  if (ball.x > rimLeft && ball.x < rimRight &&
-      ball.y > HOOP_Y - 5 && ball.y < HOOP_Y + 15 &&
-      ball.vy > 0) {
-    // 进球！
-    const distToHoop = dist(player.x, player.y, HOOP_X, HOOP_Y);
-    const points = distToHoop > THREE_POINT_RADIUS ? 3 : 2;
-    score += points;
-    ball.active = false;
-    ball.trail = [];
-    ball.idleTimer = 0;
-    gameState = 'celebrate';
-    celebrateTimer = 60;
-    // 进球特效
-    for (let i = 0; i < 30; i++) {
-      spawnParticles(
-        HOOP_X + rand(-30, 30),
-        HOOP_Y + rand(-20, 20),
-        ['#ff6b35', '#ffd700', '#ff4500', '#ffffff'][Math.floor(Math.random()*4)],
-        20
-      );
-    }
-    // 得分弹出
-    scorePopups.push({
-      x: HOOP_X, y: HOOP_Y - 40,
-      text: '+' + points + '分！',
-      life: 80, vy: -2,
-      color: points === 3 ? '#ffd700' : '#00ff88'
-    });
+  const dx=ball.x-HOOP_POS.x,dz=ball.z-HOOP_POS.z,dh=Math.sqrt(dx*dx+dz*dz);
+  if (dh<0.35&&ball.y>HOOP_POS.y-0.15&&ball.y<HOOP_POS.y+0.3&&ball.vy<0) {
+    const dd=dist3(player.x,player.y,player.z,HOOP_POS.x,HOOP_POS.y,HOOP_POS.z);
+    const pts=dd>THREE_R?3:2; score+=pts;
+    ball.active=false;ball.trail=[];ball.idleTimer=0;ball.mesh.visible=false;
+    gameState='celebrate';celebrateTimer=55;
+    for(let i=0;i<30;i++) spawnParticles(HOOP_POS.x+rand(-0.3,0.3),HOOP_POS.y+rand(-0.2,0.2),HOOP_POS.z+rand(-0.3,0.3),
+      [0xff6b35,0xffd700,0xff4500,0xffffff][Math.floor(Math.random()*4)],20);
+    scorePopups.push({x:HOOP_POS.x,z:HOOP_POS.z,y:HOOP_POS.y+0.5,text:'+'+pts+'分！',life:80,vy:0.02,color:pts===3?'#ffd700':'#00ff88'});
   }
 }
 
-// ===== 粒子系统 =====
-function spawnParticles(x, y, color, count) {
-  for (let i = 0; i < count; i++) {
-    particles.push({
-      x, y,
-      vx: rand(-4, 4), vy: rand(-5, 2),
-      life: rand(20, 50),
-      maxLife: 50,
-      color,
-      size: rand(2, 5)
-    });
-  }
+// ======================== 粒子 ========================
+function spawnParticles(x,y,z,color,count) {
+  for(let i=0;i<count;i++) particles.push({x,y,z,vx:rand(-0.06,0.06),vy:rand(0.02,0.08),vz:rand(-0.06,0.06),life:rand(20,50),maxLife:50,color,size:rand(0.04,0.1),mesh:null});
 }
 
 function updateParticles() {
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vy += 0.1;
-    p.life--;
-    if (p.life <= 0) particles.splice(i, 1);
+  for(let i=particles.length-1;i>=0;i--) {
+    const p=particles[i]; p.x+=p.vx;p.y+=p.vy;p.z+=p.vz;p.vy-=0.002;p.life--;
+    if(p.life<=0){if(p.mesh)scene.remove(p.mesh);particles.splice(i,1);}
+    else if(p.mesh){p.mesh.position.set(p.x,p.y,p.z);p.mesh.material.opacity=p.life/p.maxLife;}
   }
-  for (let i = scorePopups.length - 1; i >= 0; i--) {
-    const s = scorePopups[i];
-    s.y += s.vy;
-    s.vy *= 0.98;
-    s.life--;
-    if (s.life <= 0) scorePopups.splice(i, 1);
+  for(const p of particles) {
+    if(!p.mesh){
+      p.mesh=new THREE.Mesh(new THREE.SphereGeometry(p.size,4,4),new THREE.MeshBasicMaterial({color:p.color,transparent:true,opacity:p.life/p.maxLife}));
+      p.mesh.position.set(p.x,p.y,p.z);scene.add(p.mesh);
+    }
+  }
+  for(let i=scorePopups.length-1;i>=0;i--){
+    const s=scorePopups[i];s.y+=s.vy;s.vy*=0.98;s.life--;
+    if(s.life<=0)scorePopups.splice(i,1);
   }
 }
 
-// ===== 计时器 =====
 function updateTimer() {
-  if (gameState === 'gameover') return;
-  if (gameState === 'celebrate') return;
-
-  timer++;
-  if (timer >= 60) { // 大约 1 秒
-    timer = 0;
-    timeLeft--;
-    if (timeLeft <= 0) {
-      timeLeft = 0;
-      gameState = 'gameover';
-    }
-  }
+  if(gameState==='gameover'||gameState==='celebrate')return;
+  timer++;if(timer>=60){timer=0;timeLeft--;if(timeLeft<=0){timeLeft=0;gameState='gameover';}}
 }
 
-// ===== 游戏主更新 =====
 function update() {
-  if (gameState === 'celebrate') {
-    celebrateTimer--;
-    updateParticles();
-    if (celebrateTimer <= 0) {
-      gameState = 'playing';
+  if(gameState==='celebrate'){celebrateTimer--;updateParticles();if(celebrateTimer<=0)gameState='playing';return;}
+  if(gameState==='gameover'){updateParticles();return;}
+  updatePlayer();updateDefender();updateBall();updateTimer();updateParticles();
+}
+
+// ======================== 2D UI 覆盖 ========================
+function drawUI2D() {
+  ctx2d.save(); ctx2d.clearRect(0,0,W,H);
+
+  ctx2d.fillStyle='rgba(0,0,0,0.6)';ctx2d.beginPath();ctx2d.roundRect(20,15,150,52,8);ctx2d.fill();
+  ctx2d.fillStyle='#ff6b35';ctx2d.font='bold 14px "Courier New",monospace';ctx2d.textAlign='left';ctx2d.fillText('🏀 得分',32,37);
+  ctx2d.fillStyle='#fff';ctx2d.font='bold 30px "Courier New",monospace';ctx2d.fillText(score.toString(),35,62);
+
+  ctx2d.fillStyle='rgba(0,0,0,0.6)';ctx2d.beginPath();ctx2d.roundRect(W-135,15,115,52,8);ctx2d.fill();
+  ctx2d.fillStyle=timeLeft<=10?'#ff4444':'#00ff88';ctx2d.font='bold 13px "Courier New",monospace';ctx2d.textAlign='right';ctx2d.fillText('⏱ 剩余时间',W-25,37);
+  ctx2d.fillStyle=timeLeft<=10?'#ff4444':'#fff';ctx2d.font='bold 30px "Courier New",monospace';ctx2d.textAlign='center';ctx2d.fillText(Math.floor(timeLeft)+'s',W-78,62);
+
+  if(ball.active||player.isShooting){
+    const dd=dist3(player.x,player.y,player.z,HOOP_POS.x,HOOP_POS.y,HOOP_POS.z),is3=dd>THREE_R;
+    ctx2d.fillStyle='rgba(0,0,0,0.5)';ctx2d.beginPath();ctx2d.roundRect(20,78,80,26,6);ctx2d.fill();
+    ctx2d.fillStyle=is3?'#ffd700':'#00ff88';ctx2d.font='bold 13px "Courier New",monospace';ctx2d.textAlign='left';ctx2d.fillText(is3?'🎯 三分区':'🎯 两分区',28,96);
+    if(ball.active){
+      const mt=ball.shotType==='layup'?'🏃 上篮':ball.shotType==='dunk'?'💥 扣篮':'🏀 跳投';
+      const mc=ball.shotType==='layup'?'#00ff88':ball.shotType==='dunk'?'#ff4444':'#ffd700';
+      ctx2d.fillStyle='rgba(0,0,0,0.5)';ctx2d.beginPath();ctx2d.roundRect(20,108,80,24,6);ctx2d.fill();
+      ctx2d.fillStyle=mc;ctx2d.font='bold 12px "Courier New",monospace';ctx2d.textAlign='left';ctx2d.fillText(mt,28,125);
     }
-    return;
   }
 
-  if (gameState === 'gameover') {
-    updateParticles();
-    return;
+  for(const s of scorePopups){
+    const v=new THREE.Vector3(s.x,s.y,s.z).project(camera),sx=(v.x*0.5+0.5)*W,sy=(-v.y*0.5+0.5)*H;
+    ctx2d.globalAlpha=Math.min(1,s.life/40);ctx2d.fillStyle=s.color;ctx2d.font='bold 26px "Courier New",monospace';ctx2d.textAlign='center';ctx2d.fillText(s.text,sx,sy);ctx2d.globalAlpha=1;
   }
 
-  updatePlayer();
-  updateDefender();
-  updateBall();
-  updateTimer();
-  updateParticles();
+  if(player.isShooting&&player.power>0){
+    const v=new THREE.Vector3(player.x,player.y+2.0,player.z).project(camera),bx=(v.x*0.5+0.5)*W,by=(-v.y*0.5+0.5)*H;
+    ctx2d.fillStyle='rgba(0,0,0,0.6)';ctx2d.fillRect(bx-30,by-1,62,10);
+    const pct=Math.min(player.power,1.0);ctx2d.fillStyle=pct<0.5?'#00ff88':pct<0.8?'#ffd700':'#ff4444';ctx2d.fillRect(bx-29,by,58*pct,8);
+  }
+
+  if(gameState==='gameover'){
+    ctx2d.fillStyle='rgba(0,0,0,0.75)';ctx2d.fillRect(0,0,W,H);
+    ctx2d.fillStyle='#ff6b35';ctx2d.font='bold 52px "Courier New",monospace';ctx2d.textAlign='center';ctx2d.fillText('🏀 比赛结束',W/2,185);
+    ctx2d.fillStyle='#fff';ctx2d.font='bold 26px "Courier New",monospace';ctx2d.fillText('最终得分',W/2,255);
+    ctx2d.fillStyle='#ffd700';ctx2d.font='bold 68px "Courier New",monospace';ctx2d.fillText(score.toString(),W/2,345);
+    ctx2d.fillStyle='#aaa';ctx2d.font='18px "Courier New",monospace';ctx2d.fillText('按 R 键重新开局',W/2,420);
+  }
+  ctx2d.restore();
 }
 
-// ===== 绘制函数 =====
-
-function drawCourt() {
-  // 背景 - 都市夜景
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#0a0a2e');
-  grad.addColorStop(0.4, '#1a1a4e');
-  grad.addColorStop(1, '#2a1a3e');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  // 背景建筑剪影
-  ctx.fillStyle = 'rgba(20, 20, 50, 0.6)';
-  for (let i = 0; i < 8; i++) {
-    const bx = i * 110 + 15;
-    const bw = 70 + Math.sin(i * 2.5) * 25;
-    const bh = 100 + Math.sin(i * 1.7) * 60;
-    ctx.fillRect(bx, GROUND_Y - bh, bw, bh);
-    // 窗户光点
-    ctx.fillStyle = 'rgba(255, 200, 50, 0.15)';
-    for (let wy = GROUND_Y - bh + 15; wy < GROUND_Y - 15; wy += 20) {
-      for (let wx = bx + 10; wx < bx + bw - 10; wx += 18) {
-        if (Math.random() > 0.3) {
-          ctx.fillRect(wx, wy, 6, 8);
-        }
-      }
-    }
-    ctx.fillStyle = 'rgba(20, 20, 50, 0.6)';
-  }
-
-  // 球场地面
-  ctx.fillStyle = '#c94c2e';
-  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
-  // 地面纹理线
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 1;
-  for (let lx = 0; lx < W; lx += 40) {
-    ctx.beginPath();
-    ctx.moveTo(lx, GROUND_Y);
-    ctx.lineTo(lx + 20, H);
-    ctx.stroke();
-  }
-
-  // 地面边线
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, GROUND_Y);
-  ctx.lineTo(W, GROUND_Y);
-  ctx.stroke();
-
-  // 三分线弧（以篮筐为中心）
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([8, 6]);
-  ctx.beginPath();
-  ctx.arc(HOOP_X, HOOP_Y, THREE_POINT_RADIUS, -Math.PI * 0.15, Math.PI * 0.15, false);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // 罚球圈
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(450, GROUND_Y, 60, 0, Math.PI, true);
-  ctx.stroke();
+// ======================== 相机 ========================
+const camTarget=new THREE.Vector3(0,0,0);
+function updateCamera() {
+  camTarget.lerp(new THREE.Vector3(player.x,0,player.z),0.08);
+  camera.position.lerp(new THREE.Vector3(player.x-6,10,player.z+12),0.05);
+  camera.lookAt(camTarget);
 }
 
-function drawHoop() {
-  // 篮板
-  ctx.fillStyle = 'rgba(200, 200, 220, 0.25)';
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 3;
-  ctx.fillRect(BACKBOARD_X - 5, BACKBOARD_TOP, 8, BACKBOARD_BOTTOM - BACKBOARD_TOP);
-  ctx.strokeRect(BACKBOARD_X - 5, BACKBOARD_TOP, 8, BACKBOARD_BOTTOM - BACKBOARD_TOP);
+// ======================== 初始化 ========================
+buildCourt();buildHoop();
 
-  // 篮板支架
-  ctx.strokeStyle = '#888';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(BACKBOARD_X, BACKBOARD_BOTTOM);
-  ctx.lineTo(BACKBOARD_X + 15, GROUND_Y);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(BACKBOARD_X - 5, BACKBOARD_BOTTOM);
-  ctx.lineTo(BACKBOARD_X + 5, GROUND_Y);
-  ctx.stroke();
+player.mesh=makePlayer(false);
+player.mesh.position.set(player.x,player.y,player.z);
+scene.add(player.mesh);
 
-  // 篮筐 - 左柱
-  const rimLeft = HOOP_X - HOOP_WIDTH/2;
-  const rimRight = HOOP_X + HOOP_WIDTH/2;
+defender.mesh=makePlayer(true);
+defender.mesh.position.set(defender.x,defender.y,defender.z);
+scene.add(defender.mesh);
 
-  ctx.strokeStyle = '#ff4444';
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.arc(rimLeft, HOOP_Y, HOOP_RIM_RADIUS, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(rimRight, HOOP_Y, HOOP_RIM_RADIUS, 0, Math.PI * 2);
-  ctx.stroke();
+const bgeo=new THREE.SphereGeometry(BALL_R,16,16);
+const bmat=new THREE.MeshStandardMaterial({color:0xff6b20,roughness:0.6});
+ball.mesh=new THREE.Mesh(bgeo,bmat);ball.mesh.castShadow=true;ball.mesh.visible=false;scene.add(ball.mesh);
 
-  // 篮筐横梁
-  ctx.strokeStyle = '#ff4444';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(rimLeft, HOOP_Y);
-  ctx.lineTo(rimRight, HOOP_Y);
-  ctx.stroke();
+const lnm=new THREE.LineBasicMaterial({color:0x4a2010,transparent:true,opacity:0.25});
+const blg=new THREE.Group();
+const addLine=(pts)=>{const g=new THREE.BufferGeometry().setFromPoints(pts.map(p=>new THREE.Vector3(p[0],p[1],p[2])));blg.add(new THREE.Line(g,lnm));};
+addLine([[-BALL_R,0,0],[BALL_R,0,0]]);addLine([[0,-BALL_R,0],[0,BALL_R,0]]);
+const arc1=[],arc2=[];
+for(let i=0;i<=16;i++){const t=(i/16)*Math.PI;arc1.push([Math.cos(t)*BALL_R*0.7,Math.sin(t)*BALL_R*0.7,0]);}
+for(let i=0;i<=16;i++){const t=Math.PI+(i/16)*Math.PI;arc2.push([Math.cos(t)*BALL_R*0.7,Math.sin(t)*BALL_R*0.7,0]);}
+addLine(arc1);addLine(arc2);ball.mesh.add(blg);
 
-  // 篮网（简单线条）
-  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-  ctx.lineWidth = 1;
-  const netDepth = 30;
-  for (let i = 0; i < 6; i++) {
-    const nx = rimLeft + 5 + (i / 5) * (HOOP_WIDTH - 10);
-    ctx.beginPath();
-    ctx.moveTo(nx, HOOP_Y);
-    ctx.lineTo(nx + rand(-4, 4), HOOP_Y + netDepth);
-    ctx.stroke();
-  }
+const bldgMat=new THREE.MeshStandardMaterial({color:0x151535,roughness:0.8});
+const winMat=new THREE.MeshBasicMaterial({color:0xffcc33,transparent:true,opacity:0.08});
+for(let i=0;i<10;i++){
+  const bw=1.0+rand(0.5,1.5),bh=1.5+rand(1.0,3.0);
+  const bz=-COURT_D/2-0.5-rand(0,3),bx=-COURT_W/2+i*1.8+rand(0.3,0.8);
+  const bm=new THREE.Mesh(new THREE.BoxGeometry(bw,bh,0.8),bldgMat);
+  bm.position.set(bx,bh/2,bz);bm.castShadow=true;scene.add(bm);
+  for(let wy=0.5;wy<bh-0.3;wy+=0.5)for(let wx=-bw/2+0.2;wx<bw/2-0.2;wx+=0.5)
+    if(Math.random()>0.35){const wm=new THREE.Mesh(new THREE.PlaneGeometry(0.12,0.15),winMat);wm.position.set(bx+wx,wy,bz+0.41);scene.add(wm);}
 }
 
-function drawPlayer(p, isDefender) {
-  const { x, y, w, h, facingRight, onGround, isShooting, power, animFrame } = p;
-  const px = x - w/2;
-  const py = y - h;
-  const dir = facingRight ? 1 : -1;
-
-  // 影子
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.beginPath();
-  ctx.ellipse(x, GROUND_Y + 2, w/2, 6, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 身体（球衣）
-  const bodyColor = isDefender ? '#e63946' : '#ff6b35';
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath();
-  ctx.roundRect(px + 4, py + 18, w - 8, h - 30, 4);
-  ctx.fill();
-
-  // 球衣号码
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 11px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText(isDefender ? '21' : '23', x, py + 36);
-
-  // 短裤
-  ctx.fillStyle = isDefender ? '#1d3557' : '#1a1a2e';
-  ctx.fillRect(px + 2, py + h - 26, w - 4, 18);
-  ctx.fillRect(px + 2, py + h - 22, w - 4, 14);
-
-  // 腿（行走动画）
-  ctx.strokeStyle = isDefender ? '#d4a373' : '#e8b87a';
-  ctx.lineWidth = 4;
-  const legAnim = onGround ? Math.sin(animFrame * Math.PI / 2) * 4 : 2;
-  // 左腿
-  ctx.beginPath();
-  ctx.moveTo(x - 5, py + h - 8);
-  ctx.lineTo(x - 5 - legAnim, py + h + 4);
-  ctx.stroke();
-  // 右腿
-  ctx.beginPath();
-  ctx.moveTo(x + 5, py + h - 8);
-  ctx.lineTo(x + 5 + legAnim, py + h + 4);
-  ctx.stroke();
-
-  // 鞋子
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(x - 9 - legAnim, py + h + 3, 8, 4);
-  ctx.fillRect(x + 1 + legAnim, py + h + 3, 8, 4);
-
-  // 头
-  ctx.fillStyle = isDefender ? '#d4a373' : '#e8b87a';
-  ctx.beginPath();
-  ctx.arc(x, py + 12, 11, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 头带
-  ctx.fillStyle = isDefender ? '#e63946' : '#1a1a2e';
-  ctx.fillRect(x - 12, py + 7, 24, 4);
-
-  // 眼睛
-  ctx.fillStyle = '#000';
-  const eyeX = dir > 0 ? 3 : -3;
-  ctx.beginPath();
-  ctx.arc(x + eyeX, py + 11, 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + eyeX + 5 * dir, py + 11, 2, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 手臂
-  ctx.strokeStyle = isDefender ? '#d4a373' : '#e8b87a';
-  ctx.lineWidth = 4;
-  const armY = py + 22;
-
-  if (isShooting) {
-    // 投篮手势 - 举臂
-    ctx.beginPath();
-    ctx.moveTo(x - 6, armY);
-    ctx.lineTo(x - 14, armY - 10);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x + 6, armY);
-    ctx.lineTo(x + 14, armY - 14 - power * 10);
-    ctx.stroke();
-  } else {
-    // 正常手臂
-    ctx.beginPath();
-    ctx.moveTo(x - 6, armY);
-    ctx.lineTo(x - 14, armY + 8);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x + 6, armY);
-    ctx.lineTo(x + 14, armY + 8);
-    ctx.stroke();
-  }
-
-  // 蓄力条（投篮时显示）
-  if (isShooting && power > 0) {
-    const barW = 40, barH = 6;
-    const bx = x - barW/2, by = py - 14;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
-    const pct = Math.min(power, 1.0);
-    const color = pct < 0.5 ? '#00ff88' : pct < 0.8 ? '#ffd700' : '#ff4444';
-    ctx.fillStyle = color;
-    ctx.fillRect(bx, by, barW * pct, barH);
-  }
-}
-
-function drawBall() {
-  if (!ball.active) return;
-
-  // 轨迹
-  for (let i = 0; i < ball.trail.length; i++) {
-    const t = ball.trail[i];
-    const alpha = i / ball.trail.length * 0.3;
-    ctx.fillStyle = `rgba(255, 120, 50, ${alpha})`;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, ball.r * (0.3 + 0.7 * i / ball.trail.length), 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // 篮球主体
-  const grad = ctx.createRadialGradient(
-    ball.x - 3, ball.y - 3, 1,
-    ball.x, ball.y, ball.r
-  );
-  grad.addColorStop(0, '#ff8c42');
-  grad.addColorStop(0.7, '#e86a20');
-  grad.addColorStop(1, '#c04000');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 篮球纹路
-  ctx.strokeStyle = 'rgba(60, 30, 10, 0.4)';
-  ctx.lineWidth = 1;
-  // 横线
-  ctx.beginPath();
-  ctx.moveTo(ball.x - ball.r, ball.y);
-  ctx.lineTo(ball.x + ball.r, ball.y);
-  ctx.stroke();
-  // 竖线
-  ctx.beginPath();
-  ctx.moveTo(ball.x, ball.y - ball.r);
-  ctx.lineTo(ball.x, ball.y + ball.r);
-  ctx.stroke();
-  // 弧线
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, ball.r * 0.7, -Math.PI/4, Math.PI/4);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, ball.r * 0.7, Math.PI*3/4, -Math.PI*3/4);
-  ctx.stroke();
-
-  // 光泽
-  ctx.fillStyle = 'rgba(255,255,255,0.2)';
-  ctx.beginPath();
-  ctx.arc(ball.x - 3, ball.y - 4, ball.r * 0.3, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawUI() {
-  // 比分板
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.beginPath();
-  ctx.roundRect(20, 15, 160, 55, 8);
-  ctx.fill();
-
-  ctx.fillStyle = '#ff6b35';
-  ctx.font = 'bold 14px "Courier New", monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('🏀 得分', 35, 38);
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 32px "Courier New", monospace';
-  ctx.fillText(score.toString(), 40, 66);
-
-  // 计时器
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.beginPath();
-  ctx.roundRect(W - 140, 15, 120, 55, 8);
-  ctx.fill();
-
-  ctx.fillStyle = timeLeft <= 10 ? '#ff4444' : '#00ff88';
-  ctx.font = 'bold 14px "Courier New", monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText('⏱ 剩余时间', W - 35, 38);
-
-  ctx.fillStyle = timeLeft <= 10 ? '#ff4444' : '#ffffff';
-  ctx.font = 'bold 32px "Courier New", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(Math.floor(timeLeft) + 's', W - 80, 66);
-
-  // 两分/三分区域提示（投篮时显示）
-  if (ball.active || player.isShooting) {
-    const distToHoop = dist(player.x, player.y, HOOP_X, HOOP_Y);
-    const isThree = distToHoop > THREE_POINT_RADIUS;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.roundRect(20, 80, 80, 28, 6);
-    ctx.fill();
-    ctx.fillStyle = isThree ? '#ffd700' : '#00ff88';
-    ctx.font = 'bold 14px "Courier New", monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(isThree ? '🎯 三分区' : '🎯 两分区', 28, 100);
-  }
-
-  // 得分弹出
-  for (const s of scorePopups) {
-    ctx.fillStyle = s.color;
-    ctx.font = 'bold 28px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.globalAlpha = Math.min(1, s.life / 40);
-    ctx.fillText(s.text, s.x, s.y);
-    ctx.globalAlpha = 1;
-  }
-
-  // 粒子
-  for (const p of particles) {
-    ctx.globalAlpha = p.life / p.maxLife;
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawGameOver() {
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = '#ff6b35';
-  ctx.font = 'bold 56px "Courier New", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('🏀 比赛结束', W/2, 190);
-
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 28px "Courier New", monospace';
-  ctx.fillText('最终得分', W/2, 260);
-
-  ctx.fillStyle = '#ffd700';
-  ctx.font = 'bold 72px "Courier New", monospace';
-  ctx.fillText(score.toString(), W/2, 350);
-
-  ctx.fillStyle = '#aaa';
-  ctx.font = '20px "Courier New", monospace';
-  ctx.fillText('按 R 键重新开局', W/2, 430);
-
-  // 粒子继续飘
-  for (const p of particles) {
-    ctx.globalAlpha = p.life / p.maxLife * 0.5;
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-}
-
-let frameCount = 0;
-
-function draw() {
-  ctx.clearRect(0, 0, W, H);
-
-  drawCourt();
-  drawHoop();
-
-  // 绘制防守者
-  defender.facingRight = defender.dir > 0;
-  drawPlayer(defender, true);
-
-  // 绘制玩家
-  drawPlayer(player, false);
-
-  drawBall();
-  drawUI();
-
-  if (gameState === 'gameover') {
-    drawGameOver();
-  }
-
-  // 装饰 - 边角灯效
-  frameCount++;
-  const glow = Math.sin(frameCount * 0.05) * 0.3 + 0.5;
-  ctx.fillStyle = `rgba(255, 107, 53, ${glow * 0.15})`;
-  ctx.fillRect(0, 0, 4, H);
-  ctx.fillRect(W-4, 0, 4, H);
-}
-
-// ===== 游戏循环 =====
-function gameLoop() {
-  update();
-  draw();
-  requestAnimationFrame(gameLoop);
-}
-
-// roundRect polyfill for canvas
-if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
-    if (r > w/2) r = w/2;
-    if (r > h/2) r = h/2;
-    this.moveTo(x + r, y);
-    this.lineTo(x + w - r, y);
-    this.quadraticCurveTo(x + w, y, x + w, y + r);
-    this.lineTo(x + w, y + h - r);
-    this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    this.lineTo(x + r, y + h);
-    this.quadraticCurveTo(x, y + h, x, y + h - r);
-    this.lineTo(x, y + r);
-    this.quadraticCurveTo(x, y, x + r, y);
-    return this;
-  };
-}
-
-// 启动游戏
 resetGame();
+
+function gameLoop(){update();renderer.render(scene,camera);drawUI2D();updateCamera();requestAnimationFrame(gameLoop);}
 gameLoop();
 </script>
 </body>

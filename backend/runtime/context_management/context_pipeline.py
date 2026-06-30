@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -9,16 +9,15 @@ from runtime.prompt_accounting.provider_lane import normalize_provider_lane
 from .context_candidates import context_candidate_from_message_spec
 from .context_capability_policy import apply_context_capability_profile
 from .context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-    STATIC_PREFIX,
     context_segment_policy_for_spec,
     context_segment_policy_is_provider_visible_sealable,
-    context_segment_policy_metadata,
 )
 from .physical_context_plan import build_physical_context_plan
-from .physical_context_assembler import assemble_physical_context_spine
+from .physical_context_assembler import (
+    PhysicalContextInputs,
+    assemble_physical_context_spine,
+    classify_physical_context_inputs,
+)
 from .provider_message_replay_contract import (
     provider_message_byte_preservation_required,
     provider_message_replay_kind,
@@ -75,15 +74,25 @@ def build_context_pipeline(
         clean_specs,
         compaction_generation=compaction_generation,
     )
-    clean_specs, append_stage_diagnostics = apply_provider_visible_append_stage_to_specs(
+    provider, model = provider_model_from_selection(model_selection)
+    provider_lane = provider_lane_from_model_selection(model_selection)
+    draft_inputs = classify_physical_context_inputs(
         clean_specs,
+        storage_root=storage_root,
+        scope=provider_visible_append_scope,
+        provider=provider,
+        model=model,
+        provider_lane=provider_lane,
+        input_stage="draft",
+    )
+    final_inputs, append_stage_diagnostics = enrich_physical_context_inputs_with_provider_visible_append_ledger(
+        draft_inputs,
         invocation_kind=invocation_kind,
-        provider_visible_append_scope=provider_visible_append_scope,
         provider_visible_context_inheritance=provider_visible_context_inheritance,
         compaction_generation=compaction_generation,
-        storage_root=storage_root,
-        model_selection=model_selection,
     )
+    physical_assembly = assemble_physical_context_spine(final_inputs)
+    clean_specs = [dict(item) for item in physical_assembly.message_specs]
     clean_specs, physical_diagnostics = apply_physical_context_plan_to_specs(
         clean_specs,
         compaction_generation=compaction_generation,
@@ -95,6 +104,8 @@ def build_context_pipeline(
             "candidate_trace_count": len(candidate_trace),
             "context_capability": capability_diagnostics,
             "provider_visible_append_stage": append_stage_diagnostics,
+            "physical_context_inputs": final_inputs.to_diagnostics(),
+            "physical_context_assembly": dict(physical_assembly.diagnostics or {}),
             "physical_context": physical_diagnostics,
             "authority": "runtime.context_management.context_pipeline",
         },
@@ -160,84 +171,67 @@ def apply_context_capability_profile_to_specs(
     }
 
 
-def apply_provider_visible_append_stage_to_specs(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+def enrich_physical_context_inputs_with_provider_visible_append_ledger(
+    inputs: PhysicalContextInputs,
     *,
     invocation_kind: str,
-    provider_visible_append_scope: str,
     provider_visible_context_inheritance: dict[str, Any] | None,
     compaction_generation: str,
-    storage_root: Path | None,
-    model_selection: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    clean_specs = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
-    scope = str(provider_visible_append_scope or "").strip()
-    if not clean_specs or not scope or storage_root is None:
-        return clean_specs, {
+) -> tuple[PhysicalContextInputs, dict[str, Any]]:
+    scope = str(inputs.scope or "").strip()
+    current_append_inputs = [
+        (index, dict(spec))
+        for index, spec in enumerate(list(inputs.current_append_specs or ()), start=1)
+        if isinstance(spec, dict)
+    ]
+    if not current_append_inputs:
+        return replace(inputs, input_stage="final"), {
+            "status": "skipped",
+            "reason": "no_current_append_inputs",
+            "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
+        }
+    if not scope or inputs.storage_root is None:
+        return replace(inputs, input_stage="final"), {
             "status": "skipped",
             "reason": "missing_scope_or_storage_root",
-            "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
+            "current_append_spec_count": len(current_append_inputs),
+            "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
         }
     if str(invocation_kind or "") not in PROVIDER_VISIBLE_APPEND_STAGE_INVOCATIONS:
-        return clean_specs, {
+        return replace(inputs, input_stage="final"), {
             "status": "skipped",
             "reason": "invocation_kind_not_provider_visible_append_stage_managed",
             "invocation_kind": str(invocation_kind or ""),
-            "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
+            "current_append_spec_count": len(current_append_inputs),
+            "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
         }
 
     inheritance_contract = provider_visible_context_inheritance_contract(
         provider_visible_context_inheritance,
         write_scope=scope,
     )
-    provider, model = provider_model_from_selection(model_selection)
-    provider_lane = provider_lane_from_model_selection(model_selection)
-    static_prefix: list[dict[str, Any]] = []
-    current_append_inputs: list[tuple[int, dict[str, Any]]] = []
     provider_visible_append_candidates: list[tuple[int, dict[str, Any]]] = []
-    dynamic_tail_specs: list[dict[str, Any]] = []
-    blocked_dynamic_tail_replay_count = 0
     non_sealable_context_append_count = 0
     context_candidate_count = 0
 
-    for original_order, raw_spec in enumerate(clean_specs, start=1):
+    for original_order, raw_spec in current_append_inputs:
         spec = dict(raw_spec)
         policy = context_segment_policy_for_spec(spec)
-        section = policy.section
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            **context_segment_policy_metadata(policy),
-        }
-        spec["metadata"] = metadata
-        spec["cache_scope"] = policy.prefix_cache_scope
-        spec["cache_role"] = policy.prefix_cache_role
-        spec["prefix_tier"] = policy.prefix_tier
-        if section == STATIC_PREFIX:
-            static_prefix.append(spec)
+        if not context_segment_policy_is_provider_visible_sealable(policy):
+            non_sealable_context_append_count += 1
             continue
-        if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-            current_append_inputs.append((original_order, spec))
-            if not context_segment_policy_is_provider_visible_sealable(policy):
-                non_sealable_context_append_count += 1
-                continue
-            provider_visible_append_candidates.append((original_order, spec))
-            context_candidate_count += 1
-            continue
-        if section == DYNAMIC_TAIL:
-            dynamic_tail_specs.append(spec)
-            blocked_dynamic_tail_replay_count += 1
-            continue
-        dynamic_tail_specs.append(spec)
+        provider_visible_append_candidates.append((original_order, spec))
+        context_candidate_count += 1
 
     current_append_specs_with_order = assemble_provider_visible_append_specs(
         provider_visible_append_candidates,
-        storage_root=storage_root,
+        storage_root=inputs.storage_root,
         scope=scope,
         inherited_scope=str(inheritance_contract.get("inherited_scope") or ""),
         inherited_anchor=dict(inheritance_contract.get("inherited_anchor") or {}),
         compaction_generation=normalize_context_compaction_generation(compaction_generation),
-        provider=provider,
-        model=model,
+        provider=inputs.provider,
+        model=inputs.model,
     )
     current_append_specs_by_order = {
         int(order or 0): dict(spec)
@@ -249,31 +243,35 @@ def apply_provider_visible_append_stage_to_specs(
         for order, spec in sorted(current_append_inputs, key=lambda item: int(item[0] or 0))
         if isinstance(spec, dict)
     ]
-    physical_assembly = assemble_physical_context_spine(
-        static_prefix_specs=static_prefix,
-        provider_visible_append_specs=current_append_specs,
-        current_tail_specs=dynamic_tail_specs,
-        storage_root=storage_root,
-        scope=scope,
-        provider=provider,
-        model=model,
-        provider_lane=provider_lane,
+    final_inputs = replace(
+        inputs,
+        current_append_specs=tuple(current_append_specs),
+        input_stage="final",
+        diagnostics={
+            **dict(inputs.diagnostics or {}),
+            "provider_visible_append_ledger_enrichment": {
+                "status": "applied",
+                "scope": scope,
+                "invocation_kind": str(invocation_kind or ""),
+                "current_append_input_count": len(current_append_inputs),
+                "provider_visible_candidate_count": len(provider_visible_append_candidates),
+                "provider_visible_enriched_count": len(current_append_specs_with_order),
+                "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
+            },
+        },
     )
-    return [dict(item) for item in physical_assembly.message_specs], {
+    return final_inputs, {
         "status": "applied",
         "scope": scope,
         "invocation_kind": str(invocation_kind or ""),
-        "provider": provider,
-        "model": model,
-        "provider_lane": provider_lane,
+        "provider": inputs.provider,
+        "model": inputs.model,
+        "provider_lane": inputs.provider_lane,
         "compaction_generation": normalize_context_compaction_generation(compaction_generation),
         "context_candidate_count": context_candidate_count,
-        "converted_dynamic_tail_replay_only_count": 0,
-        "blocked_dynamic_tail_replay_count": blocked_dynamic_tail_replay_count,
         "non_sealable_context_append_tail_count": non_sealable_context_append_count,
         "provider_visible_current_append_spec_count": len(current_append_specs_with_order),
         "current_append_spec_count": len(current_append_specs),
-        "physical_context_assembly": dict(physical_assembly.diagnostics or {}),
         "fork_inherited_provider_visible_append_spec_count": 0,
         "fork_inherited_provider_visible_append_scope": str(inheritance_contract.get("inherited_scope") or ""),
         "fork_inherited_provider_visible_append_anchor_id": str(
@@ -304,9 +302,9 @@ def apply_provider_visible_append_stage_to_specs(
             dict(inheritance_contract.get("fork_point_content_replacement_state") or {}).get("replacement_count")
         ),
         "current_turn_tail_spec_count": len(current_append_specs),
-        "dynamic_tail_spec_count": len(dynamic_tail_specs),
-        "physical_replay_rule": "static_prefix_then_confirmed_physical_frame_then_current_append_then_dynamic_tail",
-        "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
+        "physical_input_stage": "final",
+        "physical_replay_rule": "ledger_enriches_current_append_then_assembler_splices_four_physical_segments",
+        "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
     }
 
 
@@ -335,7 +333,9 @@ def apply_physical_context_plan_to_specs(
         "cache_spine_generation": physical_plan.cache_spine_generation,
         "stable_after_tail_violations": [dict(item) for item in physical_plan.stable_after_tail_violations],
         "stable_after_tail_violation_count": len(physical_plan.stable_after_tail_violations),
-        "authority": "runtime.context_management.context_pipeline.physical_context_assembly",
+        "blocked_segments": [dict(item) for item in physical_plan.blocked_segments],
+        "blocked_segment_count": len(physical_plan.blocked_segments),
+        "authority": "runtime.context_management.context_pipeline.physical_context_diagnostics",
     }
     return clean_specs, diagnostics
 

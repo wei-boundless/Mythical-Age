@@ -5,15 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-    STATIC_PREFIX,
-    ContextSegmentPolicy,
-    context_segment_policy_for_spec,
-    context_segment_policy_is_provider_visible_sealable,
-)
+from .context_segment_policy import context_segment_policy_for_spec
 from .provider_message_replay_contract import provider_message_byte_preservation_required
 
 
@@ -22,6 +14,7 @@ GLOBAL_STATIC_PREFIX = "global_static_prefix"
 PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
 CURRENT_TURN_TAIL = "current_turn_tail"
 NEVER_REPLAY_TAIL = "never_replay_tail"
+MISSING_PHYSICAL_ASSEMBLY = "missing_physical_assembly"
 
 CACHE_SPINE_LANES = {
     GLOBAL_STATIC_PREFIX,
@@ -97,6 +90,7 @@ def build_physical_context_plan(
     raw_segments: list[PhysicalContextPlanSegment] = []
     lane_counts: dict[str, int] = {}
     lane_order: list[str] = []
+    blocked_segments: list[dict[str, Any]] = []
 
     for index, raw_spec in enumerate(list(specs or ()), start=1):
         if not isinstance(raw_spec, dict):
@@ -104,7 +98,39 @@ def build_physical_context_plan(
         spec = dict(raw_spec)
         metadata = dict(spec.get("metadata") or {})
         policy = context_segment_policy_for_spec(spec)
-        lane = physical_lane_for_spec(spec, policy=policy)
+        lane, lane_issue = _assembler_lane_for_spec(spec, metadata=metadata)
+        assembly_index = _physical_assembly_index(spec, metadata=metadata)
+        if lane_issue:
+            blocked_segments.append(
+                {
+                    "index": index,
+                    "kind": str(spec.get("kind") or metadata.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or metadata.get("source_ref") or ""),
+                    "reason": lane_issue,
+                    "authority": "runtime.context_management.physical_context_plan",
+                }
+            )
+        if assembly_index <= 0:
+            blocked_segments.append(
+                {
+                    "index": index,
+                    "kind": str(spec.get("kind") or metadata.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or metadata.get("source_ref") or ""),
+                    "reason": "missing_context_physical_assembly_index",
+                    "authority": "runtime.context_management.physical_context_plan",
+                }
+            )
+        elif assembly_index != index:
+            blocked_segments.append(
+                {
+                    "index": index,
+                    "context_physical_assembly_index": assembly_index,
+                    "kind": str(spec.get("kind") or metadata.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or metadata.get("source_ref") or ""),
+                    "reason": "context_physical_assembly_index_mismatch",
+                    "authority": "runtime.context_management.physical_context_plan",
+                }
+            )
         cache_spine_participation = lane in CACHE_SPINE_LANES
         content_hash = _spec_content_hash(spec)
         segment = PhysicalContextPlanSegment(
@@ -185,24 +211,15 @@ def build_physical_context_plan(
         lane_order=tuple(lane_order),
         segments=segments,
         stable_after_tail_violations=tuple(stable_after_tail_violations),
+        blocked_segments=tuple(blocked_segments),
     )
 
 
-def physical_lane_for_spec(spec: dict[str, Any] | None, *, policy: ContextSegmentPolicy | None = None) -> str:
-    payload = dict(spec or {})
-    policy = policy or context_segment_policy_for_spec(payload)
-    section = str(policy.section or "")
-    if section == STATIC_PREFIX:
-        return GLOBAL_STATIC_PREFIX
-    if section == CONTEXT_MEMORY_PREFIX:
-        if not _stable_prefix_binding(policy):
-            return CURRENT_TURN_TAIL
-        return PROVIDER_VISIBLE_CONTEXT_PREFIX
-    if section == CONTEXT_APPEND:
-        return CURRENT_TURN_TAIL
-    if section == DYNAMIC_TAIL:
-        return NEVER_REPLAY_TAIL
-    return CURRENT_TURN_TAIL
+def _assembler_lane_for_spec(spec: dict[str, Any], *, metadata: dict[str, Any]) -> tuple[str, str]:
+    lane = _first_text(metadata.get("physical_prefix_lane"), spec.get("physical_prefix_lane"))
+    if lane:
+        return lane, ""
+    return MISSING_PHYSICAL_ASSEMBLY, "missing_physical_prefix_lane"
 
 
 def _historical_only_metadata(metadata: dict[str, Any]) -> bool:
@@ -211,10 +228,6 @@ def _historical_only_metadata(metadata: dict[str, Any]) -> bool:
         or metadata.get("context_memory_visible") is False
         or _historical_only_on_replay(metadata)
     )
-
-
-def _stable_prefix_binding(policy: ContextSegmentPolicy) -> bool:
-    return context_segment_policy_is_provider_visible_sealable(policy) or str(policy.section or "") == STATIC_PREFIX
 
 
 def _historical_only_on_replay(metadata: dict[str, Any]) -> bool:
@@ -228,6 +241,8 @@ def _semantic_visibility(*, metadata: dict[str, Any], lane: str) -> str:
     explicit = str(metadata.get("semantic_visibility") or "").strip()
     if explicit:
         return explicit
+    if lane == MISSING_PHYSICAL_ASSEMBLY:
+        return "missing_physical_assembly"
     if _historical_only_metadata(metadata):
         return "historical_only"
     if lane in TAIL_LANES:
@@ -257,6 +272,28 @@ def _tail_break_reason(lane: str) -> str:
         return "current_turn_tail_after_cache_boundary"
     if lane == NEVER_REPLAY_TAIL:
         return "never_replay_tail_after_cache_boundary"
+    if lane == MISSING_PHYSICAL_ASSEMBLY:
+        return "missing_physical_assembly"
+    return ""
+
+
+def _physical_assembly_index(spec: dict[str, Any], *, metadata: dict[str, Any]) -> int:
+    for value in (
+        metadata.get("context_physical_assembly_index"),
+        spec.get("context_physical_assembly_index"),
+    ):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
     return ""
 
 

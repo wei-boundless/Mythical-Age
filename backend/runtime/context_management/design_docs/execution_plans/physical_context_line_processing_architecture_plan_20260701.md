@@ -2,7 +2,21 @@
 
 创建日期：2026-07-01
 
-状态：待用户审阅确认。本文是上下文线路处理与四段物理算法的架构原则、目标模型和优化方案，不是已实施记录。
+状态：核心收口已实施（2026-07-01）。本文同时作为上下文线路处理与四段物理算法的架构原则、目标模型、实施记录和后续审查基准。
+
+本次已实施范围：
+
+```text
+1. PhysicalContextInputs 成为四段物理输入契约。
+2. context_pipeline 统一执行 draft classify -> ledger enrichment -> final assemble -> read-only physical diagnostics。
+3. provider-visible append ledger 只 enrich current append，不再决定 physical assembly 是否执行。
+4. single_agent_turn follow-up 删除私有四段拼接分支，改走统一 context pipeline。
+5. runtime_memory_context 改为 low-authority CONTEXT_APPEND current hint，不再声明为 confirmed old context。
+6. physical_prefix_frame_user_context_replay 改为 provider_protocol_history 语义槽。
+7. context contract 不再推断缺失 physical lane/index，缺线直接报 structural diagnostic。
+8. physical_context_plan 去掉 lane 推断，只读取 assembler 写入的 lane/index；缺失进入 blocked_segments。
+9. 前端释放/中断 stream 前会持久化当前可见 projection snapshot，断线不再清空已显示投影。
+```
 
 ## 1. 目的
 
@@ -12,9 +26,11 @@
 
 ```text
 上下文消息规格
--> 线路声明与物理段分类
--> provider-visible append 登记
--> 四段物理输入包
+-> 线路声明
+-> 线路激活
+-> 四段物理输入包 draft
+-> provider-visible append metadata enrichment
+-> 四段物理输入包 final
 -> 唯一物理插线算法
 -> 只读诊断与缓存脊柱 hash
 -> provider payload / provider success commit
@@ -57,6 +73,9 @@
 ```text
 kind
 source
+producer_ref
+transport_or_store
+consumer
 physical_segment
 semantic_slot
 identity_key
@@ -66,6 +85,8 @@ provider_visibility
 context_line_state
 activation_authority
 disabled_reason
+terminal_policy
+schema_revision
 ```
 
 未声明的线不能靠下游 fallback 猜测物理段。下游如果看不懂线路，应产生结构诊断，而不是把它塞进某个默认段。
@@ -196,6 +217,29 @@ active_execution_lease
 
 但 semantic slot 不能越权决定 provider cache boundary，也不能在插线后重排四段。
 
+### 3.9 上下文输入端与控制输出端分离
+
+上下文是系统收集信息后提供给 agent 读取的输入端；控制输出端是 agent 决策后反向输出控制信息给系统的输出端。两端通过模型决策连接，但不能互相越权。
+
+```text
+system observation / user input / memory hint / tool observation / frontend projection signal
+-> context center packet
+-> agent model decision
+-> control output packet
+-> system actuator / tool / task / frontend / memory side effect
+-> observation line
+-> next context center packet
+```
+
+规则：
+
+```text
+上下文中枢不能执行动作
+控制输出端不能补写、重排、推断上下文
+外周器官只能产出 observation / projection / durable candidate，不能直接成为上下文权威
+恢复信号不是旧上下文；只能作为 recovery_or_recent_work_facts 进入 dynamic/current recovery line
+```
+
 ## 4. 总线路处理模型
 
 目标模型分为七层。
@@ -292,7 +336,7 @@ current invocation facts
 输出：
 
 ```text
-PhysicalContextInputs
+PhysicalContextInputs(draft)
 ```
 
 固定结构：
@@ -314,6 +358,7 @@ PhysicalContextInputs(
 只消费 enabled 线路
 不写最终 physical index
 不读取 provider success ledger 作为最终 replay 顺序
+输出 draft；current_append 允许随后被 ledger enrich，但段归属不能被 ledger 改写
 ```
 
 ### 4.4 Provider Visible Append Registration
@@ -321,7 +366,7 @@ PhysicalContextInputs(
 输入：
 
 ```text
-PhysicalContextInputs.current_append_specs
+PhysicalContextInputs(draft).current_append_specs
 provider/model/scope
 storage_root
 ```
@@ -331,6 +376,7 @@ storage_root
 ```text
 current append specs enriched with provider_visible_append_* metadata
 provider-visible append ledger records
+PhysicalContextInputs(final)
 ```
 
 职责：
@@ -341,6 +387,7 @@ provider-visible append ledger records
 去重和 hash 校验
 不回放旧上下文
 不触发或跳过物理组装
+scope/storage 缺失时只返回 ledger skipped diagnostics，PhysicalContextInputs(final) 必须保留 draft 的四段内容
 ```
 
 ### 4.5 Physical Assembly
@@ -348,9 +395,8 @@ provider-visible append ledger records
 输入：
 
 ```text
-PhysicalContextInputs
+PhysicalContextInputs(final)
 latest confirmed physical prefix frame
-current append enriched specs
 ```
 
 输出：
@@ -515,7 +561,52 @@ SystemAssetLine / 用户输入 / provider protocol / memory hint / tool observat
 5. context contract 只能读 assembler lane/index；缺失 lane/index 必须报错，不能推断。
 6. control/action/admission/tool/runtime projection 都不能重排或补写上下文线。
 7. frontend 断线恢复只恢复 public projection 和 stream cursor；如需让 agent 感知恢复事实，必须作为 dynamic recovery line 进入下一轮上下文中枢。
+8. `PhysicalContextInputs` 必须区分 draft/final：ledger 可以 enrich current append metadata，但不能改变四段归属。
+9. `runtime_memory_context` 必须从 `CONTEXT_MEMORY_PREFIX` 语义中剥离为低权威 current hint，不能靠 classifier 事后纠偏。
+10. old replay 里的历史用户消息不能继续使用 `current_user_intent` 语义槽，应转为 historical/provider protocol history 语义。
+11. provider success commit 必须显式处理 success / failure / cancel / interrupt，只有 success 能晋升 frame。
+12. frontend replay 必须按 stable event identity 和 projection key 幂等合并，断线不能清空已显示 projection。
+13. cutover 只能是 clean cutover；不得新增长期双跑或兼容旧主链路。
 ```
+
+#### 4.8.6 断线时间与替代品判断
+
+从 `git blame` 看，断线不是单点事故，而是两次结构移动叠加出来的：
+
+| 时间 | commit | 变化 | 架构影响 |
+| --- | --- | --- | --- |
+| 2026-06-27 01:42:24 +0800 | `3d7f5677d` | 新增 `context_pipeline.py`，`apply_provider_visible_append_stage_to_specs()` 在缺少 scope/storage 或 invocation kind 不命中时直接 skipped | 当时是 append stage 的边界条件；后续如果把物理拼接放进这个 stage，就会继承 skipped 语义 |
+| 2026-06-29 06:06:59 +0800 | `0f157952d` | 新增 `physical_context_assembler.py`，并在 `context_pipeline.py` 的 append stage 内调用 `assemble_physical_context_spine()`；同批次在 `single_agent_turn.py` 新增 `_single_agent_turn_followup_physical_context_assembly()` | 四段 assembler 已经出现，但接在线路登记 stage 后面，不是所有 invocation 必经；follow-up 同时形成第二条私有分类/拼接线 |
+| 2026-07-01 01:21:06 +0800 | `9ef082f83` | 调整 provider-visible append scope、provider lane、follow-up 字段命名 | 属于后续优化，没有改变“assembly 依附 append stage”和“follow-up 私有分类”这两个结构问题 |
+
+结论：
+
+```text
+不是出现了成熟替代品。
+provider_visible_append_ledger 只能登记 current append candidate，不能替代四段拼接。
+physical_context_plan 只能做只读诊断/hash，不能替代 assembler。
+_single_agent_turn_followup_physical_context_assembly 是历史私有分支，不是第二套主算法。
+```
+
+因此实施时不能保留这些分支作为兼容主路径。正确收口是：
+
+```text
+append ledger skipped != physical assembly skipped
+follow-up provider protocol replay marking != follow-up private physical assembly
+diagnostic lane projection != fallback lane inference
+```
+
+#### 4.8.7 审查补充后的强制设计约束
+
+| 缺口 | 证据 | 必须补入实施设计 |
+| --- | --- | --- |
+| `PhysicalContextInputs` 与 ledger 顺序不够锁定 | 计划前文曾写 `provider-visible append 登记 -> 四段物理输入包`，但 4.3/4.4 的职责实际应是 draft inputs -> ledger enrich -> final inputs | 明确 draft/final 两步；ledger skipped 只影响 metadata/diagnostics，不影响 assembly |
+| `runtime_memory_context` 与 current hint 原则冲突 | 现有 `context_segment_registry.py` / `context_segment_policy.py` 仍把 `runtime_memory_context` 放入 `CONTEXT_MEMORY_PREFIX` | Phase 1/2 必须把 memory 声明为 low-authority current hint；不能让 memory summary 冒充 confirmed old context |
+| old replay 使用 current 语义槽 | `physical_prefix_frame_user_context_replay` 当前仍可落到 `current_user_intent` | 历史用户消息应归入 `provider_protocol_history` 或 `historical_user_message`，不再使用本轮 current 语义 |
+| commit terminal cases 未阶段化 | 4.7 有原则，但 Phase 1-7 没有专门闭合 success/failure/cancel/interrupt | 增加 provider commit boundary 阶段；只允许 provider success 晋升 frame，失败/取消/中断只能留下 diagnostics/recovery line |
+| frontend projection 缺少幂等合同 | 前端已有 cursor/projection reducer，但计划只写了不伪造上下文 | 明确 `runtime_event_id` / cursor / projection key / source event identity 是 replay merge key；reconnect 不得清空已显示 projection |
+| cutover 规则不够工程化 | 禁止兼容旧主链路已有，但缺少执行边界 | 新链路落地即删除旧 active branch；失败回滚依赖 git/service rollback，不在代码里保留 v1/v2 双跑 |
+| `SystemAssetLine` 字段不足以追踪端到端 | 只有 kind/source/segment 等字段，缺 producer/transport/consumer/terminal/schema | Line Declaration 必须包含 producer_ref、transport_or_store、consumer、terminal_policy、schema_revision |
 
 ## 5. 四段物理算法
 
@@ -750,7 +841,7 @@ plan/todo 旧游标压过当前 active lease
 目标：
 
 ```text
-让每种 kind 和每个系统资产都有明确 physical_segment / semantic_slot / lifecycle / sealability / activation
+让每种 kind 和每个系统资产都有明确 physical_segment / semantic_slot / lifecycle / sealability / activation / identity / terminal policy
 ```
 
 文件：
@@ -766,7 +857,10 @@ backend/runtime/context_management/provider_message_replay_contract.py
 ```text
 补齐 ContextLineDeclaration 概念
 补齐 SystemAssetLine / context_line_state 概念
+补齐 producer_ref / transport_or_store / consumer / terminal_policy / schema_revision
 把 replay contract、append candidate、dynamic only 明确分型
+把 runtime_memory_context 声明为 low-authority current hint，不再声明为 confirmed old context
+把 historical user replay 从 current_user_intent 语义槽中剥离
 删除靠 content_source/source_kind 字符串猜测物理段的残余
 ```
 
@@ -775,6 +869,8 @@ backend/runtime/context_management/provider_message_replay_contract.py
 ```text
 新增信息线只需在 registry/policy 声明，不需要修改 downstream 排序逻辑
 系统资产未启用时有 disabled_reason，不会进入 message_specs
+runtime_memory_context 不再通过 CONTEXT_MEMORY_PREFIX 冒充 confirmed old context
+physical prefix frame 的历史用户 replay 不再使用 current_user_intent 作为语义槽
 rg 检查不再出现旧 replay 或 old-context 字段作为 active 决策分支
 ```
 
@@ -799,6 +895,7 @@ backend/harness/loop/single_agent_turn.py
 ```text
 新增 PhysicalContextInputs
 新增 classify_physical_context_inputs()
+PhysicalContextInputs 分为 draft/final 两个语义阶段；数据结构可以相同，但 diagnostics 必须标明阶段
 classify_physical_context_inputs() 只消费 context_line_state == enabled 的线路
 assembler 只接收 PhysicalContextInputs
 harness 不再维护任何 follow-up 私有四段分类
@@ -808,6 +905,7 @@ harness 不再维护任何 follow-up 私有四段分类
 
 ```text
 assemble_physical_context_spine() 调用点只传 PhysicalContextInputs
+ledger enrich 后输出 final PhysicalContextInputs，四段归属与 draft 一致
 single_agent_turn.py 不出现 static_prefix/provider_visible_append_specs/dynamic_tail 四段局部拼装变量
 ```
 
@@ -832,6 +930,7 @@ backend/runtime/context_management/provider_visible_append_ledger.py
 把 apply_provider_visible_append_stage_to_specs 拆成 ledger enrichment
 不再由 storage/scope 缺失决定是否执行 assembler
 scope/storage 缺失只让 ledger skipped，四段插线仍执行
+ledger skipped 时 current_append_specs 原样进入 final PhysicalContextInputs，并附带 skipped diagnostics
 ```
 
 完成条件：
@@ -839,6 +938,7 @@ scope/storage 缺失只让 ledger skipped，四段插线仍执行
 ```text
 所有 invocation 都经过 physical assembler
 provider-visible append stage skipped 时 message_specs 仍有 physical_prefix_lane 和 context_physical_assembly_index
+provider_visible_append_ledger 不产生 old replay，不输出 physical order
 ```
 
 ### Phase 4: 删除 follow-up 私有物理链路
@@ -967,6 +1067,8 @@ physical_lane_projection edge authority 从 physical_context_plan 改为 physica
 缺少 physical_prefix_lane / context_physical_assembly_index 时报告 structural gap
 packet/action/admission 只记录 action_surface、ModelActionRequest、permit，不读取或重排 context specs
 public stream/frontend projection 只恢复可见投影和 cursor；如需让 agent 感知，作为 dynamic recovery line 回流
+frontend replay 以 runtime_event_id / source_event_id / projection key / cursor offset 幂等合并
+store reducer 只能保留、合并、终止 public projection，不能生成 provider/model context
 ```
 
 完成条件：
@@ -975,6 +1077,43 @@ public stream/frontend projection 只恢复可见投影和 cursor；如需让 ag
 context_contract diagnostics 能暴露 assembler skipped，而不是用 policy fallback 掩盖
 control output 代码中没有新的上下文分类或四段拼接逻辑
 frontend projection cache 不作为 provider/model context 来源
+断线重连不会清空已有 projection；重复 replay 不创建重复可见事件
+```
+
+### Phase 8: 收口 provider commit 与 terminal boundary
+
+目标：
+
+```text
+把 current append 晋升 confirmed old context 的条件收束到 provider success commit；失败、取消、中断只能留下诊断或恢复线。
+```
+
+文件：
+
+```text
+backend/runtime/context_management/provider_visible_append_ledger.py
+backend/runtime/context_management/physical_prefix_frame_ledger.py
+backend/runtime/context_management/context_commit_record.py
+backend/runtime/model_gateway/model_runtime.py
+backend/runtime/model_gateway/provider_payload.py
+```
+
+动作：
+
+```text
+明确 success / failure / cancel / interrupt 的 terminal policy
+只有 provider success 且 provider payload manifest 与 physical assembly identity 匹配时，append candidate 才能 confirm
+只有 confirmed append entries 能进入 physical prefix frame
+failure / cancel / interrupt 不写 confirmed frame，只写 diagnostics / recovery_or_recent_work_facts
+dynamic tail、frontend projection、ActionFeedback 永不晋升 confirmed old context
+```
+
+完成条件：
+
+```text
+provider success 是唯一 frame promotion 入口
+失败、取消、中断不会产生 confirmed provider-visible entries
+下一轮 old context 只来自 latest confirmed physical prefix frame 或 explicit provider protocol replay
 ```
 
 ## 8. 文件级执行清单
@@ -986,6 +1125,8 @@ frontend projection cache 不作为 provider/model context 来源
 | `context_line_activation.py` | 尚未独立存在 | 新增或等价收口 activation owner | 系统资产是否进入本轮上下文只由该层决定 |
 | `provider_message_replay_contract.py` | byte-preserve/replay 判断 | 分清 append candidate、provider protocol replay、physical frame replay | byte preserve 不等于已封存 |
 | `provider_visible_append_ledger.py` | current append ledger | 只登记/确认候选 | 不回放旧上下文、不控制物理排序 |
+| `physical_prefix_frame_ledger.py` | confirmed old context frame | 只在 provider success 后晋升 confirmed frame | failure/cancel/interrupt 不产生 confirmed frame |
+| `context_commit_record.py` | provider/session context commit record | 记录 commit terminal identity | success/failure/cancel/interrupt 可追踪且不串线 |
 | `physical_context_assembler.py` | 物理插线 | 接收 `PhysicalContextInputs`，唯一写 lane/index | 所有路径都通过它 |
 | `physical_context_plan.py` | physical diagnostics | 只读诊断/hash | 不排序、不 annotate specs |
 | `context_pipeline.py` | 上下文流水线 | 拆出分类、ledger、assembly、diagnostics | storage/scope 缺失不跳过 assembly |
@@ -999,9 +1140,40 @@ frontend projection cache 不作为 provider/model context 来源
 | `harness/loop/admission.py` | action admission / permit 前置裁决 | 只授权或反馈，不改写模型目标 | denial 进入 ActionFeedback，不变成 hidden context fallback |
 | `memory_system/runtime_context_provider.py` | memory hint 事实源 | 输出 low-authority memory context line | conversation continuity / runtime memory 不替代 provider protocol history |
 | `runtime/output_stream/public_stream_compiler.py` | public event 投影 | 只发布可见 projection | 不成为 agent context authority |
+| `runtime/model_gateway/model_runtime.py` | provider request/response lifecycle | 只在 provider success 后触发 context commit/promotion | failed/cancelled/interrupted response 不封存 current append |
+| `runtime/model_gateway/provider_payload.py` | provider payload manifest | 校验 physical lane 与 lifecycle | provider_visible_context_prefix 必须是 confirmed frame replay |
 | `frontend/src/lib/api/chatStream.ts` | stream cursor / replay consumer | 恢复可见流和 cursor | 不把前端缓存作为 provider-visible old context |
 | `frontend/src/lib/store/runtime.ts` | frontend projection state | 保留断线前可见投影 shell | 不因断线清空 projection；不伪造后端上下文 |
 | `README.md` | 设计说明 | 同步最终原则和流程 | 不再描述旧排序函数 |
+
+### 8.1 Clean Cutover 与回滚规则
+
+本计划不采用长期 v1/v2 双跑，也不在 active code 中保留旧主链路作为兼容路径。实施时采用 clean cutover：
+
+```text
+1. 先补齐 ContextLineDeclaration / PhysicalContextInputs / commit terminal policy 的静态合同。
+2. 再把所有 invocation 切到统一 classify + assemble 链路。
+3. 删除 follow-up 私有 physical assembly 和 context contract lane fallback。
+4. 删除或改名会暗示旧 authority 的 apply/reorder/annotate API。
+5. 最后做真实运行链路验证。
+```
+
+允许的回滚方式：
+
+```text
+git/service rollback 到实施前版本
+恢复上一份可运行构建
+保留诊断日志和 storage 数据用于追查
+```
+
+禁止的回滚方式：
+
+```text
+在 active runtime 中保留旧四段拼接函数
+让旧函数作为 fallback 被新链路调用
+用 invocation kind 判断走新旧双路径
+让 frontend cache 或 memory summary 顶替 provider old context
+```
 
 ## 9. 验证方案
 
@@ -1016,7 +1188,10 @@ rg _physical_context_order_key backend
 rg _single_agent_turn_followup_physical_context_assembly backend
 rg provider_protocol_replay_prefix backend
 rg "physical_lane_for_spec\\(" backend/harness/runtime/context_contract
+rg "physical_lane_for_spec" backend/runtime backend/harness --glob '!**/design_docs/**'
 rg "runtime.context_management.physical_context_plan\".*physical_lane_projection" backend/harness/runtime/context_contract
+rg "runtime_memory_context.*CONTEXT_MEMORY_PREFIX" backend/runtime/context_management
+rg "physical_prefix_frame_user_context_replay.*current_user_intent" backend/runtime/context_management
 ```
 
 要求：
@@ -1027,6 +1202,8 @@ rg "runtime.context_management.physical_context_plan\".*physical_lane_projection
 plan 不再修改 specs
 context_contract 不再推断真实 physical lane
 physical lane edge authority 不再指向 physical_context_plan
+runtime_memory_context 不再声明为 confirmed old context
+historical user replay 不再使用 current_user_intent 语义槽
 ```
 
 ### 9.2 结构探针
@@ -1085,7 +1262,9 @@ initial 和 follow-up 共享同一 physical assembly diagnostics
 上一轮 confirmed frame == 下一轮 old context
 current append 不提前晋升
 dynamic tail 不进入 frame
+failure / cancel / interrupt 不产生 confirmed frame
 frontend 断线重连后只恢复 public projection/cursor，不清空已显示 projection
+重复 replay 按 runtime_event_id / projection key 幂等合并
 如需让 agent 感知恢复事件，恢复事实以 dynamic recovery line 入中枢
 ```
 
@@ -1101,6 +1280,9 @@ frontend 断线重连后只恢复 public projection/cursor，不清空已显示 
 不允许把 current user 当长期历史替代品
 不允许让 memory summary 替代 provider protocol history
 不允许把 dynamic tail 写入 confirmed old context
+不允许 failure / cancel / interrupt 晋升 physical prefix frame
+不允许旧用户历史 replay 使用 current_user_intent 语义槽
+不允许 frontend replay 生成 provider/model context
 不允许为了兼容保留旧主链路
 不允许新增 v2 双跑长期兼容路径
 不允许新增测试文件来证明结构正确
@@ -1119,11 +1301,14 @@ frontend 断线重连后只恢复 public projection/cursor，不清空已显示 
 6. physical plan 不再拥有修复或排序权。
 7. current user、memory、provider history、tool transcript、dynamic control 的语义位置清楚。
 8. cache spine 和 provider payload 的诊断能追溯到真实物理顺序。
+9. provider success 是唯一 confirmed old context 晋升入口。
+10. frontend projection replay 只影响 public projection，不进入 agent provider context。
+11. 旧 active 主链路被删除，不存在长期双跑兼容。
 ```
 
 ## 12. 审阅重点
 
-实施前需要确认六件事：
+实施前需要确认九件事：
 
 ```text
 1. 是否接受 PhysicalContextInputs 作为唯一四段输入契约。
@@ -1132,6 +1317,9 @@ frontend 断线重连后只恢复 public projection/cursor，不清空已显示 
 4. 是否接受每个系统资产必须有 SystemAssetLine，且由 context_line_state 控制是否进入本轮上下文。
 5. 是否接受 context contract / physical plan / public projection 都只能做只读诊断或呈现，不能推断、补写或重排 physical lane。
 6. 是否接受控制输出端只消费上下文中枢和输出 ActionFeedback，不反向发明上下文线。
+7. 是否接受 runtime_memory_context 作为 low-authority current hint，不再作为 confirmed old context。
+8. 是否接受 provider success 是 current append 晋升 physical prefix frame 的唯一入口。
+9. 是否接受 clean cutover：删除旧 active 主链路，不保留 v1/v2 双跑兼容。
 ```
 
 确认后才能进入代码实施。

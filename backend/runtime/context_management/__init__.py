@@ -34,8 +34,8 @@ from .context_pipeline import (
     ContextPipelineResult,
     apply_context_capability_profile_to_specs,
     apply_physical_context_plan_to_specs,
-    apply_provider_visible_append_stage_to_specs,
     build_context_pipeline,
+    enrich_physical_context_inputs_with_provider_visible_append_ledger,
     normalize_context_compaction_generation,
     specs_with_context_compaction_generation,
 )
@@ -50,7 +50,9 @@ from .physical_context_plan import (
 from .physical_context_assembler import (
     PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
     PhysicalContextAssemblyResult,
+    PhysicalContextInputs,
     assemble_physical_context_spine,
+    classify_physical_context_inputs,
 )
 from .physical_prefix_frame_ledger import (
     PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
@@ -205,8 +207,8 @@ __all__ = [
     "ContextPipelineResult",
     "apply_context_capability_profile_to_specs",
     "apply_physical_context_plan_to_specs",
-    "apply_provider_visible_append_stage_to_specs",
     "build_context_pipeline",
+    "enrich_physical_context_inputs_with_provider_visible_append_ledger",
     "normalize_context_compaction_generation",
     "specs_with_context_compaction_generation",
     "CURRENT_TURN_TAIL",
@@ -217,7 +219,9 @@ __all__ = [
     "build_physical_context_plan",
     "PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY",
     "PhysicalContextAssemblyResult",
+    "PhysicalContextInputs",
     "assemble_physical_context_spine",
+    "classify_physical_context_inputs",
     "PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY",
     "append_physical_prefix_frame_from_provider_success",
     "latest_confirmed_physical_prefix_frame",

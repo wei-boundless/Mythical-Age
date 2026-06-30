@@ -640,6 +640,10 @@ function workspaceRelativeFilePath(path: string, fileNameIndex?: Map<string, str
   const parts = trimmed.split("/").filter(Boolean);
   const rootIndex = parts.findIndex((part) => WORKSPACE_ROOT_SEGMENTS.has(part));
   if (rootIndex < 0) {
+    // 不在已知根目录白名单中时，如果已经是合法相对路径则直接返回
+    if (!/^[A-Za-z]:[/\\]/.test(trimmed) && !trimmed.startsWith("/")) {
+      return trimmed;
+    }
     return "";
   }
   return parts.slice(rootIndex).join("/");

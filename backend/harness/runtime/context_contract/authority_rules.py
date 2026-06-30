@@ -29,7 +29,6 @@ from runtime.context_management.context_segment_registry import (
     context_segment_kind_capability,
     context_segment_kind_declaration,
 )
-from runtime.context_management.physical_context_plan import physical_lane_for_spec
 
 
 def classify_context_spec(spec: dict[str, Any], *, index: int) -> dict[str, Any]:
@@ -141,10 +140,7 @@ def _source_ref(payload: dict[str, Any], *, metadata: dict[str, Any], index: int
 
 
 def _physical_lane(payload: dict[str, Any], *, metadata: dict[str, Any], policy: ContextSegmentPolicy) -> str:
-    explicit = _first_text(metadata.get("physical_prefix_lane"), payload.get("physical_prefix_lane"))
-    if explicit:
-        return explicit
-    return physical_lane_for_spec(payload, policy=policy)
+    return _first_text(metadata.get("physical_prefix_lane"), payload.get("physical_prefix_lane"))
 
 
 def _prefix_identity(
@@ -291,9 +287,7 @@ def _time_scope(
         return "current_turn"
     if physical_lane == "never_replay_tail":
         return "current_turn_never_replay"
-    if str(policy.section or "") == CONTEXT_APPEND:
-        return "current_append_pending_provider_success"
-    return "current_turn"
+    return "missing_physical_assembly"
 
 
 def _visibility(*, metadata: dict[str, Any], physical_lane: str) -> str:
@@ -308,6 +302,8 @@ def _visibility(*, metadata: dict[str, Any], physical_lane: str) -> str:
 def _ttl(*, policy: ContextSegmentPolicy, time_scope: str, visibility: str) -> str:
     if visibility == "provider_transport":
         return "current_provider_request"
+    if time_scope == "missing_physical_assembly":
+        return "missing_physical_assembly"
     if time_scope == "static_prefix":
         return "stable"
     if time_scope in {"confirmed_frame_replay", "confirmed_context_prefix"}:
@@ -318,6 +314,8 @@ def _ttl(*, policy: ContextSegmentPolicy, time_scope: str, visibility: str) -> s
 
 
 def _cache_expectation(*, policy: ContextSegmentPolicy, physical_lane: str) -> str:
+    if not physical_lane:
+        return "missing_physical_assembly"
     if physical_lane in {"global_static_prefix", "provider_tool_schema_prefix"}:
         return "expected_read"
     if physical_lane == "provider_visible_context_prefix":
@@ -335,7 +333,7 @@ def _authority(payload: dict[str, Any], *, metadata: dict[str, Any], policy: Con
         metadata.get("context_origin_authority"),
         metadata.get("prefix_origin_authority"),
         metadata.get("origin_authority"),
-        metadata.get("physical_context_plan_authority"),
+        metadata.get("physical_context_assembler_authority"),
         payload.get("authority"),
         policy.authority,
         "runtime.context_management.context_segment_policy",
@@ -407,6 +405,8 @@ def _agent_role(*, metadata: dict[str, Any], agent_domain: str) -> str:
 def _control_layer(*, policy: ContextSegmentPolicy, physical_lane: str, visibility: str) -> str:
     if visibility == "provider_transport":
         return "provider_transport"
+    if not physical_lane:
+        return "missing_physical_assembly"
     if physical_lane == "global_static_prefix":
         return "stable_prefix"
     if physical_lane == "provider_visible_context_prefix":
@@ -448,6 +448,19 @@ def _metadata_declares_slot(metadata: dict[str, Any]) -> bool:
     )
 
 
+def _has_physical_assembly_index(payload: dict[str, Any], *, metadata: dict[str, Any]) -> bool:
+    for value in (
+        metadata.get("context_physical_assembly_index"),
+        payload.get("context_physical_assembly_index"),
+    ):
+        try:
+            if int(value or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def _content_mode(spec: dict[str, Any]) -> str:
     if spec.get("payload") is not None:
         return "full"
@@ -475,12 +488,17 @@ def _diagnostics(
     connection_contract_ref: str,
 ) -> dict[str, Any]:
     missing: list[str] = []
+    missing_physical_assembly: list[str] = []
     if not agent_domain:
         missing.append("agent_domain")
     if not control_signal:
         missing.append("control_signal")
     if not physical_lane:
         missing.append("physical_lane")
+        missing_physical_assembly.append("physical_prefix_lane")
+    if not _has_physical_assembly_index(payload, metadata=metadata):
+        missing.append("context_physical_assembly_index")
+        missing_physical_assembly.append("context_physical_assembly_index")
     if not connection_contract_ref:
         missing.append("connection_contract_ref")
     return {
@@ -494,12 +512,15 @@ def _diagnostics(
         "prefix_identity_schema": str(prefix_identity.get("schema") or ""),
         "explicit_contract_missing_fields": missing,
         "missing_connection_contract": "connection_contract_ref" in missing,
+        "missing_physical_assembly_metadata": bool(missing_physical_assembly),
+        "missing_physical_assembly_fields": missing_physical_assembly,
         "input_role": str(payload.get("role") or ""),
         "input_kind": kind,
         "input_cache_scope": str(payload.get("cache_scope") or ""),
         "input_cache_role": str(payload.get("cache_role") or ""),
         "metadata_context_cache_section": str(metadata.get("context_cache_section") or ""),
         "metadata_physical_prefix_lane": str(metadata.get("physical_prefix_lane") or ""),
+        "metadata_context_physical_assembly_index": str(metadata.get("context_physical_assembly_index") or ""),
     }
 
 

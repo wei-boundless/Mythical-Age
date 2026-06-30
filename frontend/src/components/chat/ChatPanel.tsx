@@ -304,6 +304,7 @@ export function ChatPanel() {
           </div>
         </div>
         <ChatInput
+          key={currentSessionId ?? "no-session"}
           disabled={workspaceInitializing}
           streaming={currentSessionReceivingStream}
           onSend={handleSendMessage}

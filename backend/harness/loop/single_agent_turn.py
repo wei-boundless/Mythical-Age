@@ -75,8 +75,8 @@ from runtime.context_management import (
     NEVER_REPLAY_TAIL,
     PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT,
     STATIC_PREFIX,
-    assemble_physical_context_spine,
     build_physical_context_plan,
+    build_context_pipeline,
     context_segment_is_provider_visible_sealable_spec,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
@@ -92,10 +92,6 @@ from runtime.context_management.provider_message_replay_contract import (
     PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY,
     PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
     PHYSICAL_PREFIX_FRAME_REPLAY_STATUS,
-    PROVIDER_PROTOCOL_REPLAY_POLICY,
-    PROVIDER_PROTOCOL_REPLAY_STATUS,
-    provider_message_byte_preservation_required,
-    provider_protocol_append_candidate_metadata,
 )
 from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
 from runtime.output_stream.public_contract import ASSISTANT_PUBLIC_FEEDBACK_EVENT, TURN_COMPLETED_EVENT
@@ -7533,12 +7529,17 @@ def _single_agent_turn_followup_prompt_payload(
         scope=provider_visible_append_scope,
         model_selection=model_selection,
     )
-    specs, physical_assembly_diagnostics = _single_agent_turn_followup_physical_context_assembly(
+    context_pipeline_result = build_context_pipeline(
         specs,
-        storage_root=storage_root,
+        invocation_kind="single_agent_turn_tool_followup",
         provider_visible_append_scope=provider_visible_append_scope,
+        storage_root=storage_root,
         model_selection=model_selection,
+        apply_capability_profile_stage=False,
     )
+    specs = [dict(item) for item in context_pipeline_result.message_specs]
+    context_pipeline_diagnostics = dict(context_pipeline_result.diagnostics or {})
+    physical_assembly_diagnostics = dict(context_pipeline_diagnostics.get("physical_context_assembly") or {})
     specs = _with_provider_payload_hashes(specs)
     physical_plan = build_physical_context_plan(specs)
     append_only_messages = [
@@ -7560,6 +7561,7 @@ def _single_agent_turn_followup_prompt_payload(
     segment_plan["diagnostics"] = {
         **dict(segment_plan.get("diagnostics") or {}),
         "physical_context_assembly": physical_assembly_diagnostics,
+        "context_pipeline": context_pipeline_diagnostics,
     }
     segment_plan = _annotate_single_agent_followup_segment_plan(
         segment_plan,
@@ -7584,124 +7586,6 @@ def _single_agent_turn_followup_prompt_payload(
             )
         )
     return append_only_messages, segment_plan
-
-
-def _single_agent_turn_followup_physical_context_assembly(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    storage_root: Path | None,
-    provider_visible_append_scope: str,
-    model_selection: dict[str, Any] | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    if storage_root is None or not str(provider_visible_append_scope or "").strip():
-        return [dict(item) for item in list(specs or []) if isinstance(item, dict)], {
-            "status": "skipped",
-            "reason": "missing_scope_or_storage_root",
-            "authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
-        }
-    provider, model = _provider_model_from_selection(model_selection)
-    static_prefix: list[dict[str, Any]] = []
-    old_context_replay_specs: list[dict[str, Any]] = []
-    provider_visible_append_specs: list[dict[str, Any]] = []
-    dynamic_tail: list[dict[str, Any]] = []
-    for raw_spec in list(specs or []):
-        if not isinstance(raw_spec, dict):
-            continue
-        spec = dict(raw_spec)
-        policy = context_segment_policy_for_spec(spec)
-        metadata = dict(spec.get("metadata") or {})
-        if provider_message_byte_preservation_required(spec) and not provider_protocol_append_candidate_metadata(metadata):
-            old_context_replay_specs.append(_provider_protocol_prefix_replay_spec(spec))
-            continue
-        if policy.section == STATIC_PREFIX:
-            static_prefix.append(spec)
-            continue
-        if _followup_spec_routes_to_physical_provider_visible_memory(spec, policy=policy, metadata=metadata):
-            provider_visible_append_specs.append(spec)
-            continue
-        dynamic_tail.append(spec)
-    assembly = assemble_physical_context_spine(
-        static_prefix_specs=static_prefix,
-        provider_visible_append_specs=provider_visible_append_specs,
-        current_tail_specs=dynamic_tail,
-        storage_root=storage_root,
-        scope=str(provider_visible_append_scope or "").strip(),
-        provider=provider,
-        model=model,
-        provider_lane=PROVIDER_LANE_AGENT_TOOL_LOOP,
-        old_context_replay_specs=old_context_replay_specs,
-    )
-    message_specs = [dict(item) for item in assembly.message_specs]
-    replay_status = str(dict(assembly.diagnostics or {}).get("provider_message_replay_source") or "")
-    return message_specs, {
-        **dict(assembly.diagnostics or {}),
-        "input_static_prefix_spec_count": len(static_prefix),
-        "input_provider_visible_spec_count": len(provider_visible_append_specs),
-        "input_dynamic_tail_spec_count": len(dynamic_tail),
-        "input_old_context_replay_spec_count": len(old_context_replay_specs),
-        "provider_message_replay_status": replay_status,
-        "followup_input_classifier_authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
-    }
-
-
-def _provider_protocol_prefix_replay_spec(spec: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(spec or {})
-    message = _spec_model_message(payload)
-    metadata = {
-        **dict(payload.get("metadata") or {}),
-        "context_cache_section": CONTEXT_MEMORY_PREFIX,
-        "fixed_context_package": "context_memory_prefix",
-        "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
-        "provider_protocol_replay": True,
-        "provider_protocol_prefix_replay": True,
-        "provider_visible_history_status": PROVIDER_PROTOCOL_REPLAY_STATUS,
-        "provider_visible_history_authority": "harness.loop.single_agent_turn.followup_physical_context_assembly",
-        "provider_visible_history_model_message_hash": stable_model_message_hash(dict(message or {})),
-        "cache_policy_rebased": "provider_protocol_prefix_preserved",
-    }
-    exact = {
-        **payload,
-        "role": str(message.get("role") or payload.get("role") or "user"),
-        "content": str(message.get("content") if message.get("content") is not None else payload.get("content") or ""),
-        "cache_scope": str(payload.get("cache_scope") or "session"),
-        "cache_role": str(payload.get("cache_role") or "session_stable"),
-        "prefix_tier": str(payload.get("prefix_tier") or "session"),
-        "metadata": metadata,
-        "model_message": dict(message or {}),
-    }
-    policy = context_segment_policy_for_spec(exact, default_section=CONTEXT_MEMORY_PREFIX)
-    exact["metadata"] = {
-        **metadata,
-        **context_segment_policy_metadata(policy),
-        "context_cache_section": CONTEXT_MEMORY_PREFIX,
-        "fixed_context_package": "context_memory_prefix",
-        "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
-        "provider_protocol_replay": True,
-        "provider_protocol_prefix_replay": True,
-    }
-    exact["cache_scope"] = policy.prefix_cache_scope
-    exact["cache_role"] = policy.prefix_cache_role
-    exact["prefix_tier"] = policy.prefix_tier
-    return exact
-
-
-def _followup_spec_routes_to_physical_provider_visible_memory(
-    spec: dict[str, Any],
-    *,
-    policy: Any,
-    metadata: dict[str, Any],
-) -> bool:
-    if str(policy.section or "") == CONTEXT_MEMORY_PREFIX:
-        return True
-    if str(policy.section or "") != CONTEXT_APPEND:
-        return False
-    if str(metadata.get("provider_visible_append_commit_stage") or "").strip() == "provider_success_required":
-        return True
-    if str(metadata.get("context_commit_policy") or getattr(policy, "commit_policy", "") or "").strip() != "append_then_seal":
-        return False
-    if str(metadata.get("context_replay_policy") or getattr(policy, "replay_policy", "") or "").strip() == "current_dynamic_tail_only":
-        return False
-    return context_segment_is_provider_visible_sealable_spec(spec)
 
 
 def _standardize_followup_provider_tool_protocol_specs(

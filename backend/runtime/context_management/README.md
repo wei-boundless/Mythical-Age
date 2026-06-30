@@ -7,7 +7,9 @@
 
 ## 一、系统总览
 
-上下文拼接系统是整个 agent runtime 的 **上下文管线**（Context Pipeline），负责把原始消息规格列表经过**能力过滤 → provider-visible append 候选 → 物理前缀帧 replay/物理计划 → Provider 交付**四个阶段，组装成最终发送给 LLM 的请求消息序列。
+上下文拼接系统是整个 agent runtime 的 **上下文管线**（Context Pipeline），负责把原始消息规格列表经过**能力过滤 → PhysicalContextInputs 四段分类 → provider-visible append enrichment → 唯一物理插线 → 只读物理诊断 → Provider 交付**，组装成最终发送给 LLM 的请求消息序列。
+
+术语边界：`CONTEXT_MEMORY_PREFIX` / `context_memory_prefix` 在本系统里只表示 **confirmed old provider context replay**，不是 session memory 摘要、工作记忆缓存或 `runtime_memory_context`。`runtime_memory_context`、conversation continuity、session emphasis 等都是 `CONTEXT_APPEND` 的 low-authority current hint；只有 provider success 后写入 physical prefix frame，下一轮才可能以 confirmed replay 进入 `CONTEXT_MEMORY_PREFIX`。
 
 ### 架构层级
 
@@ -53,33 +55,31 @@
   - 每条 spec 根据其 `kind` 查找 capability 声明，不符合 profile 的被丢弃并记录诊断。
 - **replay 契约机制**：已被物理前缀帧或 provider protocol replay 标记的 specs 不被重新分类，避免 replay 消息因 provider 差异被错误改写。
 
-### 阶段 2：Provider-visible append stage
+### 阶段 2：PhysicalContextInputs + provider-visible append enrichment
 
-**函数：** `apply_provider_visible_append_stage_to_specs()` (`context_pipeline.py`)
+**函数：** `classify_physical_context_inputs()` (`physical_context_assembler.py`)  
+**函数：** `enrich_physical_context_inputs_with_provider_visible_append_ledger()` (`context_pipeline.py`)
 
-这一阶段只决定当前请求中哪些 provider-visible 片段可以作为 append candidate 等待 provider success 后确认。它不拥有下一轮 replay 顺序权威；confirmed replay 由 `physical_prefix_frame_ledger.py` 和 `physical_context_assembler.py` 承担。
+这一阶段先把候选上下文分类为 `PhysicalContextInputs(draft)` 的四段输入，再让 provider-visible append ledger 只 enrich current append metadata，输出 `PhysicalContextInputs(final)`。ledger skipped 只影响 enrichment diagnostics，不允许跳过物理拼接；confirmed replay 由 `physical_prefix_frame_ledger.py` 和 `physical_context_assembler.py` 承担。
 
 #### 触发条件
 - `invocation_kind` 必须属于 provider-visible append stage 管理的调用类型
 - `provider_visible_append_scope` 必须有值
 - `storage_root` 必须非空
 
-#### 核心逻辑：三段式分类
+#### 核心逻辑：四段式输入
 
 ```
 输入 specs ──────────────────────────────────────────
     │
-    ├── STATIC_PREFIX（系统 prompt）→ 直接保留在最前面
-    │
-    ├── CONTEXT_MEMORY_PREFIX / CONTEXT_APPEND
-    │   ├── 可 seal（可作为 append candidate）→ provider_visible_append_candidates
-    │   └── 不可 seal → 放到 current_turn_tail_specs
-    │
-    └── DYNAMIC_TAIL → 阻塞重放，放到 tail（blocked_dynamic_tail_replay_count）
+    ├── STATIC_PREFIX → PhysicalContextInputs.static_prefix_specs
+    ├── CONTEXT_MEMORY_PREFIX → PhysicalContextInputs.old_context_replay_specs
+    ├── CONTEXT_APPEND → PhysicalContextInputs.current_append_specs
+    └── DYNAMIC_TAIL / 其他 → PhysicalContextInputs.current_tail_specs
 ```
 
-- **可 seal 判定**：`context_segment_policy_is_provider_visible_sealable(policy)` 检查 policy 的 `prefix_cache_scope != ""` 且 `prefix_cache_role != "volatile"`。
-- **分隔线原则**：`STATIC_PREFIX` 在最前，`current_turn_tail` 在最后，中间只放本轮可确认的 provider-visible append；已确认 replay 从 physical prefix frame 注入。
+- **可 seal 判定**：`context_segment_policy_is_provider_visible_sealable(policy)` 只决定 current append 是否登记为 provider success 后可确认的候选，不改变它所属的物理段。
+- **分隔线原则**：四段归属只在 `PhysicalContextInputs` 中确定；ledger 不拥有 provider payload 顺序权威。
 
 #### Append candidate 装配
 
@@ -88,8 +88,8 @@
 1. 从磁盘加载 `storage/runtime_state/provider_visible_append_ledger/<scope>.json`
 2. 根据统一 `context_segment_policy` 判断 candidate 是否可确认
 3. 为本轮可确认片段写入 `provider_visible_append_*` metadata
-4. 按 `original_order` 排序，保持当前 append 的相对顺序
-5. 返回等待 provider success 的 current append specs
+4. 返回等待 provider success 的 current append specs
+5. pipeline 按 `PhysicalContextInputs.current_append_specs` 的原始顺序合回，不使用 ledger 排序作为 provider payload 顺序
 
 **输出排序：** physical assembler 最终组合为 `[static_prefix, ...confirmed_old_context, ...current_append, ...current_turn_tail, ...never_replay_tail]`
 
@@ -104,7 +104,7 @@
 | 车道 | 来源 Section | 缓存脊柱参与 | 说明 |
 |---|---|---|---|
 | `global_static_prefix` | STATIC_PREFIX | ✅ 是 | 系统 prompt，全局缓存 |
-| `provider_visible_context_prefix` | CONTEXT_MEMORY_PREFIX（stable） | ✅ 是 | 经 ledger 确认的可缓存历史 |
+| `provider_visible_context_prefix` | CONTEXT_MEMORY_PREFIX（confirmed replay） | ✅ 是 | 经 physical prefix frame 确认的可缓存 provider 历史 |
 | `current_turn_tail` | CONTEXT_APPEND + 不可 seal | ❌ 否 | 当前轮新增消息 |
 | `never_replay_tail` | DYNAMIC_TAIL | ❌ 否 | 动态尾，永不重放 |
 
@@ -159,7 +159,8 @@ Pipeline 输出 `ContextPipelineResult.message_specs` 后，由上游（`compile
 
 ```
 STATIC_PREFIX_KINDS: system, runtime_instruction
-MEMORY_CONTEXT_KINDS: memory_context, session_history, compressed_history
+CONFIRMED_REPLAY_CONTEXT_KINDS: physical_prefix_frame_*_replay
+CURRENT_MEMORY_HINT_KINDS: runtime_memory_context, session_history, session_emphasis
 APPEND_ONLY_CONTEXT_KINDS: user_message, tool_call, tool_result, prompt_censorship
 CURRENT_CONTROL_TAIL_KINDS: current_turn_instruction, provider_prefill
 DYNAMIC_TAIL: tool_observation_followup
@@ -211,14 +212,15 @@ DYNAMIC_TAIL: tool_observation_followup
 
 ### 3.4 物理上下文计划 (`physical_context_plan.py`)
 
-**`PhysicalContextPlan`** dataclass 包含完整的物理编排计划：
+**`PhysicalContextPlan`** dataclass 包含只读物理诊断：
 
 - `plan_id` — 确定性 plan 标识
 - `cache_spine_hash` — 缓存脊柱哈希
 - `cache_spine_segment_count` — 缓存脊柱段数
 - `lane_counts` — 各车道计数
-- `segments` — 排序后的物理段列表（每个带有 lane、section、cache_scope、cache_role、content_hash 等信息）
+- `segments` — 按 assembler 输出顺序读取的物理段列表（每个带有 lane、section、cache_scope、cache_role、content_hash 等信息）
 - `stable_after_tail_violations` — 违规记录
+- `blocked_segments` — 缺少 assembler lane/index 或 assembly index 不一致的结构诊断
 
 ### 3.5 会话压缩（Session Compaction）
 

@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from .context_segment_policy import (
+    CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
+    STATIC_PREFIX,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
@@ -31,6 +33,37 @@ PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY = "runtime.context_management.physical_cont
 
 
 @dataclass(frozen=True, slots=True)
+class PhysicalContextInputs:
+    static_prefix_specs: tuple[dict[str, Any], ...] = ()
+    old_context_replay_specs: tuple[dict[str, Any], ...] = ()
+    current_append_specs: tuple[dict[str, Any], ...] = ()
+    current_tail_specs: tuple[dict[str, Any], ...] = ()
+    storage_root: Path | None = None
+    scope: str = ""
+    provider: str = ""
+    model: str = ""
+    provider_lane: str = ""
+    input_stage: str = "final"
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def to_diagnostics(self) -> dict[str, Any]:
+        return {
+            "input_stage": str(self.input_stage or ""),
+            "scope": str(self.scope or ""),
+            "storage_root": str(self.storage_root or ""),
+            "provider": str(self.provider or ""),
+            "model": str(self.model or ""),
+            "provider_lane": str(self.provider_lane or ""),
+            "static_prefix_spec_count": len(self.static_prefix_specs),
+            "old_context_replay_spec_count": len(self.old_context_replay_specs),
+            "current_append_spec_count": len(self.current_append_specs),
+            "current_tail_spec_count": len(self.current_tail_specs),
+            "diagnostics": dict(self.diagnostics or {}),
+            "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PhysicalContextAssemblyResult:
     message_specs: tuple[dict[str, Any], ...]
     old_context_specs: tuple[dict[str, Any], ...] = ()
@@ -46,17 +79,84 @@ class PhysicalContextAssemblyResult:
         }
 
 
-def assemble_physical_context_spine(
+def classify_physical_context_inputs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     *,
-    static_prefix_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    provider_visible_append_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    current_tail_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     storage_root: Path | None,
     scope: str,
     provider: str = "",
     model: str = "",
     provider_lane: str = "",
-    old_context_replay_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    input_stage: str = "draft",
+) -> PhysicalContextInputs:
+    """Classify logical context specs into the four physical splice inputs."""
+
+    static_prefix_specs: list[dict[str, Any]] = []
+    old_context_replay_specs: list[dict[str, Any]] = []
+    current_append_specs: list[dict[str, Any]] = []
+    current_tail_specs: list[dict[str, Any]] = []
+    section_counts: dict[str, int] = {}
+    route_counts: dict[str, int] = {}
+    trace: list[dict[str, Any]] = []
+
+    for index, raw_spec in enumerate(list(specs or ()), start=1):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = _spec_with_context_policy_metadata(raw_spec)
+        policy = context_segment_policy_for_spec(spec)
+        section = str(policy.section or "")
+        section_counts[section or "missing"] = section_counts.get(section or "missing", 0) + 1
+        if section == STATIC_PREFIX:
+            route = "static_prefix_specs"
+            static_prefix_specs.append(spec)
+        elif section == CONTEXT_MEMORY_PREFIX:
+            route = "old_context_replay_specs"
+            old_context_replay_specs.append(spec)
+        elif section == CONTEXT_APPEND:
+            route = "current_append_specs"
+            current_append_specs.append(spec)
+        else:
+            route = "current_tail_specs"
+            current_tail_specs.append(spec)
+        route_counts[route] = route_counts.get(route, 0) + 1
+        trace.append(
+            {
+                "input_index": index,
+                "kind": str(spec.get("kind") or ""),
+                "source_ref": str(spec.get("source_ref") or ""),
+                "context_cache_section": section,
+                "route": route,
+                "semantic_slot": str(policy.semantic_slot or ""),
+            }
+        )
+
+    diagnostics = {
+        "status": "classified",
+        "input_stage": str(input_stage or "draft"),
+        "input_spec_count": len([item for item in list(specs or ()) if isinstance(item, dict)]),
+        "section_counts": section_counts,
+        "route_counts": route_counts,
+        "classification_trace": trace[:80],
+        "classification_trace_count": len(trace),
+        "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
+    }
+    return PhysicalContextInputs(
+        static_prefix_specs=tuple(static_prefix_specs),
+        old_context_replay_specs=tuple(old_context_replay_specs),
+        current_append_specs=tuple(current_append_specs),
+        current_tail_specs=tuple(current_tail_specs),
+        storage_root=storage_root,
+        scope=str(scope or "").strip(),
+        provider=str(provider or "").strip(),
+        model=str(model or "").strip(),
+        provider_lane=str(provider_lane or "").strip(),
+        input_stage=str(input_stage or "draft"),
+        diagnostics=diagnostics,
+    )
+
+
+def assemble_physical_context_spine(
+    inputs: PhysicalContextInputs,
 ) -> PhysicalContextAssemblyResult:
     """Assemble the only physical order the runtime is allowed to send.
 
@@ -65,10 +165,10 @@ def assemble_physical_context_spine(
     static prefix -> confirmed old frame -> current append -> dynamic tail.
     """
 
-    clean_static = [dict(item) for item in list(static_prefix_specs or []) if isinstance(item, dict)]
-    clean_old_context = [dict(item) for item in list(old_context_replay_specs or []) if isinstance(item, dict)]
-    clean_append_specs = [dict(item) for item in list(provider_visible_append_specs or []) if isinstance(item, dict)]
-    clean_tail = [dict(item) for item in list(current_tail_specs or []) if isinstance(item, dict)]
+    clean_static = [dict(item) for item in list(inputs.static_prefix_specs or []) if isinstance(item, dict)]
+    clean_old_context = [dict(item) for item in list(inputs.old_context_replay_specs or []) if isinstance(item, dict)]
+    clean_append_specs = [dict(item) for item in list(inputs.current_append_specs or []) if isinstance(item, dict)]
+    clean_tail = [dict(item) for item in list(inputs.current_tail_specs or []) if isinstance(item, dict)]
     current_append_specs, ignored_provider_visible_specs = _current_append_specs(clean_append_specs)
     current_tail_specs, never_replay_tail_specs = _split_current_tail_specs(clean_tail)
     frame: PhysicalPrefixFrame | None = None
@@ -79,11 +179,11 @@ def assemble_physical_context_spine(
         replay_source = "confirmed_old_context_input"
     else:
         frame_payload = latest_confirmed_physical_prefix_frame(
-            storage_root=storage_root,
-            scope=scope,
-            provider=provider,
-            model=model,
-            provider_lane=provider_lane,
+            storage_root=inputs.storage_root,
+            scope=inputs.scope,
+            provider=inputs.provider,
+            model=inputs.model,
+            provider_lane=inputs.provider_lane,
         )
         frame = PhysicalPrefixFrame.from_dict(frame_payload) if frame_payload else None
         if frame is not None and frame.frame_id:
@@ -109,10 +209,11 @@ def assemble_physical_context_spine(
     )
     diagnostics = {
         "status": "applied",
-        "scope": str(scope or ""),
-        "provider": str(provider or ""),
-        "model": str(model or ""),
-        "provider_lane": str(provider_lane or ""),
+        "scope": str(inputs.scope or ""),
+        "provider": str(inputs.provider or ""),
+        "model": str(inputs.model or ""),
+        "provider_lane": str(inputs.provider_lane or ""),
+        "physical_context_inputs": inputs.to_diagnostics(),
         "latest_physical_prefix_frame_id": str(getattr(frame, "frame_id", "") or ""),
         "latest_physical_prefix_frame_request_id": str(getattr(frame, "source_request_id", "") or ""),
         "latest_physical_prefix_frame_hash": str(getattr(frame, "provider_payload_prefix_hash", "") or ""),
@@ -187,6 +288,7 @@ def _with_physical_lane_specs(
         metadata = {
             **dict(spec.get("metadata") or {}),
             "physical_prefix_lane": str(lane or ""),
+            "physical_context_assembler_authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
         }
         spec["metadata"] = metadata
         spec["physical_prefix_lane"] = str(lane or "")
@@ -205,10 +307,41 @@ def _with_physical_assembly_indexes(
         metadata = {
             **dict(spec.get("metadata") or {}),
             "context_physical_assembly_index": index,
+            "physical_context_assembler_authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
         }
         spec["metadata"] = metadata
         result.append(spec)
     return result
+
+
+def _spec_with_context_policy_metadata(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = _without_physical_assembly_metadata(dict(spec or {}))
+    policy = context_segment_policy_for_spec(payload)
+    metadata = {
+        **dict(payload.get("metadata") or {}),
+        **context_segment_policy_metadata(policy),
+    }
+    payload["metadata"] = metadata
+    payload["cache_scope"] = policy.prefix_cache_scope
+    payload["cache_role"] = policy.prefix_cache_role
+    payload["prefix_tier"] = policy.prefix_tier
+    return payload
+
+
+def _without_physical_assembly_metadata(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec or {})
+    payload.pop("physical_prefix_lane", None)
+    metadata = dict(payload.get("metadata") or {})
+    for key in (
+        "physical_prefix_lane",
+        "context_physical_assembly_index",
+        "physical_context_assembler_authority",
+        "physical_context_plan_ref",
+        "physical_context_plan_authority",
+    ):
+        metadata.pop(key, None)
+    payload["metadata"] = metadata
+    return payload
 
 
 def _current_append_specs(
@@ -277,6 +410,7 @@ def _spec_from_frame_segment(
     frame: PhysicalPrefixFrame,
     message: dict[str, Any],
 ) -> dict[str, Any]:
+    replay_semantic_slot = _frame_replay_semantic_slot(segment)
     metadata = {
         **dict(segment.metadata or {}),
         "context_cache_section": CONTEXT_MEMORY_PREFIX,
@@ -291,7 +425,7 @@ def _spec_from_frame_segment(
         "context_origin_ref": str(dict(segment.prefix_identity or {}).get("origin_ref") or segment.source_ref or segment.segment_id),
         "context_prefix_identity": dict(segment.prefix_identity or {}),
         "context_prefix_lifecycle_state": "confirmed_frame_replay",
-        "context_semantic_slot": segment.semantic_slot,
+        "context_semantic_slot": replay_semantic_slot,
         "logical_segment_ref": segment.logical_segment_ref,
         "prefix_segment_ref": segment.prefix_segment_ref,
         "content_version_hash": segment.content_version_hash,
@@ -362,3 +496,19 @@ def _frame_replay_kind(segment: PhysicalPrefixFrameSegment) -> str:
     if role == "assistant":
         return "physical_prefix_frame_assistant_message_replay"
     return "physical_prefix_frame_context_replay"
+
+
+def _frame_replay_semantic_slot(segment: PhysicalPrefixFrameSegment) -> str:
+    metadata = dict(segment.metadata or {})
+    semantic_slot = str(metadata.get("context_semantic_slot") or metadata.get("semantic_slot") or segment.semantic_slot or "").strip()
+    replay_kind = _frame_replay_kind(segment)
+    if replay_kind == "physical_prefix_frame_tool_transcript_replay":
+        return "tool_transcript"
+    if replay_kind in {
+        "physical_prefix_frame_user_context_replay",
+        "physical_prefix_frame_user_message_replay",
+        "physical_prefix_frame_assistant_message_replay",
+        "physical_prefix_frame_context_replay",
+    }:
+        return "provider_protocol_history"
+    return semantic_slot or "provider_protocol_history"
