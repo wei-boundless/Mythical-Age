@@ -251,7 +251,7 @@ def test_compiler_does_not_project_active_work_controls_when_receipt_unavailable
     )
 
     assert "active_work_control" in result.packet.allowed_action_types
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Request Context")
     projected_active_work = dict(dynamic_payload["active_work_context"])
     projected_receipt = dict(dynamic_payload["current_work_boundary_receipt"])
     active_control_contract = dict(dict(result.packet.output_contract["control_actions"])["active_work_control"])
@@ -259,7 +259,7 @@ def test_compiler_does_not_project_active_work_controls_when_receipt_unavailable
     assert projected_active_work["read_only_context"] is True
     assert projected_active_work["control_availability"] == "current_work_boundary_receipt_active_work_control_unavailable"
     assert projected_receipt["operation_availability"]["active_work_control"] is False
-    assert "Current Runtime Boundary" in active_control_contract["operation_availability_gate"]
+    assert "Current Request Context" in active_control_contract["operation_availability_gate"]
 
 
 def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> None:
@@ -291,7 +291,7 @@ def test_compiler_uses_current_work_boundary_receipt_as_state_observation() -> N
     assert result.packet.allowed_action_types == ("respond", "ask_user", "block", "request_task_run", "active_work_control")
     assert result.packet.diagnostics["current_work_boundary_receipt"]["receipt_id"] == "cwreceipt:active"
     assert result.packet.diagnostics["current_work_boundary_receipt"]["operation_availability"]["active_work_control"] is True
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Request Context")
     projected_active_work = dict(dynamic_payload["active_work_context"])
     assert "continue_active_work" in projected_active_work["available_controls"]
     assert projected_active_work["read_only_context"] is False
@@ -323,7 +323,7 @@ def test_compiler_treats_shadow_current_work_receipt_true_as_read_only_state() -
     )
 
     packet_context = dict(result.packet.diagnostics["runtime_packet_context"])
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Request Context")
     projected_active_work = dict(dynamic_payload["active_work_context"])
     projected_receipt = dict(dynamic_payload["current_work_boundary_receipt"])
 
@@ -390,7 +390,7 @@ def test_compiler_exposes_prior_work_memory_as_current_request_context() -> None
 
     assert "resume_task_recovery" not in result.packet.allowed_action_types
     assert "active_work_control" in result.packet.allowed_action_types
-    dynamic_payload = _message_payload_with_title(result.packet, "Current Runtime Boundary")
+    dynamic_payload = _message_payload_with_title(result.packet, "Current Request Context")
     projected = dict(dynamic_payload["prior_work_memory_context"])
     assert "turn_run_id" not in projected
     assert "previous_turn_id" not in projected

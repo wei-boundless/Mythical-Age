@@ -8,7 +8,7 @@ from context_system.budget.presets import get_context_budget_preset
 from core.token_accounting import count_text_tokens
 
 from .contracts import MemoryContextCandidate
-from .continuity import SessionMemoryLayer
+from .continuity import ConversationContinuityLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .runtime_supply import (
     MemoryOrchestrator,
@@ -52,7 +52,7 @@ class MemoryBundleService:
     def __init__(
         self,
         *,
-        session_memory: SessionMemoryLayer,
+        conversation_continuity: ConversationContinuityLayer,
         conversation_memory: ConversationMemoryStoreAdapter,
         state_memory: StateMemoryStoreAdapter,
         working_memory: WorkingMemoryService,
@@ -60,7 +60,7 @@ class MemoryBundleService:
         durable_memory_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
-        self.session_memory = session_memory
+        self.conversation_continuity = conversation_continuity
         self.conversation_memory = conversation_memory
         self.state_memory = state_memory
         self.working_memory = working_memory

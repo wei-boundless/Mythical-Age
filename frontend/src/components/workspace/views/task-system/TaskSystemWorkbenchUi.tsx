@@ -158,7 +158,7 @@ export function taskSystemOptionLabel(value: string) {
     main_agent: "主 Agent",
     builtin_agent: "内置 Agent",
     custom_agent: "自定义 Agent",
-    conversation: "会话记忆",
+    conversation: "对话连续性摘要",
     state: "状态记忆",
     working: "工作记忆",
     long_term: "长期记忆",

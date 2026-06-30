@@ -17,7 +17,7 @@ from .context_segment_policy import (
     context_segment_policy_is_provider_visible_sealable,
     context_segment_policy_metadata,
 )
-from .physical_context_plan import annotate_specs_with_physical_context_plan
+from .physical_context_plan import build_physical_context_plan
 from .physical_context_assembler import assemble_physical_context_spine
 from .provider_message_replay_contract import (
     provider_message_byte_preservation_required,
@@ -193,8 +193,9 @@ def apply_provider_visible_append_stage_to_specs(
     provider, model = provider_model_from_selection(model_selection)
     provider_lane = provider_lane_from_model_selection(model_selection)
     static_prefix: list[dict[str, Any]] = []
+    current_append_inputs: list[tuple[int, dict[str, Any]]] = []
     provider_visible_append_candidates: list[tuple[int, dict[str, Any]]] = []
-    current_turn_tail_specs: list[dict[str, Any]] = []
+    dynamic_tail_specs: list[dict[str, Any]] = []
     blocked_dynamic_tail_replay_count = 0
     non_sealable_context_append_count = 0
     context_candidate_count = 0
@@ -215,18 +216,18 @@ def apply_provider_visible_append_stage_to_specs(
             static_prefix.append(spec)
             continue
         if section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
+            current_append_inputs.append((original_order, spec))
             if not context_segment_policy_is_provider_visible_sealable(policy):
-                current_turn_tail_specs.append(spec)
                 non_sealable_context_append_count += 1
                 continue
             provider_visible_append_candidates.append((original_order, spec))
             context_candidate_count += 1
             continue
         if section == DYNAMIC_TAIL:
-            current_turn_tail_specs.append(spec)
+            dynamic_tail_specs.append(spec)
             blocked_dynamic_tail_replay_count += 1
             continue
-        current_turn_tail_specs.append(spec)
+        dynamic_tail_specs.append(spec)
 
     current_append_specs_with_order = assemble_provider_visible_append_specs(
         provider_visible_append_candidates,
@@ -238,15 +239,20 @@ def apply_provider_visible_append_stage_to_specs(
         provider=provider,
         model=model,
     )
+    current_append_specs_by_order = {
+        int(order or 0): dict(spec)
+        for order, spec in list(current_append_specs_with_order or [])
+        if isinstance(spec, dict)
+    }
     current_append_specs = [
-        dict(spec)
-        for _order, spec in list(current_append_specs_with_order or [])
+        dict(current_append_specs_by_order.get(int(order or 0)) or spec)
+        for order, spec in sorted(current_append_inputs, key=lambda item: int(item[0] or 0))
         if isinstance(spec, dict)
     ]
     physical_assembly = assemble_physical_context_spine(
         static_prefix_specs=static_prefix,
         provider_visible_append_specs=current_append_specs,
-        current_tail_specs=current_turn_tail_specs,
+        current_tail_specs=dynamic_tail_specs,
         storage_root=storage_root,
         scope=scope,
         provider=provider,
@@ -265,7 +271,8 @@ def apply_provider_visible_append_stage_to_specs(
         "converted_dynamic_tail_replay_only_count": 0,
         "blocked_dynamic_tail_replay_count": blocked_dynamic_tail_replay_count,
         "non_sealable_context_append_tail_count": non_sealable_context_append_count,
-        "provider_visible_current_append_spec_count": len(current_append_specs),
+        "provider_visible_current_append_spec_count": len(current_append_specs_with_order),
+        "current_append_spec_count": len(current_append_specs),
         "physical_context_assembly": dict(physical_assembly.diagnostics or {}),
         "fork_inherited_provider_visible_append_spec_count": 0,
         "fork_inherited_provider_visible_append_scope": str(inheritance_contract.get("inherited_scope") or ""),
@@ -296,7 +303,8 @@ def apply_provider_visible_append_stage_to_specs(
         "fork_point_content_replacement_count": _safe_int(
             dict(inheritance_contract.get("fork_point_content_replacement_state") or {}).get("replacement_count")
         ),
-        "current_turn_tail_spec_count": len(current_turn_tail_specs),
+        "current_turn_tail_spec_count": len(current_append_specs),
+        "dynamic_tail_spec_count": len(dynamic_tail_specs),
         "physical_replay_rule": "static_prefix_then_confirmed_physical_frame_then_current_append_then_dynamic_tail",
         "authority": "runtime.context_management.context_pipeline.provider_visible_append_stage",
     }
@@ -307,32 +315,20 @@ def apply_physical_context_plan_to_specs(
     *,
     compaction_generation: str = "",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    policy_specs: list[dict[str, Any]] = []
+    clean_specs = [dict(item) for item in list(specs or ()) if isinstance(item, dict)]
     section_counts: dict[str, int] = {}
-    for original_order, raw_spec in enumerate(list(specs or ()), start=1):
-        if not isinstance(raw_spec, dict):
-            continue
+    for raw_spec in clean_specs:
         spec = dict(raw_spec)
         policy = context_segment_policy_for_spec(spec)
         section = policy.section
         section_counts[section] = section_counts.get(section, 0) + 1
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            **context_segment_policy_metadata(policy),
-            "context_physical_bucket_original_order": original_order,
-        }
-        spec["metadata"] = metadata
-        spec["cache_scope"] = policy.prefix_cache_scope
-        spec["cache_role"] = policy.prefix_cache_role
-        spec["prefix_tier"] = policy.prefix_tier
-        policy_specs.append(spec)
-    assembled, physical_plan = annotate_specs_with_physical_context_plan(
-        policy_specs,
+    physical_plan = build_physical_context_plan(
+        clean_specs,
         compaction_generation=normalize_context_compaction_generation(compaction_generation),
     )
     diagnostics = {
         "input_spec_count": len(list(specs or ())),
-        "output_spec_count": len(assembled),
+        "output_spec_count": len(clean_specs),
         "context_cache_section_counts": section_counts,
         "physical_context_plan": physical_plan.to_dict(),
         "cache_spine_hash": physical_plan.cache_spine_hash,
@@ -341,7 +337,7 @@ def apply_physical_context_plan_to_specs(
         "stable_after_tail_violation_count": len(physical_plan.stable_after_tail_violations),
         "authority": "runtime.context_management.context_pipeline.physical_context_assembly",
     }
-    return assembled, diagnostics
+    return clean_specs, diagnostics
 
 
 def specs_with_context_compaction_generation(

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, FlowState, ProcessState, TaskState
-from memory_system.storage.session_memory import SessionMemoryManager
+from memory_system.storage.conversation_continuity import ConversationContinuityManager
 
 from memory_system import MemoryFacade
 from memory_system.conversation_memory import ConversationMemoryStoreAdapter
@@ -24,7 +24,7 @@ from memory_system.runtime_supply import (
 
 def _agent_payload(*, durable_actions=None):
     return {
-        "session_memory": {
+        "conversation_continuity": {
             "session_title": "环境记忆隔离",
             "active_goal": "验证环境级长期记忆",
             "flow_state": ["正在验证环境 scope"],
@@ -35,7 +35,7 @@ def _agent_payload(*, durable_actions=None):
         "session_emphasis_actions": [],
         "durable_memory": {
             "actions": durable_actions or [],
-            "skipped_reason": "" if durable_actions else "no_cross_session_memory",
+            "skipped_reason": "" if durable_actions else "no_cross_conversation_continuity",
             "reasoning_summary": "环境记忆只在当前环境生效",
         },
     }
@@ -70,7 +70,7 @@ def _durable_recall_selector(*note_ids: str):
 
 def test_state_memory_restore_candidates_remain_candidate_only(tmp_path) -> None:
     session_id = "session-a"
-    manager = SessionMemoryManager(tmp_path / session_id)
+    manager = ConversationContinuityManager(tmp_path / session_id)
     manager.state_manager.overwrite(
         ProcessState(
             active_goal="Refactor memory system",
@@ -102,7 +102,7 @@ def test_state_memory_restore_candidates_remain_candidate_only(tmp_path) -> None
 
 def test_state_memory_context_candidate_is_layered_and_non_authoritative(tmp_path) -> None:
     session_id = "session-b"
-    manager = SessionMemoryManager(tmp_path / session_id)
+    manager = ConversationContinuityManager(tmp_path / session_id)
     manager.state_manager.overwrite(
         ProcessState(
             active_goal="Keep state memory explicit",
@@ -125,7 +125,7 @@ def test_state_memory_context_candidate_is_layered_and_non_authoritative(tmp_pat
 def test_memory_facade_exposes_state_memory_preview_without_committing(tmp_path) -> None:
     session_id = "session-c"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.state_manager.overwrite(
         ProcessState(
             active_goal="Expose StateMemory through facade",
@@ -186,16 +186,16 @@ def test_state_memory_snapshot_rejects_unserializable_state_sections(tmp_path) -
         raise AssertionError("Unserializable process state section was silently dropped")
 
 
-def test_session_memory_layer_rejects_path_traversal_session_id(tmp_path) -> None:
+def test_conversation_continuity_layer_rejects_path_traversal_session_id(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
 
-    for call in (facade.session_memory.manager, facade.session_memory.session_dir):
+    for call in (facade.conversation_continuity.manager, facade.conversation_continuity.session_dir):
         try:
             call("../outside")
         except ValueError as exc:
             assert "Invalid session_id" in str(exc)
         else:
-            raise AssertionError("SessionMemoryLayer accepted an unsafe session id")
+            raise AssertionError("ConversationContinuityLayer accepted an unsafe session id")
 
 
 def test_foreground_continuity_state_is_immediately_available_without_runtime_wiring(tmp_path) -> None:
@@ -232,7 +232,7 @@ def test_foreground_continuity_state_corruption_is_not_silently_ignored(tmp_path
 
 
 def test_process_state_corruption_is_not_silently_replaced_by_mirror(tmp_path) -> None:
-    manager = SessionMemoryManager(tmp_path / "session-process-corrupt")
+    manager = ConversationContinuityManager(tmp_path / "session-process-corrupt")
     manager.state_manager.overwrite(ProcessState(active_goal="valid mirror exists"))
     manager.state_manager.process_state_path.write_text("{broken-json", encoding="utf-8")
 
@@ -244,8 +244,8 @@ def test_process_state_corruption_is_not_silently_replaced_by_mirror(tmp_path) -
         raise AssertionError("Corrupt process_state.json was silently replaced by state.json")
 
 
-def test_session_memory_projection_does_not_guess_task_switch_from_keywords(tmp_path) -> None:
-    manager = SessionMemoryManager(tmp_path / "session-switch")
+def test_conversation_continuity_projection_does_not_guess_task_switch_from_keywords(tmp_path) -> None:
+    manager = ConversationContinuityManager(tmp_path / "session-switch")
     manager.state_manager.overwrite(
         ProcessState(
             active_goal="阅读 PDF 报告",
@@ -267,7 +267,7 @@ def test_session_memory_projection_does_not_guess_task_switch_from_keywords(tmp_
 
 def test_conversation_memory_adapter_excludes_state_sections(tmp_path) -> None:
     session_id = "session-e"
-    manager = SessionMemoryManager(tmp_path / session_id)
+    manager = ConversationContinuityManager(tmp_path / session_id)
     manager.overwrite(
         """# Active Goal
 _What is the user currently trying to achieve?_
@@ -310,7 +310,7 @@ _Short chronological bullets of meaningful events._
 def test_memory_facade_exposes_conversation_memory_preview(tmp_path) -> None:
     session_id = "session-f"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.overwrite(
         """# Key User Requests
 _Stable instructions or constraints from the user within this session._
@@ -807,7 +807,7 @@ def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tm
 def test_memory_runtime_view_collects_three_layers_without_write_authority(tmp_path) -> None:
     session_id = "session-h"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.overwrite(
         """# Key User Requests
 _Stable instructions or constraints from the user within this session._
@@ -962,7 +962,7 @@ def test_long_term_recall_does_not_accept_preselected_note_bypass(tmp_path) -> N
 def test_memory_runtime_view_collects_conversation_layer_when_requested(tmp_path) -> None:
     session_id = "session-h-conversation"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.overwrite(
         """# Key User Requests
 _Stable instructions or constraints from the user within this session._
@@ -1099,7 +1099,7 @@ def test_memory_request_and_scope_policy_follow_task_profile(tmp_path) -> None:
 def test_memory_facade_builds_formal_memory_bundle(tmp_path) -> None:
     session_id = "session-l"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.overwrite(
         """# Key User Requests
 _Stable instructions or constraints from the user within this session._
@@ -1194,7 +1194,7 @@ def test_context_package_does_not_read_long_term_without_read_plan(tmp_path) -> 
 def test_context_package_requires_explicit_state_read_plan(tmp_path) -> None:
     session_id = "session-no-implicit-state"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.state_manager.overwrite(ProcessState(active_goal="不要默认注入 state"))
 
     result = facade.bundle_service.build_turn_memory_context_package_result(
@@ -1210,7 +1210,7 @@ def test_context_budget_provider_empty_payload_is_rejected(tmp_path) -> None:
     facade = MemoryFacade(tmp_path, context_budget_provider=lambda: {})
 
     try:
-        facade.session_memory.compactor("session-empty-budget")
+        facade.conversation_continuity.compactor("session-empty-budget")
     except ValueError as exc:
         assert "context budget provider returned an empty payload" in str(exc)
     else:

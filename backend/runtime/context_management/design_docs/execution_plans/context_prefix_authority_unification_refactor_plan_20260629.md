@@ -1018,11 +1018,11 @@ session record messages
 -> compiler context messages
 ```
 
-当 session 已压缩时，恢复材料来自 session memory 的 `ContextRecoveryPackage`：
+当 session 已压缩时，恢复材料来自 conversation continuity summary 的 `ContextRecoveryPackage`：
 
 | 代码位置 | 当前作用 | 结论 |
 | --- | --- | --- |
-| `backend/harness/entrypoint/runtime_facade.py:236-266` | `_context_recovery_package_for_session()` 调 `memory_facade.session_memory.manager(session_id).load_context_recovery_package()`，并用 `validate_compaction_state()` 校验新鲜度 | 压缩后的历史记忆恢复权威 |
+| `backend/harness/entrypoint/runtime_facade.py:236-266` | `_context_recovery_package_for_session()` 调 `memory_facade.conversation_continuity.manager(session_id).load_context_recovery_package()`，并用 `validate_compaction_state()` 校验新鲜度 | 压缩后的历史记忆恢复权威 |
 | `backend/harness/entrypoint/runtime_facade.py:268-317` | 只有存在 `compressed_context` 或 provider protocol compaction boundary 时才把 package 放入 `session_context["context_recovery_package"]` | 未压缩历史不依赖 package |
 | `backend/harness/runtime/dynamic_context/history_projector.py:76-114` | `_session_context_projection()` 把 package 投影到动态上下文 | package 进入模型上下文 |
 | `backend/harness/runtime/compiler.py:4545-4599` | `context_window_report` 记录 package hash、source、coverage | package 被用于诊断和上下文窗口报告 |

@@ -118,7 +118,7 @@ def test_single_turn_active_work_control_contract_exposes_canonical_control_fiel
     active_work = dict(control_actions.get("active_work_control") or {})
 
     assert active_work["enabled"] is True
-    assert "Current Runtime Boundary" in active_work["operation_availability_gate"]
+    assert "Current Request Context" in active_work["operation_availability_gate"]
     assert "payload_schema" not in active_work
 
 

@@ -20,7 +20,7 @@ router = APIRouter()
 
 READABLE_PREFIXES = (
     "durable_memory/",
-    "session-memory/",
+    "conversation-continuity/",
     "sessions/",
     "knowledge/",
     "capability_system/skills/builtin/",
@@ -34,7 +34,7 @@ READABLE_PREFIXES = (
 
 EDITABLE_PREFIXES = (
     "durable_memory/",
-    "session-memory/",
+    "conversation-continuity/",
     "sessions/",
     "knowledge/",
     "capability_system/skills/builtin/",
@@ -170,8 +170,8 @@ def _resolve_path(
         else:
             candidate = (memory_layout.durable_global_root / durable_ref).resolve()
         allowed_root = memory_layout.durable_root.resolve()
-    elif normalized.startswith("session-memory/"):
-        candidate = (memory_layout.session_root / normalized.removeprefix("session-memory/")).resolve()
+    elif normalized.startswith("conversation-continuity/"):
+        candidate = (memory_layout.session_root / normalized.removeprefix("conversation-continuity/")).resolve()
         allowed_root = memory_layout.session_root.resolve()
     elif normalized.startswith("sessions/"):
         candidate = (layout.sessions_dir / normalized.removeprefix("sessions/")).resolve()

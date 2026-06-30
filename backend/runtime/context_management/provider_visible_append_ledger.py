@@ -11,7 +11,6 @@ from runtime.model_gateway.lightweight_chat_model import provider_message_payloa
 
 from .context_segment_policy import (
     CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
     CURRENT_CONTROL_TAIL_KINDS,
     DYNAMIC_TAIL,
     DEFAULT_PROVIDER_ADAPTER_CONTRACT,
@@ -1054,8 +1053,9 @@ def _current_append_spec_from_candidate(
 ) -> dict[str, Any]:
     payload = dict(spec or {})
     storage_root_text = str(Path(storage_root).resolve()) if storage_root is not None else ""
-    policy_section = str(getattr(policy, "section", "") or CONTEXT_APPEND)
-    fixed_context_package = "context_memory_prefix" if policy_section == CONTEXT_MEMORY_PREFIX else "context_memory_append"
+    source_policy_section = str(getattr(policy, "section", "") or CONTEXT_APPEND)
+    policy_section = CONTEXT_APPEND
+    fixed_context_package = "context_memory_append"
     semantic_commit_class = str(
         dict(payload.get("metadata") or {}).get("semantic_commit_class")
         or getattr(policy, "semantic_commit_class", "")
@@ -1065,6 +1065,7 @@ def _current_append_spec_from_candidate(
         **dict(payload.get("metadata") or {}),
         **context_segment_policy_metadata(policy),
         "context_cache_section": policy_section,
+        "provider_visible_append_source_context_section": source_policy_section,
         "fixed_context_package": fixed_context_package,
         "provider_visible_append_ledger_scope": str(scope or ""),
         "provider_visible_append_ledger_storage_root": storage_root_text,

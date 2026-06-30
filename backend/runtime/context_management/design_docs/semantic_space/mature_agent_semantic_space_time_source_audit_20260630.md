@@ -32,7 +32,7 @@ HiddenTransport:
 - 模型可见前缀少且语义明确。
 - 稳定 prompt 与动态内容有明确边界。
 - session 历史和 turn 热状态严格分层。
-- provider transport 是隐藏传输层，不伪装成会话记忆。
+- provider transport 是隐藏传输层，不伪装成对话连续性摘要。
 - prompt cache 以 provider request 的真实结构和 byte-identical prefix 为准，不靠模型可见的 `volatile/stable` 标签。
 
 这支持本项目当前方向：保留四段式物理模型，使用 `ContextContractNode` 做内部语义时空身份，不把内部 cache/lane 字段写成 agent-visible 主标题。

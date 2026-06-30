@@ -464,7 +464,7 @@ def compact_session_history(
     record = runtime.session_manager.get_history(session_id)
     raw_messages = list(record.get("messages") or [])
     py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    compactor = runtime.memory_facade.conversation_continuity.compactor(session_id)
     tokens_before = compactor.conversation_tokens(py_messages)
     history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
     history_pressure_level = str(compactor.pressure_level(tokens_before, len(py_messages)) or "normal")
@@ -578,8 +578,8 @@ def auto_compact_session_if_needed(
 def _runtime_history_compactor_available(runtime: Any) -> bool:
     facade = getattr(runtime, "memory_facade", None)
     adapter = getattr(facade, "adapter", None)
-    session_memory = getattr(facade, "session_memory", None)
-    return callable(getattr(adapter, "to_messages", None)) and callable(getattr(session_memory, "compactor", None))
+    conversation_continuity = getattr(facade, "conversation_continuity", None)
+    return callable(getattr(adapter, "to_messages", None)) and callable(getattr(conversation_continuity, "compactor", None))
 
 
 def _auto_skipped_response(

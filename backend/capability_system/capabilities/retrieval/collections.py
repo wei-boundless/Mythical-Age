@@ -25,7 +25,7 @@ def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
     knowledge_dir = layout.knowledge_storage_dir
     benchmark_dir = base_dir / "knowledge-benchmark"
     durable_memory_layout = durable_memory_layout_from_backend_dir(base_dir)
-    session_memory_dir = layout.session_memory_dir
+    conversation_continuity_dir = layout.conversation_continuity_dir
 
     collections = {
         "knowledge": CollectionConfig(
@@ -75,13 +75,13 @@ def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
             allow_chat_queries=True,
             file_extensions=(".md", ".txt"),
         ),
-        "session_memory": CollectionConfig(
-            name="session_memory",
-            source_dirs=(session_memory_dir,),
-            storage_dir=indexes_dir / "session_memory",
-            description="Per-session working-memory views kept separate from durable memory.",
+        "conversation_continuity": CollectionConfig(
+            name="conversation_continuity",
+            source_dirs=(conversation_continuity_dir,),
+            storage_dir=indexes_dir / "conversation_continuity",
+            description="Per-session conversation continuity summaries kept separate from durable memory.",
             weight=0.7,
-            allowed_roots=(session_memory_dir,),
+            allowed_roots=(conversation_continuity_dir,),
             allow_chat_queries=False,
             file_extensions=(".md", ".txt"),
         ),

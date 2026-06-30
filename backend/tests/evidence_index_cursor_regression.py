@@ -50,7 +50,7 @@ def test_task_execution_emits_evidence_index_cursor_outside_volatile_task_state(
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
     evidence_payload = _payload_with_title(result.packet, "Task execution evidence index cursor")
     current_state_payload = _payload_with_title(result.packet, "Task execution current state")
-    bound_runtime_payload = _payload_with_title(result.packet, "Task execution bound runtime context")
+    bound_runtime_payload = _payload_with_title(result.packet, "Task execution bound work context")
     serialized_current_state = json.dumps(current_state_payload, ensure_ascii=False)
     evidence_file = evidence_payload["evidence_index_cursor"]["files"][0]
 
@@ -62,7 +62,7 @@ def test_task_execution_emits_evidence_index_cursor_outside_volatile_task_state(
     assert "file_evidence_decisions" not in serialized_current_state
     assert "read_resource_state" not in serialized_current_state
     assert "evidence_confidence" not in serialized_current_state
-    assert bound_runtime_payload["bound_task_runtime_context"]["known_task_files"][0]["path"] == "src/app.py"
+    assert bound_runtime_payload["bound_task_request_context"]["known_task_files"][0]["path"] == "src/app.py"
 
     cache_plan = _cache_plan_for_packet(result.packet)
     assert cache_plan.diagnostics["evidence_index_cursor_predicted_tokens"] > 0
@@ -107,7 +107,7 @@ def test_single_agent_turn_moves_session_file_state_out_of_dynamic_runtime(tmp_p
 
     kinds = [segment["kind"] for segment in result.packet.segment_plan["segments"]]
     evidence_payload = _payload_with_title(result.packet, "Evidence index cursor")
-    dynamic_payload = _optional_payload_with_title(result.packet, "Current Runtime Boundary")
+    dynamic_payload = _optional_payload_with_title(result.packet, "Current Request Context")
     serialized_dynamic = json.dumps(dynamic_payload, ensure_ascii=False)
     evidence_file = evidence_payload["evidence_index_cursor"]["files"][0]
 
@@ -145,5 +145,3 @@ def _cache_plan_for_packet(packet):
         segment_plan=packet.segment_plan,
     )
     return PromptCachePlanner().plan(segment_map)
-
-

@@ -27,7 +27,7 @@ class MemoryApiRuntimeStub(RuntimeBaseDirStub):
 
 
 class HarnessRuntimeFacadeMemoryFacadeStub:
-    session_memory = SimpleNamespace(
+    conversation_continuity = SimpleNamespace(
         manager=lambda _session_id: SimpleNamespace(load_state=lambda: None),
         update_runtime_state_from_context_state=lambda *_args, **_kwargs: None,
     )
@@ -44,7 +44,7 @@ class HarnessRuntimeFacadeMemoryFacadeStub:
                 "attempted": False,
                 "queued": True,
                 "status": "queued",
-                "session_memory_succeeded": False,
+                "conversation_continuity_succeeded": False,
                 "durable_memory_succeeded": False,
                 "durable_write_count": 0,
             }

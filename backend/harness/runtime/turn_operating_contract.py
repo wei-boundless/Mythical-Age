@@ -102,11 +102,9 @@ class TurnOperatingContract:
 
     def to_agent_visible_payload(self) -> dict[str, Any]:
         return {
-            "contract_ref": self.contract_id,
             "current_action_contract": {
                 "identity": "你正在处理当前用户请求。所有工具、任务资源申请、控制和最终回复都只服务当前请求。",
                 "allowed_action_types": list(self.action_surface.allowed_action_types),
-                "action_surface_ref": self.action_surface.surface_id,
                 "action_transport": {
                     "ordinary_tool_submission": self.action_transport.ordinary_tool_submission,
                     "control_action_submission": self.action_transport.control_action_submission,
@@ -119,7 +117,6 @@ class TurnOperatingContract:
                     "task_shape_values": list(TASK_RESOURCE_SHAPES),
                 },
             },
-            "authority": "harness.current_action_contract.agent_visible",
         }
 
     def to_hidden_control_payload(self) -> dict[str, Any]:
@@ -227,12 +224,10 @@ def turn_action_request_contract_payload(
     active_work_available = "active_work_control" in set(visible_allowed)
     return {
         "contract_name": "current_action_request",
-        "authority": "harness.current_action_contract.action_request_contract",
-        "action_surface_ref": str(action_surface_ref or ""),
         "allowed_action_types": list(visible_allowed),
         "current_request_attention": {
             "identity": "你正在处理当前用户请求。先判断用户当前输入需要什么，再选择一个当前请求动作。",
-            "single_lifecycle": (
+            "current_request_lifecycle": (
                 "所有动作都属于当前请求：工具用于取得事实，任务资源用于保存持续工作，最终回复由你自己写出。"
                 if task_run_available or active_work_available
                 else "所有动作都属于当前请求：工具用于取得事实，最终回复由你自己写出。"
@@ -331,7 +326,7 @@ def task_start_intent_contract_payload() -> dict[str, Any]:
         "task_shape": {
             "standard": "普通长任务资源。",
             "investigation": "需要查明未知问题，最终给出证据化判断。",
-            "recovery": "需要根据异常、中断或暂停线索整理可继续推进的工作。",
+            "recovery": "需要根据任务异常、暂停或任务执行恢复线索整理可继续推进的工作。",
             "monitor": "需要持续观察目标、触发条件或状态变化。",
             "open_work": "确需持续推进，但暂不能归入前述形态。",
         },
@@ -412,7 +407,6 @@ def turn_output_contract_payload(
         forbidden.append("active_work_control")
     return {
         "format": "assistant_response_or_action" if raw_text_allowed else "action_phase_structured_action",
-        "authority": "harness.current_action_contract.output_commit_contract",
         "phase": output_phase,
         "raw_assistant_text_allowed": raw_text_allowed,
         "raw_assistant_text_allowed_when": "respond_allowed_and_no_other_action" if raw_text_allowed else "",
@@ -510,7 +504,6 @@ def turn_attention_index_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {}
     return {
         "current_attention_index": {
-            "authority": "harness.current_action_contract.attention_index",
             "agent_use_contract": (
                 "Before choosing the next action, re-anchor on this current attention index. "
                 "It is a volatile attention guide for current goal, plan cursor, todo cursor, scope, "

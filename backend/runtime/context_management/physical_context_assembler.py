@@ -6,10 +6,16 @@ from typing import Any
 
 from .context_segment_policy import (
     CONTEXT_MEMORY_PREFIX,
+    DYNAMIC_TAIL,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
-from .physical_context_plan import PROVIDER_VISIBLE_CONTEXT_PREFIX
+from .physical_context_plan import (
+    CURRENT_TURN_TAIL,
+    GLOBAL_STATIC_PREFIX,
+    NEVER_REPLAY_TAIL,
+    PROVIDER_VISIBLE_CONTEXT_PREFIX,
+)
 from .physical_prefix_frame_ledger import latest_confirmed_physical_prefix_frame
 from .physical_prefix_frame_models import PhysicalPrefixFrame, PhysicalPrefixFrameSegment
 from .provider_message_replay_contract import (
@@ -27,14 +33,14 @@ PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY = "runtime.context_management.physical_cont
 @dataclass(frozen=True, slots=True)
 class PhysicalContextAssemblyResult:
     message_specs: tuple[dict[str, Any], ...]
-    frame_replay_specs: tuple[dict[str, Any], ...] = ()
+    old_context_specs: tuple[dict[str, Any], ...] = ()
     current_append_specs: tuple[dict[str, Any], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "message_specs": [dict(item) for item in self.message_specs],
-            "frame_replay_specs": [dict(item) for item in self.frame_replay_specs],
+            "old_context_specs": [dict(item) for item in self.old_context_specs],
             "current_append_specs": [dict(item) for item in self.current_append_specs],
             "diagnostics": dict(self.diagnostics),
         }
@@ -50,41 +56,57 @@ def assemble_physical_context_spine(
     provider: str = "",
     model: str = "",
     provider_lane: str = "",
+    old_context_replay_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
 ) -> PhysicalContextAssemblyResult:
     """Assemble the only physical order the runtime is allowed to send.
 
-    The provider-visible ledger supplies current append candidates. The physical
-    frame supplies confirmed replay order. This function is the runtime splice point:
+    The provider-visible ledger supplies current append candidates. Explicit old
+    context input or the physical frame supplies confirmed replay order. This function is the runtime splice point:
     static prefix -> confirmed old frame -> current append -> dynamic tail.
     """
 
     clean_static = [dict(item) for item in list(static_prefix_specs or []) if isinstance(item, dict)]
+    clean_old_context = [dict(item) for item in list(old_context_replay_specs or []) if isinstance(item, dict)]
     clean_append_specs = [dict(item) for item in list(provider_visible_append_specs or []) if isinstance(item, dict)]
     clean_tail = [dict(item) for item in list(current_tail_specs or []) if isinstance(item, dict)]
-    frame_payload = latest_confirmed_physical_prefix_frame(
-        storage_root=storage_root,
-        scope=scope,
-        provider=provider,
-        model=model,
-        provider_lane=provider_lane,
-    )
-    frame = PhysicalPrefixFrame.from_dict(frame_payload) if frame_payload else None
     current_append_specs, ignored_provider_visible_specs = _current_append_specs(clean_append_specs)
+    current_tail_specs, never_replay_tail_specs = _split_current_tail_specs(clean_tail)
+    frame: PhysicalPrefixFrame | None = None
     frame_replay_specs: list[dict[str, Any]] = []
     frame_replay_diagnostics: dict[str, Any] = {}
-    if frame is not None and frame.frame_id:
-        frame_replay_specs, frame_replay_diagnostics = _frame_replay_specs(frame)
-        replay_specs = frame_replay_specs
-        replay_source = "physical_prefix_frame"
+    if clean_old_context:
+        replay_specs = clean_old_context
+        replay_source = "confirmed_old_context_input"
     else:
-        replay_specs = []
-        replay_source = "missing_physical_prefix_frame"
-    result_specs = [
-        *clean_static,
-        *replay_specs,
-        *current_append_specs,
-        *clean_tail,
-    ]
+        frame_payload = latest_confirmed_physical_prefix_frame(
+            storage_root=storage_root,
+            scope=scope,
+            provider=provider,
+            model=model,
+            provider_lane=provider_lane,
+        )
+        frame = PhysicalPrefixFrame.from_dict(frame_payload) if frame_payload else None
+        if frame is not None and frame.frame_id:
+            frame_replay_specs, frame_replay_diagnostics = _frame_replay_specs(frame)
+            replay_specs = frame_replay_specs
+            replay_source = "physical_prefix_frame"
+        else:
+            replay_specs = []
+            replay_source = "missing_physical_prefix_frame"
+    physical_static_specs = _with_physical_lane_specs(clean_static, lane=GLOBAL_STATIC_PREFIX)
+    physical_replay_specs = _with_physical_lane_specs(replay_specs, lane=PROVIDER_VISIBLE_CONTEXT_PREFIX)
+    physical_current_append_specs = _with_physical_lane_specs(current_append_specs, lane=CURRENT_TURN_TAIL)
+    physical_current_tail_specs = _with_physical_lane_specs(current_tail_specs, lane=CURRENT_TURN_TAIL)
+    physical_tail_specs = _with_physical_lane_specs(never_replay_tail_specs, lane=NEVER_REPLAY_TAIL)
+    result_specs = _with_physical_assembly_indexes(
+        [
+            *physical_static_specs,
+            *physical_replay_specs,
+            *physical_current_append_specs,
+            *physical_current_tail_specs,
+            *physical_tail_specs,
+        ]
+    )
     diagnostics = {
         "status": "applied",
         "scope": str(scope or ""),
@@ -95,19 +117,22 @@ def assemble_physical_context_spine(
         "latest_physical_prefix_frame_request_id": str(getattr(frame, "source_request_id", "") or ""),
         "latest_physical_prefix_frame_hash": str(getattr(frame, "provider_payload_prefix_hash", "") or ""),
         "provider_message_replay_source": replay_source,
+        "input_old_context_replay_spec_count": len(clean_old_context),
+        "old_context_replay_spec_count": len(replay_specs),
         "physical_prefix_frame_replay_spec_count": len(frame_replay_specs),
         "ignored_non_current_provider_visible_spec_count": len(ignored_provider_visible_specs),
         "ignored_non_current_provider_visible_specs": ignored_provider_visible_specs[:30],
         "current_append_spec_count": len(current_append_specs),
-        "current_tail_spec_count": len(clean_tail),
+        "current_tail_spec_count": len(current_tail_specs),
+        "never_replay_tail_spec_count": len(never_replay_tail_specs),
         "static_prefix_spec_count": len(clean_static),
         "output_spec_count": len(result_specs),
         "frame_replay": frame_replay_diagnostics,
-        "provider_message_replay_authority": "physical_prefix_frame_only",
-        "physical_splice_rule": "static_prefix_then_confirmed_physical_frame_then_current_append_then_dynamic_tail",
+        "provider_message_replay_authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
+        "physical_splice_rule": "static_prefix_then_confirmed_old_context_then_current_append_then_dynamic_tail",
         "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
     }
-    if frame is None and ignored_provider_visible_specs:
+    if not clean_old_context and frame is None and ignored_provider_visible_specs:
         diagnostics["structural_gap"] = {
             "code": "physical_prefix_frame_missing_for_confirmed_provider_visible_context",
             "policy": "fail_closed_provider_message_replay_until_first_confirmed_physical_frame",
@@ -123,10 +148,67 @@ def assemble_physical_context_spine(
         }
     return PhysicalContextAssemblyResult(
         message_specs=tuple(result_specs),
-        frame_replay_specs=tuple(replay_specs),
-        current_append_specs=tuple(current_append_specs),
+        old_context_specs=tuple(physical_replay_specs),
+        current_append_specs=tuple(physical_current_append_specs),
         diagnostics=diagnostics,
     )
+
+
+def _split_current_tail_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    current_tail: list[dict[str, Any]] = []
+    never_replay_tail: list[dict[str, Any]] = []
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        policy = context_segment_policy_for_spec(spec)
+        if policy.section == CONTEXT_MEMORY_PREFIX:
+            current_tail.append(spec)
+            continue
+        if policy.section == DYNAMIC_TAIL:
+            never_replay_tail.append(spec)
+            continue
+        current_tail.append(spec)
+    return current_tail, never_replay_tail
+
+
+def _with_physical_lane_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    lane: str,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            "physical_prefix_lane": str(lane or ""),
+        }
+        spec["metadata"] = metadata
+        spec["physical_prefix_lane"] = str(lane or "")
+        result.append(spec)
+    return result
+
+
+def _with_physical_assembly_indexes(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for index, raw_spec in enumerate(list(specs or []), start=1):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        metadata = {
+            **dict(spec.get("metadata") or {}),
+            "context_physical_assembly_index": index,
+        }
+        spec["metadata"] = metadata
+        result.append(spec)
+    return result
 
 
 def _current_append_specs(
@@ -137,8 +219,7 @@ def _current_append_specs(
     for raw_spec in specs:
         spec = dict(raw_spec or {})
         metadata = dict(spec.get("metadata") or {})
-        commit_stage = str(metadata.get("provider_visible_append_commit_stage") or "")
-        if commit_stage == "provider_success_required" and not physical_prefix_frame_replay_metadata(metadata):
+        if not physical_prefix_frame_replay_metadata(metadata):
             current_append_specs.append(spec)
             continue
         ignored_specs.append(

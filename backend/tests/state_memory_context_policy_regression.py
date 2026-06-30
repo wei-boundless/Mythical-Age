@@ -38,7 +38,7 @@ def _durable_recall_selector(*note_ids: str):
 def test_context_policy_builds_package_from_memory_runtime_view(tmp_path) -> None:
     session_id = "context-policy-session"
     facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
+    manager = facade.conversation_continuity.manager(session_id)
     manager.overwrite(
         """# Key User Requests
 _Stable instructions or constraints from the user within this session._
@@ -139,7 +139,7 @@ def test_runtime_memory_context_reports_unavailable_supply_without_silent_drop()
 
     payload = asyncio.run(
         provider.for_turn(
-            session_id="session-memory-service-unavailable",
+            session_id="conversation-continuity-service-unavailable",
             turn_id="turn-memory-service-unavailable",
             user_message="审查控制系统",
             session_context={},

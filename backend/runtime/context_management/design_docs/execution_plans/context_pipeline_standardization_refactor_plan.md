@@ -545,7 +545,7 @@ transport_contract
 
 ### 5.1 语义 Section 细则
 
-`static_prefix` 是稳定协议、环境、工具、能力目录、输出契约。它不是会话记忆，不进入 provider-visible ledger，直接位于物理稳定前缀。
+`static_prefix` 是稳定协议、环境、工具、能力目录、输出契约。它不是对话连续性摘要，不进入 provider-visible ledger，直接位于物理稳定前缀。
 
 允许内容：
 

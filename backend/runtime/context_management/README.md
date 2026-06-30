@@ -91,13 +91,13 @@
 4. 按 `original_order` 排序，保持当前 append 的相对顺序
 5. 返回等待 provider success 的 current append specs
 
-**输出排序：** physical assembler 最终组合为 `[static_prefix, ...physical_prefix_frame_replay, ...current_append, ...current_turn_tail]`
+**输出排序：** physical assembler 最终组合为 `[static_prefix, ...confirmed_old_context, ...current_append, ...current_turn_tail, ...never_replay_tail]`
 
 ### 阶段 3：物理上下文计划（Physical Context Plan）
 
-**函数：** `annotate_specs_with_physical_context_plan()` (`physical_context_plan.py:192`)
+**函数：** `build_physical_context_plan()` (`physical_context_plan.py`)
 
-把规格列表转换为**物理车道（lane）**规划，决定每条消息的缓存归属、可见性、效期。
+读取已经由 physical assembler 组装好的消息顺序，生成物理车道（lane）诊断、缓存脊柱哈希、可见性和效期信息。它不再改变消息顺序。
 
 #### 四条物理车道
 
@@ -108,11 +108,11 @@
 | `current_turn_tail` | CONTEXT_APPEND + 不可 seal | ❌ 否 | 当前轮新增消息 |
 | `never_replay_tail` | DYNAMIC_TAIL | ❌ 否 | 动态尾，永不重放 |
 
-#### 排序规则 `_physical_context_order_key()` (第 333 行)
+#### 顺序规则
 
-- Provider visible context prefix 内的消息按 `tool_round_order` 排序（`provider_tool_protocol_order()`），然后是 `ledger_entry_index`
-- 其他车道按车道优先级 + index 排序
-- 车道优先级：`global_static_prefix(10) < provider_visible_context_prefix(20) < current_turn_tail(30) < never_replay_tail(40)`
+- 物理顺序只由 `assemble_physical_context_spine()` 生成
+- `build_physical_context_plan()` 保留输入顺序，只做诊断和 hash
+- 标准顺序：`global_static_prefix < provider_visible_context_prefix < current_turn_tail < never_replay_tail`
 
 #### 缓存脊柱哈希
 
@@ -306,8 +306,8 @@ DYNAMIC_TAIL: tool_observation_followup
 3. **内容哈希驱动：**
    每条消息的 content_hash 决定它是否与之前相同。hash 相同 = 缓存可能命中。这是 LLM provider 前缀缓存的底层依据。
 
-4. **确定性排序：**
-   pipeline 中的所有排序都是确定性的：`_stable_json_hash` 使用 `sort_keys=True`，`_physical_context_order_key` 对所有字段做稳定排序。
+4. **确定性组装：**
+   pipeline 中的物理顺序只由 `assemble_physical_context_spine()` 生成；`build_physical_context_plan()` 使用 `_stable_json_hash` 计算诊断 hash，不做二次排序。
 
 ### 5.2 已识别的风险点
 

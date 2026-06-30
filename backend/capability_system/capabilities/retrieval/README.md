@@ -31,7 +31,7 @@ Binary `.doc/.ppt/.xls` files are recognized, but the parser will only produce a
 ## Structure
 
 - `collections.py`
-  Defines `knowledge`, `durable_memory`, `session_memory`, and optional benchmark
+  Defines `knowledge`, `durable_memory`, `conversation_continuity`, and optional benchmark
   collections.
 - `router.py`
   Rewrites and routes queries to collection/filter/policy plans.

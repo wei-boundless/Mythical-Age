@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 CommitType = Literal[
     "session_message",
-    "session_memory",
+    "conversation_continuity",
     "durable_memory",
     "task_result",
     "artifact_graph",
@@ -35,7 +35,7 @@ class CommitCandidate:
 
 DEFAULT_COMMIT_TYPES: tuple[CommitType, ...] = (
     "session_message",
-    "session_memory",
+    "conversation_continuity",
     "durable_memory",
     "task_result",
     "artifact_graph",

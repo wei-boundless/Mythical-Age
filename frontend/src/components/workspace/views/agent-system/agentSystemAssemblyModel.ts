@@ -153,7 +153,7 @@ export function displayAssemblyId(
     development: "开发任务",
     full_interactive: "完整交互运行",
     memory_trace_read: "记忆追踪读取",
-    session_memory_maintenance: "会话记忆维护",
+    conversation_continuity_maintenance: "对话连续性摘要维护",
     durable_memory_extraction: "长期记忆提取",
     memory_candidate_review: "记忆候选审核",
     op_model_response: "模型响应",
@@ -173,10 +173,10 @@ export function displayAssemblyId(
     prompt_manifest: "提示结构",
     memory_runtime_view: "记忆视图",
     assertions: "验收断言",
-    conversation_readonly: "会话记忆只读",
+    conversation_readonly: "对话连续性摘要只读",
     state_readonly: "状态记忆只读",
     long_term_candidate: "长期记忆候选",
-    session_memory_write_candidate: "会话记忆写入候选",
+    conversation_continuity_write_candidate: "对话连续性摘要写入候选",
     durable_memory_write_candidate: "长期记忆写入候选",
   };
   if (labels[raw]) return `${labels[raw]} · ${raw}`;

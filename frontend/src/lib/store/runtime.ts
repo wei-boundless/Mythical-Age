@@ -133,7 +133,7 @@ const MANAGED_PROJECT_REPOSITORY_ID = "repo.managed_project.project_workspace";
 
 const LEGACY_INTERNAL_INSPECTOR_PREFIXES = [
   "durable_memory/",
-  "session-memory/",
+  "conversation-continuity/",
   "sessions/",
   "knowledge/",
   "capability_system/skills/builtin/",

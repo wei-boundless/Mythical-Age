@@ -70,8 +70,8 @@ class ProjectLayout:
         return self.storage_root / "durable_memory"
 
     @property
-    def session_memory_dir(self) -> Path:
-        return self.storage_root / "session_memory"
+    def conversation_continuity_dir(self) -> Path:
+        return self.storage_root / "conversation_continuity"
 
     @property
     def working_memory_dir(self) -> Path:
@@ -159,7 +159,7 @@ class ProjectLayout:
             self.storage_root,
             self.external_data_root,
             self.durable_memory_dir,
-            self.session_memory_dir,
+            self.conversation_continuity_dir,
             self.working_memory_dir,
             self.task_durable_memory_dir,
             self.sessions_dir,
@@ -235,5 +235,4 @@ def ensure_project_storage(backend_dir: str | Path) -> ProjectLayout:
     layout = ProjectLayout.from_backend_dir(backend_dir)
     layout.ensure_storage_dirs()
     return layout
-
 

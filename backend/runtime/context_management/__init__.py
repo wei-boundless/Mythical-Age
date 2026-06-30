@@ -5,7 +5,7 @@ from .recovery_package import (
     ContextRecoveryCoverage,
     ContextRecoveryFreshness,
     ContextRecoveryPackage,
-    context_recovery_package_from_session_memory,
+    context_recovery_package_from_conversation_continuity,
     render_context_recovery_markdown,
 )
 from .context_commit_record import (
@@ -45,7 +45,6 @@ from .physical_context_plan import (
     NEVER_REPLAY_TAIL,
     PROVIDER_VISIBLE_CONTEXT_PREFIX,
     TRANSPORT_CONTRACT,
-    annotate_specs_with_physical_context_plan,
     build_physical_context_plan,
 )
 from .physical_context_assembler import (
@@ -182,7 +181,7 @@ __all__ = [
     "ContextRecoveryCoverage",
     "ContextRecoveryFreshness",
     "ContextRecoveryPackage",
-    "context_recovery_package_from_session_memory",
+    "context_recovery_package_from_conversation_continuity",
     "render_context_recovery_markdown",
     "auto_compact_session_if_needed",
     "compact_session_history",
@@ -215,7 +214,6 @@ __all__ = [
     "NEVER_REPLAY_TAIL",
     "PROVIDER_VISIBLE_CONTEXT_PREFIX",
     "TRANSPORT_CONTRACT",
-    "annotate_specs_with_physical_context_plan",
     "build_physical_context_plan",
     "PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY",
     "PhysicalContextAssemblyResult",

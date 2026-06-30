@@ -1139,8 +1139,8 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     stable_message = _message_content_with_title(packet, "Task execution environment boundary")
     stable_payload = _payload_after_title(stable_message, "Task execution environment boundary")
     dynamic_payload = _payload_after_title(
-        _message_content_with_title(packet, "Current Runtime Boundary"),
-        "Current Runtime Boundary",
+        _message_content_with_title(packet, "Current Request Context"),
+        "Current Request Context",
     )
 
     assert "task_environment" in stable_payload
@@ -1148,9 +1148,9 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     assert "resource_boundary" in stable_payload["task_environment"]
     assert "operation_authorization" not in stable_payload
     operation_summary = dynamic_payload["operation_permission_summary"]
-    runtime_context = dynamic_payload["runtime_context"]
+    request_context = dynamic_payload["request_context"]
     assert "authority" not in operation_summary
-    assert operation_summary["allowed_operation_count"] == runtime_context["tool_capability_surface"]["allowed_operation_count"]
+    assert operation_summary["allowed_operation_count"] == request_context["tool_capability_surface"]["allowed_operation_count"]
     assert "allowed_operations" not in operation_summary
     assert "denied_operations" not in operation_summary
     assert operation_summary["omitted_denial_details"] is True
@@ -1409,7 +1409,7 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
                             "environment_prompts": [
                                 {
                                     "prompt_id": "environment.custom.runtime",
-                                    "content": "你处在自定义 runtime 环境中。环境只声明边界；可用工具以本轮可见工具列表为准。",
+                                    "content": "你处在自定义工作环境中。环境只声明边界；可用工具以当前请求可见工具列表为准。",
                                 }
                             ],
                             "file_management": {

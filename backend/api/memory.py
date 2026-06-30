@@ -132,14 +132,14 @@ async def get_memory_overview(
     )
     session_inspect = None
     if session_id:
-        session_inspect = await _inspect_session_memory(runtime, session_id, query=query)
+        session_inspect = await _inspect_conversation_continuity(runtime, session_id, query=query)
 
     return {
         "session_id": session_id or "",
         "query": query,
         "namespace_id": durable_namespace_id,
         "durable_memory": _durable_overview(headers, _durable_maintenance_runtime(runtime.memory_facade)),
-        "session_memory": session_inspect,
+        "conversation_continuity": session_inspect,
     }
 
 
@@ -463,7 +463,7 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
     if payload.session_id:
         history_payload = runtime.session_manager.get_history(payload.session_id)
         session_summary = str(history_payload.get("compressed_context", "") or "")
-        context_result = await _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
+        context_result = await _inspect_conversation_continuity(runtime, payload.session_id, query=query, limit=payload.limit)
 
     preview_environment_id = payload.task_environment_id.strip()
     if not preview_environment_id and payload.namespace_id.strip().startswith("env:"):
@@ -499,7 +499,7 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
 
 
 @router.get("/memory/session/{session_id}/files")
-async def get_session_memory_files(
+async def get_conversation_continuity_files(
     session_id: str,
     workspace_view: str | None = Query(default=None, max_length=80),
     task_environment_id: str | None = Query(default=None, max_length=200),
@@ -520,13 +520,13 @@ async def get_session_memory_files(
     safe_session_id = _safe_session_id(session_id)
     session_dir = MemoryStorageLayout.from_backend_dir(runtime.base_dir).session_root / safe_session_id
     files = [
-        _session_memory_file_payload(session_dir, safe_session_id, item_id, label, relative_path, description)
+        _conversation_continuity_file_payload(session_dir, safe_session_id, item_id, label, relative_path, description)
         for item_id, label, relative_path, description in SESSION_MEMORY_FILE_TARGETS
     ]
     existing = [item for item in files if item["exists"]]
     return {
         "session_id": safe_session_id,
-        "root": f"session-memory/{safe_session_id}",
+        "root": f"conversation-continuity/{safe_session_id}",
         "present": session_dir.exists() and bool(existing),
         "existing_count": len(existing),
         "missing_count": len(files) - len(existing),
@@ -566,7 +566,7 @@ def _safe_session_id(session_id: str) -> str:
     return safe_id
 
 
-def _session_memory_file_payload(
+def _conversation_continuity_file_payload(
     session_dir: Path,
     session_id: str,
     item_id: str,
@@ -581,16 +581,16 @@ def _session_memory_file_payload(
         "id": item_id,
         "label": label,
         "description": description,
-        "path": f"session-memory/{session_id}/{relative_path}",
+        "path": f"conversation-continuity/{session_id}/{relative_path}",
         "kind": "json" if path.suffix.lower() == ".json" else "markdown",
         "exists": exists,
         "size": stat.st_size if stat else 0,
         "updated_at": stat.st_mtime if stat else None,
-        "preview": _read_session_memory_preview(path) if exists else "",
+        "preview": _read_conversation_continuity_preview(path) if exists else "",
     }
 
 
-def _read_session_memory_preview(path: Path, limit: int = 12000) -> str:
+def _read_conversation_continuity_preview(path: Path, limit: int = 12000) -> str:
     raw = path.read_text(encoding="utf-8", errors="replace")
     if path.suffix.lower() == ".json":
         try:
@@ -602,7 +602,7 @@ def _read_session_memory_preview(path: Path, limit: int = 12000) -> str:
     return raw[: max(0, limit - 1)].rstrip() + "…"
 
 
-async def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", limit: int = 5) -> dict[str, Any]:
+async def _inspect_conversation_continuity(runtime: Any, session_id: str, *, query: str = "", limit: int = 5) -> dict[str, Any]:
     assert runtime.memory_facade is not None
     intent = analyze_memory_intent(query) if query.strip() else None
     memory_profile = {

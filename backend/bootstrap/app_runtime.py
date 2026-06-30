@@ -303,8 +303,8 @@ class AppRuntime:
                 coalesce_key="durable_memory_governance",
             )
             return
-        if normalized.startswith("session-memory/") or normalized.startswith("storage/memory/session/"):
-            runtime.retrieval_service.rebuild_session_memory()
+        if normalized.startswith("conversation-continuity/") or normalized.startswith("storage/memory/session/"):
+            runtime.retrieval_service.rebuild_conversation_continuity()
             return
         if normalized.startswith("knowledge/"):
             runtime.retrieval_service.rebuild_knowledge()

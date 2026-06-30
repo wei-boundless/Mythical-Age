@@ -461,7 +461,7 @@ class _TurnStateAttentionContextProducer:
         for descriptor in (
             {
                 "key": "task_goal_context",
-                "title": "turn goal resource context",
+                "title": "current work goal resource context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_goal_context",
                 "runtime_fragment_role": "turn_goal_resource_context",
                 "semantic_slot": "turn_goal_resource_context",
@@ -469,7 +469,7 @@ class _TurnStateAttentionContextProducer:
             },
             {
                 "key": "task_plan_context",
-                "title": "turn plan cursor context",
+                "title": "current work plan cursor context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_plan_context",
                 "runtime_fragment_role": "turn_plan_cursor_context",
                 "semantic_slot": "turn_plan_cursor_context",
@@ -477,7 +477,7 @@ class _TurnStateAttentionContextProducer:
             },
             {
                 "key": "task_todo_context",
-                "title": "turn todo cursor context",
+                "title": "current work todo cursor context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_todo_context",
                 "runtime_fragment_role": "turn_todo_cursor_context",
                 "semantic_slot": "turn_todo_cursor_context",
@@ -514,7 +514,7 @@ class _TurnStateAttentionContextProducer:
                         "context_prefix_tier": "volatile",
                         "context_commit_policy": "never_commit",
                         "context_replay_policy": "current_dynamic_tail_only",
-                        "stability_rule": "Turn state attention segments are current resource/cursor state and must not be sealed into provider-visible memory.",
+                        "stability_rule": "Current work attention segments are current resource/cursor state and must not be sealed into provider-visible memory.",
                     },
                 )
             )
@@ -639,7 +639,7 @@ class _ToolObservationContextProducer:
             specs.append(
                 build_runtime_payload_message_spec(
                     role="system",
-                    title=f"Current turn tool result {observation_ref}",
+                    title=f"Current request tool result {observation_ref}",
                     payload={TOOL_TRANSCRIPT_DELTA_KIND: observation},
                     kind=TOOL_TRANSCRIPT_DELTA_KIND,
                     source_ref=f"{request.source_ref_prefix}:tool_transcript:{observation_ref}",
@@ -650,7 +650,7 @@ class _ToolObservationContextProducer:
                         **_dynamic_context_segment_metadata(request.dynamic_context, source="current_request"),
                         "source_route": "observation_followup_projector",
                         "canonical_kind": TOOL_TRANSCRIPT_DELTA_KIND,
-                        "semantic_title": "Current turn tool result",
+                        "semantic_title": "Current request tool result",
                         "volatility_reason": (
                             "this tool transcript entry is newly appended for the current follow-up; "
                             "later follow-ups must reuse it unchanged and append later tool results after it"

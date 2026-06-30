@@ -99,7 +99,7 @@ COMPACTION_SECTION_LIMITS = {
 }
 
 
-class SessionMemoryViewBuilder:
+class ConversationContinuityViewBuilder:
     def render_state(self, state: DialogueState, *, mode: str = "debug") -> str:
         include_debug = mode != "model"
         sections = {
@@ -136,7 +136,7 @@ class SessionMemoryViewBuilder:
         *,
         max_chars_per_section: int = 800,
     ) -> str:
-        if not has_material_session_memory_content(source):
+        if not has_material_conversation_continuity_content(source):
             return ""
         sections = self.parse_sections(source, use_default_template=False)
         if not sections:
@@ -330,7 +330,7 @@ def _mask_private_binding_values(line: str) -> str:
     return _PRIVATE_BINDING_RE.sub("binding=available", text)
 
 
-def has_material_session_memory_content(content: str) -> bool:
+def has_material_conversation_continuity_content(content: str) -> bool:
     for line in str(content or "").replace("\r\n", "\n").replace("\r", "\n").splitlines():
         stripped = line.strip()
         if not stripped:

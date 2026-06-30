@@ -192,11 +192,11 @@ class ContextRecoveryPackage:
         return any(_text_list(getattr(self, field_name)) for field_name in CONTEXT_RECOVERY_LIST_FIELDS)
 
 
-def context_recovery_package_from_session_memory(
+def context_recovery_package_from_conversation_continuity(
     content: str,
     *,
     compaction_state: dict[str, Any] | None = None,
-    source: str = "session_memory",
+    source: str = "conversation_continuity",
 ) -> ContextRecoveryPackage:
     sections = _parse_markdown_sections(content)
     values: dict[str, Any] = {field_name: [] for field_name in CONTEXT_RECOVERY_LIST_FIELDS}

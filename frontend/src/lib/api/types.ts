@@ -3992,7 +3992,7 @@ export type ExperimentTurnMemoryTrace = {
     dropped_sections: string[];
     token_accounting: Record<string, number>;
   };
-  session_memory: {
+  conversation_continuity: {
     section_count: number;
     model_sections: MemoryTraceSection[];
     debug_sections: MemoryTraceSection[];
@@ -4046,7 +4046,7 @@ export type MemoryHeader = {
   summary: string;
 };
 
-export type MemorySessionInspect = {
+export type ConversationContinuityInspect = {
   present: boolean;
   preview: string;
   model_preview: string;
@@ -4062,7 +4062,7 @@ export type MemorySessionInspect = {
   durable_matches: Record<string, unknown>;
 };
 
-export type MemorySessionFile = {
+export type ConversationContinuityFile = {
   id: string;
   label: string;
   description: string;
@@ -4074,13 +4074,13 @@ export type MemorySessionFile = {
   preview: string;
 };
 
-export type MemorySessionFilesResponse = {
+export type ConversationContinuityFilesResponse = {
   session_id: string;
   root: string;
   present: boolean;
   existing_count: number;
   missing_count: number;
-  files: MemorySessionFile[];
+  files: ConversationContinuityFile[];
 };
 
 export type FormalMemoryRepository = {
@@ -4222,7 +4222,7 @@ export type MemoryOverview = {
     headers: MemoryHeader[];
     maintenance_runtime: Record<string, unknown>;
   };
-  session_memory: MemorySessionInspect | null;
+  conversation_continuity: ConversationContinuityInspect | null;
 };
 
 export type ProjectInstructionSource = {
@@ -4311,7 +4311,7 @@ export type MemoryRecallPreview = {
     eligible_for_injection: boolean;
   }>;
   rendered_summary: string;
-  context_result: MemorySessionInspect | null;
+  context_result: ConversationContinuityInspect | null;
 };
 
 export type MemoryGovernanceResponse = {

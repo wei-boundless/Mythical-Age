@@ -340,19 +340,19 @@ def _history_compaction_status(
     raw_messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
     py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    compactor = runtime.memory_facade.conversation_continuity.compactor(session_id)
     raw_history_tokens = int(compactor.conversation_tokens(py_messages) or 0)
     history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
     history_pressure_level = str(compactor.pressure_level(raw_history_tokens, len(py_messages)) or "normal")
-    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
-    manager_ref = getattr(session_memory, "manager", None)
+    conversation_continuity = getattr(getattr(runtime, "memory_facade", None), "conversation_continuity", None)
+    manager_ref = getattr(conversation_continuity, "manager", None)
     if callable(manager_ref):
-        session_memory_manager = manager_ref(session_id)
+        conversation_continuity_manager = manager_ref(session_id)
     elif manager_ref is not None and callable(getattr(manager_ref, "load_compaction_state", None)):
-        session_memory_manager = manager_ref
+        conversation_continuity_manager = manager_ref
     else:
-        session_memory_manager = None
-    load_compaction_state = getattr(session_memory_manager, "load_compaction_state", None)
+        conversation_continuity_manager = None
+    load_compaction_state = getattr(conversation_continuity_manager, "load_compaction_state", None)
     compaction_state_present = False
     if callable(load_compaction_state):
         try:
@@ -419,8 +419,8 @@ def _context_recovery_package_status(
     session_id: str,
     raw_messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
-    manager_ref = getattr(session_memory, "manager", None)
+    conversation_continuity = getattr(getattr(runtime, "memory_facade", None), "conversation_continuity", None)
+    manager_ref = getattr(conversation_continuity, "manager", None)
     if callable(manager_ref):
         manager = manager_ref(session_id)
     elif manager_ref is not None and callable(getattr(manager_ref, "load_context_recovery_package", None)):
@@ -430,7 +430,7 @@ def _context_recovery_package_status(
             "authority": "runtime.context_management.context_recovery_package_status",
             "present": False,
             "fresh": False,
-            "reason": "session_memory_unavailable",
+            "reason": "conversation_continuity_unavailable",
         }
     try:
         package = manager.load_context_recovery_package()

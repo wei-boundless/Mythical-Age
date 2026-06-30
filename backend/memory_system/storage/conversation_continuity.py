@@ -10,7 +10,7 @@ from .process_state import ContextSlots, DialogueState, FlowState, TaskState, Tu
 from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
 from .models import utc_now_iso
 from .process_state import ProcessStateManager
-from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder, has_material_session_memory_content
+from .conversation_continuity_view import DEFAULT_TEMPLATE, ConversationContinuityViewBuilder, has_material_conversation_continuity_content
 from .text_utils import normalize_storage_text
 
 
@@ -19,8 +19,8 @@ FILE_PATTERN = re.compile(
 )
 
 
-class SessionMemoryManager:
-    """Stores agent-maintained session memory and runtime process state views."""
+class ConversationContinuityManager:
+    """Stores agent-maintained conversation continuity summary and runtime process state views."""
 
     def __init__(self, session_dir: str | Path) -> None:
         self.session_dir = Path(session_dir)
@@ -35,7 +35,7 @@ class SessionMemoryManager:
         self.context_recovery_package_path = self.session_dir / "context_recovery_package.json"
         self.state_manager = ProcessStateManager(self.session_dir)
         self.flow_snapshot_manager = FlowSnapshotManager(self.session_dir)
-        self.view_builder = SessionMemoryViewBuilder()
+        self.view_builder = ConversationContinuityViewBuilder()
         self._ensure_view_files()
 
     def load(self) -> str:
@@ -66,7 +66,7 @@ class SessionMemoryManager:
         compaction_rendered = self.view_builder.render_compaction_view(model_rendered)
         self.agent_view_path.write_text(debug_rendered, encoding="utf-8")
         self.debug_view_path.write_text(debug_rendered, encoding="utf-8")
-        if has_material_session_memory_content(model_rendered):
+        if has_material_conversation_continuity_content(model_rendered):
             self.summary_path.write_text(model_rendered, encoding="utf-8")
             if compaction_rendered.strip():
                 self.compaction_view_path.write_text(compaction_rendered, encoding="utf-8")
@@ -137,20 +137,20 @@ class SessionMemoryManager:
         covered_event_offset_end: int | None = None,
     ) -> dict[str, Any]:
         material_summary = normalize_storage_text(summary_content or self.load())
-        if not has_material_session_memory_content(material_summary):
+        if not has_material_conversation_continuity_content(material_summary):
             for path in (self.compaction_state_path, self.context_recovery_package_path):
                 if path.exists():
                     path.unlink()
             return {
-                "authority": "memory_system.session_memory.compaction_state",
+                "authority": "memory_system.conversation_continuity.compaction_state",
                 "status": "not_written",
-                "reason": "empty_session_memory",
+                "reason": "empty_conversation_continuity",
             }
         normalized_messages = [_message_identity_payload(item) for item in list(messages or [])]
         message_ids = [str(item.get("message_id") or "") for item in normalized_messages]
         payload = {
-            "authority": "memory_system.session_memory.compaction_state",
-            "schema_version": "session-memory-compaction-state.v1",
+            "authority": "memory_system.conversation_continuity.compaction_state",
+            "schema_version": "conversation-continuity-compaction-state.v1",
             "covered_message_count": len(normalized_messages),
             "covered_message_ids": message_ids,
             "last_summarized_message_id": message_ids[-1] if message_ids else "",
@@ -184,23 +184,23 @@ class SessionMemoryManager:
         *,
         summary_content: str = "",
         compaction_state: dict[str, Any] | None = None,
-        source: str = "session_memory",
+        source: str = "conversation_continuity",
     ) -> dict[str, Any]:
         material_summary = normalize_storage_text(summary_content or self.load())
-        if not has_material_session_memory_content(material_summary):
+        if not has_material_conversation_continuity_content(material_summary):
             if self.context_recovery_package_path.exists():
                 self.context_recovery_package_path.unlink()
             return {
                 "authority": "runtime.context_management.context_recovery_package",
                 "status": "not_written",
-                "reason": "empty_session_memory",
+                "reason": "empty_conversation_continuity",
             }
-        from runtime.context_management.recovery_package import context_recovery_package_from_session_memory
+        from runtime.context_management.recovery_package import context_recovery_package_from_conversation_continuity
 
-        package = context_recovery_package_from_session_memory(
+        package = context_recovery_package_from_conversation_continuity(
             material_summary,
             compaction_state=dict(compaction_state or {}),
-            source=source or "session_memory",
+            source=source or "conversation_continuity",
         )
         payload = package.to_dict()
         self.context_recovery_package_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -227,7 +227,7 @@ class SessionMemoryManager:
             return {}
         payload = json.loads(self.compaction_state_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            raise ValueError("Session memory compaction state must be a JSON object")
+            raise ValueError("Conversation continuity compaction state must be a JSON object")
         return payload
 
     def validate_compaction_state(self, messages: list[Any] | tuple[Any, ...]) -> dict[str, Any]:
@@ -238,12 +238,12 @@ class SessionMemoryManager:
                 "ok": False,
                 "status": "corrupt",
                 "reason": str(exc) or "compaction_state_corrupt",
-                "summary_material": has_material_session_memory_content(self.compact_view()),
+                "summary_material": has_material_conversation_continuity_content(self.compact_view()),
                 "covered_message_count": 0,
-                "authority": "memory_system.session_memory.compaction_state_validation",
+                "authority": "memory_system.conversation_continuity.compaction_state_validation",
             }
         material_summary = self.compact_view()
-        summary_material = has_material_session_memory_content(material_summary)
+        summary_material = has_material_conversation_continuity_content(material_summary)
         if not state:
             return {
                 "ok": False,
@@ -251,7 +251,7 @@ class SessionMemoryManager:
                 "reason": "compaction_state_missing",
                 "summary_material": summary_material,
                 "covered_message_count": 0,
-                "authority": "memory_system.session_memory.compaction_state_validation",
+                "authority": "memory_system.conversation_continuity.compaction_state_validation",
             }
         normalized_messages = [_message_identity_payload(item) for item in list(messages or [])]
         covered_count = _safe_int(state.get("covered_message_count"))
@@ -260,7 +260,7 @@ class SessionMemoryManager:
                 ok=False,
                 state=state,
                 covered_count=covered_count,
-                reason="session_memory_empty",
+                reason="conversation_continuity_empty",
                 status="empty_summary",
                 summary_material=False,
             )
@@ -335,7 +335,7 @@ class SessionMemoryManager:
             "run_id": str(state.get("run_id") or ""),
             "source": str(state.get("source") or ""),
             "updated_at": str(state.get("updated_at") or ""),
-            "authority": "memory_system.session_memory.compaction_state_validation",
+            "authority": "memory_system.conversation_continuity.compaction_state_validation",
         }
 
     def _build_state_from_context_state(
@@ -995,9 +995,9 @@ class SessionMemoryManager:
             source = self.agent_view_path.read_text(encoding="utf-8")
             if not self.debug_view_path.exists():
                 self.debug_view_path.write_text(source, encoding="utf-8")
-            if not self.summary_path.exists() and has_material_session_memory_content(source):
+            if not self.summary_path.exists() and has_material_conversation_continuity_content(source):
                 self.summary_path.write_text(source, encoding="utf-8")
-            if not self.compaction_view_path.exists() and has_material_session_memory_content(source):
+            if not self.compaction_view_path.exists() and has_material_conversation_continuity_content(source):
                 self.compaction_view_path.write_text(
                     self.view_builder.render_compaction_view(source),
                     encoding="utf-8",
@@ -1005,10 +1005,10 @@ class SessionMemoryManager:
             return
         if self.summary_path.exists():
             source = self.summary_path.read_text(encoding="utf-8")
-            view_source = source if has_material_session_memory_content(source) else DEFAULT_TEMPLATE
+            view_source = source if has_material_conversation_continuity_content(source) else DEFAULT_TEMPLATE
             self.agent_view_path.write_text(view_source, encoding="utf-8")
             self.debug_view_path.write_text(view_source, encoding="utf-8")
-            if has_material_session_memory_content(source):
+            if has_material_conversation_continuity_content(source):
                 self.compaction_view_path.write_text(
                     self.view_builder.render_compaction_view(source),
                     encoding="utf-8",
@@ -1022,7 +1022,7 @@ class SessionMemoryManager:
         if not path.exists():
             return ""
         content = normalize_storage_text(path.read_text(encoding="utf-8"))
-        if not has_material_session_memory_content(content):
+        if not has_material_conversation_continuity_content(content):
             return ""
         return content
 

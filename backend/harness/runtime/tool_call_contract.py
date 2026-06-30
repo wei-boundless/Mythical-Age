@@ -53,11 +53,9 @@ class ToolCallContract:
 
     def to_agent_visible_payload(self) -> dict[str, Any]:
         return {
-            "contract_ref": self.contract_id,
             "tool_action": dict(self.agent_visible_instruction.get("tool_action") or {}),
             "control_action": dict(self.agent_visible_instruction.get("control_action") or {}),
             "feedback_rule": dict(self.agent_visible_instruction.get("feedback_rule") or {}),
-            "authority": "harness.runtime.tool_call_contract.agent_visible",
         }
 
     def to_hidden_control_payload(self) -> dict[str, Any]:
@@ -184,7 +182,7 @@ def _agent_visible_instruction(
                 "可以先给用户一个简短公开判断，说明本次工具行动要确认什么。"
             )
             if tool_call_allowed
-            else "当前回合没有可用工具；请基于已知事实回答、询问或说明阻塞。",
+            else "当前请求没有可用工具；请基于已知事实回答、询问或说明阻塞。",
         },
         "control_action": {
             "available": control_submission != "none",
@@ -202,13 +200,13 @@ def _agent_visible_instruction(
             if control_submission == "provider_tool_selection"
             else "需要询问、阻塞、申请长任务资源或控制当前工作时，提交本次行动对象。"
             if control_submission == "action_object"
-            else "当前回合没有控制动作。",
+            else "当前请求没有控制动作。",
         },
         "feedback_rule": {
             "tool_observation": (
                 "工具返回观察后，重新判断用户目标、已确认事实和下一步；不要声称没有真实观察的工具已经执行。"
             ),
-            "not_executed": "如果上一轮行动没有执行，保留你的判断，根据反馈原因重新选择可执行行动。",
+            "not_executed": "如果上一次行动没有执行，保留你的判断，根据反馈原因重新选择可执行行动。",
         },
     }
 

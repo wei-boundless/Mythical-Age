@@ -7,7 +7,7 @@ import type {
   MemoryNamespaceScope,
   MemoryOverview,
   MemoryRecallPreview,
-  MemorySessionFilesResponse,
+  ConversationContinuityFilesResponse,
   ProjectInstructionManagement,
   SessionScope,
 } from "./types";
@@ -75,8 +75,8 @@ export async function getArtifactRepositoryOverview(payload?: {
   return request<ArtifactRepositoryOverview>(`/memory/artifacts/overview${suffix}`);
 }
 
-export async function getSessionMemoryFiles(sessionId: string, scope?: Partial<SessionScope>) {
-  return request<MemorySessionFilesResponse>(
+export async function getConversationContinuityFiles(sessionId: string, scope?: Partial<SessionScope>) {
+  return request<ConversationContinuityFilesResponse>(
     withSessionScopeQuery(`/memory/session/${encodeURIComponent(sessionId)}/files`, scope)
   );
 }

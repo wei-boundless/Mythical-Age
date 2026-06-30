@@ -80,7 +80,7 @@ function isLegacyInternalEditablePath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
   return [
     "durable_memory/",
-    "session-memory/",
+    "conversation-continuity/",
     "sessions/",
     "knowledge/",
     "capability_system/skills/builtin/",

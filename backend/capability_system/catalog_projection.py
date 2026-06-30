@@ -211,7 +211,7 @@ BASE_UNIT_DESCRIPTORS: tuple[UnitDescriptor, ...] = (
         unit_type="memory",
         owner_module="backend.memory_system.facade",
         ports=("candidate", "policy", "commit", "trace"),
-        capability_tags=("session_memory", "durable_memory"),
+        capability_tags=("conversation_continuity", "durable_memory"),
     ),
     UnitDescriptor(
         unit_id="runtime.model",
@@ -877,4 +877,3 @@ def _dedupe_texts(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-

@@ -8,7 +8,7 @@ from core.token_accounting import count_text_tokens
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate
 from .paths import normalize_session_id, safe_session_dir
-from .storage.session_memory import SessionMemoryManager
+from .storage.conversation_continuity import ConversationContinuityManager
 
 
 CONVERSATION_SECTION_HEADERS: tuple[str, ...] = (
@@ -25,8 +25,8 @@ class ConversationMemoryStoreAdapter:
         self.session_root = Path(session_root)
         self.session_root.mkdir(parents=True, exist_ok=True)
 
-    def manager(self, session_id: str) -> SessionMemoryManager:
-        return SessionMemoryManager(safe_session_dir(self.session_root, session_id))
+    def manager(self, session_id: str) -> ConversationContinuityManager:
+        return ConversationContinuityManager(safe_session_dir(self.session_root, session_id))
 
     def load_snapshot(self, session_id: str) -> ConversationMemorySnapshot:
         safe_session_id = normalize_session_id(session_id)

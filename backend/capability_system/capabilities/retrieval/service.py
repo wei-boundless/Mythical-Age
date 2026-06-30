@@ -133,7 +133,7 @@ class RetrievalService:
                 query=query,
                 top_k=max(int(top_k or 1), 1),
                 query_mode="semantic_lookup",
-                collections=("durable_memory", "session_memory"),
+                collections=("durable_memory", "conversation_continuity"),
             )
         )
         payload: list[dict[str, Any]] = []
@@ -161,8 +161,8 @@ class RetrievalService:
     def rebuild_durable_memory(self) -> None:
         self.rebuild_collection("durable_memory")
 
-    def rebuild_session_memory(self) -> None:
-        self.rebuild_collection("session_memory")
+    def rebuild_conversation_continuity(self) -> None:
+        self.rebuild_collection("conversation_continuity")
 
     def rebuild_knowledge(self) -> None:
         self.rebuild_collection("knowledge")
@@ -249,13 +249,13 @@ class RetrievalService:
 
     def rebuild_all_collections(self) -> dict[str, dict[str, Any]]:
         payload: dict[str, dict[str, Any]] = {}
-        for name in ("durable_memory", "session_memory", "knowledge"):
+        for name in ("durable_memory", "conversation_continuity", "knowledge"):
             payload[name] = self.rebuild_collection(name)
         return payload
 
     def rebuild_all(self) -> None:
         self.rebuild_durable_memory()
-        self.rebuild_session_memory()
+        self.rebuild_conversation_continuity()
         self.rebuild_knowledge()
 
     def audit_memory_sources(self) -> dict[str, Any]:
@@ -264,7 +264,7 @@ class RetrievalService:
 
         payload: dict[str, Any] = {}
         collections = build_default_collections(self.base_dir)
-        for name in ("durable_memory", "session_memory"):
+        for name in ("durable_memory", "conversation_continuity"):
             config = collections.get(name)
             if config is None:
                 continue
@@ -489,6 +489,5 @@ class RetrievalService:
         if isinstance(exc, RetrievalStageError):
             return exc.stage
         return "execution"
-
 
 

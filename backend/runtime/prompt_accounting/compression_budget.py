@@ -167,7 +167,7 @@ class CompressionBudgetPlanner:
         if dropped:
             return "ref_projection"
         if summarized and required_reduction_tokens > 0:
-            return "session_memory_compact"
+            return "conversation_continuity_compact"
         return "microcompact"
 
     def _cache_impact(self, compressible: list[PromptSegment]) -> str:

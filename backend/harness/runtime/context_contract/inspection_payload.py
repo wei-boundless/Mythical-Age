@@ -1203,8 +1203,8 @@ def _provider_cache_log(host: Any, *, session_id: str) -> dict[str, Any]:
 
 
 def _context_recovery_package_status(runtime: Any, *, session_id: str) -> dict[str, Any]:
-    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
-    manager_ref = getattr(session_memory, "manager", None)
+    conversation_continuity = getattr(getattr(runtime, "memory_facade", None), "conversation_continuity", None)
+    manager_ref = getattr(conversation_continuity, "manager", None)
     if callable(manager_ref):
         manager = manager_ref(session_id)
     elif manager_ref is not None and callable(getattr(manager_ref, "load_context_recovery_package", None)):
@@ -1214,7 +1214,7 @@ def _context_recovery_package_status(runtime: Any, *, session_id: str) -> dict[s
             "authority": "runtime.context_management.context_recovery_package_status",
             "present": False,
             "fresh": False,
-            "reason": "session_memory_unavailable",
+            "reason": "conversation_continuity_unavailable",
         }
     try:
         package = manager.load_context_recovery_package()

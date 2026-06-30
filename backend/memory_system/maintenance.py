@@ -35,7 +35,7 @@ MEMORY_MANAGER_REQUIRED_SCOPES = {
     "conversation_readonly",
     "state_readonly",
     "long_term_candidate",
-    "session_memory_write_candidate",
+    "conversation_continuity_write_candidate",
     "durable_memory_write_candidate",
 }
 MEMORY_MANAGER_BLOCKED_SIDE_EFFECTS = {
@@ -367,7 +367,7 @@ def _memory_maintenance_current_delta_payload(request: "MemoryMaintenanceRequest
             ),
             "source_message_refs": list(request.source_message_refs or []),
             "message_slice": list(request.message_slice or []),
-            "previous_session_memory": request.previous_session_memory,
+            "previous_conversation_continuity": request.previous_conversation_continuity,
             "task_summary_refs": list(request.task_summary_refs or []),
             "bundle_summary_refs": list(request.bundle_summary_refs or []),
             "manifest_headers": list(request.manifest_headers or []),
@@ -414,7 +414,7 @@ def _validate_memory_maintenance_registration(registration: MemoryMaintenanceAge
         raise ValueError("invalid registered memory maintenance agent: " + ";".join(errors))
 
 
-class SessionMemoryMaintenanceDraft(BaseModel):
+class ConversationContinuityMaintenanceDraft(BaseModel):
     session_title: str = ""
     active_goal: str = ""
     flow_state: list[str] = Field(default_factory=list)
@@ -623,7 +623,7 @@ class DurableMemoryWritePlan(BaseModel):
 
 
 class MemoryMaintenanceProposal(BaseModel):
-    session_memory: SessionMemoryMaintenanceDraft
+    conversation_continuity: ConversationContinuityMaintenanceDraft
     session_emphasis_actions: list[SessionEmphasisProposalAction] = Field(default_factory=list)
     durable_memory: DurableMemoryWritePlan = Field(default_factory=DurableMemoryWritePlan)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
@@ -643,7 +643,7 @@ class MemoryMaintenanceRequest(BaseModel):
     last_message_fingerprint: str = ""
     message_coverage: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
     message_slice: list[dict[str, Any]] = Field(default_factory=list)
-    previous_session_memory: str = ""
+    previous_conversation_continuity: str = ""
     main_context: dict[str, Any] = Field(default_factory=dict)
     task_summary_refs: list[dict[str, Any]] = Field(default_factory=list)
     bundle_summary_refs: list[dict[str, Any]] = Field(default_factory=list)
@@ -664,7 +664,7 @@ class MemoryMaintenanceReceipt(BaseModel):
     status: Literal["succeeded", "failed", "skipped", "queued"] = "skipped"
     attempted: bool = False
     queued: bool = False
-    session_memory_succeeded: bool = False
+    conversation_continuity_succeeded: bool = False
     session_emphasis_succeeded: bool = False
     session_emphasis_write_count: int = 0
     session_emphasis_skipped: bool = True
@@ -880,14 +880,14 @@ class MemoryMaintenanceAgent:
             compression_role="summarize",
             metadata={
                 "cache_impact": "volatile_suffix_only",
-                "volatility_reason": "current run id, previous session memory, manifest headers, and latest message slice can change each maintenance run",
+                "volatility_reason": "current run id, previous conversation continuity summary, manifest headers, and latest message slice can change each maintenance run",
             },
         )
         return messages, cache_plan
 
     def _output_schema_hint(self) -> dict[str, Any]:
         return {
-            "session_memory": {
+            "conversation_continuity": {
                 "session_title": "短标题",
                 "active_goal": "当前用户目标",
                 "flow_state": ["当前流程状态"],
@@ -950,14 +950,14 @@ class MemoryMaintenanceAgent:
         }
 
     def _proposal_from_payload(self, payload: dict[str, Any]) -> MemoryMaintenanceProposal:
-        session_payload = payload.get("session_memory")
-        if not isinstance(session_payload, dict):
-            raise ValueError("memory maintenance response missing session_memory object")
+        continuity_payload = payload.get("conversation_continuity")
+        if not isinstance(continuity_payload, dict):
+            raise ValueError("memory maintenance response missing conversation_continuity object")
         durable_payload = payload.get("durable_memory")
         if not isinstance(durable_payload, dict):
             durable_payload = {}
         return MemoryMaintenanceProposal(
-            session_memory=SessionMemoryMaintenanceDraft.model_validate(session_payload),
+            conversation_continuity=ConversationContinuityMaintenanceDraft.model_validate(continuity_payload),
             session_emphasis_actions=[
                 SessionEmphasisProposalAction.model_validate(item)
                 for item in list(payload.get("session_emphasis_actions") or [])
@@ -997,13 +997,13 @@ class MemoryCommitter:
     def __init__(
         self,
         *,
-        session_memory_layer: Any,
+        conversation_continuity_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
         memory_manager_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
         on_durable_saved: Callable[[dict[str, int]], None] | None = None,
     ) -> None:
-        self.session_memory_layer = session_memory_layer
+        self.conversation_continuity_layer = conversation_continuity_layer
         self.session_emphasis_store = session_emphasis_store
         self.memory_manager = memory_manager
         self.memory_manager_resolver = memory_manager_resolver
@@ -1017,17 +1017,17 @@ class MemoryCommitter:
         request: MemoryMaintenanceRequest,
         proposal: MemoryMaintenanceProposal,
     ) -> dict[str, Any]:
-        if proposal.session_memory.is_empty():
-            raise ValueError("memory maintenance agent returned empty session memory")
-        manager = self.session_memory_layer.manager(request.session_id)
-        rendered_session = proposal.session_memory.render_markdown()
-        manager.overwrite(rendered_session, debug_content=rendered_session)
+        if proposal.conversation_continuity.is_empty():
+            raise ValueError("memory maintenance agent returned empty conversation continuity summary")
+        manager = self.conversation_continuity_layer.manager(request.session_id)
+        rendered_continuity = proposal.conversation_continuity.render_markdown()
+        manager.overwrite(rendered_continuity, debug_content=rendered_continuity)
         manager.write_compaction_state(
             messages=list(request.message_coverage or []),
             run_id=request.run_id,
             source=MEMORY_MANAGER_AGENT_ID,
             source_message_refs=list(request.source_message_refs or []),
-            summary_content=rendered_session,
+            summary_content=rendered_continuity,
             covered_event_run_id=request.covered_event_run_id,
             covered_event_offset_start=request.covered_event_offset_start,
             covered_event_offset_end=request.covered_event_offset_end,
@@ -1036,7 +1036,7 @@ class MemoryCommitter:
         emphasis_commit = self.commit_session_emphasis_actions(request, proposal.session_emphasis_actions)
         durable_commit = self.commit_durable_plan(request, proposal.durable_memory)
         return {
-            "session_memory_succeeded": True,
+            "conversation_continuity_succeeded": True,
             **emphasis_commit,
             **durable_commit,
         }
@@ -1381,7 +1381,7 @@ class MemoryCommitter:
             canonical,
             "",
             "## Why Stored",
-            normalize_storage_text(reason) or "Agent judged this as stable cross-session memory.",
+            normalize_storage_text(reason) or "Agent judged this as stable cross-conversation continuity summary.",
         ]
         if normalize_storage_text(how_to_apply):
             lines.extend(["", "## How To Apply", normalize_storage_text(how_to_apply)])
@@ -1427,7 +1427,7 @@ class MemoryMaintenanceCoordinator:
         *,
         base_dir: Path,
         runtime_dir: Path | None = None,
-        session_memory_layer: Any,
+        conversation_continuity_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
         memory_manager_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
@@ -1436,13 +1436,13 @@ class MemoryMaintenanceCoordinator:
     ) -> None:
         self.runtime_dir = Path(runtime_dir) if runtime_dir is not None else MemoryStorageLayout.from_backend_dir(base_dir).maintenance_root
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.session_memory_layer = session_memory_layer
+        self.conversation_continuity_layer = conversation_continuity_layer
         self.session_emphasis_store = session_emphasis_store
         self.memory_manager = memory_manager
         self.maintenance_agent = maintenance_agent
         self.opportunity_gate = MaintenanceOpportunityGate()
         self.committer = MemoryCommitter(
-            session_memory_layer=session_memory_layer,
+            conversation_continuity_layer=conversation_continuity_layer,
             session_emphasis_store=session_emphasis_store,
             memory_manager=memory_manager,
             memory_manager_resolver=memory_manager_resolver,
@@ -1670,7 +1670,7 @@ class MemoryMaintenanceCoordinator:
         message_slice = [self._message_payload(index, item) for index, item in enumerate(messages[start:], start=start)][-16:]
         message_coverage = [_message_coverage_payload(item) for item in list(messages or []) if isinstance(item, dict)]
         message_ids = [str(item.get("message_id") or "") for item in message_coverage]
-        manager = self.session_memory_layer.manager(session_id)
+        manager = self.conversation_continuity_layer.manager(session_id)
         previous = manager.load()
         source_refs = [
             f"message:{message_coverage[index].get('message_id') or index}"
@@ -1695,7 +1695,7 @@ class MemoryMaintenanceCoordinator:
             last_message_fingerprint=_stable_hash(message_coverage[-1:]) if message_coverage else "",
             message_coverage=message_coverage,
             message_slice=message_slice,
-            previous_session_memory=previous[:20000],
+            previous_conversation_continuity=previous[:20000],
             main_context=dict(main_context or {}),
             task_summary_refs=list(task_summary_refs or [])[:8],
             bundle_summary_refs=list(bundle_summary_refs or [])[:8],
@@ -1781,7 +1781,7 @@ class MemoryMaintenanceCoordinator:
             turn_id=request.turn_id,
             status="succeeded",
             attempted=True,
-            session_memory_succeeded=bool(commit["session_memory_succeeded"]),
+            conversation_continuity_succeeded=bool(commit["conversation_continuity_succeeded"]),
             session_emphasis_succeeded=bool(commit["session_emphasis_succeeded"]),
             session_emphasis_write_count=int(commit["session_emphasis_write_count"]),
             session_emphasis_skipped=bool(commit["session_emphasis_skipped"]),
@@ -1804,7 +1804,7 @@ class MemoryMaintenanceCoordinator:
     def _update_runtime_state_projection(self, request: MemoryMaintenanceRequest) -> None:
         if not (request.main_context or request.task_summary_refs or request.bundle_summary_refs):
             return
-        self.session_memory_layer.update_runtime_state_from_context_state(
+        self.conversation_continuity_layer.update_runtime_state_from_context_state(
             request.session_id,
             dict(request.main_context or {}),
             task_summaries=list(request.task_summary_refs or []),

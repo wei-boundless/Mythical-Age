@@ -367,7 +367,7 @@ provider payload sidecar
 
 规则：
 
-- 它是 provider API 结构，不是会话记忆。
+- 它是 provider API 结构，不是对话连续性摘要。
 - 可以 hash 和审计。
 - 不能以大段自然语言或 JSON schema 重复放进 message prefix。
 - DeepSeek 自动缓存统计会把 sidecar 纳入 prompt/miss 预算，因此 sidecar 必须按当前请求显式绑定且最小化。
@@ -472,7 +472,7 @@ native_tool_binding_schema≈3974 tokens
 - `Tool Capability Surface`：稳定告诉 agent 当前执行环境有哪些工具能力。
 - `Action Permit`：agent 提交结构化 action 后，系统按权限、安全、副作用和运行状态执行或拒绝。
 - `Read Evidence Reuse Contract`：`read_file` 收到具体读取请求后，系统只判断既有 exact evidence 是否仍覆盖且新鲜；可复用则返回小型 unchanged observation，不重复全文。
-- `Current Tool Binding Sidecar`：provider transport 需要时绑定当前请求的结构化 schema；它不是会话记忆，也不是系统语义分类器。
+- `Current Tool Binding Sidecar`：provider transport 需要时绑定当前请求的结构化 schema；它不是对话连续性摘要，也不是系统语义分类器。
 
 ## 4. 时序模型
 
@@ -551,7 +551,7 @@ Provider transport：
 current tool binding sidecar
 ```
 
-只包含当前 provider 请求显式绑定的可调用工具 schema。它不是会话记忆，不进入 message prefix，不作为稳定缓存前缀。
+只包含当前 provider 请求显式绑定的可调用工具 schema。它不是对话连续性摘要，不进入 message prefix，不作为稳定缓存前缀。
 
 ### 5.3 Tool Choice 与 Action Permit
 

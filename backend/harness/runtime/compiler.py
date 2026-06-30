@@ -667,6 +667,13 @@ class RuntimeCompiler:
         dynamic_payload = context_message_projection.dynamic_payload
         current_request_payload = context_message_projection.current_request_payload
         context_message_specs = list(context_message_projection.message_specs)
+        provider_protocol_specs = _provider_protocol_message_specs(
+            session_context_payload,
+            source_ref="single_agent_turn_provider_protocol_history",
+            projection_policy=projection_policy,
+            storage_root=self.base_dir,
+            storage_run_id=turn_id,
+        )
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -830,7 +837,23 @@ class RuntimeCompiler:
                 )
                 if runtime_baseline_refs_payload
                 else None,
+                *provider_protocol_specs,
                 *context_message_specs,
+                _runtime_payload_spec(
+                    role="user",
+                    title="Current User Request",
+                    payload=current_turn_delta_payload,
+                    kind="current_turn_user_context",
+                    visible_kind="current_user_request",
+                    source_ref="single_agent_turn_current_request",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                        **_current_user_context_append_metadata(current_turn_delta_payload, turn_id=turn_id),
+                    },
+                ),
                 _runtime_payload_spec(
                     role="system",
                     title="Selected memory context",
@@ -849,21 +872,6 @@ class RuntimeCompiler:
                 )
                 if runtime_memory_context_payload
                 else None,
-                _runtime_payload_spec(
-                    role="user",
-                    title="Current User Request",
-                    payload=current_turn_delta_payload,
-                    kind="current_turn_user_context",
-                    visible_kind="current_user_request",
-                    source_ref="single_agent_turn_current_request",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="summarize",
-                    metadata={
-                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_turn_delta_payload, turn_id=turn_id),
-                    },
-                ),
                 _runtime_payload_spec(
                     role="system",
                     title="Current File Evidence",
@@ -2330,16 +2338,24 @@ class RuntimeCompiler:
         dynamic_payload = context_message_projection.dynamic_payload
         current_request_payload = context_message_projection.current_request_payload
         context_message_specs = list(context_message_projection.message_specs)
+        followup_session_context = dict(session_context or {})
+        provider_protocol_specs = _provider_protocol_message_specs(
+            followup_session_context,
+            source_ref="observation_followup_provider_protocol_history",
+            projection_policy=projection_policy,
+            storage_root=self.base_dir,
+            storage_run_id=turn_id,
+        )
         current_turn_delta_payload = _current_turn_delta_model_payload(current_request_payload)
         model_messages, segment_plan, message_specs, source_manifest, slot_plan, context_load_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
             invocation_kind="tool_observation_followup",
             provider_visible_append_scope=session_id,
             provider_visible_context_inheritance=_provider_visible_context_inheritance_from_session_context(
-                dict(session_context or {}),
+                followup_session_context,
                 child_scope=session_id,
             ),
-            compaction_generation=_context_compaction_generation_from_session_context(dict(session_context or {})),
+            compaction_generation=_context_compaction_generation_from_session_context(followup_session_context),
             storage_root=self.base_dir,
             model_selection=dict(model_selection or {}),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
@@ -2452,6 +2468,7 @@ class RuntimeCompiler:
                 )
                 if runtime_baseline_refs_payload
                 else None,
+                *provider_protocol_specs,
                 *context_message_specs,
                 _runtime_payload_spec(
                     role="system",
@@ -2518,6 +2535,21 @@ class RuntimeCompiler:
                 if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
                 else None,
                 _runtime_payload_spec(
+                    role="user",
+                    title="Current User Request",
+                    payload=current_turn_delta_payload,
+                    kind="current_turn_user_context",
+                    visible_kind="current_user_request",
+                    source_ref="observation_followup_current_request",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="ref_only",
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
+                        **_current_user_context_append_metadata(current_turn_delta_payload, turn_id=turn_id),
+                    },
+                ),
+                _runtime_payload_spec(
                     role="system",
                     title="Tool observation selected memory context",
                     payload=runtime_memory_context_payload,
@@ -2535,21 +2567,6 @@ class RuntimeCompiler:
                 )
                 if runtime_memory_context_payload
                 else None,
-                _runtime_payload_spec(
-                    role="user",
-                    title="Current User Request",
-                    payload=current_turn_delta_payload,
-                    kind="current_turn_user_context",
-                    visible_kind="current_user_request",
-                    source_ref="observation_followup_current_request",
-                    cache_scope="none",
-                    cache_role="volatile",
-                    compression_role="ref_only",
-                    metadata={
-                        **_dynamic_context_segment_metadata(dynamic_context, source="current_request"),
-                        **_current_user_context_append_metadata(current_turn_delta_payload, turn_id=turn_id),
-                    },
-                ),
             ],
             collect_dynamic_context_metadata_diagnostics=True,
         )
@@ -2938,7 +2955,7 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         ],
         "public_response_obligation": {
             "rule": "你始终要服务用户当前输入。工具可以帮你获得事实，但工具动作本身不是给用户的回答。",
-            "turn_sequence": [
+            "request_sequence": [
                 "第一步先判断当前是否已经足以回答。足以回答时，选择 respond，并把完整自然语言回复写入 final_answer。",
                 "第二步，如果还需要查证、读取、修改或验证，选择 tool_call/tool_calls。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用可以在同次输出的简短自然 preamble 中写公开反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 和 sidecar 都只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
                 "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入顶层 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
@@ -4370,7 +4387,7 @@ def _runtime_control_context_content(
         else body
     )
     return render_text_context_fragment(
-        kind="turn_state_guidance",
+        kind="current_request_guidance",
         title="当前请求工作提示边界",
         text=text,
         role="system",

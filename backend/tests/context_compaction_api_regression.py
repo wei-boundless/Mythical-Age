@@ -8,7 +8,7 @@ from api import tokens as tokens_api
 from context_system.compaction.compactor import ContextCompactor
 from memory_system.continuity import MemoryMessageAdapter
 from memory_system.storage.models import Message
-from memory_system.storage.session_memory import SessionMemoryManager
+from memory_system.storage.conversation_continuity import ConversationContinuityManager
 from runtime.context_management.session_compaction import _protocol_pressure_message, _stored_messages_after_compact, auto_compact_session_if_needed, compact_session_history
 from runtime.prompt_accounting import ModelTokenUsageRecord, PromptAccountingLedger
 from sessions import SessionManager
@@ -588,13 +588,13 @@ def _runtime_with_session(tmp_path: Path):
             {"role": "user", "content": "当前请求必须保留"},
         ],
     )
-    fake_session_memory = _FakeSessionMemory(tmp_path / "session-memory")
-    fake_session_memory.manager.write_compaction_state(
+    fake_conversation_continuity = _FakeConversationContinuity(tmp_path / "conversation-continuity")
+    fake_conversation_continuity.manager.write_compaction_state(
         messages=session_manager.load_session(session_id),
         run_id="memory-maintenance:test-api",
         source="agent:1",
         source_message_refs=["message:api"],
-        summary_content=fake_session_memory.manager.load(),
+        summary_content=fake_conversation_continuity.manager.load(),
     )
     return (
         SimpleNamespace(
@@ -608,7 +608,7 @@ def _runtime_with_session(tmp_path: Path):
             ),
             memory_facade=SimpleNamespace(
                 adapter=MemoryMessageAdapter(),
-                session_memory=fake_session_memory,
+                conversation_continuity=fake_conversation_continuity,
             ),
         ),
         session_id,
@@ -616,9 +616,9 @@ def _runtime_with_session(tmp_path: Path):
     )
 
 
-class _FakeSessionMemory:
+class _FakeConversationContinuity:
     def __init__(self, root: Path) -> None:
-        self.manager = SessionMemoryManager(root)
+        self.manager = ConversationContinuityManager(root)
         self.manager.overwrite("# Active Goal\n- 手动 compact API\n")
 
     def compactor(self, _session_id: str) -> ContextCompactor:

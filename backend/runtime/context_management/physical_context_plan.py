@@ -15,7 +15,6 @@ from .context_segment_policy import (
     context_segment_policy_is_provider_visible_sealable,
 )
 from .provider_message_replay_contract import provider_message_byte_preservation_required
-from .provider_tool_protocol import provider_tool_protocol_order
 
 
 TRANSPORT_CONTRACT = "transport_contract"
@@ -29,13 +28,6 @@ CACHE_SPINE_LANES = {
     PROVIDER_VISIBLE_CONTEXT_PREFIX,
 }
 TAIL_LANES = {CURRENT_TURN_TAIL, NEVER_REPLAY_TAIL}
-PHYSICAL_CONTEXT_LANE_ORDER = (
-    GLOBAL_STATIC_PREFIX,
-    PROVIDER_VISIBLE_CONTEXT_PREFIX,
-    CURRENT_TURN_TAIL,
-    NEVER_REPLAY_TAIL,
-)
-PHYSICAL_CONTEXT_LANE_RANK = {lane: index * 10 for index, lane in enumerate(PHYSICAL_CONTEXT_LANE_ORDER, start=1)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +88,12 @@ def build_physical_context_plan(
     transport_contract_hash: str = "",
     compaction_generation: str = "",
 ) -> PhysicalContextPlan:
+    """Describe an already-assembled physical context order.
+
+    The physical assembler owns splice order. This plan only adds lane metadata,
+    cache-spine identity, and diagnostics for the order it receives.
+    """
+
     raw_segments: list[PhysicalContextPlanSegment] = []
     lane_counts: dict[str, int] = {}
     lane_order: list[str] = []
@@ -128,7 +126,7 @@ def build_physical_context_plan(
         )
         raw_segments.append(segment)
 
-    segments = sorted(raw_segments, key=_physical_context_order_key)
+    segments = tuple(raw_segments)
     spine_seed: list[dict[str, Any]] = []
     tail_seen = False
     stable_after_tail_violations: list[dict[str, Any]] = []
@@ -185,49 +183,9 @@ def build_physical_context_plan(
         cache_spine_segment_count=len(spine_seed),
         lane_counts=lane_counts,
         lane_order=tuple(lane_order),
-        segments=tuple(segments),
+        segments=segments,
         stable_after_tail_violations=tuple(stable_after_tail_violations),
     )
-
-
-def annotate_specs_with_physical_context_plan(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    transport_contract_hash: str = "",
-    compaction_generation: str = "",
-) -> tuple[list[dict[str, Any]], PhysicalContextPlan]:
-    plan = build_physical_context_plan(
-        specs,
-        transport_contract_hash=transport_contract_hash,
-        compaction_generation=compaction_generation,
-    )
-    specs_by_index = {
-        index: dict(raw_spec)
-        for index, raw_spec in enumerate(list(specs or ()), start=1)
-        if isinstance(raw_spec, dict)
-    }
-    annotated: list[dict[str, Any]] = []
-    for physical_index, segment in enumerate(plan.segments, start=1):
-        spec = dict(specs_by_index.get(segment.index) or {})
-        if not spec:
-            continue
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            "context_physical_assembly_index": physical_index,
-            "context_physical_original_order": segment.index,
-            "physical_prefix_lane": segment.lane,
-            "physical_context_plan_ref": plan.plan_id,
-            "cache_spine_hash": plan.cache_spine_hash,
-            "cache_spine_generation": plan.cache_spine_generation,
-            "cache_spine_participation": segment.cache_spine_participation,
-            "cache_spine_break_reason": segment.cache_spine_break_reason,
-            "semantic_visibility": segment.semantic_visibility,
-            "validity_scope": segment.validity_scope,
-            "physical_context_plan_authority": plan.authority,
-        }
-        spec["metadata"] = metadata
-        annotated.append(spec)
-    return annotated, plan
 
 
 def physical_lane_for_spec(spec: dict[str, Any] | None, *, policy: ContextSegmentPolicy | None = None) -> str:
@@ -335,39 +293,9 @@ def _must_preserve_model_message_hash(spec: dict[str, Any]) -> bool:
     return provider_message_byte_preservation_required(spec)
 
 
-def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[Any, ...]:
-    lane_rank = PHYSICAL_CONTEXT_LANE_RANK.get(segment.lane, 999)
-    ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_append_entry_index"))
-    provider_round_start = 0
-    provider_round_order = 0
-    if ledger_entry_index > 0 and segment.lane == PROVIDER_VISIBLE_CONTEXT_PREFIX:
-        round_start, round_order, ordered_entry_index = provider_tool_protocol_order(
-            segment.metadata,
-            fallback_entry_index=ledger_entry_index,
-        )
-        provider_round_start = _safe_int(round_start)
-        provider_round_order = _safe_int(round_order)
-        ledger_entry_index = _safe_int(ordered_entry_index) or ledger_entry_index
-    return (
-        lane_rank,
-        provider_round_start,
-        provider_round_order,
-        ledger_entry_index,
-        int(segment.index or 0),
-        str(segment.source_ref or ""),
-    )
-
-
 def _stable_json_hash(value: Any) -> str:
     payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
-
-
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _json_stable(value: Any) -> Any:

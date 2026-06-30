@@ -240,8 +240,8 @@ class HarnessRuntimeFacade:
         *,
         raw_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
     ) -> dict[str, Any]:
-        session_memory = getattr(getattr(self, "memory_facade", None), "session_memory", None)
-        manager_factory = getattr(session_memory, "manager", None)
+        conversation_continuity = getattr(getattr(self, "memory_facade", None), "conversation_continuity", None)
+        manager_factory = getattr(conversation_continuity, "manager", None)
         if not callable(manager_factory):
             return {}
         try:
@@ -2885,7 +2885,7 @@ class HarnessRuntimeFacade:
     ) -> None:
         if not (main_context or task_summary_refs or bundle_summary_refs):
             return
-        updater = getattr(getattr(self.memory_facade, "session_memory", None), "update_runtime_state_from_context_state", None)
+        updater = getattr(getattr(self.memory_facade, "conversation_continuity", None), "update_runtime_state_from_context_state", None)
         if not callable(updater):
             return
         updater(
@@ -2998,25 +2998,25 @@ class HarnessRuntimeFacade:
 
     def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
         payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
-        session_succeeded = bool(payload.get("session_memory_succeeded") is True)
+        continuity_succeeded = bool(payload.get("conversation_continuity_succeeded") is True)
         durable_succeeded = bool(payload.get("durable_memory_succeeded") is True)
         durable_write_count = int(payload.get("durable_write_count") or 0)
         attempted = bool(payload.get("attempted") is True)
         failed = str(payload.get("status") or "") == "failed"
-        session_memory_chars = 0
+        conversation_continuity_chars = 0
         try:
-            session_memory_chars = len(self.memory_facade.session_memory.manager(str(payload.get("session_id") or "")).load() or "") if session_succeeded else 0
+            conversation_continuity_chars = len(self.memory_facade.conversation_continuity.manager(str(payload.get("session_id") or "")).load() or "") if continuity_succeeded else 0
         except Exception:
-            session_memory_chars = 0
+            conversation_continuity_chars = 0
         return {
             "memory_maintenance_attempted": attempted,
             "memory_maintenance_status": str(payload.get("status") or ""),
             "memory_maintenance_receipt": payload,
             "memory_maintenance_error": str(payload.get("error") or ""),
-            "session_memory_succeeded": session_succeeded,
+            "conversation_continuity_succeeded": continuity_succeeded,
             "durable_memory_succeeded": durable_succeeded,
             "durable_write_count": durable_write_count,
-            "session_memory_chars": session_memory_chars,
+            "conversation_continuity_chars": conversation_continuity_chars,
             "durable_saved_count": durable_write_count,
             "durable_memory_commit_attempted": attempted,
             "durable_memory_commit_failed": failed,

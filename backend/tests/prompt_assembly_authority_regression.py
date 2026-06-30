@@ -255,10 +255,10 @@ def test_task_runtime_boundary_uses_protocol_refs_not_repeated_rule_text() -> No
         },
     )
 
-    runtime_boundary = _payload_with_title(result.packet, "Current Runtime Boundary")
-    runtime_context = runtime_boundary["runtime_context"]
-    action_surface = runtime_context["action_surface"]
-    tool_capability_surface = runtime_context["tool_capability_surface"]
+    runtime_boundary = _payload_with_title(result.packet, "Current Request Context")
+    request_context = runtime_boundary["request_context"]
+    action_surface = request_context["action_surface"]
+    tool_capability_surface = request_context["tool_capability_surface"]
     serialized = __import__("json").dumps(runtime_boundary, ensure_ascii=False)
 
     assert action_surface["protocol_ref"] == "action_schema_static"

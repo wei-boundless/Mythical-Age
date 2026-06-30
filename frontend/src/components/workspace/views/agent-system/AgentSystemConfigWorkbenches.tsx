@@ -1016,7 +1016,7 @@ export function AgentSystemContextMemoryWorkbench({
   const selectedContextSectionSet = new Set(selectedContextSections);
   const hasConversationReadonly = selectedMemoryScopeSet.has("conversation_readonly");
   const hasStateReadonly = selectedMemoryScopeSet.has("state_readonly");
-  const hasSessionMaintenance = selectedMemoryScopes.includes("session_memory_write_candidate");
+  const hasContinuityMaintenance = selectedMemoryScopes.includes("conversation_continuity_write_candidate");
   const hasDurableCandidate = selectedMemoryScopes.includes("durable_memory_write_candidate") || selectedMemoryScopes.includes("long_term_candidate");
   const hasRuntimeView = selectedContextSections.includes("memory_runtime_view");
 
@@ -1037,7 +1037,7 @@ export function AgentSystemContextMemoryWorkbench({
         "conversation_readonly",
         "state_readonly",
         "long_term_candidate",
-        "session_memory_write_candidate",
+        "conversation_continuity_write_candidate",
         "durable_memory_write_candidate",
       ]),
       allowed_context_sections: mergeContextSections(["task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts"]),
@@ -1095,9 +1095,9 @@ export function AgentSystemContextMemoryWorkbench({
         </header>
         <div className="boundary-readiness-list boundary-readiness-list--grid agent-system-memory-readiness-grid">
           <AgentSystemReadinessCard
-            label="Session Memory"
-            ready={hasSessionMaintenance}
-            value={hasSessionMaintenance ? "候选写入" : "不可写"}
+            label="对话连续性摘要"
+            ready={hasContinuityMaintenance}
+            value={hasContinuityMaintenance ? "候选写入" : "不可写"}
           />
           <AgentSystemReadinessCard
             label="Durable Memory"
@@ -1122,8 +1122,8 @@ export function AgentSystemContextMemoryWorkbench({
               <small>连接 process_state.json、ContextSlots、恢复候选与活动状态上下文。</small>
             </article>
             <article className="agent-system-memory-lane">
-              <span><Database size={15} />Session Memory</span>
-              <strong>{hasSessionMaintenance ? "记忆管理 Agent 维护候选" : hasConversationReadonly ? "只读连续性" : "未接入"}</strong>
+              <span><Database size={15} />对话连续性摘要</span>
+              <strong>{hasContinuityMaintenance ? "记忆管理 Agent 维护候选" : hasConversationReadonly ? "只读连续性" : "未接入"}</strong>
               <small>普通回答不读取热摘要；压缩和恢复流程读取压缩视图。</small>
             </article>
             <article className="agent-system-memory-lane">
@@ -1147,7 +1147,7 @@ export function AgentSystemContextMemoryWorkbench({
           <p><span>记忆</span><strong>{memorySummary}</strong></p>
           <p><span>上下文</span><strong>{contextSummary}</strong></p>
           <p><span>系统组</span><strong>{systemGroupSummary}</strong></p>
-          <p><span>写入治理</span><strong>{hasSessionMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
+          <p><span>写入治理</span><strong>{hasContinuityMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
         </div>
       </aside>
     </section>
@@ -1698,7 +1698,6 @@ export function AgentSystemDiagnosticsWorkbench({
     </section>
   );
 }
-
 
 
 

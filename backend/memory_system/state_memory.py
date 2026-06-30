@@ -12,7 +12,7 @@ from .contracts import (
     StateMemorySnapshot,
 )
 from .paths import normalize_session_id, safe_session_dir
-from .storage.session_memory import SessionMemoryManager
+from .storage.conversation_continuity import ConversationContinuityManager
 
 
 class StateMemoryStoreAdapter:
@@ -26,8 +26,8 @@ class StateMemoryStoreAdapter:
         self.session_root = Path(session_root)
         self.session_root.mkdir(parents=True, exist_ok=True)
 
-    def manager(self, session_id: str) -> SessionMemoryManager:
-        return SessionMemoryManager(safe_session_dir(self.session_root, session_id))
+    def manager(self, session_id: str) -> ConversationContinuityManager:
+        return ConversationContinuityManager(safe_session_dir(self.session_root, session_id))
 
     def load_snapshot(self, session_id: str) -> StateMemorySnapshot:
         manager = self.manager(session_id)

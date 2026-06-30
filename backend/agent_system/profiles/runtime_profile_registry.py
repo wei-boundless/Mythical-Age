@@ -244,7 +244,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_id="agent:1",
             extra_allowed_operations=("op.model_response", "op.memory_read", "op.memory_write_candidate"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.agent_bounded", "op.web_search"),
-            allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate", "session_memory_write_candidate", "durable_memory_write_candidate"),
+            allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate", "conversation_continuity_write_candidate", "durable_memory_write_candidate"),
             allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
@@ -1163,7 +1163,7 @@ def _normalize_memory_scopes(agent_id: str, scopes: Any) -> list[str]:
             continue
         if not value or value in seen:
             continue
-        if agent_id != "agent:1" and value in {"session_memory_write_candidate", "durable_memory_write_candidate"}:
+        if agent_id != "agent:1" and value in {"conversation_continuity_write_candidate", "durable_memory_write_candidate"}:
             continue
         seen.add(value)
         normalized.append(value)
