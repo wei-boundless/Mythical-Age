@@ -435,6 +435,7 @@ langchain-agent/
 ## 前端展示
 <img width="1915" height="918" alt="image" src="https://github.com/user-attachments/assets/fd9bc795-bfcb-414e-83b8-a2c4231ecc31" />
 <img width="1911" height="870" alt="image" src="https://github.com/user-attachments/assets/c1cf8f87-64a9-46a8-95c2-a1aaf0c98b2a" />
+<img width="1916" height="868" alt="image" src="https://github.com/user-attachments/assets/e54b2760-dca7-4f36-8c9c-422fa3a580d5" />
 ## License
 
 内部项目，暂未开放外部许可。
