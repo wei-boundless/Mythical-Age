@@ -227,15 +227,15 @@ def build_task_execution_assembly_bundle(
         policy_denied_operations = _dedupe(
             [
                 *policy_denied_operations,
-                "op.read_file",
-                "op.search_files",
-                "op.search_text",
+                "op.workspace_read",
+                "op.workspace_search",
+                "op.workspace_search",
                 "op.web_search",
                 "op.fetch_url",
-                "op.write_file",
-                "op.edit_file",
+                "op.workspace_write",
+                "op.workspace_edit",
                 "op.shell",
-                "op.python_repl",
+                "op.shell",
             ]
         )
     operation_requirement = build_operation_requirement(
@@ -456,7 +456,7 @@ def _text_artifact_runtime_allowed_operations(agent_runtime_profile: AgentRuntim
         for item in tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ())
         if str(item or "").strip()
     }
-    return {item for item in allowed if item not in blocked and item in {"op.model_response", "op.memory_read", "op.text_metric"}}
+    return {item for item in allowed if item not in blocked and item in {"op.model_response", "op.memory_read", "op.workspace_read"}}
 
 
 def _agent_profile_capability_operations(agent_runtime_profile: AgentRuntimeProfile | None) -> list[str]:

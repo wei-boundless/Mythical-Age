@@ -15,13 +15,7 @@ from runtime.shared.models import TaskRun
 from .models import SubagentMessage
 
 
-SUBAGENT_TOOL_NAMES = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
+SUBAGENT_TOOL_NAMES = {"subagent"}
 
 
 class SubagentControl:
@@ -38,7 +32,10 @@ class SubagentControl:
         parent_agent_run: AgentRun,
         runtime_assembly: dict[str, Any],
     ) -> dict[str, Any]:
-        if tool_name == "spawn_subagent":
+        if tool_name != "subagent":
+            return {"ok": False, "error": "unknown_subagent_tool", "tool_name": tool_name}
+        action = str(tool_args.get("action") or "").strip()
+        if action == "spawn":
             return await self.spawn_subagent(
                 task_run=task_run,
                 parent_agent_run=parent_agent_run,
@@ -49,7 +46,7 @@ class SubagentControl:
                 context_refs=[str(item) for item in list(tool_args.get("context_refs") or []) if str(item)],
                 expected_outputs=[str(item) for item in list(tool_args.get("expected_outputs") or []) if str(item)],
             )
-        if tool_name == "send_subagent_message":
+        if action == "send":
             return await self.send_message(
                 task_run=task_run,
                 parent_agent_run=parent_agent_run,
@@ -57,27 +54,27 @@ class SubagentControl:
                 message=str(tool_args.get("message") or ""),
                 context_refs=[str(item) for item in list(tool_args.get("context_refs") or []) if str(item)],
             )
-        if tool_name == "wait_subagent":
+        if action == "wait":
             return await self.wait(
                 task_run=task_run,
                 parent_agent_run=parent_agent_run,
                 subagent_run_ref=str(tool_args.get("subagent_run_ref") or ""),
                 since_message_ref=str(tool_args.get("since_message_ref") or ""),
             )
-        if tool_name == "list_subagents":
+        if action == "list":
             return await self.list_subagents(
                 task_run=task_run,
                 parent_agent_run=parent_agent_run,
                 status=str(tool_args.get("status") or ""),
             )
-        if tool_name == "close_subagent":
+        if action == "close":
             return await self.close(
                 task_run=task_run,
                 parent_agent_run=parent_agent_run,
                 subagent_run_ref=str(tool_args.get("subagent_run_ref") or ""),
                 reason=str(tool_args.get("reason") or ""),
             )
-        return {"ok": False, "error": "unknown_subagent_tool", "tool_name": tool_name}
+        return {"ok": False, "error": "unknown_subagent_action", "tool_name": tool_name, "action": action}
 
     async def spawn_subagent(
         self,

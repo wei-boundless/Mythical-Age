@@ -194,7 +194,7 @@ class ManagedFileService:
                 resolved.repository_id,
                 resolved.logical_path,
                 resolved.gateway_context,
-                operation_id="op.read_file",
+                operation_id="op.workspace_read",
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="File not found") from exc
@@ -235,7 +235,7 @@ class ManagedFileService:
                 resolved.logical_path,
                 content,
                 resolved.gateway_context,
-                operation_id="op.write_file",
+                operation_id="op.workspace_write",
                 approval_fingerprint=self._approval_fingerprint(
                     resolved=resolved,
                     source=source,
@@ -280,7 +280,7 @@ class ManagedFileService:
                 old_text,
                 new_text,
                 resolved.gateway_context,
-                operation_id="op.edit_file",
+                operation_id="op.workspace_edit",
                 approval_fingerprint=self._approval_fingerprint(
                     resolved=resolved,
                     source=source,
@@ -400,7 +400,7 @@ class ManagedFileService:
                 resolved.repository_id,
                 resolved.logical_path,
                 resolved.gateway_context,
-                operation_id="op.read_file",
+                operation_id="op.workspace_read",
             )
             return payload.content
         except FileNotFoundError:
@@ -595,4 +595,3 @@ def _normalize_sha256(value: str) -> str:
 
 def _sha256_text(value: str) -> str:
     return stable_content_hash(str(value or ""))
-

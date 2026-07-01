@@ -218,6 +218,81 @@ Semantic Overlay Card:
 
 这样 agent 没有物理层时不会迷路，有语义层时才知道往哪里走。物理层提供“能爬过去”的道路，语义层提供“为什么走这条路”的路标。
 
+### 2.4 Harness 接线裁决：深度搜索必须独立于工具槽位
+
+深度项目网络不是“一个更大的搜索工具说明”，不能继续挤在 `Tool Capability Surface` / tool catalog / tool schema 里。工具槽位只负责告诉 agent：
+
+```text
+有哪些操作可以调用？
+参数和权限边界是什么？
+工具生命周期和失败反馈是什么？
+```
+
+项目语义空间必须走独立的 runtime context lane。它回答的是：
+
+```text
+当前站在哪个物理/语义节点？
+周围有哪些 skeleton nodes / skeleton edges？
+哪些 semantic overlays 可以作为路标？
+当前 frontier、visited、crawl budget 和控制决策状态是什么？
+哪些引用可以继续展开，哪些证据需要读取或刷新？
+```
+
+因此 runtime 层需要保持三条线分开：
+
+```text
+Tool Lane
+  只放工具能力、参数、权限、生命周期和可调度 operation。
+
+Project Semantic Space Lane
+  放物理骨架、语义索引、局部可爬视图、语义路标和证据引用。
+  它不占用工具说明槽位，也不把工具文档伪装成项目地图。
+
+Agent Neural Control Lane
+  放 traversal session、frontier、visited、当前目标、crawl budget、控制决策日志。
+  它只表达 agent 当前如何在网络上移动，不写入物理事实，也不改写语义事实。
+```
+
+硬边界：
+
+- `Tool Lane` 是手和脚；`Project Semantic Space Lane` 是地图；`Agent Neural Control Lane` 是当前位置、注意力和下一跳决策状态。
+- 深度搜索工具返回的主要价值不是散文本，而是更新后的 semantic space projection / control projection。
+- 语义空间不进入工具 catalog，不增加工具说明噪声；但它仍然会消耗上下文预算，所以只能投影局部切片、索引摘要和必要 refs。
+- 大图必须持久化在 `file_management.project_structure` / store 中；当前回合只加载和目标有关的局部可爬视图。
+- agent 的下一跳仍由 agent 在普通 `tool_call` / task execution 决策中选择；系统只提供结构化候选、证据、状态和边界。
+- `Semantic Overlay` 不允许写 `next_action`、active frontier、当前回合预算等控制字段；这些属于 `Agent Neural Control Lane`。
+- `Agent Neural Control Lane` 不允许伪造 `skeleton_node_id`、`skeleton_edge_id`、anchor、hash 或 accepted semantic relation；它只能引用已有物理/语义节点并记录 traversal decision。
+
+目标接线形态：
+
+```text
+ProjectStructureStore
+  -> Skeleton Graph
+  -> Semantic Overlay Index
+
+ProjectNetworkControlStore
+  -> traversal session
+  -> frontier / visited
+  -> crawl budget
+  -> agent control decisions
+
+RuntimeCompiler / DynamicContextManager
+  -> RuntimePacketContext.project_semantic_space
+  -> RuntimePacketContext.project_network_control
+  -> provider-visible local semantic slice
+
+project_network tool
+  -> start_traversal / continue_traversal / read_frontier / record_decision
+  -> ToolObservation returns updated control state refs
+
+agent
+  -> reads semantic space lane
+  -> chooses next hop through normal action protocol
+  -> uses tools as execution limbs
+```
+
+这条接线保留 harness 的成熟闭环：系统编译 packet，agent 做语义决策，工具执行动作，observation 回流为下一轮动态上下文。深度搜索要成为系统能力，关键不是把工具说明写得更长，而是把项目语义空间和网络控制态变成 harness 可投影、可观察、可回写的一等运行资源。
+
 ## 3. 系统结构网络怎么搭建
 
 系统结构网络应由多个确定性 extractor 组成，不依赖模型判断。

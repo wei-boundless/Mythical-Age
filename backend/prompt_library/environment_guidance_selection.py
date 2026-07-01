@@ -6,13 +6,7 @@ from typing import Any
 from .environment_guidance_prompts import ENVIRONMENT_GUIDANCE_PROMPT_SLOTS
 
 
-_SUBAGENT_TOOL_NAMES = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
+_SUBAGENT_TOOL_NAMES = {"subagent"}
 
 
 @dataclass(frozen=True, slots=True)

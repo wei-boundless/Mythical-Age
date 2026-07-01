@@ -69,7 +69,7 @@ def _code_structure_map(*, query: str, findings: tuple[CodebaseEvidence, ...]) -
                     "score": round(float(item.score), 3),
                     "reason": str(item.reason or ""),
                     "read_request": {
-                        "tool_name": "read_file",
+                        "tool_name": "workspace_read",
                         "args": {
                             "path": path,
                             "start_line": start_line,
@@ -88,7 +88,7 @@ def _code_structure_map(*, query: str, findings: tuple[CodebaseEvidence, ...]) -
         "query": str(query or ""),
         "candidate_only": True,
         "source_authority": "locator_only",
-        "instruction": "Use these paths and line ranges to choose the next read_file call; do not treat snippets as complete source.",
+        "instruction": "Use these paths and line ranges to choose the next workspace_read(action=file) call; do not treat snippets as complete source.",
         "files": files[:16],
         "limitations": ["not_full_source", "read_file_required_before_edit_or_review"],
     }

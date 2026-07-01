@@ -729,7 +729,7 @@ def _tool_event_count(frames: list[dict[str, Any]]) -> int:
         for frame in frames
         if str(frame.get("event_family") or "") == "tool_control"
         and str(frame.get("tool_call_id") or "").strip()
-        and str(frame.get("tool_name") or "").strip().lower() != "agent_todo"
+        and str(frame.get("tool_name") or "").strip().lower() != "agent_state"
     }
     if tool_call_ids:
         return len(tool_call_ids)
@@ -737,7 +737,7 @@ def _tool_event_count(frames: list[dict[str, Any]]) -> int:
         1
         for frame in frames
         if str(frame.get("event_family") or "") == "tool_control"
-        and str(frame.get("tool_name") or "").strip().lower() != "agent_todo"
+        and str(frame.get("tool_name") or "").strip().lower() != "agent_state"
     )
 
 

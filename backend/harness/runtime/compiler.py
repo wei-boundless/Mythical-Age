@@ -5275,17 +5275,17 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
         "file_evidence_policy": {
             "read_evidence_reuse_contract": {
                 "covered_non_stale_window": (
-                    "如果目标行范围已经被当前未过期 read_file 窗口覆盖，应复用该窗口或对应 observation_ref；"
-                    "当你提交的 read_file 与未过期窗口完全重合时，执行层会返回当前工具观察，说明旧证据仍可使用。"
+                    "如果目标行范围已经被当前未过期 workspace_read(action=file) 窗口覆盖，应复用该窗口或对应 observation_ref；"
+                    "当你提交的 workspace_read(action=file) 与未过期窗口完全重合时，执行层会返回当前工具观察，说明旧证据仍可使用。"
                 ),
                 "rehydrate_omitted_window": (
                     "当已有窗口内容被省略且确实需要精确字节时，优先使用 rehydration_ref 或 reusable_result_ref 恢复；"
-                    "只有 stale、changed、missing、hash 缺失或目标范围未覆盖时才需要新的 read_file。"
+                    "只有 stale、changed、missing、hash 缺失或目标范围未覆盖时才需要新的 workspace_read(action=file)。"
                 ),
                 "known_path_boundary": (
                     "已知 bound/editor 文件路径，以及 task_run_contract 的 GoalContext、PlanContext 或 TodoContext working_scope 中表现为路径的 target_objects、"
-                    "source_refs 或 workspace_refs，不需要通过 search_files 或 search_text 重新发现；"
-                    "未知位置先使用 search_text 这类 rg-like 搜索收敛候选；只有文件名/路径关键词或明确通配符线索时才用 search_files 或 glob_paths。"
+                    "source_refs 或 workspace_refs，不需要通过 workspace_search 重新发现；"
+                    "未知位置先使用 workspace_search(action=text) 这类 rg-like 搜索收敛候选；只有文件名/路径关键词用 workspace_search(action=path)，明确通配符线索时用 workspace_search(action=glob)。"
                 ),
             },
             "current_evidence_sources": [
@@ -5891,9 +5891,9 @@ def _planning_protocol_payload(
                 "request_task_run_with_plan_requirement",
             ],
             "forbidden_during_plan": [
-                "edit_file",
-                "write_file",
-                "side_effect_terminal",
+                "workspace_edit(action=edit)",
+                "workspace_edit(action=write)",
+                "local_execution",
                 "git_write",
                 "deliverable_write",
                 "claim_completed",
@@ -6418,7 +6418,7 @@ def _turn_attention_index_payload_from_task_resource(
                     )
                     if target_objects
                     else "",
-                    "preferred_first_tools_for_file_like_targets": ["path_exists", "read_file"] if file_like_targets else [],
+                    "preferred_first_tools_for_file_like_targets": ["workspace_read(action=exists)", "workspace_read(action=file)"] if file_like_targets else [],
                     "workspace_refs": workspace_refs,
                     "source_refs": source_refs,
                     "excluded_scope": _attention_string_list(working_scope.get("excluded_scope"), limit=12),
@@ -6540,7 +6540,7 @@ def _task_attention_todo_focus(
             "completion_ready_signal": dict(cursor.get("completion_ready_signal") or {}) if isinstance(cursor.get("completion_ready_signal"), dict) else {},
             "visible_item_count": len(baseline_items),
             "visible_items_preview": item_preview,
-            "agent_use_contract": "Todo cursor is current execution state. Update it through agent_todo when task progress changes.",
+            "agent_use_contract": "Todo cursor is current execution state. Update it through agent_state when task progress changes.",
         }
     )
 

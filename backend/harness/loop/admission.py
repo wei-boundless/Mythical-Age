@@ -11,7 +11,7 @@ from .model_action_protocol import AnyModelActionRequest
 
 AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract", "needs_task_run", "operation_unavailable"]
 _TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
-_TASK_RUNTIME_TOOL_NAMES = {"agent_todo"}
+_TASK_RUNTIME_TOOL_NAMES = {"agent_state"}
 _TASK_RUNTIME_OPERATION_IDS = {"op.agent_todo"}
 
 
@@ -507,18 +507,18 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
     operation_id = str(getattr(definition, "operation_id", "") or tool_name).strip()
     read_only_operations = {
         "op.model_response",
-        "op.read_file",
-        "op.list_dir",
-        "op.stat_path",
-        "op.path_exists",
-        "op.glob_paths",
-        "op.search_files",
-        "op.search_text",
-        "op.git_status",
-        "op.git_diff",
-        "op.git_log",
-        "op.git_show",
-        "op.git_branch_list",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_search",
+        "op.workspace_search",
+        "op.workspace_search",
+        "op.git_read",
+        "op.git_read",
+        "op.git_read",
+        "op.git_read",
+        "op.git_read",
         "op.web_search",
         "op.fetch_url",
         "op.codebase_search",
@@ -528,20 +528,13 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
         "op.mcp_structured_data",
     }
     return operation_id in read_only_operations or str(tool_name or "").strip() in {
-        "read_file",
-        "list_dir",
-        "stat_path",
-        "path_exists",
-        "glob_paths",
-        "search_files",
-        "search_text",
-        "git_status",
-        "git_diff",
-        "git_log",
-        "git_show",
-        "git_branch_list",
-        "web_search",
-        "fetch_url",
+        "workspace_read",
+        "workspace_search",
+        "code_structure",
+        "git",
+        "web",
+        "memory",
+        "project_network",
     }
 
 

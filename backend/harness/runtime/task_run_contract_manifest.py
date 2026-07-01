@@ -461,8 +461,8 @@ def _target_object_policy(
     return {
         "file_like_refs_are_known_paths": True,
         "known_path_refs": known_path_refs,
-        "preferred_first_tools": ["path_exists", "read_file"],
-        "avoid_tools_for_known_paths": ["search_files", "search_text"],
+        "preferred_first_tools": ["workspace_read(action=exists)", "workspace_read(action=file)"],
+        "avoid_tools_for_known_paths": ["workspace_search(action=path)", "workspace_search(action=text)"],
         "search_tools_scope": "unknown_location_only",
         "authority": "harness.runtime.work_mode_context.working_scope.target_object_policy",
     }

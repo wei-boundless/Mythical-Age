@@ -2001,16 +2001,16 @@ class HarnessRuntimeFacade:
             )
             event = self.single_agent_runtime_host.event_log.append(
                 task_run_id,
-                "agent_todo_initialized",
+                "agent_state_initialized",
                 payload={
                     "observation": {
                         "observation_id": f"todoobs:{task_run_id}:initial",
                         "observation_type": "tool_result",
-                        "source": "system:agent_todo",
-                        "tool_name": "agent_todo",
+                        "source": "system:agent_state",
+                        "tool_name": "agent_state",
                         "summary": str(result or "")[:300],
                         "payload": {
-                            "tool_name": "agent_todo",
+                            "tool_name": "agent_state",
                             "tool_args": {
                                 "operation": "replace",
                                 "session_id": session_id,
@@ -2026,10 +2026,10 @@ class HarnessRuntimeFacade:
         except Exception as exc:
             event = self.single_agent_runtime_host.event_log.append(
                 task_run_id,
-                "agent_todo_initialization_failed",
+                "agent_state_initialization_failed",
                 payload={
                     "observation": {
-                        "source": "system:agent_todo",
+                        "source": "system:agent_state",
                         "summary": "任务待办初始化失败。",
                         "payload": {"error": str(exc)},
                         "error": str(exc),

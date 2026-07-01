@@ -118,7 +118,7 @@ class ReadEvidenceReuseDecision:
                 },
                 "agent_guidance": (
                     "Use the prior exact read evidence for this file range as still current. "
-                    "This observation does not show new file text; call read_file again only for a different "
+                    "This observation does not show new file text; call workspace_read(action=file) again only for a different "
                     "range, changed file state, or when exact text must be rehydrated."
                 ),
             }

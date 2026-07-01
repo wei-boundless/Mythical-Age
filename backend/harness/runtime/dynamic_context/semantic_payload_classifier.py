@@ -8,14 +8,10 @@ from .models import dict_tuple, drop_empty
 
 _SUBAGENT_CONTROL_TOOL_NAMES = frozenset(
     {
-        "start_subagent",
-        "send_subagent_message",
-        "collect_subagent_result",
-        "observe_subagents",
-        "stop_subagent",
+        "subagent",
     }
 )
-_CODE_LOCATOR_TOOL_NAMES = frozenset({"codebase_search", "search_text", "search_files", "glob_paths"})
+_CODE_LOCATOR_TOOL_NAMES = frozenset({"codebase_search", "workspace_search", "code_structure"})
 
 
 def classify_normalized_tool_result(
@@ -44,7 +40,7 @@ def classify_normalized_tool_result(
         classes.append("execution_control")
     if tool_name or payload.get("tool_call_id") or payload.get("action_request_id"):
         classes.append("tool_invocation_identity")
-    if tool_name == "read_file" and isinstance(payload.get("content_range"), dict) and payload.get("content_range"):
+    if tool_name == "workspace_read" and isinstance(payload.get("content_range"), dict) and payload.get("content_range"):
         classes.append("edit_critical_source")
     if tool_name in _CODE_LOCATOR_TOOL_NAMES or payload.get("code_structure"):
         classes.append("code_locator_evidence")
@@ -207,16 +203,16 @@ def _tool_invocation_identity(payload: dict[str, Any], *, tool_name: str) -> dic
 
 def _edit_critical_source(payload: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
     content_range = dict(payload.get("content_range") or {})
-    if tool_name != "read_file" or not content_range:
+    if tool_name != "workspace_read" or not content_range:
         return {}
     return drop_empty(
         {
             "source_kind": "edit_critical_source",
-            "source_authority": "read_file_line_window",
+            "source_authority": "workspace_read_line_window",
             "visible_content_authority": "exact_visible_line_window",
             "candidate_only": False,
             "content_range": content_range,
-            "authority": "runtime.source_evidence.read_file_window",
+            "authority": "runtime.source_evidence.workspace_read_window",
         }
     )
 
@@ -229,7 +225,7 @@ def _code_locator_evidence(payload: dict[str, Any], *, tool_name: str) -> dict[s
         "source_authority": "locator_only",
         "candidate_only": True,
         "must_read_source_before_edit": True,
-        "rehydration_preference": "read_file",
+        "rehydration_preference": "workspace_read",
         "authority": "runtime.source_evidence.locator_only",
     }
 

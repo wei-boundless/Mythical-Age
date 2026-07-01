@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from capability_system.tools.tool_surface import is_agent_state_tool_name, is_local_execution_tool_name
 from harness.runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
@@ -851,7 +852,7 @@ def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]
         tool = _record(raw_tool)
         tool_name = str(tool.get("tool_name") or tool.get("name") or "").strip()
         tool_call_id = str(tool.get("id") or tool.get("tool_call_id") or "").strip()
-        if not tool_name or not tool_call_id or _is_agent_todo_tool_name(tool_name):
+        if not tool_name or not tool_call_id or _is_agent_state_tool_name(tool_name):
             continue
         args = _tool_call_args(tool, request=request if len(tool_calls) == 1 else {})
         target = _safe_public_tool_target(args, tool_name=tool_name)
@@ -1290,8 +1291,8 @@ def _tool_lifecycle_id(*, tool_call_id: str, tool_name: str) -> str:
     return f"tool:{normalized_tool}"
 
 
-def _is_agent_todo_tool_name(tool_name: Any) -> bool:
-    return str(tool_name or "").strip().lower() == "agent_todo"
+def _is_agent_state_tool_name(tool_name: Any) -> bool:
+    return is_agent_state_tool_name(tool_name)
 
 
 def _safe_tool_observation_text(
@@ -1300,8 +1301,8 @@ def _safe_tool_observation_text(
     result_envelope: dict[str, Any],
     tool_name: str = "",
 ) -> str:
-    if str(tool_name or "").strip().lower() == "agent_todo":
-        todo_summary = _agent_todo_observation_summary(observation, result_envelope=result_envelope)
+    if _is_agent_state_tool_name(tool_name):
+        todo_summary = _agent_state_observation_summary(observation, result_envelope=result_envelope)
         if todo_summary:
             return todo_summary
     for value in (
@@ -1328,7 +1329,7 @@ def _read_file_content_window_payload(
     tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_tool = str(tool_name or "").strip().lower()
-    if normalized_tool not in {"read_file", "read_files", "read_path"}:
+    if normalized_tool != "workspace_read":
         return {}
     structured = _record(result_envelope.get("structured_payload"))
     result_payload = _record(result_envelope.get("result"))
@@ -1508,7 +1509,7 @@ def _safe_tool_feedback_text(value: Any) -> str:
     return normalized[:500]
 
 
-def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:
+def _agent_state_observation_summary(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:
     payload = _record(observation.get("payload"))
     parsed: dict[str, Any] = {}
     for value in (
@@ -1525,7 +1526,7 @@ def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envel
         payload.get("summary"),
     ):
         candidate = _record_or_json_object(value)
-        if _is_agent_todo_payload(candidate):
+        if _is_agent_state_payload(candidate):
             parsed = candidate
             break
     if not parsed:
@@ -1555,7 +1556,7 @@ def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envel
     return f"任务清单：{completed}/{total} 已完成。"
 
 
-def _is_agent_todo_payload(value: dict[str, Any]) -> bool:
+def _is_agent_state_payload(value: dict[str, Any]) -> bool:
     if not value:
         return False
     if isinstance(value.get("items"), list):
@@ -1612,15 +1613,7 @@ def _safe_public_tool_target(args: dict[str, Any], *, tool_name: str = "") -> st
 
 
 def _is_public_command_tool(tool_name: str) -> bool:
-    return str(tool_name or "").strip().lower() in {
-        "bash",
-        "cmd",
-        "command",
-        "powershell",
-        "python_repl",
-        "shell",
-        "terminal",
-    }
+    return is_local_execution_tool_name(tool_name)
 
 
 def _semantic_event_payload(raw_data: dict[str, Any]) -> dict[str, Any]:

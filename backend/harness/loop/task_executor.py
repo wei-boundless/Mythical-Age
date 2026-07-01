@@ -4930,7 +4930,7 @@ def _task_model_selection(task_run: Any, *, agent_profile: Any | None = None) ->
 
 def _runtime_bound_tool_args(tool_name: str, tool_args: dict[str, Any], *, task_run: Any) -> dict[str, Any]:
     args = dict(tool_args or {})
-    if str(tool_name or "").strip() != "agent_todo":
+    if str(tool_name or "").strip() != "agent_state":
         return args
     session_id = str(args.get("session_id") or "").strip()
     task_id = str(args.get("task_id") or "").strip()
@@ -5157,7 +5157,7 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         "approval_policy": str(sandbox.get("approval_policy") or "sandboxed_side_effects"),
         "side_effect_operations": list(
             sandbox.get("side_effect_operations")
-            or ("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control", "op.image_generate")
+            or ("op.workspace_write", "op.workspace_edit", "op.shell", "op.browser_control", "op.image_generate")
         ),
     }
 
@@ -5344,8 +5344,9 @@ def _verify_completion_worker_gate(
             "reason": "completion verifier PASS verdict is required before finishing this TaskRun",
             "repair_instruction": _verification_gate_repair_instruction(contract=contract),
             "recommended_tool_call": {
-                "tool_name": "spawn_subagent",
+                "tool_name": "subagent",
                 "args": {
+                    "action": "spawn",
                     "target_agent_id": "agent:verifier",
                     "goal": "独立验证当前 TaskRun 是否已经满足用户目标和验收标准。",
                     "expected_outputs": ["verdict", "checks", "evidence_refs", "risks"],
@@ -5447,13 +5448,17 @@ def _contract_dict_items(value: Any) -> list[dict[str, Any]]:
 
 
 def _observation_is_successful_write(observation: dict[str, Any]) -> bool:
-    return _observation_tool_name(observation) in {"write_file", "edit_file", "batch_edit_file"} and _observation_status(observation) == "ok"
+    return _observation_tool_name(observation) == "workspace_edit" and _observation_status(observation) == "ok"
 
 
 def _completion_verifier_verdicts_from_observations(*, runtime_host: Any, observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     verdicts: list[dict[str, Any]] = []
     for observation in observations:
-        if _observation_tool_name(observation) != "wait_subagent" or _observation_status(observation) != "ok":
+        if (
+            _observation_tool_name(observation) != "subagent"
+            or str(_observation_tool_args(observation).get("action") or "") != "wait"
+            or _observation_status(observation) != "ok"
+        ):
             continue
         control = _subagent_control_payload_from_observation(observation)
         subagent_run_ref = str(control.get("subagent_run_ref") or "").strip()
@@ -5472,7 +5477,7 @@ def _completion_verifier_verdicts_from_observations(*, runtime_host: Any, observ
         verdicts.append(
             {
                 "verdict": verdict,
-                "source": "wait_subagent",
+                "source": "subagent:wait",
                 "subagent_run_ref": subagent_run_ref,
                 "agent_id": str(agent_run_payload.get("agent_id") or ""),
                 "agent_profile_id": str(agent_run_payload.get("agent_profile_id") or ""),
@@ -5649,10 +5654,10 @@ def _verification_gate_repair_instruction(*, contract: dict[str, Any]) -> str:
     goal = _first_text(contract.get("task_run_goal"), contract.get("user_visible_goal"), "当前 TaskRun")
     return (
         "完成前需要独立 verification worker 的 PASS 裁决。"
-        "下一步不要直接 respond 完成；如果还没有验证员，请调用 spawn_subagent，target_agent_id 使用 agent:verifier，"
+        "下一步不要直接 respond 完成；如果还没有验证员，请调用 subagent(action=spawn)，target_agent_id 使用 agent:verifier，"
         f"goal 写成：独立验证“{goal}”是否已经满足用户目标、required_artifacts、required_verifications 和 completion_criteria。"
         "instructions 需要包含原始任务、已改动/产物、验证命令或证据、开放风险，并要求输出 verdict=PASS/FAIL/PARTIAL、checks、evidence_refs、risks。"
-        "如果验证员已经启动，请调用 wait_subagent 等待结果。只有 verification worker 返回 PASS 且有证据时才允许完成。"
+        "如果验证员已经启动，请调用 subagent(action=wait) 等待结果。只有 verification worker 返回 PASS 且有证据时才允许完成。"
     )
 
 
@@ -8584,13 +8589,12 @@ def _classify_record_freshness(
 
 _EXPLORATION_ADVISORY_TOOLS = frozenset(
     {
-        "glob_paths",
-        "list_dir",
-        "path_exists",
-        "read_file",
-        "search_files",
-        "search_text",
-        "stat_path",
+        "workspace_read",
+        "workspace_search",
+        "code_structure",
+        "project_network",
+        "memory",
+        "git",
     }
 )
 _EXPLORATION_ADVISORY_THRESHOLD = 6
@@ -8764,8 +8768,8 @@ def _observation_tool_name(observation: dict[str, Any]) -> str:
     source = str(observation.get("source") or "")
     if source.startswith("tool:"):
         source_name = source.split(":", 1)[1].strip()
-    elif source == "system:agent_todo":
-        source_name = "agent_todo"
+    elif source == "system:agent_state":
+        source_name = "agent_state"
     else:
         source_name = ""
     return str(
@@ -9324,8 +9328,8 @@ def _active_subagent_completion_repair_observation(
             "error_code": "active_subagents_pending",
             "active_subagents": [dict(item) for item in active_subagents],
             "repair_instruction": (
-                "父任务仍有未完成的子 Agent，不能直接完成。你需要调用 wait_subagent 或 list_subagents 观察进度；"
-                "子 Agent 已完成时综合其 result/evidence 后再收口；确实不再需要时先 close_subagent 并说明原因。"
+                "父任务仍有未完成的子 Agent，不能直接完成。你需要调用 subagent(action=wait) 或 subagent(action=list) 观察进度；"
+                "子 Agent 已完成时综合其 result/evidence 后再收口；确实不再需要时先 subagent(action=close) 并说明原因。"
             ),
             "rejected_action_request": action_request.to_dict(),
         },
@@ -9637,13 +9641,13 @@ def _executor_error_observation(
 
 _DUPLICATE_GUARDED_READ_ONLY_TOOLS = frozenset(
     {
-        "glob_paths",
-        "list_dir",
-        "path_exists",
-        "read_file",
-        "search_files",
-        "search_text",
-        "stat_path",
+        "workspace_read",
+        "workspace_search",
+        "code_structure",
+        "project_network",
+        "memory",
+        "git",
+        "web",
     }
 )
 _DUPLICATE_READ_ONLY_TOOL_CALL_LIMIT = 5
@@ -9745,12 +9749,15 @@ def _tool_call_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> str:
 
 def _normalize_tool_call_args_for_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> Any:
     normalized = _normalize_tool_call_args(tool_args)
-    if str(tool_name or "").strip() != "read_file" or not isinstance(normalized, dict):
+    if (
+        str(tool_name or "").strip() != "workspace_read"
+        or not isinstance(normalized, dict)
+        or str(normalized.get("action") or "file").strip() not in {"", "file"}
+    ):
         return normalized
     # The runtime supplies these defaults during validation. Include them in the
-    # duplicate fingerprint so read_file(path) and read_file(path, start_line=1)
-    # are treated as the same line window, while unsupported args remain visible
-    # to the validator instead of being accepted as compatibility shims.
+    # duplicate fingerprint so workspace_read(action=file,path) and the explicit
+    # default line window are treated as the same read.
     defaults = read_window_fingerprint_defaults()
     if "start_line" not in normalized and not any(key in normalized for key in ("offset", "limit")):
         normalized["start_line"] = defaults["start_line"]
@@ -10284,7 +10291,7 @@ def _step_summary_diagnostics_update(
     if public_status:
         update["latest_public_status"] = public_status
         update["latest_public_progress_note"] = public_status
-    if agent_brief_output and tool_name != "agent_todo":
+    if agent_brief_output and tool_name != "agent_state":
         update["agent_brief_output"] = agent_brief_output
     if public_action_state:
         update["latest_public_action_state"] = public_action_state
@@ -10295,7 +10302,7 @@ def _step_summary_diagnostics_update(
         update["latest_next_action"] = next_action
     if completion_status:
         update["latest_completion_status"] = completion_status
-    if tool_name and tool_name not in {"read_file", "search_text", "search_files", "agent_todo", "read_persisted_tool_result"}:
+    if tool_name and tool_name not in {"workspace_read", "workspace_search", "agent_state", "memory"}:
         material = public_progress_note or agent_brief_output or summary
         if material:
             update["latest_material_progress"] = material
@@ -10526,18 +10533,18 @@ def _target_basename(target: str) -> str:
 
 def _tool_action_match_keywords(tool_name: str) -> tuple[str, ...]:
     normalized = str(tool_name or "").strip().lower()
-    if normalized in {"image_generate", "image_generation", "generate_image"}:
+    if normalized == "image":
         return ("图像", "图片", "生图", "美术", "资源", "生成", "image")
-    if normalized == "path_exists":
-        return ("路径", "存在", "检查", "确认", "artifact", "path")
-    if normalized in {"read_file", "read_path"}:
+    if normalized == "workspace_read":
         return ("读取", "查看", "文件", "内容", "read")
-    if normalized in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
+    if normalized == "workspace_edit":
         return ("写入", "创建", "修改", "编辑", "补丁", "文件", "write", "edit", "patch")
-    if normalized in {"search_text", "search_files", "glob_paths"}:
+    if normalized in {"workspace_search", "code_structure", "project_network"}:
         return ("搜索", "查找", "检索", "匹配", "search", "grep")
-    if normalized in {"terminal", "shell", "run_command", "powershell"}:
+    if normalized == "local_execution":
         return ("命令", "终端", "运行", "执行", "shell", "powershell")
+    if normalized == "subagent":
+        return ("子 agent", "subagent", "验证", "委派", "等待")
     return tuple(part for part in normalized.replace("-", "_").split("_") if part)
 
 
@@ -10604,31 +10611,19 @@ def _tool_calls_progress_summary(action_request: AnyModelActionRequest) -> str:
 def _public_tool_action_label(tool_name: str) -> str:
     normalized = str(tool_name or "").strip().lower()
     mapping = {
-        "image_generate": "生成图像资源",
-        "image_generation": "生成图像资源",
-        "generate_image": "生成图像资源",
-        "spawn_subagent": "启动子 Agent",
-        "send_subagent_message": "发送子 Agent 消息",
-        "wait_subagent": "等待子 Agent 返回",
-        "list_subagents": "读取子 Agent 状态",
-        "close_subagent": "关闭子 Agent",
-        "write_file": "写入文件",
-        "edit_file": "编辑文件",
-        "batch_edit_file": "批量编辑文件",
-        "apply_patch": "应用补丁",
-        "read_file": "读取文件",
-        "read_persisted_tool_result": "读取工具输出缓存",
-        "read_path": "读取文件",
-        "stat_path": "检查路径信息",
-        "list_dir": "读取目录",
-        "path_exists": "检查路径是否存在",
-        "search_text": "搜索文本",
-        "search_files": "搜索文件",
-        "glob_paths": "匹配路径",
-        "terminal": "运行命令",
-        "shell": "运行命令",
-        "run_command": "运行命令",
-        "powershell": "运行命令",
+        "image": "生成图像资源",
+        "subagent": "处理子 Agent",
+        "agent_state": "更新执行状态",
+        "workspace_edit": "修改工作区",
+        "workspace_read": "读取工作区",
+        "workspace_search": "搜索工作区",
+        "code_structure": "读取代码结构",
+        "project_network": "读取项目网络",
+        "web": "获取网络证据",
+        "browser": "操作浏览器",
+        "git": "执行 Git 操作",
+        "memory": "读取记忆",
+        "local_execution": "运行命令",
     }
     return mapping.get(normalized, f"执行 {str(tool_name or '').strip().replace('_', ' ') or '工具'}")
 
@@ -10637,21 +10632,19 @@ def _public_tool_display_name(tool_name: str) -> str:
     normalized = str(tool_name or "").strip()
     lowered = normalized.lower()
     mapping = {
-        "image_generate": "生图工具",
-        "image_generation": "生图工具",
-        "generate_image": "生图工具",
-        "spawn_subagent": "子 Agent 启动工具",
-        "send_subagent_message": "子 Agent 消息工具",
-        "wait_subagent": "子 Agent 等待工具",
-        "list_subagents": "子 Agent 列表工具",
-        "close_subagent": "子 Agent 关闭工具",
-        "write_file": "文件写入工具",
-        "edit_file": "文件编辑工具",
-        "batch_edit_file": "批量文件编辑工具",
-        "read_file": "文件读取工具",
-        "read_persisted_tool_result": "工具输出缓存读取工具",
-        "terminal": "命令工具",
-        "shell": "命令工具",
+        "image": "图像工具",
+        "subagent": "子 Agent 工具",
+        "agent_state": "执行状态工具",
+        "workspace_edit": "工作区编辑工具",
+        "workspace_read": "工作区读取工具",
+        "workspace_search": "工作区搜索工具",
+        "code_structure": "代码结构工具",
+        "project_network": "项目网络工具",
+        "web": "网络工具",
+        "browser": "浏览器工具",
+        "git": "Git 工具",
+        "memory": "记忆工具",
+        "local_execution": "命令工具",
     }
     if lowered in mapping:
         return mapping[lowered]

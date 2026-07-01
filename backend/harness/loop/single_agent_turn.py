@@ -6961,7 +6961,7 @@ def _single_turn_sandbox_scope(
         "approval_policy": str(sandbox.get("approval_policy") or "sandboxed_side_effects"),
         "side_effect_operations": list(
             sandbox.get("side_effect_operations")
-            or ("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control", "op.image_generate")
+            or ("op.workspace_write", "op.workspace_edit", "op.shell", "op.shell", "op.browser_control", "op.image_generate")
         ),
     }
 

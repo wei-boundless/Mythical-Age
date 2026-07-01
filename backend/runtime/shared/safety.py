@@ -62,7 +62,7 @@ def _filesystem_validator(
         normalized = _normalize_workspace_path(raw_path, workspace_root=workspace_root)
         if not normalized:
             return False, "path traversal detected"
-        write_sensitive = operation_id in {"op.write_file", "op.edit_file"}
+        write_sensitive = operation_id in {"op.workspace_write", "op.workspace_edit"}
         if not write_sensitive and not operation_id:
             write_sensitive = any(key in input_payload for key in ("content", "old_text", "new_text"))
         effective_root = (
@@ -124,4 +124,3 @@ def _normalize_workspace_path(value: Any, *, workspace_root: Path) -> str:
         except ValueError:
             return ""
     return _normalize_relative_path(text)
-

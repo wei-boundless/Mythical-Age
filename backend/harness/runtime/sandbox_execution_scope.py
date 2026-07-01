@@ -14,10 +14,10 @@ from .artifact_scope import (
 
 
 DEFAULT_SANDBOX_SIDE_EFFECT_OPERATIONS = (
-    "op.write_file",
-    "op.edit_file",
+    "op.workspace_write",
+    "op.workspace_edit",
     "op.shell",
-    "op.python_repl",
+    "op.shell",
     "op.browser_control",
     "op.image_generate",
 )

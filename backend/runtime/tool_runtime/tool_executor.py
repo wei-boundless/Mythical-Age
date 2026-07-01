@@ -46,7 +46,7 @@ from runtime.shared.execution_record import (
 from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
 
 _SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES = DEFAULT_SIDE_EFFECT_TOOL_NAMES | {
-    "browser_control",
+    "browser",
 }
 _FILE_CHANGE_RECORD_FIELDS = {
     "logical_path",
@@ -70,19 +70,10 @@ _FILE_CHANGE_SIGNAL_SCAN_KEYS = (
     "data",
 )
 _WORKSPACE_PATH_ARG_TOOL_NAMES = {
-    "read_file",
-    "search_files",
-    "search_text",
-    "list_dir",
-    "stat_path",
-    "path_exists",
-    "write_file",
-    "edit_file",
-    "batch_edit_file",
-    "python_code_outline",
-    "python_parse_check",
-    "python_symbol_search",
-    "text_metric",
+    "workspace_search",
+    "workspace_read",
+    "workspace_edit",
+    "code_structure",
 }
 _WORKSPACE_PATH_ARG_KEYS = ("path", "file_path", "target_path", "root", "cwd")
 _WORKSPACE_PATH_LIST_ARG_KEYS = ("paths", "file_paths", "target_paths", "roots")
@@ -932,7 +923,7 @@ class ToolRuntimeExecutor:
                 text=error,
                 error=error,
             )
-        expected_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+        expected_operation_id = _expected_operation_id_for_tool_call(definition, {"args": tool_args})
         if operation_id and expected_operation_id and str(operation_id or "").strip() != expected_operation_id:
             error = (
                 "Tool execution blocked by dispatch guard: action_request_operation_mismatch. "
@@ -1297,7 +1288,7 @@ def _evaluate_dispatch_guard(
     definition: Any,
 ) -> ToolDispatchGuardDecision:
     expected_tool_name = str(getattr(definition, "name", "") or "").strip()
-    expected_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+    expected_operation_id = _expected_operation_id_for_tool_call(definition, tool_call)
     tool_call_name = str(tool_call.get("name") or "").strip()
     action_request_operation_id = str(action_request.operation_id or "").strip()
     directive_operation_refs = [
@@ -1331,6 +1322,16 @@ def _evaluate_dispatch_guard(
         execution_record_operation_id=execution_record_operation_id,
         mismatches=mismatches,
     )
+
+
+def _expected_operation_id_for_tool_call(definition: Any, tool_call: dict[str, Any]) -> str:
+    default_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+    args = dict(dict(tool_call or {}).get("args") or {})
+    action = str(args.get("action") or "").strip()
+    if not action:
+        return default_operation_id
+    mapping = dict(getattr(definition, "action_operation_ids", {}) or {})
+    return str(mapping.get(action) or default_operation_id).strip()
 
 
 def _sandbox_context_guard_error(
@@ -1768,7 +1769,7 @@ def _capability_tool_instance(
 
 
 def _uses_system_backend_root(tool_name: str) -> bool:
-    return str(tool_name or "").strip() in {"agent_todo", "image_generate"}
+    return str(tool_name or "").strip() in {"agent_state", "image"}
 
 
 def _runtime_assembly_from_request(request: Any) -> dict[str, Any]:
@@ -1966,13 +1967,13 @@ def _bind_runtime_scoped_tool_args(
         dict(tool_args or {}),
         workspace_root=_workspace_root_from_policy(policy_payload),
     )
-    if effective_tool == "memory_search":
+    if effective_tool == "memory":
         return _bind_memory_search_scope(
             args,
             policy_payload=policy_payload,
             task_run_id=task_run_id,
         )
-    if effective_tool != "agent_todo":
+    if effective_tool != "agent_state":
         return args
     session_id = _session_id_from_policy(policy_payload)
     return {
@@ -2066,7 +2067,7 @@ def _bind_tool_invocation_args(
     invocation_context: ToolInvocationContext,
 ) -> dict[str, Any]:
     args = dict(tool_args or {})
-    if str(tool_name or "").strip() != "image_generate":
+    if str(tool_name or "").strip() != "image":
         return args
     if str(args.get("target_id") or "").strip():
         return args

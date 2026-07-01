@@ -16,7 +16,7 @@ from .todo_plan_projection import DEFAULT_TODO_OPERATIONS, project_todo_plan
 
 PROJECTOR_ID = "harness.runtime.dynamic_context.tool_result_projector"
 
-_CODE_LOCATOR_TOOL_NAMES = frozenset({"codebase_search", "search_text"})
+_CODE_LOCATOR_TOOL_NAMES = frozenset({"codebase_search", "workspace_search", "code_structure"})
 
 
 class ToolResultProjector:
@@ -313,7 +313,7 @@ def _read_file_metadata_from_structured(
     envelope: dict[str, Any],
 ) -> dict[str, Any]:
     tool_name = _normalized_tool_name(envelope.get("tool_name") or item.get("tool_name") or "")
-    if tool_name and tool_name != "read_file":
+    if tool_name and tool_name != "workspace_read":
         return {}
     source = dict(tool_result or {})
     if str(source.get("kind") or "") != "text_file" and not {"start_line", "end_line", "total_lines"} & set(source):
@@ -351,7 +351,7 @@ def _todo_plan_from_parsed_text(
     item: dict[str, Any],
 ) -> dict[str, Any]:
     tool_name = _normalized_tool_name(envelope.get("tool_name") or item.get("tool_name") or parsed_text.get("tool_name") or "")
-    if tool_name != "agent_todo":
+    if tool_name != "agent_state":
         return {}
     if str(parsed_text.get("status") or "") == "error":
         return {}
@@ -367,7 +367,7 @@ def _todo_plan_from_parsed_text(
 
 def _todo_plan_from_normalized_tool_result(normalized: dict[str, Any]) -> dict[str, Any]:
     source = dict(normalized.get("todo_plan") or {})
-    if not source and _normalized_tool_name(normalized.get("tool_name")) == "agent_todo":
+    if not source and _normalized_tool_name(normalized.get("tool_name")) == "agent_state":
         parsed = _parse_json_object(normalized.get("text"))
         if isinstance(parsed.get("items"), list):
             source = parsed
@@ -413,8 +413,8 @@ def _build_rehydration_plan(
         capabilities.append(
             drop_empty(
                 {
-                    "capability": "read_file_range",
-                    "source": "workspace.read_file",
+                    "capability": "workspace_read_file_range",
+                    "source": "workspace.workspace_read",
                     "content_range": content_range,
                     "coverage": coverage,
                     "full_file_window": coverage == "full_file",
@@ -438,7 +438,7 @@ def _build_rehydration_plan(
             "capabilities": capabilities,
             "instruction": (
                 "Treat preview text as evidence preview only; for non-code omitted output, rehydrate before relying "
-                "on exact content. For code edits, use current exact read_file evidence or read the current target window."
+                "on exact content. For code edits, use current exact workspace_read(action=file) evidence or read the current target window."
             ),
         }
     )
@@ -478,8 +478,8 @@ def _tool_result_budget_decision(
 
 
 def _budget_decision_kind(*, tool_name: str, content_replacements: list[dict[str, Any]]) -> str:
-    if tool_name == "read_file":
-        return "exact_read_file_output"
+    if tool_name == "workspace_read":
+        return "exact_workspace_read_output"
     if content_replacements:
         return "persisted_preview"
     return "inline_preview"
@@ -517,7 +517,7 @@ def _read_file_ref_preview(content_range: dict[str, Any]) -> str:
     end_line = _int_or_none(content_range.get("end_line"))
     content_hash = str(content_range.get("content_sha256") or content_range.get("text_sha256") or "").strip()
     exact_ref = str(content_range.get("exact_artifact_ref") or content_range.get("reusable_result_ref") or "").strip()
-    parts = ["read_file exact text is carried by the original tool transcript or read_evidence_injection"]
+    parts = ["workspace_read(action=file) exact text is carried by the original tool transcript or read_evidence_injection"]
     if path:
         parts.append(f"path={path}")
     if start_line is not None or end_line is not None:
@@ -539,7 +539,7 @@ def _compact_code_preview(value: Any, *, limit: int) -> str:
 def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[dict[str, Any]]) -> dict[str, Any]:
     tool_name = _normalized_tool_name(normalized.get("tool_name"))
     content_range = dict(normalized.get("content_range") or {})
-    if tool_name == "read_file" and content_range:
+    if tool_name == "workspace_read" and content_range:
         exact_artifact_ref = str(content_range.get("exact_artifact_ref") or "").strip()
         fresh_read_conditions = _fresh_read_conditions_for_read_file(
             content_range=content_range,
@@ -549,7 +549,7 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
         return drop_empty(
             {
                 "source_kind": "code_evidence",
-                "source_authority": "read_file_line_window",
+                "source_authority": "workspace_read_line_window",
                 "visible_content_authority": "exact_visible_line_window",
                 "coverage": coverage,
                 "full_file_window": coverage == "full_file",
@@ -559,7 +559,7 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
                 "rehydration_preference": (
                     "read_observation_artifact"
                     if exact_artifact_ref
-                    else "reuse_visible_read_file_window"
+                    else "reuse_visible_workspace_read_window"
                 ),
                 "instruction": _read_file_evidence_instruction(content_range),
             }
@@ -570,8 +570,8 @@ def _evidence_policy(normalized: dict[str, Any], *, content_replacements: list[d
             "source_authority": "locator_only",
             "candidate_only": True,
             "must_read_source_before_edit": True,
-            "rehydration_preference": "read_file",
-            "instruction": "Use paths and ranges to choose read_file calls; do not edit from snippets, summaries, or search previews.",
+            "rehydration_preference": "workspace_read",
+            "instruction": "Use paths and ranges to choose workspace_read(action=file) calls; do not edit from snippets, summaries, or search previews.",
         }
     if content_replacements:
         return {
@@ -619,14 +619,14 @@ def _read_file_window_covers_full_file(content_range: dict[str, Any]) -> bool:
 def _read_file_range_instruction(content_range: dict[str, Any]) -> str:
     if _read_file_window_covers_full_file(content_range):
         return (
-            "This read_file result covers the full current file: start_line is 1, end_line reaches total_lines, "
+            "This workspace_read(action=file) result covers the full current file: start_line is 1, end_line reaches total_lines, "
             "and has_more is false. Reuse this observation for planning unless a later write/edit makes the file "
             "state stale; read again only when current changed content is needed."
         )
     return (
-        "This read_file result is a line window, not proof that the whole file is in prompt. "
+        "This workspace_read(action=file) result is a line window, not proof that the whole file is in prompt. "
         "Read another range only if the current target lines are outside this window. For code edits or error localization, reuse this "
-        "window only when exact content is visible or backed by an exact read observation artifact; read_file "
+        "window only when exact content is visible or backed by an exact read observation artifact; workspace_read(action=file) "
         "again for stale files, changed files, missing artifacts, or target lines outside this window."
     )
 
@@ -634,13 +634,13 @@ def _read_file_range_instruction(content_range: dict[str, Any]) -> str:
 def _read_file_evidence_instruction(content_range: dict[str, Any]) -> str:
     if _read_file_window_covers_full_file(content_range):
         return (
-            "This describes an exact read_file window that covers the full current file. "
+            "This describes an exact workspace_read(action=file) window that covers the full current file. "
             "No additional read is needed for the same unchanged file content; use fresh_read_conditions "
             "to detect whether a later edit/write requires a new current read."
         )
     return (
-        "This describes a read_file line window. Use it directly only when exact content is visible in the "
-        "prompt or the context assembly injects the exact read observation artifact; otherwise call read_file "
+        "This describes a workspace_read(action=file) line window. Use it directly only when exact content is visible in the "
+        "prompt or the context assembly injects the exact read observation artifact; otherwise call workspace_read(action=file) "
         "for the current target range."
     )
 
@@ -660,11 +660,11 @@ def _evidence_confidence(
 ) -> dict[str, Any]:
     tool_name = _normalized_tool_name(normalized.get("tool_name"))
     content_range = dict(normalized.get("content_range") or {})
-    if tool_name == "read_file" and content_range:
+    if tool_name == "workspace_read" and content_range:
         return drop_empty(
             {
                 "authority": "harness.runtime.dynamic_context.evidence_confidence",
-                "source_kind": "read_file_line_window",
+                "source_kind": "workspace_read_line_window",
                 "tool_name": tool_name,
                 "confidence": "current_line_window",
                 "coverage": _read_file_coverage(content_range),
@@ -694,14 +694,14 @@ def _evidence_confidence(
             "source_kind": "code_locator",
             "tool_name": tool_name,
             "confidence": "locator_only",
-            "fresh_read_conditions": ["read_file_required_before_edit"],
+            "fresh_read_conditions": ["workspace_read_required_before_edit"],
             "usable_as_evidence_for": ["path_selection", "symbol_location"],
         }
     return {}
 
 
 def _is_read_file_result(normalized: dict[str, Any]) -> bool:
-    return _normalized_tool_name(normalized.get("tool_name")) == "read_file"
+    return _normalized_tool_name(normalized.get("tool_name")) == "workspace_read"
 
 
 def _is_read_file_window(normalized: dict[str, Any]) -> bool:
@@ -746,14 +746,14 @@ def _replacement_rehydration_ref(item: dict[str, Any]) -> dict[str, Any]:
 
 def _replacement_source_metadata(normalized: dict[str, Any]) -> dict[str, Any]:
     tool_name = _normalized_tool_name(normalized.get("tool_name"))
-    if tool_name != "read_file":
+    if tool_name != "workspace_read":
         return {}
     content_range = dict(normalized.get("content_range") or {})
     if not content_range:
         return {}
     return drop_empty(
         {
-            "source_tool_name": "read_file",
+            "source_tool_name": "workspace_read",
             "source_tool_result_ref": str(normalized.get("tool_result_ref") or normalized.get("envelope_id") or ""),
             "source_tool_call_id": str(normalized.get("tool_call_id") or ""),
             "content_range": content_range,
@@ -820,7 +820,7 @@ def _compact_code_structure(value: Any) -> dict[str, Any]:
             "source_authority": str(source.get("source_authority") or "locator_only"),
             "instruction": compact_text(
                 source.get("instruction")
-                or "Use code structure paths and line ranges to choose read_file calls; snippets are not complete source.",
+                or "Use code structure paths and line ranges to choose workspace_read(action=file) calls; snippets are not complete source.",
                 limit=300,
             ),
             "files": files,

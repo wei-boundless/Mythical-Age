@@ -14,9 +14,9 @@ from permissions.resource_policy_builder import RuntimeApprovalContext
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 from runtime.shared.runtime_directive import RuntimeDirective
 
-SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.office_document", "op.shell", "op.python_repl"}
-WRITE_OPERATIONS = {"op.write_file", "op.edit_file", "op.office_document"}
-WRITE_TOOL_NAMES = {"write_file", "edit_file", "batch_edit_file", "office_document"}
+SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.workspace_write", "op.workspace_edit", "op.office_document", "op.shell"}
+WRITE_OPERATIONS = {"op.workspace_write", "op.workspace_edit", "op.office_document"}
+WRITE_TOOL_NAMES = {"workspace_edit", "office_document"}
 EXPLICIT_HUMAN_APPROVAL_POLICIES = {
     "manual_approval_required",
     "requires_human_approval",
@@ -322,7 +322,7 @@ def _decide_runtime_operation(
             reason="non-destructive task state operation is exposed as a bounded model-visible tool",
             risk_tags=descriptor.risk_tags,
         )
-    if descriptor.operation_type in {"mcp", "agent"}:
+    if descriptor.operation_type in {"mcp", "agent", "agent_capability"}:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="not_executable",
@@ -342,7 +342,7 @@ def _decide_runtime_operation(
                 "destructive": bool(descriptor.destructive),
             },
         )
-    if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.write_file", "op.edit_file", "op.office_document"}:
+    if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.workspace_write", "op.workspace_edit", "op.office_document"}:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="allow",

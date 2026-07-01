@@ -10,15 +10,9 @@ from permissions.operations import build_default_operation_registry
 from harness.runtime.capability_surface import ToolCapability, ToolCapabilityFilterIssue, ToolCapabilitySourceTrace, ToolCapabilityTable
 
 _OPERATION_REGISTRY = build_default_operation_registry()
-_SUBAGENT_LIFECYCLE_TOOL_NAMES = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
+_SUBAGENT_LIFECYCLE_TOOL_NAMES = {"subagent"}
 _TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
-_TASK_RUNTIME_TOOL_NAMES = {"agent_todo"}
+_TASK_RUNTIME_TOOL_NAMES = {"agent_state"}
 _TASK_RUNTIME_OPERATION_IDS = {"op.agent_todo"}
 
 
@@ -94,46 +88,50 @@ def build_runtime_tool_plan(
         if not name:
             continue
         definition = definition_by_name.get(name)
-        operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or name)
-        operation = _operation_descriptor(operation_id)
         owner_scope = _tool_owner_scope(tool, definition)
-        if operation is not None:
-            read_only = bool(operation.read_only)
-            destructive = bool(operation.destructive)
-            concurrency_safe = bool(operation.concurrency_safe)
-            operation_type = str(operation.operation_type or "")
-            requires_approval = bool(tool.get("requires_approval") is True)
-            requires_approval_by_default = bool(operation.requires_approval_by_default)
-        else:
-            read_only = bool(getattr(definition, "is_read_only", False))
-            destructive = bool(getattr(definition, "is_destructive", False))
-            concurrency_safe = bool(getattr(definition, "is_concurrency_safe", False))
-            operation_type = ""
-            requires_approval = bool(tool.get("requires_approval") is True)
-            requires_approval_by_default = requires_approval
-        capabilities.append(
-            ToolCapability(
-                operation_id=operation_id,
-                tool_name=name,
-                visible=True,
-                dispatchable=True,
-                requires_approval=requires_approval,
-                source_trace=(
-                    ToolCapabilitySourceTrace(source="runtime_assembly", detail=name),
-                    ToolCapabilitySourceTrace(source="tool_scheduling", detail=operation_id),
-                ),
-                metadata={
-                    "read_only": read_only,
-                    "destructive": destructive,
-                    "concurrency_safe": concurrency_safe,
-                    "operation_type": operation_type,
-                    "owner_scope": owner_scope,
-                    "requires_approval_by_default": requires_approval_by_default,
-                    "authorization_reason": str(tool.get("authorization_reason") or ""),
-                    "tool_view": dict(tool),
-                },
+        for operation_id in _authorized_operation_ids_for_tool(tool, definition=definition, operation_decisions=operation_decisions):
+            operation = _operation_descriptor(operation_id)
+            if operation is not None:
+                read_only = bool(operation.read_only)
+                destructive = bool(operation.destructive)
+                concurrency_safe = bool(operation.concurrency_safe)
+                operation_type = str(operation.operation_type or "")
+                requires_approval_by_default = bool(operation.requires_approval_by_default)
+            else:
+                read_only = bool(getattr(definition, "is_read_only", False))
+                destructive = bool(getattr(definition, "is_destructive", False))
+                concurrency_safe = bool(getattr(definition, "is_concurrency_safe", False))
+                operation_type = ""
+                requires_approval_by_default = bool(tool.get("requires_approval") is True)
+            action_decision = dict(dict(tool.get("action_authorization") or {}).get(operation_id) or {})
+            requires_approval = bool(
+                tool.get("requires_approval") is True
+                or action_decision.get("requires_approval") is True
+                or requires_approval_by_default
             )
-        )
+            capabilities.append(
+                ToolCapability(
+                    operation_id=operation_id,
+                    tool_name=name,
+                    visible=True,
+                    dispatchable=True,
+                    requires_approval=requires_approval,
+                    source_trace=(
+                        ToolCapabilitySourceTrace(source="runtime_assembly", detail=name),
+                        ToolCapabilitySourceTrace(source="tool_scheduling", detail=operation_id),
+                    ),
+                    metadata={
+                        "read_only": read_only,
+                        "destructive": destructive,
+                        "concurrency_safe": concurrency_safe,
+                        "operation_type": operation_type,
+                        "owner_scope": owner_scope,
+                        "requires_approval_by_default": requires_approval_by_default,
+                        "authorization_reason": str(action_decision.get("reason") or tool.get("authorization_reason") or ""),
+                        "tool_view": dict(tool),
+                    },
+                )
+            )
     capabilities.extend(
         _local_mcp_route_capabilities(
             operation_authorization=operation_authorization,
@@ -219,7 +217,8 @@ def _tool_allowed_for_runtime_plan(
 ) -> bool:
     tool_name = _tool_name(tool)
     definition = definition_by_name.get(tool_name)
-    operation_id = str(tool.get("operation_id") or getattr(definition, "operation_id", "") or tool_name)
+    operation_ids = _definition_operation_ids(definition, fallback=tool_name)
+    operation_id = operation_ids[0] if operation_ids else tool_name
     owner_scope = _tool_owner_scope(tool, definition)
     if tool_name in _SUBAGENT_LIFECYCLE_TOOL_NAMES and invocation_kind != "task_execution":
         filtered_issues.append(
@@ -235,7 +234,7 @@ def _tool_allowed_for_runtime_plan(
     if invocation_kind == "single_agent_turn" and (
         owner_scope in _TASK_RUNTIME_OWNER_SCOPES
         or tool_name in _TASK_RUNTIME_TOOL_NAMES
-        or operation_id in _TASK_RUNTIME_OPERATION_IDS
+        or any(operation in _TASK_RUNTIME_OPERATION_IDS for operation in operation_ids)
     ):
         filtered_issues.append(
             ToolCapabilityFilterIssue(
@@ -251,25 +250,36 @@ def _tool_allowed_for_runtime_plan(
             )
         )
         return False
-    authorization_decision = operation_decisions.get(operation_id)
-    if operation_decisions and authorization_decision is None:
+    authorization_decisions = {
+        operation: dict(operation_decisions.get(operation) or {})
+        for operation in operation_ids
+        if operation_decisions.get(operation) is not None
+    }
+    allowed_operation_ids = tuple(
+        operation
+        for operation, decision in authorization_decisions.items()
+        if str(decision.get("final_decision") or "") in {"allow", "requires_approval"}
+    )
+    if operation_decisions and not authorization_decisions:
         filtered_issues.append(
             ToolCapabilityFilterIssue(
                 operation_id=operation_id,
                 tool_name=tool_name,
                 reason="operation_missing_from_authorization_projection",
                 source="operation_authorization",
+                metadata={"operation_ids": list(operation_ids)},
             )
         )
         return False
-    if authorization_decision is not None and str(authorization_decision.get("final_decision") or "") not in {"allow", "requires_approval"}:
+    if operation_decisions and not allowed_operation_ids:
+        first_decision = next(iter(authorization_decisions.values()), {})
         filtered_issues.append(
             ToolCapabilityFilterIssue(
                 operation_id=operation_id,
                 tool_name=tool_name,
-                reason=str(authorization_decision.get("reason") or "operation_denied"),
+                reason=str(first_decision.get("reason") or "operation_denied"),
                 source="operation_authorization",
-                metadata=dict(authorization_decision),
+                metadata={"operation_ids": list(operation_ids), "decisions": list(authorization_decisions.values())},
             )
         )
         return False
@@ -286,25 +296,44 @@ def _tool_with_authorization_metadata(
     payload = dict(tool or {})
     tool_name = _tool_name(payload)
     definition = definition_by_name.get(tool_name)
-    operation_id = str(payload.get("operation_id") or getattr(definition, "operation_id", "") or tool_name)
-    operation = _operation_descriptor(operation_id)
-    decision = operation_decisions.get(operation_id)
+    operation_ids = _definition_operation_ids(definition, fallback=tool_name)
     requires_operations = {
         str(item or "").strip()
         for item in list(operation_authorization.get("requires_approval_operations") or [])
         if str(item or "").strip()
     }
-    decision_kind = str(dict(decision or {}).get("final_decision") or dict(decision or {}).get("decision") or "")
-    requires_approval = (
-        bool(payload.get("requires_approval") is True)
-        or operation_id in requires_operations
-        or decision_kind == "requires_approval"
-        or bool(getattr(operation, "requires_approval_by_default", False))
-    )
+    action_authorization: dict[str, dict[str, Any]] = {}
+    requires_approval = bool(payload.get("requires_approval") is True)
+    authorization_reasons: list[str] = []
+    allowed_operation_ids: list[str] = []
+    for operation_id in operation_ids:
+        operation = _operation_descriptor(operation_id)
+        decision = operation_decisions.get(operation_id)
+        decision_kind = str(dict(decision or {}).get("final_decision") or dict(decision or {}).get("decision") or "")
+        action_requires_approval = bool(
+            operation_id in requires_operations
+            or decision_kind == "requires_approval"
+            or bool(getattr(operation, "requires_approval_by_default", False))
+        )
+        if action_requires_approval:
+            requires_approval = True
+        if not operation_decisions or decision_kind in {"allow", "requires_approval"}:
+            allowed_operation_ids.append(operation_id)
+        reason = str(dict(decision or {}).get("reason") or "")
+        if reason:
+            authorization_reasons.append(reason)
+        action_authorization[operation_id] = {
+            "operation_id": operation_id,
+            "decision": decision_kind or ("allow" if not operation_decisions else "unknown"),
+            "requires_approval": action_requires_approval,
+            "reason": reason,
+        }
     return {
         **payload,
+        "authorized_operation_ids": allowed_operation_ids,
+        "action_authorization": action_authorization,
         "requires_approval": requires_approval,
-        "authorization_reason": str(dict(decision or {}).get("reason") or payload.get("authorization_reason") or ""),
+        "authorization_reason": str(payload.get("authorization_reason") or ", ".join(dict.fromkeys(authorization_reasons)) or ""),
     }
 
 
@@ -383,3 +412,47 @@ def _operation_decisions_by_id(operation_authorization: dict[str, Any]) -> dict[
 
 def _operation_descriptor(operation_id: str) -> Any | None:
     return _OPERATION_REGISTRY.get_operation(str(operation_id or "").strip())
+
+
+def _definition_operation_ids(definition: Any | None, *, fallback: str = "") -> tuple[str, ...]:
+    operation_ids: list[str] = []
+    primary = str(getattr(definition, "operation_id", "") or "").strip()
+    if primary:
+        operation_ids.append(primary)
+    for operation_id in dict(getattr(definition, "action_operation_ids", {}) or {}).values():
+        value = str(operation_id or "").strip()
+        if value:
+            operation_ids.append(value)
+    if not operation_ids and fallback:
+        operation_ids.append(str(fallback).strip())
+    result: list[str] = []
+    seen: set[str] = set()
+    for operation_id in operation_ids:
+        if not operation_id or operation_id in seen:
+            continue
+        seen.add(operation_id)
+        result.append(operation_id)
+    return tuple(result)
+
+
+def _authorized_operation_ids_for_tool(
+    tool: dict[str, Any],
+    *,
+    definition: Any | None,
+    operation_decisions: dict[str, dict[str, Any]],
+) -> tuple[str, ...]:
+    explicit = tuple(
+        str(item or "").strip()
+        for item in list(tool.get("authorized_operation_ids") or [])
+        if str(item or "").strip()
+    )
+    if explicit:
+        return explicit
+    operation_ids = _definition_operation_ids(definition, fallback=_tool_name(tool))
+    if not operation_decisions:
+        return operation_ids
+    return tuple(
+        operation_id
+        for operation_id in operation_ids
+        if str(dict(operation_decisions.get(operation_id) or {}).get("final_decision") or "") in {"allow", "requires_approval"}
+    )

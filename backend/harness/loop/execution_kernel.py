@@ -706,7 +706,11 @@ def _admission_runtime_fingerprint_identity(runtime_fingerprint: dict[str, Any])
 
 def _normalize_tool_call_args_for_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> Any:
     normalized = _normalize_action_value(tool_args)
-    if str(tool_name or "").strip() != "read_file" or not isinstance(normalized, dict):
+    if (
+        str(tool_name or "").strip() != "workspace_read"
+        or not isinstance(normalized, dict)
+        or str(normalized.get("action") or "file").strip() not in {"", "file"}
+    ):
         return normalized
     defaults = read_window_fingerprint_defaults()
     if "start_line" not in normalized and not any(key in normalized for key in ("offset", "limit")):

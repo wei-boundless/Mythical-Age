@@ -254,11 +254,11 @@ def required_operations_for_codebase_search() -> tuple[str, ...]:
     return (
         "op.model_response",
         "op.codebase_search",
-        "op.search_files",
-        "op.search_text",
-        "op.python_symbol_search",
-        "op.read_file",
-        "op.glob_paths",
+        "op.workspace_search",
+        "op.workspace_search",
+        "op.code_structure_read",
+        "op.workspace_read",
+        "op.workspace_search",
     )
 
 

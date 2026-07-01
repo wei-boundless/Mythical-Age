@@ -100,6 +100,11 @@ class DynamicContextManager:
         session_file_state_projection = self._session_file_state_projection(request)
         if session_file_state_projection:
             dynamic_payload.update(session_file_state_projection)
+        project_semantic_space_projection, project_network_control_projection = self._project_network_lane_projection(request)
+        if project_semantic_space_projection:
+            dynamic_payload["project_semantic_space"] = project_semantic_space_projection
+        if project_network_control_projection:
+            dynamic_payload["project_network_control"] = project_network_control_projection
         budget_report = build_budget_report(
             invocation_kind=request.invocation_kind,
             projection_policy=request.projection_policy,
@@ -141,6 +146,8 @@ class DynamicContextManager:
             stable_runtime_baseline_refs=baseline_refs,
             dynamic_runtime_delta=runtime_delta,
             dynamic_runtime_projection=dynamic_payload,
+            project_semantic_space_projection=project_semantic_space_projection,
+            project_network_control_projection=project_network_control_projection,
             inherited_start_context_projection=inherited_start_context_projection,
             task_state_replay_entries=task_state_replay_entries,
             volatile_request_projection=volatile_request,
@@ -233,6 +240,24 @@ class DynamicContextManager:
                 **evidence_horizon,
             }
         )
+
+    def _project_network_lane_projection(self, request: DynamicContextInput) -> tuple[dict[str, Any], dict[str, Any]]:
+        semantic_source = (
+            dict(request.project_semantic_space or {})
+            or _dict_from_container(request.session_context, "project_semantic_space")
+            or _dict_from_container(request.runtime_assembly, "project_semantic_space")
+        )
+        control_source = (
+            dict(request.project_network_control or {})
+            or _dict_from_container(request.session_context, "project_network_control")
+            or _dict_from_container(request.runtime_assembly, "project_network_control")
+            or _latest_project_network_control_tool_result(request.tool_results)
+        )
+        control_projection = _project_network_control_lane_projection(control_source)
+        semantic_projection = _project_semantic_space_lane_projection(semantic_source)
+        if not semantic_projection and control_source:
+            semantic_projection = _project_semantic_space_lane_projection(dict(control_source).get("local_slice"))
+        return semantic_projection, control_projection
 
     def _volatile_state_projection(
         self,
@@ -999,7 +1024,7 @@ def _attachment_context_index_projection(value: Any) -> list[dict[str, Any]]:
                     "height": item.get("height"),
                     "extraction_status": str(item.get("extraction_status") or "not_extracted"),
                     "freshness": "fresh" if content_sha256 else "metadata_only",
-                    "rehydration_action": "attachment_extract_text" if _attachment_is_extractable(mime_type) else "",
+                    "rehydration_action": "image_ocr" if _attachment_is_extractable(mime_type) else "",
                     "authority": "harness.runtime.dynamic_context.attachment_context_index",
                 }
             )

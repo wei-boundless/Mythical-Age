@@ -10,13 +10,14 @@ import subprocess
 import sys
 import time
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from capability_system.tools.tool_units.sandbox_command_guard import validate_sandbox_command_text
+from capability_system.tools.contracts import ToolExecutionContract
 from capability_system.tools.workspace_file_service import (
     DEFAULT_EXCLUDED_DIRS,
     DEFAULT_RUNTIME_PRIVATE_PATHS,
@@ -75,21 +76,11 @@ if TYPE_CHECKING:
 
 
 NATIVE_RUNTIME_TOOL_NAMES = {
-    "read_file",
-    "read_persisted_tool_result",
-    "search_files",
-    "search_text",
-    "glob_paths",
-    "list_dir",
-    "stat_path",
-    "path_exists",
-    "attachment_extract_text",
-    "write_file",
-    "edit_file",
-    "batch_edit_file",
-    "terminal",
-    "python_repl",
-    "memory_search",
+    "workspace_search",
+    "workspace_read",
+    "workspace_edit",
+    "local_execution",
+    "memory",
 }
 
 READ_OBSERVATION_ARTIFACT_AUTHORITY = "runtime_objects.read_observation_artifact"
@@ -103,36 +94,16 @@ def build_native_runtime_tool(
     capability_definition: CapabilityToolDefinition,
 ) -> Any | None:
     name = str(capability_definition.name or "").strip()
-    if name == "read_file":
-        return NativeReadFileTool(capability_definition)
-    if name == "read_persisted_tool_result":
-        return NativeReadPersistedToolResultTool(capability_definition)
-    if name == "write_file":
-        return NativeWriteFileTool(capability_definition)
-    if name == "edit_file":
-        return NativeEditFileTool(capability_definition)
-    if name == "batch_edit_file":
-        return NativeBatchEditFileTool(capability_definition)
-    if name == "terminal":
-        return NativeTerminalTool(capability_definition)
-    if name == "python_repl":
-        return NativePythonReplTool(capability_definition)
-    if name == "memory_search":
-        return NativeMemorySearchTool(capability_definition)
-    if name == "search_files":
-        return NativeSearchFilesTool(capability_definition)
-    if name == "search_text":
-        return NativeSearchTextTool(capability_definition)
-    if name == "glob_paths":
-        return NativeGlobPathsTool(capability_definition)
-    if name == "list_dir":
-        return NativeListDirTool(capability_definition)
-    if name == "stat_path":
-        return NativeStatPathTool(capability_definition)
-    if name == "path_exists":
-        return NativePathExistsTool(capability_definition)
-    if name == "attachment_extract_text":
-        return NativeAttachmentExtractTextTool(capability_definition)
+    if name == "workspace_search":
+        return NativeWorkspaceSearchTool(capability_definition)
+    if name == "workspace_read":
+        return NativeWorkspaceReadTool(capability_definition)
+    if name == "workspace_edit":
+        return NativeWorkspaceEditTool(capability_definition)
+    if name == "local_execution":
+        return NativeLocalExecutionTool(capability_definition)
+    if name == "memory":
+        return NativeMemoryTool(capability_definition)
     return None
 
 
@@ -284,6 +255,185 @@ class _NativeToolBase:
         )
 
 
+class NativeWorkspaceSearchTool(_NativeToolBase):
+    _ACTION_TO_TOOL = {
+        "path": "path",
+        "text": "text",
+        "glob": "glob",
+        "symbol": "symbol",
+    }
+
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        action = _normalized_tool_action(payload, allowed=self._ACTION_TO_TOOL, default="")
+        if not action:
+            return _invalid_action_result("workspace_search", payload, sorted(self._ACTION_TO_TOOL))
+        child_args = _workspace_search_child_args(action, payload)
+        if action == "symbol":
+            query = str(child_args.get("query") or "").strip()
+            if not query:
+                return ToolValidationResult(
+                    allowed=False,
+                    reason="missing_required_tool_inputs",
+                    repair_instruction="workspace_search action=symbol requires query.",
+                    normalized_args=payload,
+                    diagnostics={"missing_inputs": ["query"]},
+                )
+            return ToolValidationResult(allowed=True, normalized_args={"action": action, **child_args})
+        child = _workspace_search_child_tool(self.capability_definition, action)
+        validation = child.validate_input(child_args, context)
+        if not validation.allowed:
+            return validation
+        return ToolValidationResult(allowed=True, normalized_args={"action": action, **dict(validation.normalized_args or child_args)})
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        action = str(args.get("action") or "").strip()
+        child_args = _workspace_search_child_args(action, dict(args or {}))
+        if action == "symbol":
+            return await asyncio.to_thread(self._call_symbol_search_sync, child_args, context, dict(args or {}))
+        child = _workspace_search_child_tool(self.capability_definition, action)
+        return await child.call(child_args, context)
+
+    def _call_symbol_search_sync(self, child_args: dict[str, Any], context: ToolUseContext, original_args: dict[str, Any]) -> ToolResultEnvelope:
+        try:
+            from capability_system.tools.tool_units.python_ast_tools import PythonSymbolSearchTool
+
+            result = PythonSymbolSearchTool(root_dir=context.workspace_root).invoke(child_args)
+            payload = dict(result.get("structured_payload") or {}) if isinstance(result, dict) else {}
+            tool_result = dict(payload.get("tool_result") or {})
+            matched_paths = tuple(
+                dict.fromkeys(
+                    str(item.get("path") or "")
+                    for item in list(tool_result.get("symbols") or [])
+                    if isinstance(item, dict) and str(item.get("path") or "")
+                )
+            )
+            text = str(result.get("text") or "") if isinstance(result, dict) else str(result)
+            return self._envelope(
+                tool_args=original_args,
+                status="ok",
+                text=text,
+                structured_payload=payload or {"tool_result": {"kind": "symbol_search", "status": "ok"}},
+                matched_paths=matched_paths,
+                execution_receipt=context.execution_receipt,
+            )
+        except Exception as exc:
+            return self._envelope(
+                tool_args=original_args,
+                status="error",
+                text=f"workspace_search symbol failed: {exc}",
+                structured_payload={"tool_result": {"kind": "symbol_search", "status": "error", "error": str(exc)}},
+                execution_receipt=context.execution_receipt,
+            )
+
+
+class NativeWorkspaceReadTool(_NativeToolBase):
+    _ACTION_TO_TOOL = {
+        "file": "file",
+        "dir": "dir",
+        "stat": "stat",
+        "exists": "exists",
+        "result": "result",
+    }
+
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        action = _normalized_tool_action(payload, allowed=self._ACTION_TO_TOOL, default="")
+        if not action:
+            return _invalid_action_result("workspace_read", payload, sorted(self._ACTION_TO_TOOL))
+        child_args = _workspace_read_child_args(action, payload)
+        child = _workspace_read_child_tool(self.capability_definition, action)
+        validation = child.validate_input(child_args, context)
+        if not validation.allowed:
+            return validation
+        return ToolValidationResult(allowed=True, normalized_args={"action": action, **dict(validation.normalized_args or child_args)})
+
+    def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
+        action = str(args.get("action") or "").strip()
+        child = _workspace_read_child_tool(self.capability_definition, action)
+        return child.check_permissions(_workspace_read_child_args(action, args), context)
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        action = str(args.get("action") or "").strip()
+        child = _workspace_read_child_tool(self.capability_definition, action)
+        return await child.call(_workspace_read_child_args(action, dict(args or {})), context)
+
+
+class NativeWorkspaceEditTool(_NativeToolBase):
+    _ACTION_TO_TOOL = {
+        "write": "write",
+        "edit": "edit",
+        "batch_edit": "batch_edit",
+    }
+
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        base = super().validate_input(args, context)
+        if not base.allowed:
+            return base
+        payload = dict(args or {})
+        action = _normalized_tool_action(payload, allowed=self._ACTION_TO_TOOL, default="")
+        if not action:
+            return _invalid_action_result("workspace_edit", payload, sorted(self._ACTION_TO_TOOL))
+        child_args = _workspace_edit_child_args(action, payload)
+        child = _workspace_edit_child_tool(self.capability_definition, action)
+        validation = child.validate_input(child_args, context)
+        if not validation.allowed:
+            return validation
+        return ToolValidationResult(allowed=True, normalized_args={"action": action, **dict(validation.normalized_args or child_args)})
+
+    def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
+        action = str(args.get("action") or "").strip()
+        child = _workspace_edit_child_tool(self.capability_definition, action)
+        return child.check_permissions(_workspace_edit_child_args(action, args), context)
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        action = str(args.get("action") or "").strip()
+        child = _workspace_edit_child_tool(self.capability_definition, action)
+        return await child.call(_workspace_edit_child_args(action, dict(args or {})), context)
+
+
+class NativeLocalExecutionTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        payload = dict(args or {})
+        action = str(payload.get("action") or "command").strip() or "command"
+        if action != "command":
+            return _invalid_action_result("local_execution", payload, ["command"])
+        child = _local_execution_child_tool(self.capability_definition)
+        validation = child.validate_input({"command": payload.get("command")}, context)
+        if not validation.allowed:
+            return validation
+        return ToolValidationResult(allowed=True, normalized_args={"action": "command", **dict(validation.normalized_args or {})})
+
+    def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
+        child = _local_execution_child_tool(self.capability_definition)
+        return child.check_permissions({"command": args.get("command")}, context)
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        child = _local_execution_child_tool(self.capability_definition)
+        return await child.call({"command": args.get("command")}, context)
+
+
+class NativeMemoryTool(_NativeToolBase):
+    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
+        payload = dict(args or {})
+        if str(payload.get("action") or "").strip() in {"", "search"}:
+            payload.pop("action", None)
+        child = _memory_child_tool(self.capability_definition)
+        return child.validate_input(payload, context)
+
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        payload = dict(args or {})
+        payload.pop("action", None)
+        child = _memory_child_tool(self.capability_definition)
+        return await child.call(payload, context)
+
+
 class NativeReadFileTool(_NativeToolBase):
     def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
         base = super().validate_input(args, context)
@@ -302,7 +452,7 @@ class NativeReadFileTool(_NativeToolBase):
                 allowed=False,
                 reason="unexpected_tool_inputs",
                 repair_instruction=(
-                    "read_file accepts only path, start_line, line_count, and read_intent. "
+                    "workspace_read(action=file) accepts only path, start_line, line_count, and read_intent. "
                     "start_line is a one-based line number and line_count is the number of lines to return. "
                     "Remove unsupported argument(s): " + ", ".join(unexpected) + "." + alias_hint
                 ),
@@ -567,115 +717,6 @@ class NativeReadFileTool(_NativeToolBase):
                 },
             },
             observed_paths=(display_path,),
-            execution_receipt=context.execution_receipt,
-        )
-
-
-class NativeAttachmentExtractTextTool(_NativeToolBase):
-    def validate_input(self, args: dict[str, Any], context: ToolUseContext) -> ToolValidationResult:
-        base = super().validate_input(args, context)
-        if not base.allowed:
-            return base
-        payload = dict(args or {})
-        allowed = {"path", "language", "max_text_chars"}
-        unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
-        if unexpected:
-            return ToolValidationResult(
-                allowed=False,
-                reason="unexpected_tool_inputs",
-                repair_instruction=(
-                    "attachment_extract_text accepts only path, language, and max_text_chars. "
-                    "Remove unsupported argument(s): " + ", ".join(unexpected) + "."
-                ),
-                normalized_args=payload,
-                diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
-            )
-        max_text_chars: int | None = None
-        raw_max_text_chars = payload.get("max_text_chars")
-        if raw_max_text_chars is not None and raw_max_text_chars != "":
-            max_text_chars, max_text_chars_error = _coerce_read_window_int(
-                raw_max_text_chars,
-                default=12_000,
-                minimum=1,
-                maximum=120_000,
-                field_name="max_text_chars",
-            )
-            if max_text_chars_error:
-                return ToolValidationResult(
-                    allowed=False,
-                    reason="invalid_tool_input",
-                    repair_instruction=max_text_chars_error,
-                    normalized_args=payload,
-                    diagnostics={"field": "max_text_chars"},
-                )
-        normalized_args: dict[str, Any] = {
-            "path": str(payload.get("path") or "").strip(),
-        }
-        language = str(payload.get("language") or "").strip()
-        if language:
-            normalized_args["language"] = language
-        if max_text_chars is not None:
-            normalized_args["max_text_chars"] = max_text_chars
-        return ToolValidationResult(allowed=True, normalized_args=normalized_args)
-
-    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
-        try:
-            from capability_system.mcp.server.local_capability_server import (
-                LocalCapabilityMCPExecutor,
-                LocalMCPToolRequest,
-                build_local_mcp_resource_policy,
-            )
-
-            constraints: dict[str, Any] = {}
-            language = str(args.get("language") or "").strip()
-            if language:
-                constraints["language"] = language
-            if args.get("max_text_chars") is not None:
-                constraints["max_text_chars"] = args.get("max_text_chars")
-            backend_dir = Path(str(context.runtime_base_dir or "")).resolve() if context.runtime_base_dir else context.workspace_root.resolve()
-            executor = LocalCapabilityMCPExecutor(
-                backend_dir=backend_dir,
-                resource_policy=build_local_mcp_resource_policy(
-                    "op.mcp_image_ocr",
-                    task_id=str(context.task_run_id or context.tool_call_id or "native-tool"),
-                ),
-                permission_mode=str(context.permission_mode or "default"),
-            )
-            result = await executor.execute(
-                LocalMCPToolRequest(
-                    route="image_ocr",
-                    query="Extract text from this image attachment.",
-                    session_id=str(context.session_id or "mcp-session"),
-                    path=str(args.get("path") or "").strip(),
-                    constraints=constraints,
-                )
-            )
-        except Exception as exc:
-            payload = {
-                "tool_result": {
-                    "ok": False,
-                    "summary": str(exc),
-                    "authority": "runtime.tool_runtime.native_tools.attachment_extract_text",
-                }
-            }
-            return self._envelope(
-                tool_args=args,
-                status="error",
-                text=str(exc),
-                structured_payload=payload,
-                execution_receipt=context.execution_receipt,
-            )
-        canonical = dict(result.get("canonical_result") or {})
-        degraded_reason = str(canonical.get("degraded_reason") or result.get("error") or "").strip()
-        visible_text = str(result.get("answer") or canonical.get("answer") or degraded_reason or "OCR completed with no text.").strip()
-        tool_status = "ok" if canonical or str(result.get("status") or "") == "ok" else "error"
-        observed_path = str(args.get("path") or "").strip()
-        return self._envelope(
-            tool_args=args,
-            status=tool_status,
-            text=visible_text,
-            structured_payload={"tool_result": result},
-            observed_paths=(observed_path,) if observed_path else (),
             execution_receipt=context.execution_receipt,
         )
 
@@ -1049,10 +1090,10 @@ def _edit_file_current_read_failure(
             return _edit_file_guard_failure(
                 code="edit_file_empty_old_text_requires_current_empty_read",
                 path=normalized_path,
-                message="Edit rejected: empty existing files must have current exact read evidence before edit_file can use empty old_text.",
+                message="Edit rejected: empty existing files must have current exact read evidence before workspace_edit(action=edit) can use empty old_text.",
                 repair_instruction=(
-                    f"Call read_file with path=\"{normalized_path}\", start_line=1, line_count=1, "
-                    "read_intent=\"edit_target\", then retry edit_file."
+                    f"Call workspace_read with action=\"file\", path=\"{normalized_path}\", start_line=1, line_count=1, "
+                    "read_intent=\"edit_target\", then retry workspace_edit(action=edit)."
                 ),
             )
         return _edit_file_guard_failure(
@@ -1060,8 +1101,8 @@ def _edit_file_current_read_failure(
             path=normalized_path,
             message="Edit rejected: old_text may be empty only for a new file or a confirmed empty file.",
             repair_instruction=(
-                "Use write_file for full replacement, or read_file with read_intent=\"edit_target\" and retry "
-                "edit_file with a non-empty exact old_text span from the current file."
+                "Use workspace_edit(action=write) for full replacement, or workspace_read(action=file) "
+                "with read_intent=\"edit_target\" and retry workspace_edit(action=edit) with a non-empty exact old_text span from the current file."
             ),
         )
     file_state = _current_file_state_for_path(
@@ -1074,9 +1115,9 @@ def _edit_file_current_read_failure(
         return _edit_file_guard_failure(
             code="edit_file_requires_current_read",
             path=normalized_path,
-            message="Edit rejected: existing non-empty files must be read in the current file evidence scope before edit_file can replace old_text.",
+            message="Edit rejected: existing non-empty files must be read in the current file evidence scope before workspace_edit(action=edit) can replace old_text.",
             repair_instruction=(
-                "Call read_file on the minimal target range with read_intent=\"edit_target\", then retry edit_file "
+                "Call workspace_read(action=file) on the minimal target range with read_intent=\"edit_target\", then retry workspace_edit(action=edit) "
                 "with exact old_text from that current read."
             ),
         )
@@ -1086,7 +1127,7 @@ def _edit_file_current_read_failure(
             code="edit_file_read_evidence_stale",
             path=normalized_path,
             message="Edit rejected: the recorded read evidence for this file is stale or unavailable.",
-            repair_instruction="Read the current target range again with read_intent=\"edit_target\", then retry edit_file.",
+            repair_instruction="Read the current target range again with read_intent=\"edit_target\", then retry workspace_edit(action=edit).",
         )
     if not _file_state_matches_current_file(file_state=file_state, content_sha256=content_sha256, mtime_ns=mtime_ns):
         return _edit_file_guard_failure(
@@ -1105,7 +1146,7 @@ def _edit_file_current_read_failure(
             code="edit_file_requires_current_read",
             path=normalized_path,
             message="Edit rejected: no active read window exists for this file.",
-            repair_instruction="Call read_file with read_intent=\"edit_target\" for the target span, then retry edit_file.",
+            repair_instruction="Call workspace_read(action=file) with read_intent=\"edit_target\" for the target span, then retry workspace_edit(action=edit).",
         )
     span = _line_span_for_first_occurrence(str(current_content or ""), target)
     if span is None:
@@ -1124,9 +1165,9 @@ def _edit_file_current_read_failure(
         path=normalized_path,
         message="Edit rejected: old_text is outside the current active read windows for this file.",
         repair_instruction=(
-            f"Call read_file with path=\"{normalized_path}\", start_line={start_line}, "
+            f"Call workspace_read with action=\"file\", path=\"{normalized_path}\", start_line={start_line}, "
             f"line_count={max(1, min(READ_FILE_MAX_LINE_COUNT, end_line - start_line + 1))}, "
-            "read_intent=\"edit_target\", then retry edit_file with exact old_text from that result."
+            "read_intent=\"edit_target\", then retry workspace_edit(action=edit) with exact old_text from that result."
         ),
         start_line=start_line,
         end_line=end_line,
@@ -1815,7 +1856,7 @@ class NativeEditFileTool(_NativeToolBase):
                     target.repository_id,
                     target.logical_path,
                     self._gateway_context(context),
-                    operation_id="op.read_file",
+                    operation_id="op.workspace_read",
                 )
             except Exception:
                 if old_text:
@@ -1936,7 +1977,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
             return ToolValidationResult(
                 allowed=False,
                 reason="unexpected_tool_inputs",
-                repair_instruction="batch_edit_file accepts only path, edits, base_sha256, and base_mtime_ns. Remove: " + ", ".join(unexpected) + ".",
+                repair_instruction="workspace_edit(action=batch_edit) accepts only path, edits, base_sha256, and base_mtime_ns. Remove: " + ", ".join(unexpected) + ".",
                 normalized_args=payload,
                 diagnostics={"unexpected_inputs": unexpected, "allowed_inputs": sorted(allowed)},
             )
@@ -2085,7 +2126,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 target.repository_id,
                 target.logical_path,
                 self._gateway_context(context),
-                operation_id="op.read_file",
+                operation_id="op.workspace_read",
             )
             result_path = Path(before_result.physical_path)
             current_stat = result_path.stat() if result_path.exists() and result_path.is_file() else None
@@ -2224,8 +2265,8 @@ class NativeBatchEditFileTool(_NativeToolBase):
             return _batch_edit_guard_failure(
                 code="batch_edit_requires_current_read",
                 path=normalized_path,
-                message="Batch edit rejected: existing files must be read in the current file evidence scope before batch_edit_file can replace old_text spans.",
-                repair_instruction="Call read_file on the target ranges with read_intent=\"edit_target\", then retry batch_edit_file.",
+                message="Batch edit rejected: existing files must be read in the current file evidence scope before workspace_edit(action=batch_edit) can replace old_text spans.",
+                repair_instruction="Call workspace_read(action=file) on the target ranges with read_intent=\"edit_target\", then retry workspace_edit(action=batch_edit).",
             ), []
         status = str(getattr(file_state, "status", "") or "").strip().lower()
         if status in {"stale", "missing", "unread"}:
@@ -2233,7 +2274,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 code="batch_edit_read_evidence_stale",
                 path=normalized_path,
                 message="Batch edit rejected: recorded read evidence for this file is stale or unavailable.",
-                repair_instruction="Read the current target ranges again with read_intent=\"edit_target\", then retry batch_edit_file.",
+                repair_instruction="Read the current target ranges again with read_intent=\"edit_target\", then retry workspace_edit(action=batch_edit).",
             ), []
         if not _file_state_matches_current_file(file_state=file_state, content_sha256=content_sha256, mtime_ns=mtime_ns):
             return _batch_edit_guard_failure(
@@ -2252,7 +2293,7 @@ class NativeBatchEditFileTool(_NativeToolBase):
                 code="batch_edit_requires_current_read",
                 path=normalized_path,
                 message="Batch edit rejected: no active exact read window exists for this file.",
-                repair_instruction="Call read_file with read_intent=\"edit_target\" for the target spans, then retry batch_edit_file.",
+                repair_instruction="Call workspace_read(action=file) with read_intent=\"edit_target\" for the target spans, then retry workspace_edit(action=batch_edit).",
             ), []
         rejected_edits: list[dict[str, Any]] = []
         for index, edit in enumerate(list(edits or [])):
@@ -2767,7 +2808,7 @@ class NativeSearchFilesTool(_NativeToolBase):
         matched = tuple(sorted(dict.fromkeys([*external_matches, *workspace_matches]))[:limit])
         text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, search_meta)
         if search_meta.get("truncated"):
-            text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。"
+            text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 workspace_search(action=glob) 精确匹配。"
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -2810,10 +2851,10 @@ class NativeSearchTextTool(_NativeToolBase):
         unexpected = sorted(str(key) for key in payload if str(key) not in allowed)
         if unexpected:
             repair_parts = [
-                "search_text accepts only query, paths, roots, glob, output_mode, context, case_sensitive, head_limit, offset, and max_results.",
+                "workspace_search(action=text) accepts only query, paths, roots, glob, output_mode, context, case_sensitive, head_limit, offset, and max_results.",
             ]
             if "path" in unexpected:
-                repair_parts.append('For a known file, use paths=["..."]; to read a known file, call read_file instead.')
+                repair_parts.append('For a known file, use paths=["..."]; to read a known file, call workspace_read(action=file) instead.')
             if "pattern" in unexpected:
                 repair_parts.append("Use query for the content text and glob for file path filters; do not pass pattern.")
             repair_parts.append("Remove unsupported argument(s): " + ", ".join(unexpected) + ".")
@@ -3230,6 +3271,227 @@ class NativePathExistsTool(_NativeToolBase):
             observed_paths=(rel,),
             execution_receipt=context.execution_receipt,
         )
+
+
+def _normalized_tool_action(args: dict[str, Any], *, allowed: dict[str, str], default: str = "") -> str:
+    action = str(args.get("action") or default or "").strip()
+    if action in allowed:
+        return allowed[action]
+    return ""
+
+
+def _invalid_action_result(tool_name: str, args: dict[str, Any], allowed_actions: list[str]) -> ToolValidationResult:
+    return ToolValidationResult(
+        allowed=False,
+        reason="invalid_tool_action",
+        repair_instruction=f"{tool_name} requires action to be one of: {', '.join(allowed_actions)}.",
+        normalized_args=dict(args or {}),
+        diagnostics={"allowed_actions": allowed_actions},
+    )
+
+
+def _child_definition(
+    definition: CapabilityToolDefinition,
+    *,
+    operation_id: str,
+    required_inputs: tuple[str, ...] = (),
+    optional_inputs: tuple[str, ...] = (),
+) -> CapabilityToolDefinition:
+    return replace(
+        definition,
+        operation_id=operation_id,
+        contract=ToolExecutionContract(required_inputs=list(required_inputs), optional_inputs=list(optional_inputs)),
+    )
+
+
+def _action_operation_id(definition: CapabilityToolDefinition, action: str, fallback: str) -> str:
+    mapping = dict(getattr(definition, "action_operation_ids", {}) or {})
+    return str(mapping.get(action) or fallback or getattr(definition, "operation_id", "") or "").strip()
+
+
+def _workspace_search_child_tool(definition: CapabilityToolDefinition, action: str) -> _NativeToolBase:
+    if action == "path":
+        child_definition = _child_definition(
+            definition,
+            operation_id=_action_operation_id(definition, "path", "op.workspace_search"),
+            required_inputs=("query",),
+            optional_inputs=("roots", "max_results"),
+        )
+        return NativeSearchFilesTool(child_definition)
+    if action == "text":
+        child_definition = _child_definition(
+            definition,
+            operation_id=_action_operation_id(definition, "text", "op.workspace_search"),
+            required_inputs=("query",),
+            optional_inputs=("roots", "paths", "glob", "max_results", "output_mode", "context", "case_sensitive", "head_limit", "offset"),
+        )
+        return NativeSearchTextTool(child_definition)
+    if action == "glob":
+        child_definition = _child_definition(
+            definition,
+            operation_id=_action_operation_id(definition, "glob", "op.workspace_search"),
+            required_inputs=("pattern",),
+            optional_inputs=("max_results",),
+        )
+        return NativeGlobPathsTool(child_definition)
+    raise ValueError(f"unsupported workspace_search action: {action}")
+
+
+def _workspace_search_child_args(action: str, args: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(args or {})
+    payload.pop("action", None)
+    if action == "glob":
+        pattern = str(payload.get("pattern") or payload.get("glob") or "").strip()
+        return {"pattern": pattern, "max_results": payload.get("max_results", 80)}
+    if action == "path":
+        return {
+            "query": payload.get("query", ""),
+            "roots": list(payload.get("roots") or []),
+            "max_results": payload.get("max_results", 20),
+        }
+    if action == "symbol":
+        return {
+            "query": payload.get("query", ""),
+            "roots": list(payload.get("roots") or []),
+            "max_results": payload.get("max_results", 40),
+        }
+    allowed = {"query", "roots", "paths", "glob", "max_results", "output_mode", "context", "case_sensitive", "head_limit", "offset"}
+    return {key: value for key, value in payload.items() if key in allowed}
+
+
+def _workspace_read_child_tool(definition: CapabilityToolDefinition, action: str) -> _NativeToolBase:
+    if action == "file":
+        return NativeReadFileTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "file", "op.workspace_read"),
+                required_inputs=("path",),
+                optional_inputs=("start_line", "line_count", "read_intent"),
+            )
+        )
+    if action == "dir":
+        return NativeListDirTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "dir", "op.workspace_read"),
+                optional_inputs=("path", "max_entries"),
+            )
+        )
+    if action == "stat":
+        return NativeStatPathTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "stat", "op.workspace_read"),
+                required_inputs=("path",),
+            )
+        )
+    if action == "exists":
+        return NativePathExistsTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "exists", "op.workspace_read"),
+                required_inputs=("path",),
+            )
+        )
+    if action == "result":
+        return NativeReadPersistedToolResultTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "result", "op.workspace_read"),
+                optional_inputs=("replacement_id", "path", "task_run_id", "start_byte", "max_bytes"),
+            )
+        )
+    raise ValueError(f"unsupported workspace_read action: {action}")
+
+
+def _workspace_read_child_args(action: str, args: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(args or {})
+    payload.pop("action", None)
+    if action == "file":
+        return {key: payload.get(key) for key in ("path", "start_line", "line_count", "read_intent") if key in payload}
+    if action == "dir":
+        return {key: payload.get(key) for key in ("path", "max_entries") if key in payload}
+    if action in {"stat", "exists"}:
+        return {"path": payload.get("path", "")}
+    if action == "result":
+        return {
+            key: payload.get(key)
+            for key in ("replacement_id", "path", "task_run_id", "start_byte", "max_bytes")
+            if key in payload
+        }
+    return payload
+
+
+def _workspace_edit_child_tool(definition: CapabilityToolDefinition, action: str) -> _NativeToolBase:
+    if action == "write":
+        return NativeWriteFileTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "write", "op.workspace_write"),
+                required_inputs=("path", "content"),
+                optional_inputs=("allow_overwrite", "expected_previous_sha256"),
+            )
+        )
+    if action == "edit":
+        return NativeEditFileTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "edit", "op.workspace_edit"),
+                required_inputs=("path", "old_text", "new_text"),
+            )
+        )
+    if action == "batch_edit":
+        return NativeBatchEditFileTool(
+            _child_definition(
+                definition,
+                operation_id=_action_operation_id(definition, "batch_edit", "op.workspace_edit"),
+                required_inputs=("path", "edits"),
+                optional_inputs=("base_sha256", "base_mtime_ns"),
+            )
+        )
+    raise ValueError(f"unsupported workspace_edit action: {action}")
+
+
+def _workspace_edit_child_args(action: str, args: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(args or {})
+    payload.pop("action", None)
+    if action == "write":
+        return {
+            key: payload.get(key)
+            for key in ("path", "content", "allow_overwrite", "expected_previous_sha256")
+            if key in payload
+        }
+    if action == "edit":
+        return {key: payload.get(key) for key in ("path", "old_text", "new_text") if key in payload}
+    if action == "batch_edit":
+        return {
+            key: payload.get(key)
+            for key in ("path", "edits", "base_sha256", "base_mtime_ns")
+            if key in payload
+        }
+    return payload
+
+
+def _local_execution_child_tool(definition: CapabilityToolDefinition) -> _NativeToolBase:
+    return NativeTerminalTool(
+        _child_definition(
+            definition,
+            operation_id=_action_operation_id(definition, "command", "op.shell"),
+            required_inputs=("command",),
+            optional_inputs=("verification_intent", "acceptance", "acceptance_checks"),
+        )
+    )
+
+
+def _memory_child_tool(definition: CapabilityToolDefinition) -> _NativeToolBase:
+    return NativeMemorySearchTool(
+        _child_definition(
+            definition,
+            operation_id=_action_operation_id(definition, "search", "op.memory_read"),
+            required_inputs=("query",),
+            optional_inputs=("task_run_id", "project_id", "repositories", "collections", "limit"),
+        )
+    )
 
 
 def _read_file_structured_payload(
@@ -4302,7 +4564,7 @@ def _format_path_search_no_results(query: str, boundary: dict[str, Any]) -> str:
     ]
     if boundary.get("omitted_workspace_root"):
         lines.append(
-            "注意：本次使用默认搜索根，未搜索项目根目录 '.'。如果你已经知道文件路径，请直接使用 read_file/path_exists；如果要搜索根目录文件，请传 roots=[\".\"]."
+            "注意：本次使用默认搜索根，未搜索项目根目录 '.'。如果你已经知道文件路径，请直接使用 workspace_read(action=file/exists)；如果要搜索根目录文件，请传 roots=[\".\"]."
         )
     return "\n".join(lines)
 

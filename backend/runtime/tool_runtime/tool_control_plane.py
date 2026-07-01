@@ -28,10 +28,9 @@ from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tool_runtime.supervision import ToolSupervisor
 
 _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
-    "op.write_file",
-    "op.edit_file",
+    "op.workspace_write",
+    "op.workspace_edit",
     "op.shell",
-    "op.python_repl",
     "op.browser_control",
     "op.image_generate",
 }
@@ -44,15 +43,15 @@ _EXPLICIT_HUMAN_APPROVAL_POLICIES = {
 }
 _DENY_DESTRUCTIVE_APPROVAL_POLICIES = {"deny_destructive"}
 _FILE_WRITE_OPERATION_ACTIONS = {
-    "op.write_file": "write",
-    "op.edit_file": "edit",
+    "op.workspace_write": "write",
+    "op.workspace_edit": "edit",
 }
-_SUBAGENT_OPERATION_BY_TOOL_NAME = {
-    "spawn_subagent": "op.subagent_spawn",
-    "send_subagent_message": "op.subagent_message",
-    "wait_subagent": "op.subagent_wait",
-    "list_subagents": "op.subagent_list",
-    "close_subagent": "op.subagent_close",
+_SUBAGENT_OPERATION_BY_ACTION = {
+    "spawn": "op.subagent_spawn",
+    "send": "op.subagent_message",
+    "wait": "op.subagent_wait",
+    "list": "op.subagent_list",
+    "close": "op.subagent_close",
 }
 
 
@@ -103,7 +102,7 @@ _DEFAULT_TOOL_HANDLER_REGISTRY = ToolDispatchHandlerRegistry(
         ToolDispatchHandler(
             handler_id="subagent_control",
             caller_kinds=("task_run", "agent_turn"),
-            tool_names=tuple(sorted(_SUBAGENT_OPERATION_BY_TOOL_NAME)),
+            tool_names=("subagent",),
             operation_prefixes=("op.subagent_",),
         ),
         ToolDispatchHandler(
@@ -700,9 +699,12 @@ def _action_permit_denial(request: ToolInvocationRequest) -> str:
 
 
 def _request_operation_id(request: ToolInvocationRequest) -> str:
+    definition = _definition(request)
     return _canonical_operation_id(
         tool_name=str(request.tool_name or "").strip(),
         operation_id=str(request.operation_id or "").strip(),
+        tool_args=dict(request.tool_args or {}),
+        definition=definition,
     )
 
 
@@ -1021,8 +1023,8 @@ def _is_command_tool(tool_name: str) -> bool:
         "bash",
         "cmd",
         "command",
+        "local_execution",
         "powershell",
-        "python_repl",
         "shell",
         "terminal",
     }
@@ -1152,11 +1154,32 @@ def _tool_lifecycle_unavailable_observation(
     )
 
 
-def _canonical_operation_id(*, tool_name: str, operation_id: str) -> str:
-    reserved_operation_id = _SUBAGENT_OPERATION_BY_TOOL_NAME.get(str(tool_name or "").strip())
-    if reserved_operation_id:
-        return reserved_operation_id
+def _canonical_operation_id(
+    *,
+    tool_name: str,
+    operation_id: str,
+    tool_args: dict[str, Any] | None = None,
+    definition: Any | None = None,
+) -> str:
+    normalized_tool = str(tool_name or "").strip()
+    normalized_args = dict(tool_args or {})
+    if normalized_tool == "subagent":
+        reserved_operation_id = _SUBAGENT_OPERATION_BY_ACTION.get(str(normalized_args.get("action") or "").strip())
+        if reserved_operation_id:
+            return reserved_operation_id
+    action_operation_id = _definition_action_operation_id(definition, normalized_args)
+    if action_operation_id:
+        return action_operation_id
     return str(operation_id or "").strip()
+
+
+def _definition_action_operation_id(definition: Any | None, tool_args: dict[str, Any]) -> str:
+    if definition is None:
+        return ""
+    action = str(dict(tool_args or {}).get("action") or "").strip()
+    if not action:
+        return ""
+    return str(dict(getattr(definition, "action_operation_ids", {}) or {}).get(action) or "").strip()
 
 
 def _observation(
@@ -1351,6 +1374,8 @@ def _execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any) -> t
     operation_id = _canonical_operation_id(
         tool_name=request.tool_name,
         operation_id=str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name),
+        tool_args=dict(request.tool_args or {}),
+        definition=definition,
     )
     directive = RuntimeDirective(
         directive_id=str(_requested_constraints(request).get("directive_ref") or f"runtime-directive:{request.caller_ref}:tool:{request.action_request_ref or request.tool_call_id}"),
@@ -1439,6 +1464,8 @@ def _agent_turn_execution_contracts(request: ToolInvocationRequest, *, tool_plan
     operation_id = _canonical_operation_id(
         tool_name=request.tool_name,
         operation_id=str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name),
+        tool_args=dict(request.tool_args or {}),
+        definition=definition,
     )
     directive = _ToolPermissionDirective(
         directive_id=str(_requested_constraints(request).get("directive_ref") or f"tool-permit:{request.caller_ref}:{request.tool_call_id}"),

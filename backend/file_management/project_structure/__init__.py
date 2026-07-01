@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 from .change_models import GitChangeSetRecord, NetworkMaintenanceProjection
+from .control_models import (
+    ProjectNetworkNavigationProjection,
+    ProjectNetworkNavigationSessionRecord,
+    ProjectNetworkOpenedRefRecord,
+    ProjectNetworkPathCandidateRecord,
+    ProjectNetworkPathDecisionRecord,
+)
+from .control_service import ProjectNetworkControlService
 from .maintenance_service import ProjectStructureMaintenanceService
 from .repository import ProjectStructureRepository, content_hash, stable_project_structure_id
 from .semantic_models import (
@@ -28,6 +36,12 @@ __all__ = [
     "GitChangeSetRecord",
     "NetworkMaintenanceProjection",
     "NetworkMaintenanceRunRecord",
+    "ProjectNetworkControlService",
+    "ProjectNetworkNavigationProjection",
+    "ProjectNetworkNavigationSessionRecord",
+    "ProjectNetworkOpenedRefRecord",
+    "ProjectNetworkPathCandidateRecord",
+    "ProjectNetworkPathDecisionRecord",
     "ProjectStructureIndexService",
     "ProjectStructureMaintenanceService",
     "ProjectStructureRepository",

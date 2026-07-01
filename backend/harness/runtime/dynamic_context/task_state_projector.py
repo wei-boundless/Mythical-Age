@@ -370,7 +370,7 @@ def _replay_entry_projection(entry_kind: str, item: dict[str, Any]) -> dict[str,
             "rehydration_plan": {}
             if _replay_content_range(dict(item.get("content_range") or {}))
             else _replay_rehydration_plan(dict(item.get("rehydration_plan") or {})),
-            "rehydration_action": "read_file_range_if_exact_needed"
+            "rehydration_action": "workspace_read_file_range_if_exact_needed"
             if _replay_content_range(dict(item.get("content_range") or {}))
             else "",
             "current_runtime_fact": item.get("current_runtime_fact") if isinstance(item.get("current_runtime_fact"), bool) else None,
@@ -896,14 +896,9 @@ def _material_progress_projection(latest_results: list[dict[str, Any]]) -> dict[
 
 def _is_material_progress_tool(tool_name: str) -> bool:
     return tool_name in {
-        "write_file",
-        "edit_file",
-        "batch_edit_file",
+        "workspace_edit",
         "apply_patch",
-        "terminal",
-        "shell_command",
-        "run_command",
-        "execute_command",
+        "local_execution",
         "save_file",
         "create_file",
         "delete_file",
@@ -913,17 +908,12 @@ def _is_material_progress_tool(tool_name: str) -> bool:
 
 def _is_context_only_tool(tool_name: str) -> bool:
     return tool_name in {
-        "read_file",
+        "workspace_read",
         "read_resource_state",
-        "read_persisted_tool_result",
-        "list_dir",
-        "path_exists",
-        "glob_paths",
-        "search_text",
-        "search_files",
+        "workspace_search",
+        "code_structure",
         "codebase_search",
-        "stat_path",
-        "agent_todo",
+        "agent_state",
     }
 
 
@@ -1047,8 +1037,8 @@ def _current_todo_result_projection(current_todo_plan: dict[str, Any]) -> dict[s
     plan_id = str(plan.get("plan_id") or "").strip()
     return drop_empty(
         {
-            "observation_ref": f"agent_todo_state:{plan_id}" if plan_id else "agent_todo_state:current",
-            "tool_name": "agent_todo",
+            "observation_ref": f"agent_state:{plan_id}" if plan_id else "agent_state:current",
+            "tool_name": "agent_state",
             "status": "ok",
             "visibility": "active",
             "summary": "Current task todo plan.",
@@ -2114,7 +2104,7 @@ def _read_resource_state_projection(
                     "state_code": "recommended_read_window_available",
                     "collection_feedback": {
                         "status": "candidate_window_available",
-                        "meaning": "search located a likely range; exact source still belongs to read_file",
+                        "meaning": "search located a likely range; exact source still belongs to workspace_read(action=file)",
                     },
                     "action_conditions": ["read candidate window only if exact current source around the match is needed"],
                     "authority": "harness.runtime.dynamic_context.read_resource_state",
@@ -2164,7 +2154,7 @@ def _read_resource_state_projection(
                 "status": "current_window_reusable",
                 "meaning": "reuse current exact windows when the target is covered",
             },
-            "action_conditions": ["read_file only when the target is outside coverage, the file changed, or broader context is explicitly needed"],
+            "action_conditions": ["workspace_read(action=file) only when the target is outside coverage, the file changed, or broader context is explicitly needed"],
             "candidate_read_windows": recommended_windows[-6:],
             "authority": "harness.runtime.dynamic_context.read_resource_state",
         }
@@ -2317,7 +2307,7 @@ def _positive_paths(*groups: Any) -> set[str]:
             tool_name = _tool_name(str(item.get("tool_name") or item.get("source") or ""))
             if (
                 status == "ok"
-                or tool_name in {"write_file", "edit_file", "batch_edit_file", "read_file", "search_text", "stat_path"}
+                or tool_name in {"workspace_edit", "workspace_read", "workspace_search", "code_structure"}
                 or item.get("kind")
                 or item.get("artifact_ref")
             ):
@@ -2349,7 +2339,7 @@ def _safe_float(value: Any) -> float:
 
 
 def _is_missing_path_probe(item: dict[str, Any]) -> bool:
-    if _tool_name(str(item.get("tool_name") or item.get("source") or "")) != "path_exists":
+    if _tool_name(str(item.get("tool_name") or item.get("source") or "")) != "workspace_read":
         return False
     summary = str(item.get("summary") or "").strip().lower()
     if summary in {"false", "0", "no", "not found", "missing"}:

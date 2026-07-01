@@ -22,29 +22,27 @@ from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, build_base_en
 from .personality_prompt_controller import select_personality_prompt
 
 
-_SUBAGENT_TOOL_NAMES = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
+_SUBAGENT_TOOL_NAMES = {"subagent"}
 
 _DEFAULT_TOOL_GUIDANCE_PROMPT_DEFAULTS: dict[str, str] = {
-    "tool.guidance.read_file": "tool.guidance.read_file",
-    "tool.guidance.read_persisted_tool_result": "tool.guidance.read_persisted_tool_result",
-    "tool.guidance.edit_file": "tool.guidance.edit_file",
-    "tool.guidance.batch_edit_file": "tool.guidance.batch_edit_file",
-    "tool.guidance.write_file": "tool.guidance.write_file",
-    "tool.guidance.terminal_powershell": "tool.guidance.terminal_powershell",
+    "tool.guidance.workspace_read": "tool.guidance.workspace_read",
+    "tool.guidance.workspace_result_read": "tool.guidance.workspace_result_read",
+    "tool.guidance.workspace_edit_replace": "tool.guidance.workspace_edit_replace",
+    "tool.guidance.workspace_edit_batch": "tool.guidance.workspace_edit_batch",
+    "tool.guidance.workspace_write": "tool.guidance.workspace_write",
+    "tool.guidance.local_execution": "tool.guidance.local_execution",
     "tool.guidance.git_read": "tool.guidance.git_read",
     "tool.guidance.git_write": "tool.guidance.git_write",
-    "tool.guidance.todo": "tool.guidance.todo",
-    "tool.guidance.local_search": "tool.guidance.local_search",
+    "tool.guidance.agent_state": "tool.guidance.agent_state",
+    "tool.guidance.workspace_search": "tool.guidance.workspace_search",
+    "tool.guidance.code_structure": "tool.guidance.code_structure",
+    "tool.guidance.project_network": "tool.guidance.project_network",
+    "tool.guidance.memory": "tool.guidance.memory",
+    "tool.guidance.image": "tool.guidance.image",
+    "tool.guidance.office_document": "tool.guidance.office_document",
     "tool.guidance.subagent": "tool.guidance.subagent",
     "tool.guidance.browser": "tool.guidance.browser",
-    "tool.guidance.web_fetch": "tool.guidance.web_fetch",
-    "tool.guidance.attachment_extract_text": "tool.guidance.attachment_extract_text",
+    "tool.guidance.web": "tool.guidance.web",
 }
 
 _BASE_RUNTIME_POLICY: dict[str, Any] = {
@@ -147,37 +145,37 @@ _TOOL_CAPABILITY_GROUP_BY_OPERATION: dict[str, str] = {
     "op.web_search": "web_research",
     "op.fetch_url": "web_research",
     "op.browser_control": "browser_use",
-    "op.list_dir": "file_work",
-    "op.stat_path": "file_work",
-    "op.path_exists": "file_work",
-    "op.glob_paths": "file_work",
-    "op.search_files": "file_work",
-    "op.search_text": "file_work",
-    "op.read_file": "file_work",
-    "op.read_persisted_tool_result": "file_work",
-    "op.python_code_outline": "file_work",
-    "op.python_parse_check": "file_work",
-    "op.python_symbol_search": "file_work",
-    "op.text_metric": "file_work",
-    "op.write_file": "artifact_generation",
-    "op.edit_file": "artifact_generation",
+    "op.workspace_read": "file_work",
+    "op.workspace_read": "file_work",
+    "op.workspace_read": "file_work",
+    "op.workspace_search": "file_work",
+    "op.workspace_search": "file_work",
+    "op.workspace_search": "file_work",
+    "op.workspace_read": "file_work",
+    "op.workspace_read": "file_work",
+    "op.code_structure_read": "file_work",
+    "op.code_structure_read": "file_work",
+    "op.code_structure_read": "file_work",
+    "op.workspace_read": "file_work",
+    "op.workspace_write": "artifact_generation",
+    "op.workspace_edit": "artifact_generation",
     "op.office_document": "artifact_generation",
     "op.image_generate": "artifact_generation",
     "op.mcp_image_ocr": "attachment_processing",
     "op.shell": "shell_execution",
-    "op.python_repl": "shell_execution",
+    "op.shell": "shell_execution",
     "op.memory_read": "memory",
-    "op.git_status": "source_control",
-    "op.git_diff": "source_control",
-    "op.git_log": "source_control",
-    "op.git_show": "source_control",
-    "op.git_branch_list": "source_control",
-    "op.git_branch_create": "source_control",
-    "op.git_stage": "source_control",
-    "op.git_unstage": "source_control",
-    "op.git_commit": "source_control",
-    "op.git_restore": "source_control",
-    "op.git_push": "source_control",
+    "op.git_read": "source_control",
+    "op.git_read": "source_control",
+    "op.git_read": "source_control",
+    "op.git_read": "source_control",
+    "op.git_read": "source_control",
+    "op.git_write": "source_control",
+    "op.git_write": "source_control",
+    "op.git_write": "source_control",
+    "op.git_write": "source_control",
+    "op.git_write": "source_control",
+    "op.git_remote": "source_control",
 }
 
 _CONTEXT_CAPABILITY_GROUPS = (
@@ -218,7 +216,7 @@ _SYSTEM_GROUP_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
 _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     "task_planning": {
         "capability_groups": ("action_contracts", "task_state_context", "tool_context", "repair_feedback"),
-        "prompt_resources": ("tool.guidance.todo", "runtime.rule.plan_mode_boundary"),
+        "prompt_resources": ("tool.guidance.agent_state", "runtime.rule.plan_mode_boundary"),
         "context_segments": (
             "task_goal_context",
             "task_plan_context",
@@ -232,9 +230,9 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
         "prompt_resources": (
             "runtime.rule.file_management.generic",
-            "tool.guidance.read_file",
-            "tool.guidance.read_persisted_tool_result",
-            "tool.guidance.local_search",
+            "tool.guidance.workspace_read",
+            "tool.guidance.workspace_result_read",
+            "tool.guidance.workspace_search",
         ),
         "context_segments": (
             "tool_index_stable",
@@ -247,13 +245,17 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "artifact_generation": {
         "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
-        "prompt_resources": ("tool.guidance.edit_file", "tool.guidance.batch_edit_file", "tool.guidance.write_file"),
+        "prompt_resources": (
+            "tool.guidance.workspace_edit_replace",
+            "tool.guidance.workspace_edit_batch",
+            "tool.guidance.workspace_write",
+        ),
         "context_segments": ("tool_index_stable", "read_evidence_context", "tool_transcript_delta"),
         "feedback_channels": ("artifact_write_result", "artifact_write_error", "edit_recovery"),
     },
     "shell_execution": {
         "capability_groups": ("tool_context", "action_contracts", "repair_feedback"),
-        "prompt_resources": ("tool.guidance.terminal_powershell",),
+        "prompt_resources": ("tool.guidance.local_execution",),
         "context_segments": ("tool_index_stable", "single_agent_turn_tool_call", "tool_transcript_delta"),
         "feedback_channels": ("shell_result", "shell_error", "shell_recovery"),
     },
@@ -265,7 +267,7 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "web_research": {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
-        "prompt_resources": ("tool.guidance.web_fetch",),
+        "prompt_resources": ("tool.guidance.web",),
         "context_segments": ("tool_index_stable", "read_evidence_context"),
         "feedback_channels": ("web_fetch_result", "web_fetch_error", "source_recovery"),
     },
@@ -277,7 +279,7 @@ _TOOL_CAPABILITY_SYSTEM_GROUPS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "attachment_processing": {
         "capability_groups": ("tool_context", "evidence_context", "repair_feedback"),
-        "prompt_resources": ("tool.guidance.attachment_extract_text",),
+        "prompt_resources": (),
         "context_segments": ("tool_index_stable", "attachment_context_index", "read_evidence_context"),
         "feedback_channels": ("attachment_extract_result", "attachment_extract_error", "attachment_recovery"),
     },
@@ -1026,7 +1028,7 @@ def _build_system_wiring_manifest(
         may_call_tools
         and any(
             str(tool.get("operation_id") or "").strip()
-            in {"op.read_file", "op.search_files", "op.search_text", "op.read_persisted_tool_result"}
+            in {"op.workspace_read", "op.workspace_search", "op.workspace_search", "op.workspace_read"}
             for tool in tuple(available_tools or ())
         )
     )
@@ -1093,7 +1095,13 @@ def _build_system_wiring_manifest(
                 "tool_count": len(visible_tool_names),
                 "filtered_tool_count": len(filtered_tools),
             },
-            prompt_resources=("tool.guidance.read_file", "tool.guidance.read_persisted_tool_result", "tool.guidance.edit_file", "tool.guidance.write_file", "tool.guidance.terminal_powershell"),
+            prompt_resources=(
+                "tool.guidance.workspace_read",
+                "tool.guidance.workspace_result_read",
+                "tool.guidance.workspace_edit_replace",
+                "tool.guidance.workspace_write",
+                "tool.guidance.local_execution",
+            ),
             context_segments=("tool_index_stable", "tool_transcript_delta"),
             feedback_channels=("tool_result", "tool_error", "tool_permission_denial"),
         ),
@@ -1158,7 +1166,10 @@ def _build_system_wiring_manifest(
             enabled=evidence_read_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["evidence_read"],
             config={"exact_read_evidence": evidence_read_enabled},
-            prompt_resources=("tool.guidance.read_file", *_environment_guidance_prompt_refs(prompt_mount_payload, "verification_gate")),
+            prompt_resources=(
+                "tool.guidance.workspace_read",
+                *_environment_guidance_prompt_refs(prompt_mount_payload, "verification_gate"),
+            ),
             context_segments=(
                 "read_evidence_context",
                 "evidence_index_cursor",
@@ -1903,6 +1914,7 @@ def _tool_view(*, tool_name: str, definition: Any, tool_instance: Any | None = N
     payload = {
         "tool_name": tool_name,
         "operation_id": str(getattr(definition, "operation_id", "") or ""),
+        "action_operation_ids": dict(getattr(definition, "action_operation_ids", {}) or {}),
         "display_name": str(getattr(definition, "display_name", "") or tool_name),
         "required_inputs": list(getattr(contract, "required_inputs", []) or []),
         "optional_inputs": list(getattr(contract, "optional_inputs", []) or []),
@@ -2064,10 +2076,10 @@ def _operation_filtered_tools(
     }
     filtered: list[dict[str, str]] = []
     for tool_name, definition in definitions_by_name.items():
-        operation_id = str(getattr(definition, "operation_id", "") or "").strip()
-        reason = denied_reasons.get(operation_id)
-        if reason:
-            filtered.append({"tool_name": str(tool_name), "operation_id": operation_id, "reason": reason})
+        for operation_id in _definition_operation_ids(definition):
+            reason = denied_reasons.get(operation_id)
+            if reason:
+                filtered.append({"tool_name": str(tool_name), "operation_id": operation_id, "reason": reason})
     return tuple(filtered)
 
 
@@ -2084,6 +2096,25 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
         text = value.strip()
         return (text,) if text else ()
     return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
+
+
+def _definition_operation_ids(definition: Any) -> tuple[str, ...]:
+    operation_ids: list[str] = []
+    primary = str(getattr(definition, "operation_id", "") or "").strip()
+    if primary:
+        operation_ids.append(primary)
+    for operation_id in dict(getattr(definition, "action_operation_ids", {}) or {}).values():
+        value = str(operation_id or "").strip()
+        if value:
+            operation_ids.append(value)
+    result: list[str] = []
+    seen: set[str] = set()
+    for operation_id in operation_ids:
+        if operation_id in seen:
+            continue
+        seen.add(operation_id)
+        result.append(operation_id)
+    return tuple(result)
 
 
 def _first_string(*values: Any) -> str:

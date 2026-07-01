@@ -46,23 +46,19 @@ metadata:
     - no-patchwork
   preferred_route: tool
   requires_operations:
-    - op.search_files
-    - op.search_text
-    - op.read_file
+    - op.workspace_search
+    - op.workspace_read
     - op.shell
     - op.browser_control
-    - op.git_status
-    - op.git_diff
-    - op.edit_file
+    - op.git_read
+    - op.workspace_edit
   requires_capabilities:
-    - tool:search_files
-    - tool:search_text
-    - tool:read_file
-    - tool:terminal
-    - browser_control
-    - tool:git_status
-    - tool:git_diff
-    - tool:edit_file
+    - tool:workspace_search
+    - tool:workspace_read
+    - tool:local_execution
+    - tool:browser
+    - tool:git
+    - tool:workspace_edit
   forbidden_routes: []
   not_for:
     - 纯概念解释、无需查看项目、无需复现、无需运行时证据的问题。

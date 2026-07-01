@@ -22,13 +22,12 @@ metadata:
     - validation
   preferred_route: capability_authoring
   requires_operations:
-    - op.read_file
-    - op.write_file
-    - op.edit_file
+    - op.workspace_read
+    - op.workspace_write
+    - op.workspace_edit
   requires_capabilities:
-    - tool:read_file
-    - tool:write_file
-    - tool:edit_file
+    - tool:workspace_read
+    - tool:workspace_edit
   forbidden_routes: []
   routing_hints:
     - 创建 skill
@@ -38,7 +37,7 @@ metadata:
     - 能力注册
     - SKILL.md
     - prompt view
-    - 工具说明
+    - 工具指引迁移
   examples:
     - 帮我创建一个用于写小说章节审核的 skill
     - 把这个技能的使用条件写清楚
@@ -52,8 +51,8 @@ prompt:
   title: Skill 创建顾问
   capability: 用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。
   use_when: 当用户要新增、改写、审查或拆分 Skill 时使用；重点处理能力边界、触发条件、依赖 operation、正文是否面向 Agent 执行、以及输出协议是否稳定。
-  return_protocol: 返回 Skill 草案或审查意见时，分清 metadata、prompt/body、requires_operations、requires_capabilities、适用场景、不适用场景、验证缺口；如果能力过宽，直接给出拆分建议。
-  output_rule: 先给可执行结论，再给需要修改的具体字段和正文片段；不要把 Skill 写成开发说明，不要编造不存在的工具或权限。
+  return_protocol: 返回 Skill 草案或审查意见时，分清 metadata、prompt/body、requires_operations、requires_capabilities、适用场景、不适用场景、验证缺口；如果能力过宽，直接给出拆分建议；如果只是工具参数、action 选择、重试或证据边界，建议迁入 tool guidance 而不是新增 Skill。
+  output_rule: 先给可执行结论，再给需要修改的具体字段和正文片段；不要把 Skill 写成开发说明或工具手册，不要编造不存在的工具或权限。
 description: 用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。
 ---
 
@@ -86,10 +85,11 @@ description: 用于创建、改写和审查能力系统 Skill，帮助把用户�
 2. 先确定能力边界，再写正文。不要把多个不相干能力塞进一个 Skill。
 3. 触发条件要具体。说明“什么时候用”和“什么时候不要用”。
 4. Prompt 要面向 agent 的角色和任务，不要写成开发说明。
-5. 如果能力依赖工具、MCP 或工作流，要写清楚依赖关系和失败边界。
-6. 不要为了显得完整而编造不存在的工具、数据源或权限。
-7. 要把“怎么把结果组织好”写出来，不只是写“怎么调用工具”。
-8. 对于需要启动子 Agent 的能力，要写清楚主 Agent 的交接目标、子 Agent 的回传格式和主 Agent 的收口方式。
+5. 只教工具怎么调用的内容不应新增 Skill；工具参数、默认值、action 选择、重试策略和证据边界应迁入 tool guidance。
+6. 如果能力依赖工具、MCP 或工作流，要写清楚依赖关系和失败边界。
+7. 不要为了显得完整而编造不存在的工具、数据源或权限。
+8. 要把“怎么把结果组织好”写出来，不只是写“怎么调用工具”。
+9. 对于需要启动子 Agent 的能力，要写清楚主 Agent 的交接目标、子 Agent 的回传格式和主 Agent 的收口方式。
 
 ## 输出结构
 
@@ -161,5 +161,6 @@ description: 一句话说明这个 Skill 能力边界。
 
 - 不要把 Skill 写成“这是 runtime 节点，用于执行某某流程”。
 - 不要把 Skill 写成给开发者看的 API 文档。
+- 不要把 Skill 写成工具参数说明、工具教程或工具 fallback 清单。
 - 不要把工具调用细节暴露成用户回答内容。
 - 不要为测试或展示编造能力系统里不存在的工具。

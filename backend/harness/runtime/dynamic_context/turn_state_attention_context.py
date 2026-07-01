@@ -179,7 +179,7 @@ def _task_todo_context(
                     "event": "todo_cursor_visible",
                     "todo_baseline_ref": baseline_ref,
                     "source_observation_ref": str(todo_source.get("observation_ref") or ""),
-                    "source_tool": str(todo_source.get("tool_name") or "agent_todo") if todo_source else "",
+                    "source_tool": str(todo_source.get("tool_name") or "agent_state") if todo_source else "",
                     "cursor_hash": cursor_hash,
                     "change_model": "todo_contract_baseline_plus_runtime_cursor",
                     "authority": "harness.runtime.dynamic_context.task_todo_delta",
@@ -336,7 +336,7 @@ def _latest_todo_source(task_state: dict[str, Any]) -> dict[str, Any]:
     latest: dict[str, Any] = {}
     for item in dict_tuple(dict(task_state or {}).get("latest_tool_results")):
         tool_name = _tool_name(item.get("tool_name") or item.get("source"))
-        if tool_name != "agent_todo":
+        if tool_name != "agent_state":
             continue
         todo_plan = project_todo_plan(dict(item.get("todo_plan") or {}))
         if not todo_plan:
@@ -455,7 +455,7 @@ def _todo_cursor(todo_plan: dict[str, Any], *, baseline_ref: str, item_refs: dic
             "active_item_ref": (item_refs.get(active_item_id) or _todo_item_ref(baseline_ref=baseline_ref, todo_id=active_item_id)) if active_item_id else "",
             "completion_ready_signal": (
                 {
-                    "reported_by": "agent_todo",
+                    "reported_by": "agent_state",
                     "value": todo_plan.get("completion_ready"),
                     "authority": "progress_signal_not_completion_gate",
                 }

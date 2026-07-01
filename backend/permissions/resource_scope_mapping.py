@@ -7,35 +7,32 @@ from permissions.operations import OperationRegistry
 
 
 _BUILTIN_OPERATION_TO_TOOL = {
-    "op.read_file": "read_file",
-    "op.search_files": "search_files",
-    "op.search_text": "search_text",
-    "op.list_dir": "list_dir",
-    "op.stat_path": "stat_path",
-    "op.path_exists": "path_exists",
-    "op.glob_paths": "glob_paths",
-    "op.python_code_outline": "python_code_outline",
-    "op.python_parse_check": "python_parse_check",
-    "op.python_symbol_search": "python_symbol_search",
-    "op.web_search": "web_search",
-    "op.fetch_url": "fetch_url",
-    "op.git_status": "git_status",
-    "op.git_diff": "git_diff",
-    "op.git_log": "git_log",
-    "op.git_show": "git_show",
-    "op.git_branch_list": "git_branch_list",
-    "op.git_branch_create": "git_branch_create",
-    "op.git_stage": "git_stage",
-    "op.git_unstage": "git_unstage",
-    "op.git_commit": "git_commit",
-    "op.git_restore": "git_restore",
-    "op.git_push": "git_push",
-    "op.write_file": "write_file",
-    "op.edit_file": "edit_file",
+    "op.workspace_search": "workspace_search",
+    "op.workspace_read": "workspace_read",
+    "op.workspace_write": "workspace_edit",
+    "op.workspace_edit": "workspace_edit",
+    "op.code_structure_read": "code_structure",
+    "op.web_search": "web",
+    "op.fetch_url": "web",
+    "op.git_read": "git",
+    "op.git_write": "git",
+    "op.git_remote": "git",
+    "op.project_network_read": "project_network",
+    "op.project_network_build": "project_network",
+    "op.project_network_maintenance": "project_network",
+    "op.project_network_semantic_submit": "project_network",
+    "op.project_network_control": "project_network",
+    "op.subagent_spawn": "subagent",
+    "op.subagent_message": "subagent",
+    "op.subagent_wait": "subagent",
+    "op.subagent_list": "subagent",
+    "op.subagent_close": "subagent",
     "op.office_document": "office_document",
-    "op.shell": "terminal",
-    "op.python_repl": "python_repl",
-    "op.agent_todo": "agent_todo",
+    "op.shell": "local_execution",
+    "op.agent_todo": "agent_state",
+    "op.memory_read": "memory",
+    "op.browser_control": "browser",
+    "op.image_generate": "image",
 }
 
 
@@ -79,7 +76,7 @@ def map_operations_to_resource_scopes(
             server_id = str(descriptor.metadata.get("server_id") or "").strip()
             mcp_routes.append(server_id or descriptor.provider.removeprefix("external_mcp:") or descriptor.operation_id)
             continue
-        if descriptor.operation_type == "agent":
+        if descriptor.operation_type in {"agent", "agent_capability"}:
             tool_name = _BUILTIN_OPERATION_TO_TOOL.get(descriptor.operation_id)
             if tool_name:
                 tool_names.append(tool_name)

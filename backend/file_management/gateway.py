@@ -211,7 +211,7 @@ class FileGateway:
         logical_path: str,
         context: FileGatewayRequestContext,
         *,
-        operation_id: str = "op.read_file",
+        operation_id: str = "op.workspace_read",
     ) -> FileGatewayResult:
         repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
         access_decision = self.check_access(repository_id, "read", approval_fingerprint="")
@@ -245,7 +245,7 @@ class FileGateway:
         content: str,
         context: FileGatewayRequestContext,
         *,
-        operation_id: str = "op.write_file",
+        operation_id: str = "op.workspace_write",
         approval_fingerprint: str = "",
     ) -> FileGatewayResult:
         repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
@@ -274,7 +274,7 @@ class FileGateway:
         new_text: str,
         context: FileGatewayRequestContext,
         *,
-        operation_id: str = "op.edit_file",
+        operation_id: str = "op.workspace_edit",
         approval_fingerprint: str = "",
     ) -> FileGatewayResult:
         repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
@@ -530,6 +530,5 @@ def _safe_root_fragment(value: str) -> Path:
 
 def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
-
 
 

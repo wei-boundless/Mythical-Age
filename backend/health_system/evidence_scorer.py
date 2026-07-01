@@ -5,13 +5,8 @@ from typing import Any
 from .evidence_models import EvidenceScore
 
 
-_SUBAGENT_LIFECYCLE_TOOLS = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
+_SUBAGENT_TOOL_NAME = "subagent"
+_SUBAGENT_LIFECYCLE_ACTIONS = {"spawn", "send", "wait", "list", "close"}
 
 
 def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: int = 0) -> EvidenceScore:
@@ -73,7 +68,7 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
         )
     if event_type == "tool_call_requested":
         tool_name = _tool_name(event)
-        if tool_name in _SUBAGENT_LIFECYCLE_TOOLS:
+        if tool_name == _SUBAGENT_TOOL_NAME and _tool_action(event) in _SUBAGENT_LIFECYCLE_ACTIONS:
             return EvidenceScore(
                 causal_score=0.8,
                 temporal_score=base,
@@ -179,4 +174,10 @@ def _tool_name(event: dict[str, Any]) -> str:
     action_payload = dict(action_request.get("payload") or {})
     return str(action_payload.get("tool_name") or "")
 
+
+def _tool_action(event: dict[str, Any]) -> str:
+    action_request = dict(event.get("payload") or {}).get("action_request") or {}
+    action_payload = dict(action_request.get("payload") or {})
+    tool_args = dict(action_payload.get("tool_args") or action_payload.get("arguments") or {})
+    return str(tool_args.get("action") or action_payload.get("action") or "").strip().lower()
 

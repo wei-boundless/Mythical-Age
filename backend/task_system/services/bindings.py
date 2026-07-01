@@ -31,19 +31,19 @@ class TaskBindingRecord:
 
 def default_task_binding(definition: TaskDefinition) -> TaskBindingRecord:
     denied_operations = (
-        "op.write_file",
-        "op.edit_file",
+        "op.workspace_write",
+        "op.workspace_edit",
         "op.shell",
-        "op.python_repl",
+        "op.shell",
         "op.memory_write_candidate",
     )
     required_operations = definition.default_operation_requirements
     if definition.definition_id == "task.task_execution":
-        denied_operations = ("op.shell", "op.python_repl", "op.memory_write_candidate")
+        denied_operations = ("op.shell", "op.shell", "op.memory_write_candidate")
     if definition.definition_id == "task.inspection_and_correction":
-        denied_operations = ("op.shell", "op.python_repl", "op.memory_write_candidate")
+        denied_operations = ("op.shell", "op.shell", "op.memory_write_candidate")
     if definition.definition_id == "task.information_search":
-        denied_operations = ("op.write_file", "op.edit_file", "op.shell", "op.python_repl")
+        denied_operations = ("op.workspace_write", "op.workspace_edit", "op.shell", "op.shell")
     return TaskBindingRecord(
         binding_id=f"binding:{definition.definition_id}:builtin",
         definition_id=definition.definition_id,

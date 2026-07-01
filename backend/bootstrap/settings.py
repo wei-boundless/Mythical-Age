@@ -528,7 +528,7 @@ class AppSettingsService:
                     "type": "boolean",
                     "value": bool(ocr_payload.get("enabled")),
                     "source": "runtime_override" if "enabled" in ocr_overrides else "env_or_default",
-                    "description": "关闭后 attachment_extract_text 会返回明确的配置关闭错误。",
+                    "description": "关闭后本地图片 OCR 能力会返回明确的配置关闭错误。",
                     "restart_required": False,
                 },
                 {
@@ -570,7 +570,7 @@ class AppSettingsService:
                 },
             ],
             "metadata": {
-                "tool_name": "attachment_extract_text",
+                "capability_name": "image_ocr",
                 "mcp_route": str(ocr_payload.get("mcp_route") or "image_ocr"),
                 "local_mcp_unit": "local_mcp:image_ocr",
                 "authority": "runtime.image_ocr",
@@ -776,7 +776,6 @@ class AppSettingsService:
         for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
             normalized.pop(alias, None)
         return normalized
-
 
 
 

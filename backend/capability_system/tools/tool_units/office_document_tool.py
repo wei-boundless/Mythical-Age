@@ -19,7 +19,7 @@ OFFICE_DOCUMENT_TOOL_GUIDANCE = (
     "PDF create add_page/append_text and page-level edit delete_pages, reorder_pages, split_pages, merge_pdfs. "
     "Inspect first when anchors are unclear. Prefer output_path for edits so source files remain protected. "
     "Set allow_overwrite only when the user explicitly requests replacement. "
-    "Do not use write_file or scripts for Office/PDF binary structure."
+    "Do not use workspace_edit or scripts for Office/PDF binary structure."
 )
 
 

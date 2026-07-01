@@ -70,7 +70,6 @@ def default_local_mcp_units() -> list[LocalMCPUnitRecord]:
             implementation_root="capability_system.capabilities.retrieval",
             supports_long_task=True,
             mcp_refs=["retrieval"],
-            skill_refs=["rag-skill"],
             resource_kinds=["knowledge_collection", "retrieval_hit", "parsed_chunk"],
             normalization_contract={
                 "mcp_output": "evidence_envelope",
@@ -99,7 +98,6 @@ def default_local_mcp_units() -> list[LocalMCPUnitRecord]:
             supports_long_task=True,
             default_input_modes=["text/plain", "application/pdf"],
             mcp_refs=["pdf"],
-            skill_refs=["pdf-analysis"],
             resource_kinds=["pdf_document", "pdf_page", "pdf_section", "canonical_pdf_answer"],
             request_mode_parameter="mode",
             request_default_mode="document",
@@ -129,7 +127,6 @@ def default_local_mcp_units() -> list[LocalMCPUnitRecord]:
             implementation_root="capability_system.capabilities.structured_data",
             default_input_modes=["text/plain", "text/csv", "application/json"],
             mcp_refs=["structured_data"],
-            skill_refs=["structured-data-analysis"],
             resource_kinds=["dataset", "dataset_analysis", "subset_selection"],
             normalization_contract={
                 "mcp_output": "canonical_result_and_evidence",

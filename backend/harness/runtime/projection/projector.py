@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from capability_system.tools.tool_surface import (
+    is_agent_state_tool_name,
+    is_local_execution_tool_name,
+    public_tool_label,
+)
 from .authority import build_public_projection_frame
 from .guards import compact, public_body_text, public_text, record, stable_id, text
 from .items import action_kind_for_tool
@@ -32,7 +37,7 @@ from runtime.output_stream.public_contract import (
 
 
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
-_COMMAND_TOOL_NAMES = {"bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"}
+_COMMAND_TOOL_NAMES = {"local_execution"}
 _TRACE_ONLY_RUNTIME_STEP_SOURCES = {
     "runtime.protocol_repair",
     "system.tool_call_status",
@@ -64,10 +69,10 @@ class ProjectionLifecycleState:
             TOOL_PERMISSION_DECIDED_EVENT,
             TOOL_ITEM_STARTED_EVENT,
             TOOL_ITEM_COMPLETED_EVENT,
-        } and _is_agent_todo_tool(data.get("tool_name")):
+        } and _is_agent_state_tool(data.get("tool_name")):
             if event_type == TOOL_ITEM_COMPLETED_EVENT:
-                return _agent_todo_completed_status_spec(data)
-            return _agent_todo_hidden_trace_spec(data, state="running")
+                return _agent_state_completed_status_spec(data)
+            return _agent_state_hidden_trace_spec(data, state="running")
         if event_type == TOOL_CALL_REQUESTED_EVENT:
             spec = _tool_call_requested_spec(data)
             tool_call_id = text(spec.get("tool_call_id"))
@@ -252,10 +257,10 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         TOOL_PERMISSION_DECIDED_EVENT,
         TOOL_ITEM_STARTED_EVENT,
         TOOL_ITEM_COMPLETED_EVENT,
-    } and _is_agent_todo_tool(data.get("tool_name")):
+    } and _is_agent_state_tool(data.get("tool_name")):
         if event_type == TOOL_ITEM_COMPLETED_EVENT:
-            return _agent_todo_completed_status_spec(data)
-        return _agent_todo_hidden_trace_spec(data, state="running")
+            return _agent_state_completed_status_spec(data)
+        return _agent_state_hidden_trace_spec(data, state="running")
     if event_type == ASSISTANT_TEXT_DELTA_EVENT:
         return _assistant_body_spec(data, op="body_append", state="running", retention="transient")
     if event_type == ASSISTANT_PUBLIC_FEEDBACK_EVENT:
@@ -343,8 +348,8 @@ def _is_trace_only_tool(tool_name: str) -> bool:
     return text(tool_name).lower() in _TRACE_ONLY_TOOL_NAMES
 
 
-def _is_agent_todo_tool(tool_name: Any) -> bool:
-    return text(tool_name).lower() == "agent_todo"
+def _is_agent_state_tool(tool_name: Any) -> bool:
+    return is_agent_state_tool_name(tool_name)
 
 
 def _trace_only_tool_request_spec(
@@ -458,7 +463,7 @@ def _data_with_tool_record_public_fields(
     return merged
 
 
-def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[str, Any]:
+def _agent_state_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[str, Any]:
     return {
         "op": "item_upsert",
         "slot": "trace",
@@ -469,7 +474,7 @@ def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[s
         "channel": STATUS_PUBLIC_CHANNEL,
         "lossless": False,
         "item_id": stable_id(
-            "agent-todo-trace",
+            "agent-state-trace",
             data.get("runtime_event_id"),
             data.get("source_task_event_id"),
             data.get("tool_call_id"),
@@ -481,12 +486,12 @@ def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[s
     }
 
 
-def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "", failed: bool | None = None) -> dict[str, Any]:
+def _agent_state_completed_status_spec(data: dict[str, Any], *, detail: str = "", failed: bool | None = None) -> dict[str, Any]:
     anchor = record(data.get("public_anchor"))
     task_run_id = text(data.get("task_run_id")) or text(anchor.get("task_run_id")) or text(data.get("runtime_task_run_id"))
     raw_state = text(data.get("state")).lower()
     resolved_failed = raw_state in {"error", "failed", "blocked"} if failed is None else bool(failed)
-    todo_plan = _agent_todo_plan_projection(data.get("todo_plan"))
+    todo_plan = _agent_state_plan_projection(data.get("todo_plan"))
     if todo_plan and not resolved_failed:
         return {
             "op": "item_upsert",
@@ -497,10 +502,10 @@ def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "",
             "event_family": STATUS_TRACE_EVENT_FAMILY,
             "channel": STATUS_PUBLIC_CHANNEL,
             "lossless": False,
-            "item_id": stable_id("agent-todo-plan", task_run_id, todo_plan.get("plan_id") or "current"),
+            "item_id": stable_id("agent-state-plan", task_run_id, todo_plan.get("plan_id") or "current"),
             "title": "任务清单",
             "text": "任务清单",
-            "detail": _agent_todo_plan_detail(todo_plan),
+            "detail": _agent_state_plan_detail(todo_plan),
             "state": "done",
             "status_kind": "todo_plan",
             "plan_id": text(todo_plan.get("plan_id")),
@@ -511,11 +516,11 @@ def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "",
         }
     visible_detail = public_text(detail or data.get("error") or data.get("observation"), limit=360)
     if not visible_detail and not resolved_failed:
-        return _agent_todo_hidden_trace_spec(data, state="done")
-    return _agent_todo_hidden_trace_spec(data, state="failed" if resolved_failed else "done")
+        return _agent_state_hidden_trace_spec(data, state="done")
+    return _agent_state_hidden_trace_spec(data, state="failed" if resolved_failed else "done")
 
 
-def _agent_todo_plan_projection(value: Any) -> dict[str, Any]:
+def _agent_state_plan_projection(value: Any) -> dict[str, Any]:
     source = record(value)
     if not source:
         return {}
@@ -546,12 +551,12 @@ def _agent_todo_plan_projection(value: Any) -> dict[str, Any]:
             "active_item_id": text(source.get("active_item_id")),
             "completion_ready": source.get("completion_ready") if isinstance(source.get("completion_ready"), bool) else None,
             "items": items,
-            "authority": text(source.get("authority")) or "agent.todo_plan",
+            "authority": text(source.get("authority")) or "agent.state_plan",
         }
     )
 
 
-def _agent_todo_plan_detail(plan: dict[str, Any]) -> str:
+def _agent_state_plan_detail(plan: dict[str, Any]) -> str:
     items = [dict(item) for item in list(plan.get("items") or []) if isinstance(item, dict)]
     total = len(items)
     completed = sum(1 for item in items if text(item.get("status")).lower() == "completed")
@@ -567,8 +572,8 @@ def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     tool_call_id = text(data.get("tool_call_id"))
     action_kind = action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
-    if _is_agent_todo_tool(tool_name):
-        return _agent_todo_hidden_trace_spec(data, state="running")
+    if _is_agent_state_tool(tool_name):
+        return _agent_state_hidden_trace_spec(data, state="running")
     if _is_trace_only_tool(tool_name):
         return _trace_only_tool_request_spec(
             data,
@@ -654,8 +659,8 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
         tool_name=tool_name,
         subject=subject,
     )
-    if _is_agent_todo_tool(tool_name):
-        return _agent_todo_hidden_trace_spec(data, state="running")
+    if _is_agent_state_tool(tool_name):
+        return _agent_state_hidden_trace_spec(data, state="running")
     if not tool_call_id or not permission_decision_id:
         return _protocol_diagnostic_spec(
             data,
@@ -723,8 +728,8 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "content_window": record(data.get("content_window")),
         "duration_ms": data.get("duration_ms"),
     }
-    if _is_agent_todo_tool(tool_name):
-        return _agent_todo_completed_status_spec(data, detail=detail, failed=failed)
+    if _is_agent_state_tool(tool_name):
+        return _agent_state_completed_status_spec(data, detail=detail, failed=failed)
     if not tool_call_id or not permission_decision_id:
         return _protocol_diagnostic_spec(
             data,
@@ -1361,23 +1366,17 @@ def _tool_request_text(data: dict[str, Any], *, tool_name: str, subject: str = "
 def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
     visible_subject = public_text(subject, limit=140)
     normalized_tool = text(tool_name).lower()
-    if normalized_tool in {"path_exists", "stat_path"}:
-        return f"检查路径：{visible_subject}" if visible_subject else "检查路径"
-    if normalized_tool == "list_dir":
-        return f"列出目录：{visible_subject}" if visible_subject else "列出目录"
-    if normalized_tool in {"search_files", "search_text", "glob_paths"}:
-        verb = {
-            "search_files": "搜索文件",
-            "search_text": "搜索文本",
-            "glob_paths": "匹配路径",
-        }.get(normalized_tool, "搜索")
-        return f"{verb}：{visible_subject}" if visible_subject else verb
-    if normalized_tool in {"read_file", "read_files", "read_path"}:
-        return f"读取文件：{visible_subject}" if visible_subject else "读取文件"
-    if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
-        return f"更新文件：{visible_subject}" if visible_subject else "更新文件"
-    if normalized_tool in _COMMAND_TOOL_NAMES:
+    label = public_tool_label(normalized_tool)
+    if normalized_tool == "workspace_search":
+        return f"搜索工作区：{visible_subject}" if visible_subject else "搜索工作区"
+    if normalized_tool in {"workspace_read", "code_structure", "project_network", "memory"}:
+        return f"{label}：{visible_subject}" if visible_subject else label
+    if normalized_tool in {"workspace_edit", "office_document"}:
+        return f"{label}：{visible_subject}" if visible_subject else label
+    if is_local_execution_tool_name(normalized_tool):
         return f"运行命令：{visible_subject}" if visible_subject else "运行命令"
+    if label:
+        return f"{label}：{visible_subject}" if visible_subject else label
     if visible_subject:
         return f"{tool_name}：{visible_subject}"
     return text(tool_name)
@@ -1391,11 +1390,11 @@ def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) 
     normalized_tool = text(tool_name).lower()
     if failed:
         return f"{tool_label}失败" if tool_label else "工具执行失败"
-    if normalized_tool in {"search_files", "search_text", "glob_paths"}:
+    if normalized_tool == "workspace_search":
         return "搜索完成"
-    if normalized_tool in {"read_file", "read_files", "read_path"}:
-        return "文件读取完成"
-    if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
+    if normalized_tool in {"workspace_read", "code_structure", "project_network", "memory"}:
+        return "读取完成"
+    if normalized_tool in {"workspace_edit", "office_document", "image"}:
         return "文件更新完成"
     if tool_label:
         return f"{tool_label}完成"
@@ -1421,28 +1420,7 @@ def _tool_completion_detail(value: Any, *, limit: int) -> str:
 
 def _tool_display_label(tool_name: str) -> str:
     normalized = text(tool_name).lower()
-    return {
-        "apply_patch": "更新文件",
-        "batch_edit_file": "更新文件",
-        "bash": "运行命令",
-        "cmd": "运行命令",
-        "command": "运行命令",
-        "edit_file": "更新文件",
-        "glob_paths": "匹配路径",
-        "list_dir": "列出目录",
-        "path_exists": "检查路径",
-        "powershell": "运行命令",
-        "python_repl": "运行命令",
-        "read_file": "读取文件",
-        "read_files": "读取文件",
-        "read_path": "读取文件",
-        "search_files": "搜索文件",
-        "search_text": "搜索文本",
-        "shell": "运行命令",
-        "stat_path": "检查路径",
-        "terminal": "运行命令",
-        "write_file": "写入文件",
-    }.get(normalized, "")
+    return public_tool_label(normalized)
 
 
 def _body_item_id(data: dict[str, Any]) -> str:

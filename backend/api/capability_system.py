@@ -137,13 +137,12 @@ metadata:
   capability_tags: []
   preferred_route: capability_authoring
   requires_operations:
-    - op.read_file
-    - op.write_file
-    - op.edit_file
+    - op.workspace_read
+    - op.workspace_write
+    - op.workspace_edit
   requires_capabilities:
-    - tool:read_file
-    - tool:write_file
-    - tool:edit_file
+    - tool:workspace_read
+    - tool:workspace_edit
   activation_policy: model_visible
   context_mode: inline
   route_authority: candidate_only
@@ -309,6 +308,5 @@ async def update_capability_tool(tool_name: str, payload: ToolMetadataRequest) -
     }
     _save_capability_config(config)
     return build_capability_catalog_payload()
-
 
 

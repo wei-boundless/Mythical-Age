@@ -39,10 +39,9 @@ MEMORY_MANAGER_REQUIRED_SCOPES = {
     "durable_memory_write_candidate",
 }
 MEMORY_MANAGER_BLOCKED_SIDE_EFFECTS = {
-    "op.write_file",
-    "op.edit_file",
+    "op.workspace_write",
+    "op.workspace_edit",
     "op.shell",
-    "op.python_repl",
     "op.agent_bounded",
     "op.web_search",
 }
