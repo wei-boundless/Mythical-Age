@@ -105,7 +105,7 @@ def build_evidence_acquisition_horizon(
                 "read_before_final_claim_when": [
                     "required_reads is non-empty for the target range",
                     "stale_reads is non-empty and exact current source is needed",
-                    "missing_ranges overlaps the claim being made",
+                    "coverage diagnostics show the claim target is outside reusable exact evidence",
                 ],
                 "reuse_evidence_when": "usable_evidence_refs covers the target and is not stale",
                 "do_not_treat_as_tool_authorization": True,
@@ -172,10 +172,6 @@ def _collect_file_horizon(
                 }
             )
         )
-    if str(file_item.get("rehydration_action") or "") == "read_file:missing_window":
-        next_read = dict(file_item.get("next_suggested_read") or {})
-        if next_read:
-            required_reads.append(_read_window(next_read, path=path, source="next_suggested_read"))
 
 
 def _evidence_index_cursor(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -329,10 +325,12 @@ def _boundary_state(
     usable_evidence_refs: list[dict[str, Any]],
     read_resource: dict[str, Any],
 ) -> str:
-    if required_reads or missing_ranges:
+    if required_reads:
         return "read_required_before_exact_claim"
     if stale_reads or str(read_resource.get("status") or "") == "stale":
         return "rehydrate_stale_before_exact_claim"
+    if missing_ranges:
+        return "coverage_gap_diagnostic"
     if candidate_reads:
         return "candidate_reads_available"
     if usable_evidence_refs:

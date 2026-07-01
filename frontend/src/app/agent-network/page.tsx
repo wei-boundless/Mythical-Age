@@ -631,11 +631,11 @@ export default function AgentNetworkPage() {
               <strong>{textValue(cacheDiagnostics.latest_volatile_tokens ?? "unscoped")}</strong>
             </div>
             <div>
-              <span>current turn tail</span>
-              <strong>{nonCacheBreakdownValue(cacheDiagnostics.latest_current_turn_tail_tokens)}</strong>
+              <span>current append</span>
+              <strong>{nonCacheBreakdownValue(cacheDiagnostics.latest_current_context_append_tokens ?? cacheDiagnostics.latest_current_turn_tail_tokens)}</strong>
             </div>
             <div>
-              <span>replay pending</span>
+              <span>degraded replay</span>
               <strong>{nonCacheBreakdownValue(cacheDiagnostics.latest_unconfirmed_provider_replay_tokens)}</strong>
             </div>
             <div>

@@ -118,12 +118,15 @@ def build_codebase_search_plan(query: str, *, max_queries: int = 12, include_tes
     rag_eval_intent = _has_rag_eval_intent(normalized)
     roots = _preferred_roots(normalized, include_tests=include_tests, rag_eval_intent=rag_eval_intent)
     path_queries = _dedupe([item for item in tokens if _is_path_query(item)])
+    path_queries = _dedupe([*path_queries, *_path_queries_for_symbols(symbols)])
     search_terms = [item for item in tokens if _is_search_term(item)]
     high_value_terms = [item for item in search_terms if _is_high_value_term(item)]
+    path_queries = _dedupe([*path_queries, *_compound_path_queries(tokens)])
     if rag_eval_intent:
         path_queries = _dedupe([*path_queries, *RAG_EVAL_PATH_QUERIES])
         high_value_terms = [*RAG_EVAL_TEXT_QUERIES, *high_value_terms]
-    text_queries = _dedupe([*symbols, *high_value_terms, *search_terms])
+    combined_query = normalized if len(search_terms) >= 2 else ""
+    text_queries = _dedupe([combined_query, *symbols, *high_value_terms, *search_terms])
     if not text_queries and normalized:
         text_queries = (normalized,)
     text_queries = text_queries[:max_queries]
@@ -170,6 +173,54 @@ def _symbols(value: str, tokens: Iterable[str]) -> list[str]:
     return symbols
 
 
+def _path_queries_for_symbols(symbols: list[str]) -> list[str]:
+    queries: list[str] = []
+    for symbol in symbols:
+        item = str(symbol or "").strip()
+        if not item:
+            continue
+        queries.append(item)
+        snake = _snake_case_identifier(item)
+        if snake and snake != item:
+            queries.append(snake)
+    return queries
+
+
+def _compound_path_queries(terms: list[str]) -> list[str]:
+    cleaned = [
+        _snake_case_identifier(term)
+        for term in list(terms or [])
+        if _is_compound_path_term(term)
+    ]
+    cleaned = [term for term in _dedupe(cleaned) if term]
+    if len(cleaned) < 2:
+        return []
+    queries: list[str] = []
+    for window_size in (3, 4, 2):
+        if len(cleaned) < window_size:
+            continue
+        for start in range(0, len(cleaned) - window_size + 1):
+            window = cleaned[start : start + window_size]
+            joined = "_".join(window)
+            compact = "".join(window)
+            queries.extend(item for item in (joined, compact) if len(item) >= 8)
+    return list(_dedupe(queries))[:10]
+
+
+def _is_compound_path_term(value: str) -> bool:
+    item = str(value or "").strip()
+    if not item:
+        return False
+    lowered = item.lower()
+    if lowered in STOP_TERMS and lowered not in {"code", "file", "files", "search", "source"}:
+        return False
+    if "/" in item or "\\" in item:
+        return False
+    if re.search(r"\.(py|ts|tsx|js|jsx|json|md|toml|yaml|yml)$", item, re.IGNORECASE):
+        return False
+    return bool(re.match(r"^[A-Za-z0-9_-]{3,}$", item))
+
+
 def _clean_token(value: str) -> str:
     item = str(value or "").strip().strip("`'\".,，。:：;；()[]{}<>")
     if item.endswith(".") and item.count(".") == 1:
@@ -179,6 +230,16 @@ def _clean_token(value: str) -> str:
 
 def _looks_like_identifier(value: str) -> bool:
     return "_" in value or "." in value or bool(re.search(r"[A-Z]", value[1:])) or value.isupper()
+
+
+def _snake_case_identifier(value: str) -> str:
+    item = str(value or "").strip()
+    if not item:
+        return ""
+    item = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", item)
+    item = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", item)
+    item = re.sub(r"[^A-Za-z0-9]+", "_", item)
+    return item.strip("_").lower()
 
 
 def _is_path_query(value: str) -> bool:
@@ -235,6 +296,8 @@ def _preferred_roots(value: str, *, include_tests: bool, rag_eval_intent: bool) 
     lowered = value.lower().replace("\\", "/")
     if rag_eval_intent:
         roots.extend(["scifact", "backend/tests/_artifacts", "output/benchmark_runtime", "backend/tests", "docs"])
+    if _has_doc_intent(value):
+        roots.append("docs")
     if any(token in lowered for token in ("harness", "router", "runtime", "executor", "task_run", "subagent", "agentrun", "agent_run")):
         roots.append("backend/harness")
     if any(token in lowered for token in ("capability", "codebase", "deepsearch", "search_agent", "pdf_reader")):
@@ -243,7 +306,7 @@ def _preferred_roots(value: str, *, include_tests: bool, rag_eval_intent: bool) 
         if root in lowered:
             roots.append("backend/tests" if root == "tests" else root)
     if not roots:
-        roots.extend(["backend", "frontend", "docs"])
+        roots.extend(["backend", "frontend"])
         if include_tests:
             roots.append("backend/tests")
     return _dedupe(roots)

@@ -35,9 +35,13 @@ DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
 )
 DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
     "backend/knowledge",
+    "backend/runtime/context_management/design_docs",
     "output",
     "storage/runtime_cache",
     "storage/runtime_state/sandboxes",
+)
+DEFAULT_EXCLUDED_FILE_SUFFIXES: tuple[str, ...] = (
+    ".tsbuildinfo",
 )
 DEFAULT_RUNTIME_PRIVATE_PATHS: tuple[str, ...] = (
     "mythical-agent/sessions/**",
@@ -254,6 +258,12 @@ class WorkspaceFileService:
                             return sorted(dict.fromkeys(matches))
         return sorted(dict.fromkeys(matches))[:limit]
 
+    def glob_search_roots(self, pattern: str) -> list[str]:
+        normalized = str(pattern or "").replace("\\", "/").strip()
+        if not normalized or normalized.startswith("/") or ".." in Path(normalized).parts:
+            raise ValueError("invalid pattern")
+        return [self.relative_path(root) or "." for root in self._glob_walk_roots(normalized)]
+
     def _glob_walk_roots(self, normalized_pattern: str) -> list[Path]:
         fixed_prefix = _fixed_glob_prefix(normalized_pattern)
         if fixed_prefix:
@@ -294,6 +304,8 @@ class WorkspaceFileService:
         if self.is_runtime_private_path(path):
             return True
         relative = self.relative_path(path).replace("\\", "/").strip("/")
+        if relative.lower().endswith(DEFAULT_EXCLUDED_FILE_SUFFIXES):
+            return True
         parts = {part.lower() for part in relative.split("/") if part}
         if any(excluded.lower() in parts for excluded in DEFAULT_EXCLUDED_DIRS):
             return True

@@ -296,6 +296,7 @@ def _file_boundary_item(file_payload: dict[str, Any]) -> dict[str, Any]:
         for item in list(payload.get("recommended_read_windows") or [])
         if isinstance(item, dict)
     ]
+    candidate_windows = [*recommended]
     return _drop_empty(
         {
             "path": str(payload.get("path") or ""),
@@ -304,13 +305,16 @@ def _file_boundary_item(file_payload: dict[str, Any]) -> dict[str, Any]:
             "coverage_complete": coverage.get("complete"),
             "covered_lines": coverage.get("covered_lines"),
             "covered_range_count": len(list(coverage.get("merged_ranges") or [])),
-            "missing_range_count": len(missing_ranges),
-            "first_missing_range": _bounded_dicts(missing_ranges, limit=1),
+            "partial_coverage": bool(missing_ranges),
+            "coverage_caution": (
+                "coverage gaps are diagnostic only; read another window only when the current claim target is outside reusable exact coverage"
+                if missing_ranges
+                else ""
+            ),
             "exact_coverage_complete": exact_coverage.get("complete"),
             "latest_read_range": _bounded_dicts(read_ranges[-1:], limit=1),
-            "next_suggested_read": _read_window_hint(dict(payload.get("next_suggested_read") or {})),
-            "recommended_window_count": len(recommended),
-            "recommended_read_windows": _bounded_dicts(recommended, limit=2),
+            "candidate_window_count": len(candidate_windows),
+            "candidate_read_windows": _bounded_dicts(candidate_windows, limit=2),
         }
     )
 

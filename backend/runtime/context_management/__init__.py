@@ -78,7 +78,7 @@ from .physical_prefix_frame_models import (
     PhysicalPrefixFrame,
     PhysicalPrefixFrameSegment,
 )
-from .provider_message_replay_contract import (
+from context_system.segments.metadata import (
     PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY,
     PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
     PHYSICAL_PREFIX_FRAME_REPLAY_STATUS,
@@ -110,7 +110,7 @@ from .provider_visible_append_ledger import (
     save_provider_visible_append_ledger,
     truncate_provider_visible_append_ledger_after_session_cutoff,
 )
-from .context_segment_policy import (
+from context_system.segments.policy import (
     APPEND_ONLY_CONTEXT_KINDS,
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
@@ -129,7 +129,7 @@ from .context_segment_policy import (
     context_segment_routes_to_dynamic_tail,
     register_context_segment_policy_defaults,
 )
-from .context_segment_registry import (
+from context_system.segments.declarations import (
     ContextSegmentKindDeclaration,
     context_segment_capability_defaults,
     context_segment_content_source_defaults,

@@ -147,6 +147,7 @@ export type ProviderCacheLog = {
     latest_prefix_health?: Record<string, unknown>;
     latest_under_read_tokens?: number;
     latest_volatile_tokens?: number;
+    latest_current_context_append_tokens?: number;
     latest_current_turn_tail_tokens?: number;
     latest_never_replay_tail_tokens?: number;
     latest_unconfirmed_provider_replay_tokens?: number;

@@ -728,7 +728,7 @@ def _task_progress_facts_projection(
 def _task_progress_file_fact(item: dict[str, Any]) -> dict[str, Any]:
     coverage = dict(item.get("coverage") or {})
     reusable_ref = _file_reusable_result_ref(item)
-    next_missing_ranges = list(coverage.get("missing_ranges") or [])
+    missing_ranges = list(coverage.get("missing_ranges") or [])
     return drop_empty(
         {
             "path": _projection_path(item),
@@ -740,8 +740,12 @@ def _task_progress_file_fact(item: dict[str, Any]) -> dict[str, Any]:
             "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
             "last_observation_ref": str(item.get("last_observation_ref") or ""),
             "reusable_result_ref": reusable_ref,
-            "next_missing_ranges": [_range_ref(segment) for segment in next_missing_ranges[:4]],
-            "next_suggested_read": dict(item.get("next_suggested_read") or {}),
+            "partial_coverage": bool(missing_ranges),
+            "coverage_caution": (
+                "coverage gaps are diagnostic only; read another window only when the current claim target is outside reusable exact coverage"
+                if missing_ranges
+                else ""
+            ),
             "read_windows_available": [
                 _file_state_cursor_read_window(segment)
                 for segment in dict_tuple(item.get("read_ranges"))[-4:]
@@ -1455,8 +1459,6 @@ def _low_value_file_state_cursor_item(item: dict[str, Any]) -> bool:
         return False
     if dict(item.get("coverage") or {}):
         return False
-    if dict(item.get("next_suggested_read") or {}):
-        return False
     for key in ("total_lines", "content_sha256", "has_more"):
         if item.get(key) not in (None, "", [], {}):
             return False
@@ -1480,7 +1482,6 @@ def _file_state_cursor_item_projection(item: dict[str, Any]) -> dict[str, Any]:
             "content_sha256": str(item.get("content_sha256") or ""),
             "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
             "last_observation_ref": str(item.get("last_observation_ref") or ""),
-            "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
             "recommended_read_windows": _cursor_decision_windows(item.get("recommended_read_windows")),
             "read_recommendation_count": len(dict_tuple(item.get("read_recommendations"))),
             "read_window_refs": ranges[-4:],
@@ -1531,9 +1532,13 @@ def _thin_coverage_projection(coverage: dict[str, Any]) -> dict[str, Any]:
             "total_lines": coverage.get("total_lines"),
             "covered_lines": coverage.get("covered_lines"),
             "covered_ranges": [_range_ref(item) for item in covered_ranges[-3:]],
-            "missing_ranges": [_range_ref(item) for item in missing_ranges[:3]],
             "covered_range_count": _safe_int(coverage.get("range_count")) or len(covered_ranges),
-            "missing_range_count": len(missing_ranges),
+            "partial_coverage": bool(missing_ranges),
+            "coverage_caution": (
+                "coverage gaps are diagnostic only; read another window only when the current claim target is outside reusable exact coverage"
+                if missing_ranges
+                else ""
+            ),
         }
     )
 
@@ -1541,6 +1546,7 @@ def _thin_coverage_projection(coverage: dict[str, Any]) -> dict[str, Any]:
 def _file_state_coverage_summary(coverage: dict[str, Any]) -> dict[str, Any]:
     if not coverage:
         return {}
+    missing_ranges = list(coverage.get("missing_ranges") or [])
     return drop_empty(
         {
             "complete": coverage.get("complete") if isinstance(coverage.get("complete"), bool) else None,
@@ -1548,7 +1554,12 @@ def _file_state_coverage_summary(coverage: dict[str, Any]) -> dict[str, Any]:
             "covered_lines": coverage.get("covered_lines"),
             "covered_range_count": _safe_int(coverage.get("range_count"))
             or len(list(coverage.get("covered_ranges") or coverage.get("merged_ranges") or [])),
-            "missing_range_count": len(list(coverage.get("missing_ranges") or [])),
+            "partial_coverage": bool(missing_ranges),
+            "coverage_caution": (
+                "coverage gaps are diagnostic only; read another window only when the current claim target is outside reusable exact coverage"
+                if missing_ranges
+                else ""
+            ),
         }
     )
 
@@ -1559,17 +1570,6 @@ def _range_ref(value: dict[str, Any]) -> dict[str, Any]:
             "start_line": value.get("start_line"),
             "end_line": value.get("end_line"),
             "line_count": value.get("line_count"),
-        }
-    )
-
-
-def _read_request_ref(value: dict[str, Any]) -> dict[str, Any]:
-    return drop_empty(
-        {
-            "path": _projection_path(value),
-            "start_line": value.get("start_line"),
-            "line_count": value.get("line_count"),
-            "reason": compact_text(value.get("reason") or "", limit=120),
         }
     )
 
@@ -1710,7 +1710,6 @@ def _file_state_projection(value: Any) -> list[dict[str, Any]]:
                 "stale_reason": compact_text(item.get("stale_reason") or "", limit=180),
                 "search_hit_count": len(dict_tuple(item.get("search_hits"))),
                 "write_event_count": len(dict_tuple(item.get("write_events"))),
-                "next_suggested_read": dict(item.get("next_suggested_read") or {}),
                 "evidence_refs": [
                     ref
                     for ref in [
@@ -2009,23 +2008,7 @@ def _read_missing_window_decisions(item: dict[str, Any], *, active_ranges: list[
                 }
             )
         )
-    if windows or active_ranges or has_explicit_missing_ranges:
-        return windows
-    next_read = dict(item.get("next_suggested_read") or {})
-    if not next_read:
-        return []
-    return [
-        drop_empty(
-            {
-                "requirement_kind": "target_outside_current_coverage",
-                "path": path,
-                "start_line": next_read.get("start_line"),
-                "line_count": next_read.get("line_count"),
-                "read_condition": "required only when no active current read resource covers the explicit target",
-                "reason": str(next_read.get("reason") or "no active current read window"),
-            }
-        )
-    ]
+    return windows
 
 
 def _missing_window_read_is_required(*, item: dict[str, Any], coverage: dict[str, Any]) -> bool:
@@ -2227,7 +2210,6 @@ def _read_resource_file_ref(item: dict[str, Any]) -> dict[str, Any]:
             "last_observation_ref": str(item.get("last_observation_ref") or ""),
             "latest_read_window_ref": _file_state_cursor_read_window(ranges[-1]) if ranges else {},
             "read_window_count": len(ranges),
-            "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
             "recommended_read_window_count": len(dict_tuple(item.get("recommended_read_windows"))),
         }
     )

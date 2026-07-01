@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from prompt_composition import build_runtime_payload_message_spec
-from runtime.context_management.context_segment_policy import DYNAMIC_TAIL
+from context_system.segments.policy import CONTEXT_APPEND, DYNAMIC_TAIL
 from runtime.context_management.tool_transcript import TOOL_TRANSCRIPT_DELTA_KIND
 
 from .dynamic_context import DynamicContextProjection
@@ -477,7 +477,7 @@ class _TurnStateAttentionContextProducer:
                 "title": "current work goal resource context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_goal_context",
                 "runtime_fragment_role": "turn_goal_resource_context",
-                "semantic_slot": "turn_goal_resource_context",
+                "semantic_slot": "task_goal_context",
                 "semantic_rank": 21,
             },
             {
@@ -485,7 +485,7 @@ class _TurnStateAttentionContextProducer:
                 "title": "current work plan cursor context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_plan_context",
                 "runtime_fragment_role": "turn_plan_cursor_context",
-                "semantic_slot": "turn_plan_cursor_context",
+                "semantic_slot": "task_plan_context",
                 "semantic_rank": 22,
             },
             {
@@ -493,7 +493,7 @@ class _TurnStateAttentionContextProducer:
                 "title": "current work todo cursor context",
                 "content_source": "harness.runtime.dynamic_context.turn_state_attention_context.task_todo_context",
                 "runtime_fragment_role": "turn_todo_cursor_context",
-                "semantic_slot": "turn_todo_cursor_context",
+                "semantic_slot": "task_todo_context",
                 "semantic_rank": 23,
             },
         ):
@@ -513,21 +513,26 @@ class _TurnStateAttentionContextProducer:
                     compression_role="ref_only",
                     metadata={
                         **_dynamic_context_segment_metadata(request.dynamic_context, source=key),
+                        **_current_append_fact_metadata(
+                            kind=key,
+                            payload={key: context_payload},
+                            semantic_slot=str(descriptor["semantic_slot"]),
+                            semantic_rank=int(descriptor["semantic_rank"]),
+                            origin_ref=_task_state_fact_origin_ref(kind=key, payload=context_payload),
+                            package="task_state_context",
+                            stream=key,
+                            semantic_commit_class="current_task_state_fact",
+                        ),
                         "content_source": str(descriptor["content_source"]),
                         "runtime_fragment_role": str(descriptor["runtime_fragment_role"]),
-                        "cache_impact": "dynamic_tail_only",
-                        "context_cache_section": DYNAMIC_TAIL,
                         "context_capability_group": "task_state_context",
                         "context_capability_slot": str(descriptor["semantic_slot"]),
                         "context_capability_member": "content",
-                        "context_semantic_slot": str(descriptor["semantic_slot"]),
-                        "context_semantic_slot_rank": int(descriptor["semantic_rank"]),
-                        "context_prefix_cache_scope": "none",
-                        "context_prefix_cache_role": "volatile",
-                        "context_prefix_tier": "volatile",
-                        "context_commit_policy": "never_commit",
-                        "context_replay_policy": "current_dynamic_tail_only",
-                        "stability_rule": "Current work attention segments are current resource/cursor state and must not be sealed into provider-visible memory.",
+                        "stability_rule": (
+                            "Task goal, plan, and todo context are current task facts. "
+                            "They enter current append with a content-versioned item key; unchanged facts are not re-appended, "
+                            "and changed facts become the next sealed provider-visible task-state version after provider success."
+                        ),
                     },
                 )
             )
@@ -622,8 +627,23 @@ class _EditorContextProducer:
                     compression_role="preserve",
                     metadata={
                         **_dynamic_context_segment_metadata(request.dynamic_context, source="editor_exact_evidence_delta"),
+                        **_current_append_fact_metadata(
+                            kind="current_editor_evidence_delta",
+                            payload={"current_editor_evidence_delta": editor_evidence_delta},
+                            semantic_slot="current_editor_evidence_delta",
+                            semantic_rank=41,
+                            origin_ref=_editor_evidence_delta_origin_ref(editor_evidence_delta),
+                            package="evidence_context",
+                            stream="current_editor_evidence_delta",
+                            semantic_commit_class="current_exact_evidence_fact",
+                        ),
                         "content_source": "harness.runtime.dynamic_context.current_editor_evidence_delta",
                         "runtime_fragment_role": "current_editor_evidence_delta",
+                        "stability_rule": (
+                            "Editor exact evidence is a current evidence fact, not a dynamic control route. "
+                            "The fact slot is based on path/event/range; unchanged visible text is not re-appended, "
+                            "and changed text supersedes the previous content version after provider success."
+                        ),
                     },
                 )
             )
@@ -696,7 +716,7 @@ class _SessionHistoryContextProducer:
             return ()
         metadata = _dynamic_context_segment_metadata(request.dynamic_context, source="session_history")
         pinned_facts_payload = _session_history_pinned_facts_context_payload(payload)
-        tail_payload = _session_history_tail_context_payload(payload)
+        recent_work_outcome_payload = _recent_work_outcome_context_payload(payload)
         specs: list[dict[str, Any]] = []
         if pinned_facts_payload:
             specs.append(
@@ -719,26 +739,34 @@ class _SessionHistoryContextProducer:
                     },
                 )
             )
-        if tail_payload:
+        if recent_work_outcome_payload:
             specs.append(
                 build_runtime_payload_message_spec(
                     role="system",
-                    title="Recent session context signals",
-                    payload=tail_payload,
-                    kind="session_history_tail_context",
-                    source_ref=f"{request.source_ref_prefix}_session_history:tail_context",
+                    title="Recent work outcome",
+                    payload=recent_work_outcome_payload,
+                    kind="recent_work_outcome",
+                    source_ref=f"{request.source_ref_prefix}_session_history:recent_work_outcome",
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
                     metadata={
                         **metadata,
-                        "cache_impact": "volatile_suffix_only",
-                        "volatility_reason": (
-                            "recent work outcome may be refreshed independently of append-only history, "
-                            "so it stays after the locked historical prefix"
+                        **_current_append_fact_metadata(
+                            kind="recent_work_outcome",
+                            payload=recent_work_outcome_payload,
+                            semantic_slot="recovery_or_recent_work_facts",
+                            semantic_rank=10,
+                            origin_ref=_recent_work_outcome_origin_ref(recent_work_outcome_payload),
+                            package="recent_work_outcome",
+                            stream="recent_work_outcome",
+                            semantic_commit_class="recent_work_outcome_fact",
                         ),
-                        "stability_rule": "volatile session tail context stays after append-only history and provider protocol replay",
-                        "session_history_component": "tail_context",
+                        "stability_rule": (
+                            "Recent work outcome is a read-only work fact. It belongs in current append, "
+                            "not in the never-replay control tail; runtime recovery instructions remain separate."
+                        ),
+                        "session_history_component": "recent_work_outcome",
                     },
                 )
             )
@@ -936,7 +964,113 @@ def _tool_observation_entry_ref(observation: dict[str, Any], *, fallback_index: 
     return f"observation:{digest or fallback_index}"
 
 
-def _session_history_tail_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
+def _current_append_fact_metadata(
+    *,
+    kind: str,
+    payload: dict[str, Any],
+    semantic_slot: str,
+    semantic_rank: int,
+    origin_ref: str = "",
+    package: str = "",
+    stream: str = "",
+    semantic_commit_class: str = "",
+) -> dict[str, Any]:
+    normalized_kind = str(kind or "").strip()
+    normalized_slot = str(semantic_slot or normalized_kind or "context_memory_append").strip()
+    content_hash = _stable_json_hash(payload)
+    stable_origin_ref = str(origin_ref or "").strip() or f"{normalized_kind}:{content_hash}"
+    fact_slot_key = _stable_json_hash(
+        {
+            "schema": "semantic_fact_slot",
+            "kind": normalized_kind,
+            "semantic_slot": normalized_slot,
+            "origin_ref": stable_origin_ref,
+        }
+    )
+    item_key = _stable_json_hash(
+        {
+            "schema": "current_append_fact_context_item",
+            "kind": normalized_kind,
+            "semantic_slot": normalized_slot,
+            "origin_ref": stable_origin_ref,
+            "content_hash": content_hash,
+        }
+    )
+    return {
+        "cache_impact": "context_append_then_sealed_prefix",
+        "context_cache_section": CONTEXT_APPEND,
+        "context_prefix_cache_scope": "none",
+        "context_prefix_cache_role": "volatile",
+        "context_prefix_tier": "volatile",
+        "context_semantic_slot": normalized_slot,
+        "context_semantic_slot_rank": int(semantic_rank or 0),
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
+        "context_identity_policy": "origin_ref_stable",
+        "context_origin_authority": "harness.runtime.context_message_producers.current_append_fact",
+        "context_origin_ref": stable_origin_ref,
+        "append_only_context_package": str(package or normalized_slot or normalized_kind),
+        "append_only_context_stream": str(stream or normalized_slot or normalized_kind),
+        "append_only_context_item_key": item_key,
+        "append_only_content_hash": content_hash,
+        "fact_slot_key": fact_slot_key,
+        "fact_content_hash": content_hash,
+        "fact_change_class": "content_version_candidate",
+        "fact_supersession_policy": "same_fact_slot_latest_content_hash_supersedes_prior",
+        "semantic_commit_class": str(semantic_commit_class or "context_memory_append"),
+        "provider_visible_after_validity": "replay_after_provider_success_via_physical_prefix_frame",
+    }
+
+
+def _task_state_fact_origin_ref(*, kind: str, payload: dict[str, Any]) -> str:
+    normalized_kind = str(kind or "").strip()
+    data = dict(payload or {})
+    if normalized_kind == "task_goal_context":
+        active_goal = dict(data.get("active_goal") or {}) if isinstance(data.get("active_goal"), dict) else {}
+        return str(active_goal.get("goal_ref") or active_goal.get("goal_sha256") or "").strip()
+    if normalized_kind == "task_plan_context":
+        baseline = dict(data.get("task_plan_baseline") or {}) if isinstance(data.get("task_plan_baseline"), dict) else {}
+        return str(baseline.get("plan_baseline_ref") or baseline.get("plan_sha256") or "").strip()
+    if normalized_kind == "task_todo_context":
+        baseline = dict(data.get("task_todo_baseline") or {}) if isinstance(data.get("task_todo_baseline"), dict) else {}
+        delta = dict(data.get("task_todo_delta") or {}) if isinstance(data.get("task_todo_delta"), dict) else {}
+        baseline_ref = str(baseline.get("todo_baseline_ref") or baseline.get("todo_sha256") or "").strip()
+        cursor_hash = str(delta.get("cursor_hash") or "").strip()
+        return ":".join(item for item in (baseline_ref, cursor_hash) if item)
+    return ""
+
+
+def _editor_evidence_delta_origin_ref(payload: Any) -> str:
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    anchors: list[dict[str, Any]] = []
+    for item in list(data.get("events") or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        anchors.append(
+            _drop_empty_payload(
+                {
+                    "event": str(item.get("event") or ""),
+                    "path": str(item.get("path") or "").replace("\\", "/"),
+                    "range": dict(item.get("range") or {}) if isinstance(item.get("range"), dict) else {},
+                    "source": str(item.get("source") or ""),
+                }
+            )
+        )
+    anchors = [item for item in anchors if item]
+    if not anchors:
+        return ""
+    return "editor_evidence_delta:" + _stable_json_hash({"anchors": anchors}).removeprefix("sha256:")[:16]
+
+
+def _recent_work_outcome_origin_ref(payload: dict[str, Any]) -> str:
+    data = dict(dict(payload or {}).get("recent_work_outcome") or {})
+    task_run_id = str(data.get("task_run_id") or "").strip()
+    status = str(data.get("status") or "").strip()
+    content_hash = _stable_json_hash(payload).removeprefix("sha256:")[:16]
+    return ":".join(item for item in ("recent_work_outcome", task_run_id, status, content_hash) if item)
+
+
+def _recent_work_outcome_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:
     session_context = dict(clean_payload.get("session_context") or {}) if isinstance(clean_payload.get("session_context"), dict) else {}
     recent_work_outcome = (
         dict(session_context.get("recent_work_outcome") or {})

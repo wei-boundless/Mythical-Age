@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from runtime.context_management.context_segment_registry import (
+from context_system.segments.declarations import (
     CONTEXT_MEMORY,
     context_segment_kind_capability,
 )

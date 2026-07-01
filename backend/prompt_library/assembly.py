@@ -92,6 +92,7 @@ class PromptAssemblyService:
                 context_capability_profile=context_capability_profile,
                 system_wiring_manifest=system_wiring_manifest,
             )
+            resource_content_hash = _stable_text_hash(resource.content)
             sections.append(
                 PromptSection(
                     section_id=f"{resource.category}.{resource.subtype}:{order}",
@@ -106,9 +107,18 @@ class PromptAssemblyService:
                     order=order,
                     metadata={
                         "version": resource.version,
+                        "version_label": resource.version,
+                        "content_hash": resource_content_hash,
                         "resource_type": resource.resource_type,
+                        "prompt_ref": resource.prompt_id,
+                        "origin": resource.origin.to_dict(),
                         "owner_kind": resource.owner_kind,
                         "owner_ref": resource.owner_ref,
+                        "allowed_agent_refs": list(resource.allowed_agent_refs),
+                        "agent_ref_scope_match": _resource_agent_ref_scope_match(
+                            resource.to_dict(),
+                            request=request.to_dict(),
+                        ),
                         "contract_priority": resource.contract_priority,
                         "conflict_policy": resource.conflict_policy,
                         "scope": resource.scope,
@@ -172,6 +182,7 @@ class PromptAssemblyService:
             "cache_scope_order": [item.cache_scope for item in sections],
             "cache_boundary": _assembly_cache_boundary_report(tuple(sections)),
             "layer_summary": _assembly_layer_summary(tuple(sections)),
+            "prompt_source_audit": _prompt_source_audit(tuple(sections)),
             "prompt_precedence": build_prompt_precedence_report(tuple(sections)),
             "prompt_authority": prompt_authority_manifest,
             "system_wiring_manifest_ref": str(system_wiring_manifest.get("manifest_id") or ""),
@@ -345,6 +356,12 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
     return ""
 
 
+def _resource_agent_ref_scope_match(resource: dict[str, Any], *, request: dict[str, Any]) -> bool:
+    agent_ref = str(request.get("agent_profile_ref") or "").strip()
+    allowed_agent_refs = {str(item).strip() for item in list(resource.get("allowed_agent_refs") or []) if str(item).strip()}
+    return not allowed_agent_refs or bool(agent_ref and agent_ref in allowed_agent_refs)
+
+
 def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> str:
     environment_ref = str(request.get("task_environment_ref") or "")
     allowed_environment_refs = {str(item) for item in list(pack.get("allowed_environment_refs") or []) if str(item)}
@@ -497,16 +514,46 @@ def _section_fingerprint_payload(sections: tuple[PromptSection, ...]) -> list[di
         {
             "prompt_ref": section.prompt_ref,
             "source_ref": section.source_ref,
+            "version": str(dict(section.metadata or {}).get("version") or ""),
+            "version_label": str(dict(section.metadata or {}).get("version_label") or ""),
             "category": section.category,
             "subtype": section.subtype,
             "owner_layer": section.owner_layer,
+            "owner_kind": str(dict(section.metadata or {}).get("owner_kind") or ""),
+            "owner_ref": str(dict(section.metadata or {}).get("owner_ref") or ""),
+            "scope": str(dict(section.metadata or {}).get("scope") or ""),
             "assembly_layer": _prompt_section_layer(section),
             "cache_scope": section.cache_scope,
-            "content_hash": _stable_text_hash(section.content),
+            "content_hash": str(dict(section.metadata or {}).get("content_hash") or _stable_text_hash(section.content)),
             "order": section.order,
         }
         for section in sections
     ]
+
+
+def _prompt_source_audit(sections: tuple[PromptSection, ...]) -> list[dict[str, Any]]:
+    audit: list[dict[str, Any]] = []
+    for section in sections:
+        metadata = dict(section.metadata or {})
+        audit.append(
+            {
+                "prompt_ref": section.prompt_ref,
+                "source_ref": section.source_ref,
+                "version": str(metadata.get("version") or ""),
+                "version_label": str(metadata.get("version_label") or metadata.get("version") or ""),
+                "content_hash": str(metadata.get("content_hash") or _stable_text_hash(section.content)),
+                "owner_layer": section.owner_layer,
+                "owner_kind": str(metadata.get("owner_kind") or ""),
+                "owner_ref": str(metadata.get("owner_ref") or ""),
+                "scope": str(metadata.get("scope") or ""),
+                "contract_priority": str(metadata.get("contract_priority") or ""),
+                "conflict_policy": str(metadata.get("conflict_policy") or ""),
+                "resource_type": str(metadata.get("resource_type") or ""),
+                "origin": dict(metadata.get("origin") or {}),
+                "order": int(section.order or 0),
+            }
+        )
+    return audit
 
 
 def _assembly_cache_boundary_report(sections: tuple[PromptSection, ...]) -> dict[str, Any]:

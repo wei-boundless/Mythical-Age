@@ -16,7 +16,7 @@ _ENVIRONMENT_GUIDANCE_REFS = set(ALL_ENVIRONMENT_GUIDANCE_PROMPT_IDS)
 
 
 @dataclass(frozen=True, slots=True)
-class PromptMountPlan:
+class EnvironmentPromptInventory:
     base_environment_id: str = GENERAL_ENVIRONMENT_ID
     selected_environment_id: str = GENERAL_ENVIRONMENT_ID
     personality_prompt_refs: tuple[str, ...] = ()
@@ -58,14 +58,14 @@ class PromptMountPlan:
         return payload
 
 
-def build_base_prompt_mount_plan(
+def build_base_environment_prompt_inventory(
     *,
     selected_environment: dict[str, Any],
     base_environment: dict[str, Any] | None = None,
     personality_prompt_refs: tuple[str, ...] | list[str] = (),
     personality_diagnostics: dict[str, Any] | None = None,
     prompt_policy: dict[str, Any] | None = None,
-) -> PromptMountPlan:
+) -> EnvironmentPromptInventory:
     selected_payload = dict(selected_environment or {})
     selected_environment_id = _environment_id(selected_payload) or GENERAL_ENVIRONMENT_ID
     base_environment_id = selected_environment_id
@@ -86,7 +86,7 @@ def build_base_prompt_mount_plan(
     base_refs = selected_refs_without_guidance
     overlay_refs: tuple[str, ...] = ()
     environment_refs = _dedupe(base_refs)
-    return PromptMountPlan(
+    return EnvironmentPromptInventory(
         base_environment_id=base_environment_id,
         selected_environment_id=selected_environment_id,
         personality_prompt_refs=_string_tuple(personality_prompt_refs),
@@ -123,14 +123,14 @@ def build_base_prompt_mount_plan(
     )
 
 
-def prompt_mount_plan_from_payload(payload: Any) -> PromptMountPlan:
+def environment_prompt_inventory_from_payload(payload: Any) -> EnvironmentPromptInventory:
     raw = dict(payload or {}) if isinstance(payload, dict) else {}
     base_prompt_refs = _string_tuple(raw.get("base_prompt_refs"))
     overlay_prompt_refs = _string_tuple(raw.get("overlay_prompt_refs"))
     environment_prompt_refs = _string_tuple(raw.get("environment_prompt_refs")) or _dedupe(
         (*base_prompt_refs, *overlay_prompt_refs)
     )
-    return PromptMountPlan(
+    return EnvironmentPromptInventory(
         base_environment_id=str(raw.get("base_environment_id") or GENERAL_ENVIRONMENT_ID),
         selected_environment_id=str(raw.get("selected_environment_id") or GENERAL_ENVIRONMENT_ID),
         personality_prompt_refs=_string_tuple(raw.get("personality_prompt_refs")),
@@ -152,8 +152,8 @@ def prompt_mount_plan_from_payload(payload: Any) -> PromptMountPlan:
     )
 
 
-def prompt_mount_plan_for_invocation(
-    base_plan: PromptMountPlan | dict[str, Any] | None,
+def environment_prompt_inventory_for_invocation(
+    base_plan: EnvironmentPromptInventory | dict[str, Any] | None,
     *,
     invocation_kind: str,
     allowed_actions: tuple[str, ...] = (),
@@ -165,8 +165,8 @@ def prompt_mount_plan_for_invocation(
     execution_state: dict[str, Any] | None = None,
     session_context: dict[str, Any] | None = None,
     prompt_pack_refs: tuple[str, ...] = (),
-) -> PromptMountPlan:
-    plan = base_plan if isinstance(base_plan, PromptMountPlan) else prompt_mount_plan_from_payload(base_plan)
+) -> EnvironmentPromptInventory:
+    plan = base_plan if isinstance(base_plan, EnvironmentPromptInventory) else environment_prompt_inventory_from_payload(base_plan)
     guidance_selection = select_environment_guidance_for_invocation(
         selected_environment_id=plan.selected_environment_id,
         invocation_kind=invocation_kind,
@@ -194,9 +194,9 @@ def prompt_mount_plan_for_invocation(
         "runtime_environment_guidance_prompt_omitted_keys": list(guidance_selection.runtime.omitted_keys),
         "turn_state_guidance_trigger_reasons": dict(guidance_selection.runtime.trigger_reasons),
         "environment_guidance_selector_authority": "prompt_library.wiring.environment_guidance_selection",
-        "prompt_mount_plan_role": "environment_mount_fact_adapter",
+        "environment_prompt_inventory_role": "environment_prompt_fact_adapter",
     }
-    return PromptMountPlan(
+    return EnvironmentPromptInventory(
         base_environment_id=plan.base_environment_id,
         selected_environment_id=plan.selected_environment_id,
         personality_prompt_refs=plan.personality_prompt_refs,

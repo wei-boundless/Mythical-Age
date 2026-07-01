@@ -1,26 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import fnmatch
-import os
-import re
-import subprocess
-import time
 from pathlib import Path
 from typing import Any, Literal, Type
 
 from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from capability_system.tools.workspace_file_service import (
-    DEFAULT_EXCLUDED_DIRS,
-    DEFAULT_RUNTIME_PRIVATE_PATHS,
-    DEFAULT_SEARCH_EXCLUDED_PATHS,
-    WorkspaceFileService,
-)
-
-_PATH_SEARCH_SCAN_LIMIT = 25000
-_PATH_SEARCH_TIME_BUDGET_SECONDS = 5.0
+from capability_system.tools.workspace_file_service import WorkspaceFileService
+from capability_system.tools.workspace_search_service import WorkspaceSearchService
 
 
 class SearchFilesInput(BaseModel):
@@ -28,11 +16,11 @@ class SearchFilesInput(BaseModel):
 
     query: str = Field(
         ...,
-        description="文件名或路径关键词，例如 OpenClaw、计划书、task_understanding.py；通配符路径如 *.html 或 **/*.py 用 glob_paths，文件内容关键词用 search_text",
+        description="文件名或路径关键词，例如 OpenClaw、计划书、task_understanding.py；只用于未知路径的路径定位",
     )
     roots: list[str] = Field(
         default_factory=list,
-        description="可选目录 roots，默认搜索 docs/backend/frontend；只放目录，不放文件路径；一般先留空或给窄目录，只有需要项目根目录文件时才传 [\".\"]",
+        description="可选目录 roots；只放目录，不放文件路径",
     )
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
 
@@ -42,15 +30,15 @@ class SearchTextInput(BaseModel):
 
     query: str = Field(
         ...,
-        description="要在文件内容里搜索的文本或正则关键词；只找文件名/路径用 search_files，通配符路径匹配用 glob_paths",
+        description="要用 rg-like 方式搜索的文本、短语、错误信息、配置键或代码概念",
     )
     roots: list[str] = Field(
         default_factory=list,
-        description="可选目录 roots，默认搜索 docs/backend/frontend；只放目录，不放文件路径；已知具体文件放 paths",
+        description="可选目录 roots；只放目录，不放文件路径；已知具体文件放 paths",
     )
     paths: list[str] = Field(
         default_factory=list,
-        description="可选具体文件路径；当只想在一个或多个已知文件里搜索内容时使用；只能放文件，目录必须放 roots；不要传 path，单文件也写成 paths=[\"...\"]",
+        description="可选具体文件路径；只能放文件，目录必须放 roots；单文件也写成 paths=[\"...\"]",
     )
     glob: str = Field(default="", description="可选文件范围过滤 glob，例如 **/*.md 或 backend/**/*.py；它过滤搜索文件，不是内容 query")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
@@ -61,139 +49,33 @@ class SearchTextInput(BaseModel):
     offset: int = Field(default=0, ge=0, description="分页偏移，跳过前 N 条匹配")
 
 
-def _run_rg(args: list[str], *, cwd: Path, timeout: float = 8.0) -> subprocess.CompletedProcess[str] | None:
-    try:
-        return subprocess.run(
-            ["rg", *args],
-            cwd=str(cwd),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
-        return None
-
-
 def _format_no_results(query: str, *, search_boundary: dict[str, Any] | None = None) -> str:
-    lines = [f"没有找到匹配项：{query}"]
     boundary = dict(search_boundary or {})
+    status = _search_status_label([], search_meta=boundary)
+    lines = [
+        f"搜索状态：{status}",
+        f"query: {query}",
+        "没有找到匹配项。",
+    ]
     if boundary:
         lines.append(f"已搜索 roots：{', '.join(list(boundary.get('searched_roots') or [])) or '<none>'}")
+        backend = str(boundary.get("backend") or "").strip()
+        strategy = str(boundary.get("text_search_strategy") or "").strip()
+        if backend or strategy:
+            lines.append(f"检索层：{backend or 'unknown'}{(' / ' + strategy) if strategy else ''}")
     if boundary.get("omitted_workspace_root"):
         lines.append(
             "注意：本次使用默认搜索根，未搜索项目根目录 '.'。如果你已经知道文件路径，请直接使用 read_file/path_exists；如果要搜索根目录文件，请传 roots=[\".\"]."
         )
+    if status == "no_match_incomplete":
+        lines.append("无命中结果不完整；不要据此判断项目中不存在。请收窄/扩大 roots、调整 glob，或换更具体关键词。")
     return "\n".join(lines)
-
-
-def _path_search_boundary(
-    files: WorkspaceFileService,
-    *,
-    safe_roots: list[Path],
-    using_default_roots: bool,
-) -> dict[str, Any]:
-    workspace_root = files.workspace_root.resolve()
-    searched_roots = [files.relative_path(root) or "." for root in safe_roots]
-    omitted_workspace_root = using_default_roots and all(root.resolve() != workspace_root for root in safe_roots)
-    return {
-        "searched_roots": searched_roots,
-        "used_default_roots": bool(using_default_roots),
-        "workspace_root": str(workspace_root),
-        "omitted_workspace_root": bool(omitted_workspace_root),
-    }
-
-
-def _query_terms(query: str) -> list[str]:
-    normalized = str(query or "").strip()
-    terms = [normalized.lower()] if normalized else []
-    for item in re.findall(r"[A-Za-z0-9_.\-\u4e00-\u9fff]+", normalized):
-        lowered = item.lower().strip("._-")
-        if len(lowered) < 2:
-            continue
-        if lowered in {"文件", "查找", "搜索", "帮我", "找到", "打开", "读取", "一下", "路径"}:
-            continue
-        terms.append(lowered)
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for term in terms:
-        if not term or term in seen:
-            continue
-        seen.add(term)
-        deduped.append(term)
-    return deduped
-
-
-def _search_path_matches(
-    files: WorkspaceFileService,
-    *,
-    safe_roots: list[Path],
-    query: str,
-    terms: list[str],
-    limit: int,
-    using_default_roots: bool,
-) -> tuple[list[str], dict[str, Any]]:
-    matches: list[str] = []
-    seen: set[str] = set()
-    scanned = 0
-    deadline = time.monotonic() + _PATH_SEARCH_TIME_BUDGET_SECONDS
-    for root in safe_roots:
-        for path in _iter_search_files(files, root=root, include_default_search_excludes=using_default_roots):
-            scanned += 1
-            rel = files.relative_path(path)
-            if rel in seen or not _path_matches_query(rel, query=query, terms=terms):
-                if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
-                    return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
-                continue
-            seen.add(rel)
-            matches.append(rel)
-            if len(matches) >= limit:
-                return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
-            if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
-                return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
-    return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
-
-
-def _path_search_meta(*, scanned: int, truncated: bool) -> dict[str, Any]:
-    return {
-        "scanned_paths": int(scanned),
-        "truncated": bool(truncated),
-        "scan_limit": _PATH_SEARCH_SCAN_LIMIT,
-        "time_budget_seconds": _PATH_SEARCH_TIME_BUDGET_SECONDS,
-    }
-
-
-def _iter_search_files(files: WorkspaceFileService, *, root: Path, include_default_search_excludes: bool):
-    for directory, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            dirname
-            for dirname in dirnames
-            if not files.is_excluded(Path(directory) / dirname, include_default_search_excludes=include_default_search_excludes)
-        ]
-        for filename in filenames:
-            path = Path(directory) / filename
-            if path.is_file() and not files.is_excluded(path, include_default_search_excludes=include_default_search_excludes):
-                yield path
-
-
-def _path_matches_query(path: str, *, query: str, terms: list[str]) -> bool:
-    normalized_path = str(path or "").replace("\\", "/").lower()
-    if any(term and term in normalized_path for term in terms):
-        return True
-    raw_query = str(query or "").strip().replace("\\", "/").lower()
-    if not any(ch in raw_query for ch in "*?[]"):
-        return False
-    return fnmatch.fnmatch(normalized_path, raw_query) or fnmatch.fnmatch(Path(normalized_path).name, raw_query)
 
 
 class SearchFilesTool(BaseTool):
     name: str = "search_files"
     description: str = (
         "Find workspace file paths by filename/path keywords when the exact path is unknown. "
-        "Use glob_paths for wildcard patterns such as *.html or **/*.py; use search_text for file contents. "
         "Returns safe project-relative paths for read_file or other file tools."
     )
     args_schema: Type[BaseModel] = SearchFilesInput
@@ -215,29 +97,25 @@ class SearchFilesTool(BaseTool):
         normalized_query = str(query or "").strip()
         if not normalized_query:
             return "Search failed: query is required."
-        using_default_roots = not [str(item or "").strip() for item in list(roots or [])]
-        safe_roots = self._files.safe_roots(roots)
-        if not safe_roots:
-            return "Search failed: no safe search roots."
-
         limit = max(1, min(int(max_results or 20), 100))
-        terms = _query_terms(normalized_query)
-        matches, search_meta = _search_path_matches(
-            self._files,
-            safe_roots=safe_roots,
+        service = WorkspaceSearchService(self._files.root_dir, file_service=self._files)
+        result = service.search_paths(
             query=normalized_query,
-            terms=terms,
+            roots=list(roots or []),
             limit=limit,
-            using_default_roots=using_default_roots,
         )
+        search_meta = dict(result.get("search_meta") or {})
+        if str(search_meta.get("status") or "") == "error":
+            return f"Search failed: {search_meta.get('error') or 'search failed'}"
+        matches = [
+            str(item.get("path") or "")
+            for item in list(result.get("matches") or [])
+            if isinstance(item, dict) and str(item.get("path") or "")
+        ]
         if not matches:
             text = _format_no_results(
                 normalized_query,
-                search_boundary=_path_search_boundary(
-                    self._files,
-                    safe_roots=safe_roots,
-                    using_default_roots=using_default_roots,
-                ),
+                search_boundary=search_meta,
             )
             if search_meta.get("truncated"):
                 text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。"
@@ -258,9 +136,8 @@ class SearchFilesTool(BaseTool):
 class SearchTextTool(BaseTool):
     name: str = "search_text"
     description: str = (
-        "Search workspace file contents with ripgrep-style matching. Use this for code, docs, headings, or references. "
-        "Use search_files for filename/path keywords and glob_paths for wildcard path discovery. "
-        "Put known files in paths and directories in roots; paths never accepts directories."
+        "Normal rg-like workspace search for content keywords, phrases, errors, config keys, and code concepts. "
+        "Use roots/glob/paths to narrow scope; returned read windows are locator candidates, not exact source evidence."
     )
     args_schema: Type[BaseModel] = SearchTextInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -291,110 +168,47 @@ class SearchTextTool(BaseTool):
         limit = _search_limit(max_results=max_results, head_limit=head_limit)
         scan_limit = min(100, limit + max(0, int(offset or 0)) + 1)
         mode = _normalize_output_mode(output_mode)
+        service = WorkspaceSearchService(self._files.root_dir, file_service=self._files)
         requested_paths = _nonempty_path_args(paths)
         if requested_paths:
-            target_paths, path_error = _resolve_search_paths(self._files, requested_paths)
-            if path_error:
-                return f"Search failed: {path_error}"
-            matches = _search_specific_paths(
-                    self._files,
-                    normalized_query,
-                    target_paths,
-                    glob=str(glob or ""),
-                    limit=scan_limit,
-                    case_sensitive=case_sensitive,
-                )
-            return _format_search_matches(
-                _slice_matches(matches, offset=offset, limit=limit),
+            result = service.search_text(
+                query=normalized_query,
+                paths=requested_paths,
+                glob=str(glob or ""),
+                limit=scan_limit,
+                case_sensitive=case_sensitive,
+                fallback_to_workspace=False,
+            )
+            meta = dict(result.get("search_meta") or {})
+            if str(meta.get("status") or "") == "error":
+                return f"Search failed: {meta.get('error') or 'search failed'}"
+            return _format_structured_search_matches(
+                _slice_structured_matches(list(result.get("matches") or []), offset=offset, limit=limit),
                 query=normalized_query,
                 output_mode=mode,
+                search_meta=meta,
             )
         roots_error = _roots_file_misuse_error(self._files, roots)
         if roots_error:
             return f"Search failed: {roots_error}"
         using_default_roots = not [str(item or "").strip() for item in list(roots or [])]
-        safe_roots = self._files.safe_roots(roots)
-        if not safe_roots:
-            return "Search failed: no safe search roots."
-
-        args = [
-            "--line-number",
-            "--column",
-            "--hidden",
-            "--no-ignore-parent",
-            "--max-count",
-            str(scan_limit),
-        ]
-        if not bool(case_sensitive):
-            args.append("--ignore-case")
-        for excluded in DEFAULT_EXCLUDED_DIRS:
-            args.extend(["--glob", f"!**/{excluded}/**"])
-        args.extend(_runtime_private_exclude_args())
-        args.extend(_default_search_exclude_args(using_default_roots))
-        if str(glob or "").strip():
-            args.extend(["--glob", str(glob).strip()])
-        args.append(normalized_query)
-        completed = None
-        if self._files.search_root_args_are_workspace_relative(safe_roots):
-            args.extend(self._files.relative_path(root) or "." for root in safe_roots)
-            completed = _run_rg(args, cwd=self._files.workspace_root)
-        if completed is None:
-            return self._fallback_search(
-                normalized_query,
-                safe_roots,
-                glob=str(glob or ""),
-                limit=scan_limit,
-                using_default_roots=using_default_roots,
-                case_sensitive=case_sensitive,
-            )
-        if completed.returncode not in {0, 1}:
-            error = (completed.stderr or "").strip()
-            return f"Search failed: {error[:300] or 'ripgrep returned an error.'}"
-        lines = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
-        if not lines:
-            return _format_no_results(normalized_query)
-        return _format_search_matches(
-            _slice_raw_match_lines(lines, offset=offset, limit=limit),
+        result = service.search_text(
+            query=normalized_query,
+            roots=list(roots or []),
+            glob=str(glob or ""),
+            limit=scan_limit,
+            case_sensitive=case_sensitive,
+            fallback_to_workspace=using_default_roots,
+        )
+        meta = dict(result.get("search_meta") or {})
+        if str(meta.get("status") or "") == "error":
+            return f"Search failed: {meta.get('error') or meta.get('stderr') or 'search failed'}"
+        return _format_structured_search_matches(
+            _slice_structured_matches(list(result.get("matches") or []), offset=offset, limit=limit),
             query=normalized_query,
             output_mode=mode,
+            search_meta=meta,
         )
-
-    def _fallback_search(
-        self,
-        query: str,
-        roots: list[Path],
-        *,
-        glob: str,
-        limit: int,
-        using_default_roots: bool,
-        case_sensitive: bool,
-    ) -> str:
-        matches: list[str] = []
-        pattern = glob.strip() or "*"
-        query_cmp = query if case_sensitive else query.lower()
-        for root in roots:
-            for path in root.rglob(pattern):
-                if len(matches) >= limit:
-                    break
-                if not path.is_file() or self._files.is_excluded(
-                    path,
-                    include_default_search_excludes=using_default_roots,
-                ):
-                    continue
-                try:
-                    text = path.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                for line_number, line in enumerate(text.splitlines(), start=1):
-                    line_cmp = line if case_sensitive else line.lower()
-                    if query_cmp not in line_cmp:
-                        continue
-                    rel = self._files.relative_path(path)
-                    matches.append(f"{rel}:{line_number}:1:{line[:240]}")
-                    break
-        if not matches:
-            return _format_no_results(query)
-        return "\n".join(matches[:limit])
 
     async def _arun(
         self,
@@ -443,71 +257,122 @@ def _roots_file_misuse_error(files: WorkspaceFileService, roots: list[str] | Non
     return ""
 
 
-def _resolve_search_paths(files: WorkspaceFileService, paths: list[str]) -> tuple[list[Path], str]:
-    resolved: list[Path] = []
-    seen: set[Path] = set()
-    for item in paths:
-        try:
-            target = files.resolve(item, require_path=True)
-        except ValueError as exc:
-            return [], str(exc)
-        if not target.exists():
-            return [], f"path does not exist: {item}"
-        if target.is_dir():
-            return [], f"paths accepts files only. Put directory roots in roots instead: {item}"
-        if target not in seen:
-            seen.add(target)
-            resolved.append(target)
-    return resolved, ""
-
-
-def _search_specific_paths(
-    files: WorkspaceFileService,
-    query: str,
-    paths: list[Path],
+def _format_structured_search_matches(
+    matches: list[dict[str, Any]],
     *,
-    glob: str,
-    limit: int,
-    case_sensitive: bool,
-) -> list[str]:
-    matches: list[str] = []
-    pattern = str(glob or "").strip()
-    query_cmp = query if case_sensitive else query.lower()
-    for path in paths:
-        if len(matches) >= limit:
-            break
-        rel = files.relative_path(path)
-        if pattern and not fnmatch.fnmatch(rel, pattern):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            line_cmp = line if case_sensitive else line.lower()
-            column = line_cmp.find(query_cmp) + 1
-            if column <= 0:
-                continue
-            matches.append(f"{rel}:{line_number}:{column}:{line[:240]}")
-            if len(matches) >= limit:
-                return matches
-    return matches[:limit]
-
-
-def _format_search_matches(matches: list[str], *, query: str, output_mode: str = "content") -> str:
+    query: str,
+    output_mode: str = "content",
+    search_meta: dict[str, Any] | None = None,
+) -> str:
     if not matches:
-        return _format_no_results(query)
+        return _format_no_results(query, search_boundary=search_meta)
     if output_mode == "files_with_matches":
-        paths = [line.split(":", 1)[0] for line in matches if ":" in line]
-        return "\n".join(dict.fromkeys(paths)) or _format_no_results(query)
-    if output_mode == "count":
+        paths = [str(item.get("path") or "") for item in matches if str(item.get("path") or "")]
+        text = "\n".join(dict.fromkeys(paths)) or _format_no_results(query, search_boundary=search_meta)
+    elif output_mode == "count":
         counts: dict[str, int] = {}
-        for line in matches:
-            path = line.split(":", 1)[0] if ":" in line else ""
+        for item in matches:
+            path = str(item.get("path") or "")
             if path:
                 counts[path] = counts.get(path, 0) + 1
-        return "\n".join(f"{path}:{count}" for path, count in counts.items()) or _format_no_results(query)
-    return "\n".join(matches)
+        text = "\n".join(f"{path}:{count}" for path, count in counts.items()) or _format_no_results(query, search_boundary=search_meta)
+    else:
+        text = "\n".join(
+            f"{item['path']}:{item['line']}:{item['column']}:{item['text']}"
+            for item in matches
+            if item.get("path") and item.get("line") and item.get("column")
+        )
+    text = _prepend_search_summary(text, matches=matches, query=query, output_mode=output_mode, search_meta=search_meta)
+    text = _append_read_window_notice(text, matches=matches)
+    return _append_structured_search_notice(text, search_meta=search_meta)
+
+
+def _prepend_search_summary(
+    text: str,
+    *,
+    matches: list[dict[str, Any]],
+    query: str,
+    output_mode: str,
+    search_meta: dict[str, Any] | None = None,
+) -> str:
+    meta = dict(search_meta or {})
+    header = [
+        f"搜索状态：{_search_status_label(matches, search_meta=meta)}",
+        "证据语义：locator-only；需要逐行判断、修改或引用时再 read_file。",
+        f"query: {query}",
+    ]
+    backend = str(meta.get("backend") or "").strip()
+    strategy = str(meta.get("text_search_strategy") or "").strip()
+    roots = [str(item) for item in list(meta.get("searched_roots") or []) if str(item)]
+    if backend or strategy:
+        header.append(f"检索层：{backend or 'unknown'}{(' / ' + strategy) if strategy else ''}")
+    if roots:
+        header.append("搜索范围：" + ", ".join(roots[:8]))
+    limit = _safe_int(meta.get("limit"))
+    matched_count = _safe_int(meta.get("matched_count"))
+    if limit or matched_count:
+        header.append(f"返回：{len(matches)} 条；工具命中计数：{matched_count}; limit={limit}; output_mode={output_mode}")
+    return "\n".join(header) + "\n" + str(text or "").rstrip()
+
+
+def _search_status_label(matches: list[dict[str, Any]], *, search_meta: dict[str, Any] | None = None) -> str:
+    meta = dict(search_meta or {})
+    status = str(meta.get("status") or "").strip()
+    incomplete = bool(meta.get("truncated") or meta.get("has_more")) or status in {"timeout", "error", "permission_error"}
+    if matches:
+        return "candidate_only_incomplete" if incomplete else "candidate_only"
+    if status == "no_match" and not incomplete:
+        return "no_match_complete"
+    if status in {"timeout", "error", "permission_error"} or incomplete:
+        return "no_match_incomplete"
+    return status or "no_match_unknown"
+
+
+def _append_structured_search_notice(text: str, *, search_meta: dict[str, Any] | None = None) -> str:
+    meta = dict(search_meta or {})
+    status = str(meta.get("status") or "").strip()
+    notices: list[str] = []
+    if status == "timeout":
+        notices.append("搜索超时；结果不完整，不能据此判断不存在。")
+    elif status in {"error", "permission_error"}:
+        detail = str(meta.get("error") or meta.get("stderr") or "").strip()
+        notices.append("搜索未完成：" + (detail[:240] if detail else status))
+    if meta.get("has_more"):
+        notices.append("搜索命中分页/预算上限；用 offset/head_limit 翻页，或收窄 roots/glob/关键词。")
+    if not notices:
+        return text
+    return str(text or "").rstrip() + "\n" + "\n".join(notices)
+
+
+def _append_read_window_notice(text: str, *, matches: list[dict[str, Any]]) -> str:
+    windows: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    for item in list(matches or []):
+        window = dict(dict(item or {}).get("recommended_read_window") or {})
+        path = str(window.get("path") or "").strip()
+        start_line = _safe_int(window.get("start_line"))
+        line_count = _safe_int(window.get("line_count"))
+        if not path or start_line <= 0 or line_count <= 0:
+            continue
+        key = (path, start_line, line_count)
+        if key in seen:
+            continue
+        seen.add(key)
+        windows.append(window)
+        if len(windows) >= 3:
+            break
+    if not windows:
+        return text
+    lines = [
+        f"- read_file path=\"{window['path']}\" start_line={int(window['start_line'])} line_count={int(window['line_count'])}"
+        for window in windows
+    ]
+    return str(text or "").rstrip() + "\n候选读取窗口（可选；只有需要 exact source 时读取）：\n" + "\n".join(lines)
+
+
+def _slice_structured_matches(matches: list[dict[str, Any]], *, offset: int, limit: int) -> list[dict[str, Any]]:
+    start = max(0, int(offset or 0))
+    return [dict(item) for item in list(matches or [])[start : start + max(1, int(limit or 1))] if isinstance(item, dict)]
 
 
 def _search_limit(*, max_results: int, head_limit: int = 0) -> int:
@@ -520,28 +385,8 @@ def _normalize_output_mode(value: str) -> str:
     return mode if mode in {"content", "files_with_matches", "count"} else "content"
 
 
-def _slice_matches(matches: list[str], *, offset: int, limit: int) -> list[str]:
-    start = max(0, int(offset or 0))
-    return list(matches)[start : start + max(1, int(limit or 1))]
-
-
-def _slice_raw_match_lines(lines: list[str], *, offset: int, limit: int) -> list[str]:
-    return _slice_matches(lines, offset=offset, limit=limit)
-
-
-def _default_search_exclude_args(enabled: bool) -> list[str]:
-    if not enabled:
-        return []
-    args: list[str] = []
-    for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
-        args.extend(["--glob", f"!{excluded}/**"])
-    return args
-
-
-def _runtime_private_exclude_args() -> list[str]:
-    args: list[str] = []
-    for excluded in DEFAULT_RUNTIME_PRIVATE_PATHS:
-        args.extend(["--glob", f"!{excluded}"])
-    return args
-
-
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

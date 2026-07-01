@@ -70,6 +70,12 @@ _DIRECT_PROMPT_REFS = (
     "agent.main_interactive_agent.single_agent_turn.work_role",
     "agent.main_interactive_agent.task_execution.work_role",
     "agent.main_interactive_agent.tool_observation_followup.work_role",
+    "agent.main_coding_agent.single_agent_turn.work_role",
+    "agent.main_coding_agent.task_execution.work_role",
+    "agent.main_coding_agent.tool_observation_followup.work_role",
+    "agent.main_office_agent.single_agent_turn.work_role",
+    "agent.main_office_agent.task_execution.work_role",
+    "agent.main_office_agent.tool_observation_followup.work_role",
     "agent.context_compactor_agent.semantic_compaction.work_role",
     "agent.memory_system_agent.memory_maintenance.work_role",
     "personality.default.mythical_age",
@@ -272,4 +278,3 @@ def _migrate_prompt_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if key in next_payload:
             next_payload[key] = list(migrate_prompt_ref_sequence(next_payload.get(key)))
     return next_payload
-

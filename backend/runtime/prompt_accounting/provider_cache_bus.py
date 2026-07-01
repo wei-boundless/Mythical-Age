@@ -62,6 +62,7 @@ def build_provider_cache_log_view(
     latest_status = str(latest.get("cache_status") or "")
     latest_under_read_tokens = _row_under_read_tokens(latest)
     latest_volatile_tokens = int(latest.get("volatile_tokens") or 0) if latest else 0
+    latest_current_context_append_tokens = int(latest.get("current_context_append_tokens") or 0) if latest else 0
     latest_current_turn_tail_tokens = int(latest.get("current_turn_tail_tokens") or 0) if latest else 0
     latest_never_replay_tail_tokens = int(latest.get("never_replay_tail_tokens") or 0) if latest else 0
     latest_unconfirmed_provider_replay_tokens = int(latest.get("unconfirmed_provider_replay_tokens") or 0) if latest else 0
@@ -101,6 +102,7 @@ def build_provider_cache_log_view(
             "latest_prefix_health": latest_health,
             "latest_under_read_tokens": latest_under_read_tokens,
             "latest_volatile_tokens": latest_volatile_tokens,
+            "latest_current_context_append_tokens": latest_current_context_append_tokens,
             "latest_current_turn_tail_tokens": latest_current_turn_tail_tokens,
             "latest_never_replay_tail_tokens": latest_never_replay_tail_tokens,
             "latest_unconfirmed_provider_replay_tokens": latest_unconfirmed_provider_replay_tokens,

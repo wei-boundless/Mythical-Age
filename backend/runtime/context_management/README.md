@@ -139,7 +139,7 @@ Pipeline 输出 `ContextPipelineResult.message_specs` 后，由上游（`compile
 
 ## 三、各模块详解
 
-### 3.1 Context Segment Policy (`context_segment_policy.py`)
+### 3.1 Context Segment Policy (`context_system/segments/policy.py`)
 
 **核心数据结构：** `ContextSegmentPolicy`（dataclass）
 
@@ -153,7 +153,7 @@ Pipeline 输出 `ContextPipelineResult.message_specs` 后，由上游（`compile
 | `prefix_tier` | 层级：`"static"` / `"dynamic"` / `"volatile"` |
 | `semantic_slot` | 语义槽位（用于排序和 content replacement） |
 
-**映射规则：** `context_segment_policy_for_spec()` 只接受 `context_segment_registry` 已声明的 `spec.kind`。未声明 kind 会被标记为 `undeclared_context_segment` 隔离策略；主链路中的 `SystemLineController` 会阻止它进入 `ContextInputEnvelope` 和四段物理输入。新增上下文资产必须先补 `ContextSegmentKindDeclaration` / `SystemAssetLine`，不能靠 append 兜底进入 provider payload。
+**映射规则：** `context_segment_policy_for_spec()` 只接受 `context_system.segments.declarations` 已声明的 `spec.kind`。未声明 kind 会被标记为 `undeclared_context_segment` 隔离策略；主链路中的 `SystemLineController` 会阻止它进入 `ContextInputEnvelope` 和四段物理输入。新增上下文资产必须先补 `ContextSegmentKindDeclaration` / `SystemAssetLine`，不能靠 append 兜底进入 provider payload。
 
 **已知 kind 分类示例：**
 
@@ -161,11 +161,11 @@ Pipeline 输出 `ContextPipelineResult.message_specs` 后，由上游（`compile
 STATIC_PREFIX_KINDS: global_static, agent_stable, tool_index_stable, turn_operating_contract
 CONTEXT_MEMORY_PREFIX: physical_prefix_frame_*_replay
 CONTEXT_APPEND: provider_protocol_history, current_turn_user_context, runtime_memory_context, tool_transcript_delta
-DYNAMIC_TAIL: runtime_control_signal_tail, turn_attention_index, partial_stream_recovery_instruction
+DYNAMIC_TAIL: active_execution_lease, runtime_control_signal_tail, turn_attention_index, partial_stream_recovery_instruction
 UNDECLARED_KIND: blocked by SystemLineController before materialization
 ```
 
-### 3.2 Context Segment Registry (`context_segment_registry.py`)
+### 3.2 Context Segment Declarations (`context_system/segments/declarations.py`)
 
 集中注册所有上下文类型的声明。每种 kind 声明包含：
 
@@ -175,7 +175,7 @@ UNDECLARED_KIND: blocked by SystemLineController before materialization
 - `capability` — LLM 能力要求
 - `dynamic_tier` — 动态分层
 
-**注册方式：** `register_context_segment_policy_defaults()` 在模块加载时调用，建立 kind → policy 的完整映射。
+**注册方式：** `context_system.segments.declarations` 声明 kind / slot / source / capability，`context_system.segments.policy` 在模块加载时调用 `register_context_segment_policy_defaults()`，建立 kind → policy 的完整映射。`runtime.context_management` 只消费共享声明和策略，不再保留本地 registry / policy 实现文件。
 
 ### 3.3 Provider Visible Append Ledger (`provider_visible_append_ledger.py`)
 
@@ -362,8 +362,6 @@ UNDECLARED_KIND: blocked by SystemLineController before materialization
 backend/runtime/context_management/
 ├── __init__.py                          # 模块入口，导出所有公开 API
 ├── context_pipeline.py                  # 核心管线编排（四阶段）
-├── context_segment_policy.py            # 消息段策略定义与映射
-├── context_segment_registry.py          # 消息段 kind 注册表
 ├── context_capability_policy.py         # 能力过滤策略
 ├── physical_context_plan.py             # 物理车道规划 + 缓存脊柱
 ├── provider_visible_append_ledger.py    # Provider-visible current append 确认账本
@@ -408,6 +406,11 @@ backend/harness/runtime/
 
 backend/runtime_objects/
 └── tool_result_storage.py               # 工具结果存储 + 内容替换
+
+backend/context_system/segments/
+├── declarations.py                      # 消息段 kind 声明、语义槽、来源和能力归属
+├── policy.py                            # section/cache/commit/replay 策略解析
+└── metadata.py                          # provider replay / byte preservation metadata
 ```
 
 ---

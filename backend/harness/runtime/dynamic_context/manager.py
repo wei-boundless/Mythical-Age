@@ -423,10 +423,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_state",
                     source="task_state",
-                    volatility_reason="task execution state, observations, and work progress change each step",
+                    volatility_reason="task execution state cursor changes each step but remains a provider-visible task-state fact after success",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations, "work_rollout": request.work_rollout}),
                     output_chars=estimate_chars(volatile_state),
                     projection_strategy="white_listed_task_state_projection",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=(),
                 )
             )
@@ -470,11 +471,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_goal_context",
                     source="task_goal_context",
-                    volatility_reason="active goal mode boundary can change only through task contract revision; the current boundary stays in the dynamic tail while historical context remains sealed",
+                    volatility_reason="active goal mode boundary can change only through task contract revision and is emitted as a content-versioned task-state fact",
                     input_chars=estimate_chars({"task_run_contract": request.task_run_contract}),
                     output_chars=estimate_chars(task_goal_context),
                     projection_strategy="goal_work_mode_contract_projection",
-                    cache_impact="dynamic_tail_only",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
@@ -492,11 +493,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
                     source="task_plan_context",
-                    volatility_reason="active plan mode strategy can be revised by the agent; it is projected as its own dynamic tail segment instead of absorbing todo execution state",
+                    volatility_reason="active plan mode strategy can be revised by the agent and is emitted as a content-versioned task-state fact",
                     input_chars=estimate_chars({"task_run_contract": request.task_run_contract}),
                     output_chars=estimate_chars(task_plan_context),
                     projection_strategy="plan_work_mode_baseline_projection",
-                    cache_impact="dynamic_tail_only",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
@@ -516,11 +517,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_todo_context",
                     source="task_todo_context",
-                    volatility_reason="todo execution cursor changes as the agent works; it is projected as a separate dynamic tail segment and does not rewrite the plan baseline",
+                    volatility_reason="todo execution cursor changes as the agent works and is emitted as a content-versioned task-state fact",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_todo_context),
                     projection_strategy="todo_work_mode_baseline_plus_runtime_cursor_projection",
-                    cache_impact="dynamic_tail_only",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
@@ -857,7 +858,6 @@ def _inherited_file_state_projection(value: Any) -> list[dict[str, Any]]:
                     ],
                     "coverage": _bounded_projection_dict(item.get("coverage"), limit=12, chars=800),
                     "exact_coverage": _bounded_projection_dict(item.get("exact_coverage"), limit=12, chars=800),
-                    "next_suggested_read": _bounded_projection_dict(item.get("next_suggested_read"), limit=8, chars=500),
                     "content_sha256": compact_text(item.get("content_sha256") or "", limit=120),
                     "last_observation_ref": compact_text(item.get("last_observation_ref") or "", limit=220),
                     "authority": compact_text(item.get("authority") or "runtime.memory.file_state_authority.task_file_state", limit=160),

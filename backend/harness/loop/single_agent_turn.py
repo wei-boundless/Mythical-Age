@@ -89,7 +89,7 @@ from runtime.context_management.followup_context_rebase import (
     current_followup_append_context_policy,
     provider_protocol_prefix_replay_policy,
 )
-from runtime.context_management.provider_message_replay_contract import (
+from context_system.segments.metadata import (
     PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY,
     PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
     PHYSICAL_PREFIX_FRAME_REPLAY_STATUS,
@@ -6853,7 +6853,7 @@ def _artifact_ref_path_set(refs: list[dict[str, Any]]) -> set[str]:
 def _turn_tool_artifact_project_root(*, runtime_host: Any, sandbox_policy: dict[str, Any]) -> Path:
     workspace_root = str(dict(sandbox_policy or {}).get("workspace_root") or "").strip()
     if workspace_root:
-        return Path(workspace_root).resolve()
+        return ProjectLayout.from_backend_dir(Path(workspace_root).expanduser().resolve()).project_root.resolve()
     return ProjectLayout.from_backend_dir(Path(str(getattr(runtime_host, "backend_dir", "") or ".")).resolve()).project_root.resolve()
 
 
@@ -6977,7 +6977,7 @@ def _single_turn_workspace_root(runtime_assembly: Any, *, runtime_host: Any) -> 
     ):
         text = str(candidate or "").strip()
         if text:
-            return text
+            return str(ProjectLayout.from_backend_dir(Path(text).expanduser().resolve()).project_root.resolve())
     backend_dir = Path(str(getattr(runtime_host, "backend_dir", "") or assembly_payload.get("backend_dir") or ".")).resolve()
     tool_runtime_base_dir = getattr(
         getattr(
@@ -8155,7 +8155,7 @@ def _annotate_single_agent_followup_segment_plan(
         metadata = {
             **metadata,
             **context_segment_policy_metadata(policy),
-            "context_contract_mapping_authority": "runtime.context_management.context_segment_policy",
+            "context_contract_mapping_authority": "context_system.segments.policy",
         }
         if not _is_followup_sealable_segment(segment):
             segment["metadata"] = metadata

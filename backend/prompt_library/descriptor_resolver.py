@@ -85,6 +85,7 @@ def descriptor_from_resource(resource: PromptResource) -> PromptDescriptor:
             "subtype": resource.subtype,
             "resource_type": resource.resource_type,
             "version": resource.version,
+            "origin": resource.origin.to_dict(),
             **dict(resource.metadata or {}),
         },
     )

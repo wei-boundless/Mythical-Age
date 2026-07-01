@@ -446,7 +446,7 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
         summary.update(
             {
                 "critical_fields": {"pattern": dict(field_paths.get("pattern") or {})},
-                "usage_hint": "Use for explicit wildcard path patterns such as *.html, **/*.py, or backend/**/*.ts. It returns paths, not file contents.",
+                "usage_hint": "Use only when the path pattern is already an explicit wildcard such as *.html, **/*.py, or backend/**/*.ts. It returns paths, not file contents.",
                 "output_facts": ["pattern", "matches"],
             }
         )
@@ -460,7 +460,7 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                 "usage_hint": (
                     "Use for filename or path keywords only when the exact path is unknown. "
                     "If task_run_contract GoalContext/PlanContext/TodoContext working_scope target_objects/source_refs/workspace_refs or bound/editor context already gives a file-like path, "
-                    "use path_exists/read_file directly instead of search_files."
+                    "use path_exists/read_file directly instead of search_files. For content, error text, config keys, or cross-file concepts, use search_text as the rg-like search entry."
                 ),
                 "output_facts": ["query", "matches", "searched_roots", "used_default_roots", "omitted_workspace_root", "search_meta"],
             }
@@ -479,13 +479,15 @@ def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict
                     "offset": dict(field_paths.get("offset") or {}),
                 },
                 "usage_hint": (
-                    "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. "
+                    "Use as the normal rg-like workspace search entry for content keywords, phrases, error text, config keys, and cross-file concepts. "
+                    "Put known files in paths, directory scopes in roots, and file-type filters in glob. "
                     "Do not use search_text to rediscover a known file-like target object; read_file is the direct path tool. "
                     "paths accepts files only; directories must go in roots. Do not pass path or pattern. "
-                    "If recommended_read_windows are returned, treat them as candidate_read_windows and call read_file on a candidate only when exact source evidence is needed."
+                    "If recommended_read_windows are returned, treat them as optional candidate_read_windows and call read_file on a candidate only when exact source evidence is needed. "
+                    "If repeated rg-like searches do not converge or the task needs cross-layer ranking, upgrade to codebase_search or a codebase search specialist when visible."
                 ),
                 "forbidden_fields": ["path", "pattern"],
-                "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
+                "output_facts": ["matches", "recommended_read_windows", "searched_roots", "search_status", "applied_limit", "applied_offset"],
             }
         )
     return {key: _json_stable(value) for key, value in summary.items() if value not in ("", [], {})}

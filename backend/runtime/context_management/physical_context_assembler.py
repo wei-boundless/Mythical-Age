@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
@@ -20,11 +20,12 @@ from .physical_context_plan import (
 )
 from .physical_prefix_frame_ledger import latest_confirmed_physical_prefix_frame
 from .physical_prefix_frame_models import PhysicalPrefixFrame, PhysicalPrefixFrameSegment
-from .provider_message_replay_contract import (
+from context_system.segments.metadata import (
     PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY,
     PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
     PHYSICAL_PREFIX_FRAME_REPLAY_STATUS,
     physical_prefix_frame_replay_metadata,
+    provider_protocol_replay_metadata,
     provider_message_replay_kind,
 )
 
@@ -184,30 +185,27 @@ def assemble_physical_context_spine(
     clean_old_context = [dict(item) for item in list(inputs.old_context_replay_specs or []) if isinstance(item, dict)]
     clean_append_specs = [dict(item) for item in list(inputs.current_append_specs or []) if isinstance(item, dict)]
     clean_tail = [dict(item) for item in list(inputs.current_tail_specs or []) if isinstance(item, dict)]
+    ignored_old_context_inputs = _ignored_old_context_input_specs(clean_old_context)
     current_append_specs, ignored_provider_visible_specs = _current_append_specs(clean_append_specs)
     current_tail_specs, never_replay_tail_specs = _split_current_tail_specs(clean_tail)
     frame: PhysicalPrefixFrame | None = None
     frame_replay_specs: list[dict[str, Any]] = []
     frame_replay_diagnostics: dict[str, Any] = {}
-    if clean_old_context:
-        replay_specs = clean_old_context
-        replay_source = "confirmed_old_context_input"
+    frame_payload = latest_confirmed_physical_prefix_frame(
+        storage_root=inputs.storage_root,
+        scope=inputs.scope,
+        provider=inputs.provider,
+        model=inputs.model,
+        provider_lane=inputs.provider_lane,
+    )
+    frame = PhysicalPrefixFrame.from_dict(frame_payload) if frame_payload else None
+    if frame is not None and frame.frame_id:
+        frame_replay_specs, frame_replay_diagnostics = _frame_replay_specs(frame)
+        replay_specs = frame_replay_specs
+        replay_source = "physical_prefix_frame"
     else:
-        frame_payload = latest_confirmed_physical_prefix_frame(
-            storage_root=inputs.storage_root,
-            scope=inputs.scope,
-            provider=inputs.provider,
-            model=inputs.model,
-            provider_lane=inputs.provider_lane,
-        )
-        frame = PhysicalPrefixFrame.from_dict(frame_payload) if frame_payload else None
-        if frame is not None and frame.frame_id:
-            frame_replay_specs, frame_replay_diagnostics = _frame_replay_specs(frame)
-            replay_specs = frame_replay_specs
-            replay_source = "physical_prefix_frame"
-        else:
-            replay_specs = []
-            replay_source = "missing_physical_prefix_frame"
+        replay_specs = []
+        replay_source = "missing_physical_prefix_frame"
     physical_static_specs = _with_physical_lane_specs(clean_static, lane=GLOBAL_STATIC_PREFIX)
     physical_replay_specs = _with_physical_lane_specs(replay_specs, lane=PROVIDER_VISIBLE_CONTEXT_PREFIX)
     physical_current_append_specs = _with_physical_lane_specs(current_append_specs, lane=CURRENT_TURN_TAIL)
@@ -236,6 +234,8 @@ def assemble_physical_context_spine(
         "input_old_context_replay_spec_count": len(clean_old_context),
         "old_context_replay_spec_count": len(replay_specs),
         "physical_prefix_frame_replay_spec_count": len(frame_replay_specs),
+        "ignored_old_context_input_spec_count": len(ignored_old_context_inputs),
+        "ignored_old_context_input_specs": ignored_old_context_inputs[:30],
         "ignored_non_current_provider_visible_spec_count": len(ignored_provider_visible_specs),
         "ignored_non_current_provider_visible_specs": ignored_provider_visible_specs[:30],
         "current_append_spec_count": len(current_append_specs),
@@ -256,10 +256,11 @@ def assemble_physical_context_spine(
         "physical_splice_rule": "static_prefix_then_confirmed_old_context_then_current_append_then_dynamic_tail",
         "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
     }
-    if not clean_old_context and frame is None and ignored_provider_visible_specs:
+    if frame is None and (ignored_provider_visible_specs or ignored_old_context_inputs):
         diagnostics["structural_gap"] = {
             "code": "physical_prefix_frame_missing_for_confirmed_provider_visible_context",
             "policy": "fail_closed_provider_message_replay_until_first_confirmed_physical_frame",
+            "ignored_old_context_input_spec_count": len(ignored_old_context_inputs),
             "ignored_provider_visible_spec_count": len(ignored_provider_visible_specs),
             "authority": PHYSICAL_CONTEXT_ASSEMBLER_AUTHORITY,
         }
@@ -454,6 +455,29 @@ def _current_append_specs(
             }
         )
     return current_append_specs, ignored_specs
+
+
+def _ignored_old_context_input_specs(
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    ignored: list[dict[str, Any]] = []
+    for raw_spec in list(specs or []):
+        if not isinstance(raw_spec, dict):
+            continue
+        spec = dict(raw_spec)
+        metadata = dict(spec.get("metadata") or {})
+        ignored.append(
+            {
+                "kind": str(spec.get("kind") or ""),
+                "source_ref": str(spec.get("source_ref") or ""),
+                "context_replay_policy": str(metadata.get("context_replay_policy") or ""),
+                "provider_message_replay_contract": provider_message_replay_kind(spec),
+                "provider_protocol_replay": bool(provider_protocol_replay_metadata(metadata)),
+                "physical_prefix_frame_replay": bool(physical_prefix_frame_replay_metadata(metadata)),
+                "reason": "confirmed_old_context_is_replayed_only_from_latest_physical_prefix_frame",
+            }
+        )
+    return ignored
 
 
 def _frame_replay_specs(frame: PhysicalPrefixFrame) -> tuple[list[dict[str, Any]], dict[str, Any]]:

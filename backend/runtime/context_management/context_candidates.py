@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     CURRENT_CONTROL_TAIL_KINDS,
@@ -91,6 +91,10 @@ class ContextCommitCandidate:
     compaction_generation: str = ""
     cache_spine_hash: str = ""
     provider_tool_protocol: dict[str, Any] = field(default_factory=dict)
+    fact_slot_key: str = ""
+    fact_content_hash: str = ""
+    fact_change_class: str = ""
+    fact_supersession_policy: str = ""
     candidate_id: str = ""
     fork_anchor_delta: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.context_management.context_commit_candidate"
@@ -133,6 +137,15 @@ class ContextCommitCandidate:
             compaction_generation=str(metadata.get("compaction_generation") or "").strip(),
             cache_spine_hash=str(metadata.get("cache_spine_hash") or "").strip(),
             provider_tool_protocol=dict(metadata.get("provider_tool_protocol") or {}),
+            fact_slot_key=str(metadata.get("provider_visible_append_fact_slot_key") or metadata.get("fact_slot_key") or "").strip(),
+            fact_content_hash=str(
+                metadata.get("provider_visible_append_fact_content_hash")
+                or metadata.get("fact_content_hash")
+                or metadata.get("append_only_content_hash")
+                or ""
+            ).strip(),
+            fact_change_class=str(metadata.get("fact_change_class") or "").strip(),
+            fact_supersession_policy=str(metadata.get("fact_supersession_policy") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:

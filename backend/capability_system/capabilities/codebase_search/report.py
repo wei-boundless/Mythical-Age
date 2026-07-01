@@ -63,6 +63,9 @@ def _code_structure_map(*, query: str, findings: tuple[CodebaseEvidence, ...]) -
                     "end_line": end_line,
                     "symbol": str(item.symbol or ""),
                     "evidence_kind": str(item.evidence_kind or ""),
+                    "source_layer": str(item.source_layer or ""),
+                    "search_status": str(item.search_status or ""),
+                    "matched_terms": list(item.matched_terms or ()),
                     "score": round(float(item.score), 3),
                     "reason": str(item.reason or ""),
                     "read_request": {

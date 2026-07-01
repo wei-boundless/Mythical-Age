@@ -2085,15 +2085,19 @@ def _target_id_from_invocation(tool_invocation_id: str) -> str:
 def _workspace_root_from_sandbox_policy(policy: dict[str, Any], *, fallback: Path) -> Path:
     workspace_root = str(dict(policy or {}).get("workspace_root") or "").strip()
     if workspace_root:
-        return Path(workspace_root).resolve()
-    return Path(fallback).resolve()
+        return _canonical_project_workspace_root(workspace_root)
+    return _canonical_project_workspace_root(fallback)
 
 
 def _workspace_root_from_policy(policy: dict[str, Any]) -> Path | None:
     workspace_root = str(dict(policy or {}).get("workspace_root") or "").strip()
     if not workspace_root:
         return None
-    return Path(workspace_root).resolve()
+    return _canonical_project_workspace_root(workspace_root)
+
+
+def _canonical_project_workspace_root(value: str | Path) -> Path:
+    return ProjectLayout.from_backend_dir(Path(value).expanduser().resolve()).project_root.resolve()
 
 
 def _normalize_workspace_path_args(tool_name: str, args: dict[str, Any], *, workspace_root: Path | None) -> dict[str, Any]:

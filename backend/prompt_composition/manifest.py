@@ -9,8 +9,8 @@ from .models import (
     PromptCompositionManifest,
     PromptCompositionMessageProjection,
     PromptCompositionPlan,
-    PromptCompositionSlot,
-    RuntimePromptSlotPlan,
+    PromptManifestBinding,
+    RuntimeLoadSegmentPlan,
 )
 from .runtime_slot_plan import composition_slots_from_runtime_slot_plan
 from .tracing import bind_segments_to_slots
@@ -20,7 +20,7 @@ def build_runtime_slot_prompt_composition_manifest(
     *,
     invocation_kind: str,
     packet_id: str,
-    runtime_slot_plan: RuntimePromptSlotPlan,
+    runtime_slot_plan: RuntimeLoadSegmentPlan,
     segment_plan: dict[str, Any],
     dynamic_fragment_refs: tuple[str, ...] = (),
     volatile_state_refs: tuple[str, ...] = (),
@@ -47,6 +47,7 @@ def build_runtime_slot_prompt_composition_manifest(
     message_projection = _message_projection(segments=segments, bindings=bindings)
     coverage = _coverage(plan=plan, bindings=bindings)
     cache_boundary = _cache_boundary_diagnostics(plan=plan, segments=segments)
+    prompt_source_audit = _prompt_source_audit(plan)
     seed = {
         "invocation_kind": invocation_kind,
         "packet_id": packet_id,
@@ -80,6 +81,7 @@ def build_runtime_slot_prompt_composition_manifest(
             "segment_plan_ref": str(segment_plan.get("segment_plan_id") or ""),
             "runtime_slot_plan_ref": str(runtime_slot_plan.plan_id or ""),
             "cache_boundary": cache_boundary,
+            "prompt_source_audit": prompt_source_audit,
             "provider_request_content_changed": False,
             "authority": "prompt_composition.runtime_slot_manifest_builder",
         },
@@ -177,6 +179,31 @@ def _binding_samples(bindings: list[Any], *, limit: int = 5) -> list[dict[str, A
         }
         for binding in bindings[:limit]
     ]
+
+
+def _prompt_source_audit(plan: PromptCompositionPlan) -> list[dict[str, Any]]:
+    audit: list[dict[str, Any]] = []
+    for slot in tuple(plan.slots or ()):
+        metadata = dict(slot.metadata or {})
+        prompt_audit = dict(metadata.get("prompt_source_audit") or {})
+        if not prompt_audit:
+            prompt_audit = {
+                "prompt_ref": str(slot.prompt_ref or slot.source_ref or ""),
+                "source_ref": str(slot.source_ref or ""),
+                "content_hash": str(slot.content_hash or ""),
+            }
+        prompt_audit.update(
+            {
+                "manifest_binding_id": slot.slot_id,
+                "slot_kind": slot.slot_kind,
+                "layer": slot.layer,
+                "cache_role": slot.cache_role,
+                "prefix_tier": slot.prefix_tier,
+                "order": int(slot.order or 0),
+            }
+        )
+        audit.append(prompt_audit)
+    return audit
 
 
 _PREFIX_TIER_ORDER = {
@@ -330,7 +357,7 @@ def _cache_boundary_diagnostics(
     }
 
 
-def _layer_cache_policy_violations(slots: tuple[PromptCompositionSlot, ...]) -> list[dict[str, Any]]:
+def _layer_cache_policy_violations(slots: tuple[PromptManifestBinding, ...]) -> list[dict[str, Any]]:
     violations: list[dict[str, Any]] = []
     for slot in slots:
         policy = _LAYER_CACHE_POLICY.get(str(slot.layer or ""))

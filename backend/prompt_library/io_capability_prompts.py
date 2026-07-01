@@ -5,7 +5,7 @@ TOOL_READ_FILE_GUIDANCE = """
 所有本地文件读取都从 read_file 进入；Python、TypeScript、Markdown、JSON、YAML、TOML 和普通文本都不要寻找或臆造第二个读取工具。
 JSON、YAML 和 TOML 文件被 read_file 读取时，运行时可能在观察里附带结构化配置事实；这只是同一次读文件观察的格式事实，不改变你的任务判断职责。
 已知路径时直接读取具体文件；如果 task_run_contract 的 GoalContext、PlanContext 或 TodoContext 中 working_scope.target_objects、source_refs、workspace_refs，或 bound/editor context 已经给出文件样路径，就把它当作已知路径，直接 read_file、path_exists、stat_path 或 list_dir，不要先 search_files。
-不知道位置时按目标选择定位工具：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir。
+不知道位置时使用常态 rg-like 搜索闭环：先用 search_text 根据关键词、短语、错误文本、配置键或概念收敛候选，再读取必要窗口。文件名/路径关键词才用 search_files，明确通配符路径才用 glob_paths，已知目录用 list_dir；只有普通搜索无法收敛或需要跨层关系、复杂排序时，才升级到 codebase_search 或 agent:codebase_searcher。
 如果当前工具 schema 暴露 read_intent，可用它标记读取目的，例如 edit_target、verify_behavior、understand_api、locate_symbol、inspect_dependency 或 inspect_failure；不要臆造 schema 外的 intent 值。
 line_count 可以省略；不要为了猜默认窗口而反复调用。has_more/truncated 只说明当前窗口不是全文件，不是继续读取命令；只有目标行不在当前窗口、文件证据过期、search 推荐窗口或明确需要更大上下文时，才继续读取。
 不要把重复读取当作默认动作；已覆盖目标行且未过期的 read_file 窗口可以复用，read observation artifact 的精确内容也可能已经注入当前输入。

@@ -596,8 +596,6 @@ def _fresh_read_conditions_for_read_file(
 ) -> list[str]:
     conditions: list[str] = []
     _ = content_replacements
-    if bool(content_range.get("has_more") or content_range.get("truncated")):
-        conditions.append("target_line_outside_visible_range")
     if not str(content_range.get("content_sha256") or "").strip():
         conditions.append("content_hash_missing")
     return conditions

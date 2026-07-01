@@ -19,14 +19,26 @@ PROMPT_VISIBILITIES = {"model_visible", "metadata_only", "locked_contract"}
 CONTRACT_PRIORITIES = {
     "core_contract",
     "project_contract",
+    "runtime_policy",
     "current_user_request",
     "task_contract",
     "observed_fact",
-    "runtime_policy",
     "owner_guidance",
     "memory_background",
     "weak_signal",
 }
+
+CONTRACT_PRIORITY_PRECEDENCE = (
+    "core_contract",
+    "project_contract",
+    "runtime_policy",
+    "current_user_request",
+    "task_contract",
+    "observed_fact",
+    "owner_guidance",
+    "memory_background",
+    "weak_signal",
+)
 
 CONFLICT_POLICIES = {
     "override",
@@ -55,6 +67,14 @@ def normalize_contract_priority(value: Any, *, category: str = "", resource_type
     if category_value in {"task", "graph_node"}:
         return "task_contract"
     return "owner_guidance"
+
+
+def contract_priority_rank(value: Any) -> int:
+    normalized = normalize_contract_priority(value)
+    try:
+        return CONTRACT_PRIORITY_PRECEDENCE.index(normalized)
+    except ValueError:
+        return CONTRACT_PRIORITY_PRECEDENCE.index("owner_guidance")
 
 
 def normalize_conflict_policy(value: Any, *, contract_priority: str = "") -> str:

@@ -5169,7 +5169,7 @@ def _task_workspace_root(runtime_assembly: dict[str, Any], *, runtime_host: Any)
     for candidate in (storage.get("workspace_root"), sandbox.get("workspace_root")):
         text = str(candidate or "").strip()
         if text:
-            return Path(text).resolve()
+            return ProjectLayout.from_backend_dir(Path(text).expanduser().resolve()).project_root.resolve()
     return ProjectLayout.from_backend_dir(runtime_host.backend_dir).project_root.resolve()
 
 

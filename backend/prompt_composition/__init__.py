@@ -12,7 +12,7 @@ from .context_envelope import (
 )
 from .manifest import build_runtime_slot_prompt_composition_manifest
 from .message_specs import build_model_message_spec, message_spec_content_source
-from .assembly_plan import PromptAssemblyPlan, PromptAssemblySlot, build_prompt_assembly_plan
+from .assembly_plan import PromptAssemblyPlan, PromptMaterialSegment, build_prompt_assembly_plan
 from .materializer import PromptMaterializedPacket, materialize_prompt_packet
 from .models import (
     PromptCompositionGraph,
@@ -21,13 +21,13 @@ from .models import (
     PromptCompositionMessageProjection,
     PromptCompositionPlan,
     PromptCompositionSegmentBinding,
-    PromptCompositionSlot,
+    PromptManifestBinding,
     RuntimePromptSource,
     RuntimePromptSourceManifest,
     RuntimeContextLoadEntry,
     RuntimeContextLoadPlan,
-    RuntimePromptSlot,
-    RuntimePromptSlotPlan,
+    RuntimeLoadSegment,
+    RuntimeLoadSegmentPlan,
 )
 from .renderer import PromptCompositionRenderResult, render_model_messages_from_projection
 from .runtime_context_load_plan import build_runtime_context_load_plan, materialize_runtime_context_load_plan
@@ -60,9 +60,9 @@ __all__ = [
     "PromptCompositionRenderResult",
     "PromptCompositionRuntimeFragment",
     "PromptCompositionSegmentBinding",
-    "PromptCompositionSlot",
+    "PromptManifestBinding",
     "PromptAssemblyPlan",
-    "PromptAssemblySlot",
+    "PromptMaterialSegment",
     "PromptMaterializedPacket",
     "PromptSlotPolicy",
     "PromptSource",
@@ -73,8 +73,8 @@ __all__ = [
     "RuntimePromptSourceManifest",
     "RuntimeContextLoadEntry",
     "RuntimeContextLoadPlan",
-    "RuntimePromptSlot",
-    "RuntimePromptSlotPlan",
+    "RuntimeLoadSegment",
+    "RuntimeLoadSegmentPlan",
     "build_content_fragments_from_model_messages",
     "build_content_fragments_from_message_specs",
     "build_model_message_spec",

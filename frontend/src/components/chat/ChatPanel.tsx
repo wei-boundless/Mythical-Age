@@ -756,13 +756,15 @@ function providerCachePayloadBreakdownTitle(tokenStats: TokenStats) {
   if (summary.latest_non_cache_payload_breakdown_available !== true) {
     return `非缓存 payload ${formatExactTokenCount(volatileTokens)} tokens，拆分将在下一次 provider response 后可用`;
   }
-  const currentTurnTailTokens = nonNegativeTokenCount(summary.latest_current_turn_tail_tokens);
+  const currentAppendTokens = nonNegativeTokenCount(
+    summary.latest_current_context_append_tokens ?? summary.latest_current_turn_tail_tokens,
+  );
   const pendingReplayTokens = nonNegativeTokenCount(summary.latest_unconfirmed_provider_replay_tokens);
   const neverReplayTailTokens = nonNegativeTokenCount(summary.latest_never_replay_tail_tokens);
   return [
     `非缓存 payload ${formatExactTokenCount(volatileTokens)} tokens`,
-    `当前轮尾部 ${formatExactTokenCount(currentTurnTailTokens)}`,
-    `待确认 replay ${formatExactTokenCount(pendingReplayTokens)}`,
+    `current append ${formatExactTokenCount(currentAppendTokens)}`,
+    `degraded replay ${formatExactTokenCount(pendingReplayTokens)}`,
     `永不重放尾部 ${formatExactTokenCount(neverReplayTailTokens)}`,
   ].join("，");
 }

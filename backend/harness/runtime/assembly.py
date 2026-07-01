@@ -18,7 +18,7 @@ from prompt_library import build_runtime_prompt_wiring_plan
 
 from .operation_projection import project_operation_authorization
 from .tool_scheduling import operation_requests_from_runtime_contract
-from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, build_base_prompt_mount_plan
+from .environment_prompt_controller import GENERAL_ENVIRONMENT_ID, build_base_environment_prompt_inventory
 from .personality_prompt_controller import select_personality_prompt
 
 
@@ -422,7 +422,7 @@ def assemble_runtime(
         runtime_contract=runtime_contract_payload,
         agent_runtime_profile=agent_runtime_profile,
     )
-    prompt_mount_plan = build_base_prompt_mount_plan(
+    prompt_mount_plan = build_base_environment_prompt_inventory(
         selected_environment=task_environment,
         personality_prompt_refs=personality_selection.personality_prompt_refs,
         personality_diagnostics=personality_selection.to_dict(),
@@ -638,7 +638,7 @@ def _normalize_workspace_root(value: str | Path | None) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    return str(Path(text).resolve())
+    return str(ProjectLayout.from_backend_dir(Path(text).expanduser().resolve()).project_root.resolve())
 
 
 def _runtime_storage_ref(backend_dir: str | Path) -> dict[str, Any]:

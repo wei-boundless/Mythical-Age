@@ -491,23 +491,25 @@ def _expected_miss_budget_diagnostics(
     current_append_tokens = int(token_diagnostics.get("context_append_prefix_predicted_tokens") or 0)
     volatile_tokens = int(diagnostics.get("volatile_predicted_tokens") or 0)
     current_turn_tail_tokens = int(diagnostics.get("current_turn_tail_predicted_tokens") or 0)
+    current_turn_tail_residual_tokens = max(0, current_turn_tail_tokens - current_append_tokens)
     never_replay_tail_tokens = int(diagnostics.get("never_replay_tail_predicted_tokens") or 0)
     unconfirmed_replay_tokens = int(diagnostics.get("unconfirmed_provider_replay_predicted_tokens") or 0)
     other_non_cache_tokens = int(diagnostics.get("other_non_cache_payload_predicted_tokens") or 0)
     blocker_tokens = int(token_diagnostics.get("provider_tool_schema_blocker_predicted_tokens") or 0)
     expected_miss_tokens = max(0, total_tokens - expected_prefix_tokens)
-    categorized_tokens = current_append_tokens + volatile_tokens + blocker_tokens
+    volatile_control_tokens = max(0, volatile_tokens - current_append_tokens)
+    categorized_tokens = current_append_tokens + volatile_control_tokens + blocker_tokens
     uncategorized_tokens = max(0, expected_miss_tokens - categorized_tokens)
     goal = float(target_diagnostics.get("target_warm_cache_read_rate_goal") or 0.95)
     allowed_miss_tokens = max(0, int(math.floor((1.0 - goal) * total_tokens)))
     families: list[dict[str, Any]] = []
     for kind, tokens, reason in (
-        ("current_context_append", current_append_tokens, "new append materializes this turn and can only be cached on a later request"),
-        ("current_turn_tail", current_turn_tail_tokens, "current turn tool/user append is provider-visible now but not cache-readable in this request"),
-        ("unconfirmed_provider_replay", unconfirmed_replay_tokens, "provider protocol replay is not confirmed as part of the cache spine for this request"),
+        ("current_context_append", current_append_tokens, "current append is provider-visible now but becomes cache-readable only after provider success seals it into the next physical prefix frame"),
+        ("current_turn_tail_residual", current_turn_tail_residual_tokens, "current-turn non-cache lane content outside declared current append should be inspected if large"),
+        ("degraded_provider_protocol_replay", unconfirmed_replay_tokens, "provider protocol replay is degraded diagnostic input and is not confirmed old context"),
         ("never_replay_tail", never_replay_tail_tokens, "dynamic runtime tail is invocation-local and must remain outside the cache spine"),
         ("other_non_cache_payload", other_non_cache_tokens, "non-cache payload is outside the physical cache spine and should be inspected if large"),
-        ("unvalidated_provider_tool_schema", blocker_tokens, "unvalidated provider tool schema is outside the physical cache spine and blocks provider prefix reuse"),
+        ("provider_tool_schema_sidecar", blocker_tokens, "provider tool schema travels as sidecar transport and is accounted separately from message-prefix cache reads"),
         ("uncategorized_non_prefix_payload", uncategorized_tokens, "remaining non-prefix payload should be inspected for cache pollution"),
     ):
         if tokens <= 0:
@@ -1086,15 +1088,11 @@ def _provider_payload_selected_segment_predicted_tokens(
 
 
 def _context_append_prefix_predicted_tokens(segment_map: PromptSegmentMap, *, tier: str) -> int:
+    del tier
     total = 0
     for segment in tuple(segment_map.segments or ()):
         metadata = dict(getattr(segment, "metadata", None) or {})
         if str(metadata.get("context_cache_section") or "") != "context_append":
-            continue
-        if not is_cache_eligible_prefix(
-            cache_role=getattr(segment, "cache_role", ""),
-            prefix_tier=getattr(segment, "prefix_tier", ""),
-        ):
             continue
         total += int(getattr(segment, "predicted_tokens", 0) or 0)
     return total

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from runtime.context_management.provider_message_replay_contract import provider_message_byte_preservation_required
+from context_system.segments.metadata import provider_message_byte_preservation_required
 
 from .models import PromptCompositionContentFragment
 

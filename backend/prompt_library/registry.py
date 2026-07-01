@@ -9,7 +9,15 @@ from prompt_library.migrations import migrate_prompt_pack_payload, migrate_promp
 
 from .agent_prompts import list_builtin_agent_prompt_resources
 from .environment_guidance_prompts import list_builtin_environment_guidance_prompt_resources
-from .models import PromptPack, PromptResource, PromptSet, prompt_pack_from_dict, prompt_resource_from_dict, prompt_set_from_dict
+from .models import (
+    PromptPack,
+    PromptResource,
+    PromptResourceOrigin,
+    PromptSet,
+    prompt_pack_from_dict,
+    prompt_resource_from_dict,
+    prompt_set_from_dict,
+)
 from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .personality_prompts import list_builtin_personality_prompt_resources
 from .prompt_sets import list_builtin_prompt_sets
@@ -98,7 +106,7 @@ class PromptLibraryRegistry:
         }
         stored_resources = {item.resource_id: item for item in self._list_stored_resources(normalize=True)}
         merged = {**builtin_resources, **stored_resources}
-        return sorted(merged.values(), key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
+        return sorted(merged.values(), key=_resource_sort_key)
 
     def list_active_resources(
         self,
@@ -131,7 +139,7 @@ class PromptLibraryRegistry:
             raise ValueError("PromptResource requires resource_id")
         resources = [item for item in self._list_stored_resources(normalize=True) if item.resource_id != target]
         resources.append(normalized_resource)
-        resources.sort(key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
+        resources.sort(key=_resource_sort_key)
         _write_json(_resources_path(self.base_dir), {"resources": [item.to_dict() for item in resources]})
         return normalized_resource
 
@@ -142,7 +150,7 @@ class PromptLibraryRegistry:
             if not str(normalized_resource.resource_id or "").strip():
                 continue
             existing[normalized_resource.resource_id] = normalized_resource
-        ordered = sorted(existing.values(), key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
+        ordered = sorted(existing.values(), key=_resource_sort_key)
         _write_json(_resources_path(self.base_dir), {"resources": [item.to_dict() for item in ordered]})
         return tuple(ordered)
 
@@ -219,7 +227,7 @@ class PromptLibraryRegistry:
             resources_by_id[resource.resource_id] = resource
         resources = sorted(
             resources_by_id.values(),
-            key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id),
+            key=_resource_sort_key,
         )
         if normalize:
             normalized = [item.to_dict() for item in resources]
@@ -281,11 +289,18 @@ class PromptLibraryRegistry:
             resource_type="graph_node.role",
             title=str(node.get("title") or node_id or graph_title or graph_id),
             content=str(prompt or "").strip(),
-            workflow_id=workflow_id,
-            task_id=task_id,
-            graph_id=str(graph_id or "").strip(),
-            node_id=node_id,
-            stage_id=node_id,
+            origin=PromptResourceOrigin(
+                origin_type="task_graph",
+                workflow_id=workflow_id,
+                task_id=task_id,
+                graph_id=str(graph_id or "").strip(),
+                node_id=node_id,
+                stage_id=node_id,
+                metadata={
+                    "graph_title": str(graph_title or "").strip(),
+                    "domain_id": str(domain_id or "").strip(),
+                },
+            ),
             tags=tuple(item for item in ("task_graph", domain_id, graph_id) if item),
             cache_scope="static",
             model_visible=True,
@@ -300,6 +315,17 @@ class PromptLibraryRegistry:
             },
         )
         return self.upsert_resource(resource)
+
+
+def _resource_sort_key(resource: PromptResource) -> tuple[str, str, str, str, str]:
+    origin = resource.origin
+    return (
+        resource.resource_type,
+        origin.workflow_id,
+        origin.task_id,
+        origin.graph_id,
+        resource.resource_id,
+    )
 
 
 def list_builtin_environment_prompt_resources() -> tuple[PromptResource, ...]:

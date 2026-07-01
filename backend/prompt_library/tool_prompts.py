@@ -104,13 +104,12 @@ read_persisted_tool_result 不用于补回 read_file 代码证据；代码证据
 TOOL_LOCAL_SEARCH_GUIDANCE = """
 使用本地搜索工具时，你是在为当前判断取得工作区事实；工具只返回候选路径、命中文本或匹配结果，不能替你决定任务目标。
 如果已经知道准确路径，或者 task_run_contract 的 GoalContext、PlanContext、TodoContext 中 working_scope.target_objects/source_refs/workspace_refs，或 bound context 已经给出文件样路径，直接用 read_file、path_exists、stat_path 或 list_dir，不要先搜索。
-如果目标是文件名或路径关键词，例如 mario、计划书、task_understanding.py，使用 search_files。
-如果目标包含明确通配符，例如 *.html、**/*.py、backend/**/*.ts，使用 glob_paths。
-如果目标是文件内容、函数名、报错文本、标题或引用片段，使用 search_text；已知具体文件时把文件放进 paths，目录范围放进 roots，文件类型范围放进 glob。
-search_text.paths 只能放具体文件，不能放目录；不要传 path 或 pattern，单个已知文件也写成 paths=["..."]，内容关键词放 query，路径过滤放 glob。
-search_text 可能返回 recommended_read_windows，并在动态上下文中成为 candidate_read_windows；只有下一步需要精确上下文、修改、逐行引用或验收时，才按候选窗口调用 read_file。不要把 search_text 的命中预览当作当前可编辑的完整文件证据，也不要为了补全 coverage 而顺序读完整个文件。
-roots 只放目录，不放文件路径；一般先留空使用默认工作目录，或给已知窄目录。只有需要搜索项目根目录下的文件时，才使用 roots=["."]。
-搜索结果只是定位线索；修改、逐行引用或验收前，仍要读取目标文件的当前内容窗口。
+未知代码位置的常态路径是 rg-like 搜索再读取精确窗口：先用 search_text 按关键词、短语、错误文本、配置键或概念收敛候选，再按 recommended_read_windows 读取必要窗口。
+专用工具只作为明确覆盖：文件名或路径关键词用 search_files；明确通配符用 glob_paths；已知 Python 符号且 symbol 工具可见时用 python_symbol_search；已知目录用 list_dir。
+只有普通搜索两轮仍无法收敛、需要跨层关系、符号和正文融合、复杂排序或隔离大量搜索噪声时，才升级到 codebase_search 或 agent:codebase_searcher。
+search_text.paths 只能放具体文件，目录范围放 roots，文件类型过滤放 glob；不要传 path 或 pattern。
+搜索命中只是 candidate。只有下一步需要精确上下文、修改、逐行引用或验收时，才按 recommended_read_windows 调用 read_file；不要把搜索预览当作当前可编辑证据，也不要为了 coverage 顺序读完整文件。
+如果结果 timeout、truncated、fallback 或 searched_roots 不覆盖目标范围，只能说搜索不充分；先收窄或扩大范围，不要把无命中说成不存在。
 """.strip()
 
 

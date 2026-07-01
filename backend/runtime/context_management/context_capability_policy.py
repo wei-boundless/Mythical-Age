@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
@@ -13,7 +13,7 @@ from .context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
-from .context_segment_registry import (
+from context_system.segments.declarations import (
     context_segment_kind_capability,
 )
 
@@ -450,15 +450,22 @@ def _group_for_environment_guidance_slot(slot: str) -> str:
     return TURN_STATE_CONTROL
 
 _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
-    "recovery_or_recent_work_facts": (REPAIR_FEEDBACK, "feedback"),
+    "recovery_or_recent_work_facts": (CONTEXT_MEMORY, "content"),
+    "previous_incomplete_output_memory": (CONTEXT_MEMORY, "content"),
     "provider_protocol_history": (CONTEXT_MEMORY, "content"),
     "selected_memory_and_task_state_facts": (CONTEXT_MEMORY, "content"),
+    "bound_task_runtime_context": (TASK_STATE_CONTEXT, "content"),
     "task_goal_context": (TASK_STATE_CONTEXT, "content"),
     "task_plan_context": (TASK_STATE_CONTEXT, "content"),
     "task_todo_context": (TASK_STATE_CONTEXT, "content"),
+    "task_state_cursor": (TASK_STATE_CONTEXT, "content"),
+    "graph_node_runtime_context": (TASK_STATE_CONTEXT, "content"),
     "current_user_intent": (CONTEXT_MEMORY, "content"),
     "active_user_steer_content": (CONTEXT_MEMORY, "content"),
+    "active_user_steer_consumption_state": (CONTEXT_MEMORY, "content"),
     "evidence_refs_and_file_state_facts": (EVIDENCE_CONTEXT, "content"),
+    "current_exact_evidence": (EVIDENCE_CONTEXT, "content"),
+    "current_editor_evidence_delta": (EVIDENCE_CONTEXT, "content"),
     "evidence_semantic_summary": (EVIDENCE_ALIGNMENT, "content"),
     "read_coverage_projection": (EVIDENCE_ALIGNMENT, "content"),
     "provider_usage_truth_source": (EVIDENCE_ALIGNMENT, "content"),
@@ -467,11 +474,19 @@ _SEMANTIC_SLOT_GROUPS: dict[str, tuple[str, str]] = {
     "answer_alignment_feedback": (EVIDENCE_ALIGNMENT, "feedback"),
     "reasoning_trace_projection": (REASONING_PROJECTION, "content"),
     "provider_reasoning_projection": (REASONING_PROJECTION, "content"),
+    "runtime_delta_tail": (CURRENT_DYNAMIC_CONTROL, "control"),
+    "volatile_runtime_state": (CURRENT_DYNAMIC_CONTROL, "control"),
+    "active_skill_body": (ACTIVE_SKILL, "content"),
+    "task_runtime_boundary_dynamic": (TURN_STATE_CONTROL, "contract"),
+    "graph_node_completion_prefix": (TURN_STATE_CONTROL, "control"),
+    "incremental_context_cursor": (TURN_STATE_CONTROL, "control"),
+    "semantic_compaction_request": (TURN_STATE_CONTROL, "control"),
+    "accumulated_context_boundary": (TURN_STATE_CONTROL, "control"),
     "tool_transcript": (TOOL_CONTEXT, "content"),
     "action_contract": (ACTION_CONTRACTS, "contract"),
     "capability_catalog": (TOOL_CONTEXT, "contract"),
     "turn_state_guidance": (TURN_STATE_CONTROL, "contract"),
-    "turn_attention_index": (TASK_STATE_CONTEXT, "content"),
+    "turn_attention_index": (TURN_STATE_CONTROL, "control"),
     "turn_operating_contract": (TURN_STATE_CONTROL, "contract"),
     "runtime_control_contract": (TURN_STATE_CONTROL, "control"),
     "visible_prefix_recovery_contract": (REPAIR_FEEDBACK, "feedback"),

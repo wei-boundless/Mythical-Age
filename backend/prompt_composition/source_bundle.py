@@ -96,6 +96,15 @@ def build_prompt_source_bundle(
                 source_ref=source_ref,
             ),
         )
+        metadata.setdefault(
+            "prompt_source_audit",
+            _prompt_source_audit_from_metadata(
+                metadata,
+                source_ref=source_ref,
+                content_hash=content_hash,
+                model_message_hash=model_message_hash,
+            ),
+        )
         sources.append(
             PromptSource(
                 source_id=source_id,
@@ -139,6 +148,11 @@ def build_prompt_source_bundle(
         sources=tuple(sources),
         diagnostics={
             "source_count": len(sources),
+            "prompt_source_audit": [
+                dict(source.metadata.get("prompt_source_audit") or {})
+                for source in sources
+                if isinstance(source.metadata.get("prompt_source_audit"), dict)
+            ],
             "source_kind_counts": _count_by(sources, "source_kind"),
             "kind_counts": _count_by(sources, "kind"),
             "cache_role_counts": _count_by(sources, "cache_role"),
@@ -198,6 +212,31 @@ def _source_id(
     return f"psource:{invocation_kind}:{source_order}:{kind}:{digest}"
 
 
+def _prompt_source_audit_from_metadata(
+    metadata: dict[str, Any],
+    *,
+    source_ref: str,
+    content_hash: str,
+    model_message_hash: str,
+) -> dict[str, Any]:
+    source_metadata = dict(metadata.get("source_metadata") or {}) if isinstance(metadata.get("source_metadata"), dict) else metadata
+    return _drop_empty(
+        {
+            "prompt_ref": str(source_metadata.get("prompt_ref") or source_metadata.get("prompt_id") or source_ref or ""),
+            "source_ref": str(source_ref or source_metadata.get("source_ref") or ""),
+            "version": str(source_metadata.get("version") or ""),
+            "version_label": str(source_metadata.get("version_label") or source_metadata.get("version") or ""),
+            "content_hash": str(source_metadata.get("content_hash") or content_hash or ""),
+            "model_message_hash": str(model_message_hash or ""),
+            "owner_layer": str(source_metadata.get("owner_layer") or ""),
+            "owner_kind": str(source_metadata.get("owner_kind") or ""),
+            "owner_ref": str(source_metadata.get("owner_ref") or ""),
+            "scope": str(source_metadata.get("scope") or ""),
+            "resource_type": str(source_metadata.get("resource_type") or ""),
+        }
+    )
+
+
 def _count_by(sources: list[PromptSource], field_name: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for source in sources:
@@ -226,3 +265,7 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {}, ())}

@@ -153,7 +153,7 @@ CODING_CORE_WORK_PROTOCOL_RULE = """
 
 CODING_INSPECTION_RULE = """
 开发类工作先建立项目事实：相关文件、调用链、配置入口、测试入口、运行入口、已有改动和当前任务合同。
-未知位置先按目标定位：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir；任务合同、bound context 或 editor context 已给出文件样路径时，它就是已知路径，应先直接读具体文件。行级判断必须基于当前读取窗口。
+未知位置先用常态 rg-like 搜索和精确读取闭环：用 search_text 根据关键词、短语、错误文本、配置键或概念收敛候选，再读取相关窗口。文件名/路径关键词才用 search_files，明确通配符才用 glob_paths，已知目录用 list_dir；普通搜索无法收敛或需要跨层关系、复杂排序时，再升级到 codebase_search 或 agent:codebase_searcher。任务合同、bound context 或 editor context 已给出文件样路径时，它就是已知路径，应先直接读具体文件。行级判断必须基于当前读取窗口。
 terminal 只用于验证、脚本、构建、服务或专用工具无法表达的检查。
 可能触碰用户改动、回档或迁移点时，先取 git 只读证据再行动。
 """.strip()

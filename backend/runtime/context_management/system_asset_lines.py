@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable
 
-from .context_segment_registry import (
+from context_system.segments.declarations import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
@@ -144,7 +144,7 @@ def system_asset_line_from_context_segment_declaration(
         declaration.content_source,
         declaration.source_kind,
         declaration.capability_group,
-        "runtime.context_management.context_segment_registry",
+        "context_system.segments.declarations",
     )
     diagnostics = _line_diagnostics(declaration, producer_ref=producer_ref)
     return SystemAssetLine(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.context_management.context_segment_registry import (
+from context_system.segments.declarations import (
     ACTION_CONTRACTS,
     EVIDENCE_ALIGNMENT,
     REPAIR_FEEDBACK,

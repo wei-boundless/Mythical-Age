@@ -1229,6 +1229,7 @@ def _runtime_session_evidence(runtime: Any | None, *, session_id: str) -> dict[s
             "latest_prefix_health": latest_prefix_health,
             "latest_under_read_tokens": int(cache_summary.get("latest_under_read_tokens") or 0),
             "latest_volatile_tokens": int(cache_summary.get("latest_volatile_tokens") or 0),
+            "latest_current_context_append_tokens": int(cache_summary.get("latest_current_context_append_tokens") or 0),
             "latest_current_turn_tail_tokens": int(cache_summary.get("latest_current_turn_tail_tokens") or 0),
             "latest_never_replay_tail_tokens": int(cache_summary.get("latest_never_replay_tail_tokens") or 0),
             "latest_unconfirmed_provider_replay_tokens": int(

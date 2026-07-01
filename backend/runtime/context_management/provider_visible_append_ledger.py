@@ -9,7 +9,7 @@ from typing import Any
 from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 
-from .context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CURRENT_CONTROL_TAIL_KINDS,
     DYNAMIC_TAIL,
@@ -82,7 +82,10 @@ def assemble_provider_visible_append_specs(
     )
     inherited_entries_by_key = _entries_by_key({"entries": inherited_entries})
     entries_by_key = _entries_by_key({"entries": existing_entries})
+    entries_by_fact_slot = _entries_by_fact_slot({"entries": existing_entries})
+    inherited_entries_by_fact_slot = _entries_by_fact_slot({"entries": inherited_entries})
     changed = bool(failure)
+    filtered_candidates: list[dict[str, Any]] = []
     current_append_specs: list[tuple[int, dict[str, Any]]] = []
 
     for original_order, raw_spec in sorted(list(items or []), key=context_append_order_key):
@@ -92,6 +95,35 @@ def assemble_provider_visible_append_specs(
         if not provider_message:
             continue
         provider_hash = _stable_json_hash(provider_message)
+        fact_identity = _fact_identity_from_spec(spec)
+        fact_slot_key = str(fact_identity.get("fact_slot_key") or "").strip()
+        fact_content_hash = str(fact_identity.get("fact_content_hash") or "").strip()
+        fact_change_class = str(fact_identity.get("fact_change_class") or "").strip()
+        if fact_slot_key:
+            existing_fact = dict(entries_by_fact_slot.get(fact_slot_key) or {})
+            inherited_fact = dict(inherited_entries_by_fact_slot.get(fact_slot_key) or {})
+            matched_fact = existing_fact or inherited_fact
+            matched_fact_content_hash = str(matched_fact.get("fact_content_hash") or "").strip()
+            if matched_fact and fact_content_hash and matched_fact_content_hash == fact_content_hash:
+                filtered_candidates.append(
+                    _filtered_fact_candidate(
+                        spec,
+                        fact_identity=fact_identity,
+                        reason="same_fact_slot_same_content_hash_already_visible",
+                        matched_entry=matched_fact,
+                    )
+                )
+                continue
+            if matched_fact and fact_change_class in {"no_change", "minor_refresh", "freshness_only"}:
+                filtered_candidates.append(
+                    _filtered_fact_candidate(
+                        spec,
+                        fact_identity=fact_identity,
+                        reason=f"fact_change_class_{fact_change_class}_does_not_require_reinjection",
+                        matched_entry=matched_fact,
+                    )
+                )
+                continue
         item_key = _provider_visible_item_key(spec, provider_visible_hash=provider_hash, policy=policy)
         existing = dict(entries_by_key.get(item_key) or {})
         if existing:
@@ -120,6 +152,14 @@ def assemble_provider_visible_append_specs(
         if inherited_existing:
             inherited_hash = str(inherited_existing.get("provider_visible_hash") or "").strip()
             if inherited_hash and inherited_hash == provider_hash:
+                filtered_candidates.append(
+                    _filtered_fact_candidate(
+                        spec,
+                        fact_identity=fact_identity,
+                        reason="same_provider_visible_item_inherited_from_parent_scope",
+                        matched_entry=inherited_existing,
+                    )
+                )
                 continue
         current_append_specs.append(
             (
@@ -146,6 +186,9 @@ def assemble_provider_visible_append_specs(
         model=model,
         adapter_contract=normalized_adapter,
     )
+    if filtered_candidates:
+        ledger["last_filtered_fact_candidates"] = filtered_candidates[-50:]
+        changed = True
     if changed:
         save_provider_visible_append_ledger(storage_root=storage_root, scope=normalized_scope, ledger=ledger)
 
@@ -407,6 +450,10 @@ def confirm_provider_visible_append_entries(
                 compaction_generation=str(ref.compaction_generation or ""),
                 cache_spine_hash=str(ref.cache_spine_hash or ""),
                 provider_tool_protocol=dict(ref.provider_tool_protocol or {}),
+                fact_slot_key=str(ref.fact_slot_key or ""),
+                fact_content_hash=str(ref.fact_content_hash or ""),
+                fact_change_class=str(ref.fact_change_class or ""),
+                fact_supersession_policy=str(ref.fact_supersession_policy or ""),
             )
             ledger["entries"] = [
                 *[dict(item) for item in list(ledger.get("entries") or []) if isinstance(item, dict)],
@@ -419,7 +466,7 @@ def confirm_provider_visible_append_entries(
             }
             ledger["next_entry_index"] = next_index + 1
             entries_by_key[item_key] = entry
-            active_entries = [*active_entries, entry]
+            active_entries = _filter_superseded_fact_entries([*active_entries, entry])
             confirmation = {
                 "scope": scope,
                 "entry_index": next_index,
@@ -888,6 +935,10 @@ def _ledger_entry(
     compaction_generation: str = "",
     cache_spine_hash: str = "",
     provider_tool_protocol: dict[str, Any] | None = None,
+    fact_slot_key: str = "",
+    fact_content_hash: str = "",
+    fact_change_class: str = "",
+    fact_supersession_policy: str = "",
 ) -> dict[str, Any]:
     payload = {
         "entry_index": int(entry_index or 0),
@@ -905,6 +956,10 @@ def _ledger_entry(
         "source_ref": str(source_ref or ""),
         "kind": str(kind or ""),
         "provider_tool_protocol": dict(provider_tool_protocol or {}),
+        "fact_slot_key": str(fact_slot_key or ""),
+        "fact_content_hash": str(fact_content_hash or ""),
+        "fact_change_class": str(fact_change_class or ""),
+        "fact_supersession_policy": str(fact_supersession_policy or ""),
         "provider_visible_message": _provider_visible_message(provider_visible_message),
         "provider_visible_hash": str(provider_visible_hash or ""),
         "previous_entry_hash": str(previous_entry_hash or ""),
@@ -1084,6 +1139,14 @@ def _current_append_spec_from_candidate(
         "provider_adapter_contract": str(adapter_contract or PROVIDER_VISIBLE_APPEND_LEDGER_ADAPTER_CONTRACT),
         "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
     }
+    fact_identity = _fact_identity_from_spec(payload)
+    if fact_identity.get("fact_slot_key"):
+        metadata["provider_visible_append_fact_slot_key"] = str(fact_identity.get("fact_slot_key") or "")
+        metadata["provider_visible_append_fact_content_hash"] = str(fact_identity.get("fact_content_hash") or "")
+        metadata["provider_visible_append_fact_change_class"] = str(fact_identity.get("fact_change_class") or "")
+        metadata["provider_visible_append_fact_supersession_policy"] = str(
+            fact_identity.get("fact_supersession_policy") or ""
+        )
     payload["cache_scope"] = str(getattr(policy, "prefix_cache_scope", "") or payload.get("cache_scope") or "session")
     payload["cache_role"] = str(getattr(policy, "prefix_cache_role", "") or payload.get("cache_role") or "session_stable")
     payload["prefix_tier"] = str(getattr(policy, "prefix_tier", "") or payload.get("prefix_tier") or "session")
@@ -1187,6 +1250,57 @@ def _entries_by_key(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _entries_by_fact_slot(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for entry in sorted(
+        [dict(item) for item in list(dict(ledger or {}).get("entries") or []) if isinstance(item, dict)],
+        key=lambda item: _safe_int(item.get("entry_index")),
+    ):
+        key = str(entry.get("fact_slot_key") or "").strip()
+        if key:
+            result[key] = entry
+    return result
+
+
+def _fact_identity_from_spec(spec: dict[str, Any]) -> dict[str, str]:
+    metadata = dict(dict(spec or {}).get("metadata") or {})
+    fact_slot_key = str(metadata.get("fact_slot_key") or metadata.get("provider_visible_append_fact_slot_key") or "").strip()
+    fact_content_hash = str(
+        metadata.get("fact_content_hash")
+        or metadata.get("provider_visible_append_fact_content_hash")
+        or metadata.get("append_only_content_hash")
+        or ""
+    ).strip()
+    return {
+        "fact_slot_key": fact_slot_key,
+        "fact_content_hash": fact_content_hash,
+        "fact_change_class": str(metadata.get("fact_change_class") or "").strip(),
+        "fact_supersession_policy": str(metadata.get("fact_supersession_policy") or "").strip(),
+    }
+
+
+def _filtered_fact_candidate(
+    spec: dict[str, Any],
+    *,
+    fact_identity: dict[str, str],
+    reason: str,
+    matched_entry: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(dict(spec or {}).get("metadata") or {})
+    return {
+        "reason": str(reason or ""),
+        "kind": str(dict(spec or {}).get("kind") or metadata.get("kind") or ""),
+        "source_ref": str(dict(spec or {}).get("source_ref") or metadata.get("source_ref") or ""),
+        "semantic_slot": str(metadata.get("context_semantic_slot") or metadata.get("semantic_slot") or ""),
+        "fact_slot_key": str(fact_identity.get("fact_slot_key") or ""),
+        "fact_content_hash": str(fact_identity.get("fact_content_hash") or ""),
+        "fact_change_class": str(fact_identity.get("fact_change_class") or ""),
+        "matched_entry_index": _safe_int(dict(matched_entry or {}).get("entry_index")),
+        "matched_fact_content_hash": str(dict(matched_entry or {}).get("fact_content_hash") or ""),
+        "authority": "runtime.context_management.provider_visible_append_ledger.fact_filter",
+    }
+
+
 def _entries_by_index(ledger: dict[str, Any]) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
     for entry in [dict(item) for item in list(dict(ledger or {}).get("entries") or []) if isinstance(item, dict)]:
@@ -1250,20 +1364,20 @@ def _active_confirmed_ledger_entries(
     ).strip()
     if terminal_hash:
         lineage = _entry_lineage_for_terminal_hash(entries, terminal_hash)
-        return lineage
+        return _filter_superseded_fact_entries(lineage)
     terminal_index = _safe_int(
         selected_anchor.get("terminal_entry_index")
         or (payload.get("active_terminal_entry_index") if not explicit_anchor else 0)
     )
     if terminal_index > 0:
-        return [
+        return _filter_superseded_fact_entries([
             dict(item)
             for item in sorted(entries, key=lambda value: _safe_int(value.get("entry_index")))
             if 0 < _safe_int(item.get("entry_index")) <= terminal_index
-        ]
+        ])
     if explicit_anchor or _has_explicit_active_provider_visible_cursor(payload):
         return []
-    return sorted(entries, key=lambda value: _safe_int(value.get("entry_index")))
+    return _filter_superseded_fact_entries(sorted(entries, key=lambda value: _safe_int(value.get("entry_index"))))
 
 
 def _has_explicit_active_provider_visible_cursor(ledger: dict[str, Any]) -> bool:
@@ -1298,6 +1412,33 @@ def _entry_lineage_for_terminal_hash(entries: list[dict[str, Any]], terminal_has
         lineage.append(entry)
         current_hash = str(entry.get("previous_entry_hash") or "").strip()
     return list(reversed(lineage))
+
+
+def _filter_superseded_fact_entries(entries: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    ordered = [dict(item) for item in list(entries or []) if isinstance(item, dict)]
+    latest_index_by_fact_slot: dict[str, int] = {}
+    for entry in sorted(ordered, key=lambda value: _safe_int(value.get("entry_index"))):
+        fact_slot_key = str(entry.get("fact_slot_key") or "").strip()
+        supersession_policy = str(entry.get("fact_supersession_policy") or "").strip()
+        if not fact_slot_key or supersession_policy != "same_fact_slot_latest_content_hash_supersedes_prior":
+            continue
+        entry_index = _safe_int(entry.get("entry_index"))
+        if entry_index > 0:
+            latest_index_by_fact_slot[fact_slot_key] = entry_index
+    if not latest_index_by_fact_slot:
+        return ordered
+    result: list[dict[str, Any]] = []
+    for entry in sorted(ordered, key=lambda value: _safe_int(value.get("entry_index"))):
+        fact_slot_key = str(entry.get("fact_slot_key") or "").strip()
+        supersession_policy = str(entry.get("fact_supersession_policy") or "").strip()
+        if (
+            fact_slot_key
+            and supersession_policy == "same_fact_slot_latest_content_hash_supersedes_prior"
+            and _safe_int(entry.get("entry_index")) != latest_index_by_fact_slot.get(fact_slot_key)
+        ):
+            continue
+        result.append(entry)
+    return result
 
 
 def _provider_success_anchor_for_terminal_entries(

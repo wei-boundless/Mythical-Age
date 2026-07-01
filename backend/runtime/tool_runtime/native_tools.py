@@ -23,6 +23,7 @@ from capability_system.tools.workspace_file_service import (
     DEFAULT_SEARCH_EXCLUDED_PATHS,
     WorkspaceFileService,
 )
+from capability_system.tools.workspace_search_service import WorkspaceSearchService
 from core.config import get_settings
 from file_management import (
     EXTERNAL_READONLY_REPOSITORY_PREFIX,
@@ -2726,46 +2727,45 @@ class NativeSearchFilesTool(_NativeToolBase):
                 )
             except Exception as exc:
                 return self._envelope(tool_args=args, status="error", text=f"Search failed: {exc}", execution_receipt=context.execution_receipt)
-        safe_roots = [] if requested_roots and not workspace_roots else files.safe_roots(workspace_roots if requested_roots else args.get("roots"), fallback_to_workspace=not requested_roots)
-        if not safe_roots:
-            if external_roots:
-                matched = tuple(external_matches)
-                text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, external_meta)
+        limit = max(1, min(int(args.get("max_results") or 20), 100))
+        remaining_limit = max(1, limit - len(external_matches))
+        workspace_matches: list[str] = []
+        search_meta: dict[str, Any] = {}
+        if not requested_roots or workspace_roots:
+            service = WorkspaceSearchService(files.root_dir, file_service=files)
+            workspace_result = service.search_paths(
+                query=query,
+                roots=workspace_roots if requested_roots else args.get("roots"),
+                limit=remaining_limit,
+                fallback_to_workspace=not requested_roots,
+            )
+            search_meta = dict(workspace_result.get("search_meta") or {})
+            if str(search_meta.get("status") or "") == "error" and not external_roots:
                 return self._envelope(
                     tool_args=args,
-                    status="ok",
-                    text=text,
-                    structured_payload={
-                        "tool_result": {
-                            "kind": "path_search",
-                            "query": query,
-                            "matches": list(matched),
-                            "search_meta": external_meta,
-                            "searched_roots": list(external_meta.get("searched_roots") or external_roots),
-                            "used_default_roots": False,
-                            "workspace_root": str(files.workspace_root),
-                            "omitted_workspace_root": False,
-                        }
-                    },
-                    matched_paths=matched,
+                    status="error",
+                    text=f"Search failed: {search_meta.get('error') or 'search failed'}",
+                    structured_payload={"tool_result": {"kind": "path_search", "query": query, "status": "error", "search_meta": search_meta}},
                     execution_receipt=context.execution_receipt,
                 )
-            return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
-        limit = max(1, min(int(args.get("max_results") or 20), 100))
-        terms = _query_terms(query)
-        remaining_limit = max(1, limit - len(external_matches))
-        matches, search_meta = _search_path_matches(files, safe_roots=safe_roots, query=query, terms=terms, limit=remaining_limit, using_default_roots=using_default_roots)
-        matched = tuple(sorted(dict.fromkeys([*external_matches, *matches]))[:limit])
-        boundary = _path_search_boundary(files, safe_roots=safe_roots, using_default_roots=using_default_roots)
+            if str(search_meta.get("status") or "") != "error":
+                workspace_matches = [
+                    str(item.get("path") or "")
+                    for item in list(workspace_result.get("matches") or [])
+                    if isinstance(item, dict) and str(item.get("path") or "")
+                ]
+        elif external_roots:
+            search_meta = dict(external_meta)
         if external_meta:
-            boundary["searched_roots"] = [*list(external_meta.get("searched_roots") or []), *list(boundary.get("searched_roots") or [])]
             search_meta = {
                 **search_meta,
                 "external": external_meta,
                 "scanned_paths": int(search_meta.get("scanned_paths") or 0) + int(external_meta.get("scanned_paths") or 0),
                 "truncated": bool(search_meta.get("truncated") or external_meta.get("truncated")),
+                "searched_roots": [*list(external_meta.get("searched_roots") or []), *list(search_meta.get("searched_roots") or [])],
             }
-        text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, boundary)
+        matched = tuple(sorted(dict.fromkeys([*external_matches, *workspace_matches]))[:limit])
+        text = "\n".join(f"[{index}] {path}" for index, path in enumerate(matched, start=1)) or _format_path_search_no_results(query, search_meta)
         if search_meta.get("truncated"):
             text = f"{text}\n搜索已按交互式预算提前返回，结果可能未穷尽；可缩小 roots 或使用 glob_paths 精确匹配。"
         return self._envelope(
@@ -2778,7 +2778,10 @@ class NativeSearchFilesTool(_NativeToolBase):
                     "query": query,
                     "matches": list(matched),
                     "search_meta": search_meta,
-                    **boundary,
+                    "searched_roots": list(search_meta.get("searched_roots") or []),
+                    "used_default_roots": bool(search_meta.get("used_default_roots") or using_default_roots),
+                    "workspace_root": str(search_meta.get("workspace_root") or files.workspace_root),
+                    "omitted_workspace_root": bool(search_meta.get("omitted_workspace_root")),
                 }
             },
             matched_paths=matched,
@@ -2979,7 +2982,7 @@ class NativeSearchTextTool(_NativeToolBase):
                     execution_receipt=context.execution_receipt,
                 )
             return self._envelope(tool_args=args, status="error", text="Search failed: no safe search roots.", execution_receipt=context.execution_receipt)
-        workspace_matches = _search_text(
+        workspace_search = _search_text(
             files,
             query=query,
             safe_roots=safe_roots,
@@ -2988,12 +2991,14 @@ class NativeSearchTextTool(_NativeToolBase):
             using_default_roots=using_default_roots,
             case_sensitive=case_sensitive,
         )
+        workspace_matches = [dict(item) for item in list(workspace_search.get("matches") or []) if isinstance(item, dict)]
         matches = [*external_matches, *workspace_matches]
         total_matches = len(matches)
         matches = _slice_search_matches(matches, offset=offset, limit=limit)
         matched_paths = tuple(dict.fromkeys(str(item.get("path") or "") for item in matches if str(item.get("path") or "").strip()))
         total_lines_by_path = _total_lines_by_match_path(files, matches)
         text = _format_text_search_output(matches, query=query, output_mode=output_mode)
+        text = _append_text_search_status_notice(text, dict(workspace_search.get("search_meta") or {}))
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -3009,6 +3014,7 @@ class NativeSearchTextTool(_NativeToolBase):
                     total_matches=total_matches,
                     context_lines=context_lines,
                     total_lines_by_path=total_lines_by_path,
+                    search_meta=dict(workspace_search.get("search_meta") or {}),
                 )
             },
             matched_paths=matched_paths,
@@ -3036,15 +3042,28 @@ class NativeGlobPathsTool(_NativeToolBase):
                 matched_paths=matches,
                 execution_receipt=context.execution_receipt,
             )
-        try:
-            matches = tuple(self._files(context).glob_paths(pattern, max_results=int(args.get("max_results") or 80)))
-        except Exception as exc:
-            return self._envelope(tool_args=args, status="error", text=f"Glob failed: {exc}", execution_receipt=context.execution_receipt)
+        files = self._files(context)
+        service = WorkspaceSearchService(files.root_dir, file_service=files)
+        result = service.glob_paths(pattern=pattern, limit=int(args.get("max_results") or 80))
+        meta = dict(result.get("search_meta") or {})
+        if str(meta.get("status") or "") == "error":
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=f"Glob failed: {meta.get('error') or 'invalid pattern'}",
+                structured_payload={"tool_result": {"kind": "glob_paths", "pattern": pattern, "status": "error", "search_meta": meta}},
+                execution_receipt=context.execution_receipt,
+            )
+        matches = tuple(
+            str(item.get("path") or "")
+            for item in list(result.get("matches") or [])
+            if isinstance(item, dict) and str(item.get("path") or "")
+        )
         return self._envelope(
             tool_args=args,
             status="ok",
             text="\n".join(matches) or "No paths matched.",
-            structured_payload={"tool_result": {"kind": "glob_paths", "pattern": pattern, "matches": list(matches)}},
+            structured_payload={"tool_result": {"kind": "glob_paths", "pattern": pattern, "matches": list(matches), "search_meta": meta}},
             matched_paths=matches,
             execution_receipt=context.execution_receipt,
         )
@@ -4257,36 +4276,6 @@ def _external_glob_paths(
     return sorted(dict.fromkeys(matches))[:limit]
 
 
-def _search_path_matches(
-    files: WorkspaceFileService,
-    *,
-    safe_roots: list[Path],
-    query: str,
-    terms: list[str],
-    limit: int,
-    using_default_roots: bool,
-) -> tuple[list[str], dict[str, Any]]:
-    matches: list[str] = []
-    seen: set[str] = set()
-    scanned = 0
-    deadline = time.monotonic() + _PATH_SEARCH_TIME_BUDGET_SECONDS
-    for root in safe_roots:
-        for path in _iter_search_files(files, root=root, include_default_search_excludes=using_default_roots):
-            scanned += 1
-            rel = files.relative_path(path)
-            if rel in seen or not _path_matches_query(rel, query=query, terms=terms):
-                if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
-                    return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
-                continue
-            seen.add(rel)
-            matches.append(rel)
-            if len(matches) >= limit:
-                return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
-            if scanned >= _PATH_SEARCH_SCAN_LIMIT or time.monotonic() >= deadline:
-                return sorted(matches), _path_search_meta(scanned=scanned, truncated=True)
-    return sorted(matches), _path_search_meta(scanned=scanned, truncated=False)
-
-
 def _path_search_meta(*, scanned: int, truncated: bool) -> dict[str, Any]:
     return {
         "scanned_paths": int(scanned),
@@ -4294,19 +4283,6 @@ def _path_search_meta(*, scanned: int, truncated: bool) -> dict[str, Any]:
         "scan_limit": _PATH_SEARCH_SCAN_LIMIT,
         "time_budget_seconds": _PATH_SEARCH_TIME_BUDGET_SECONDS,
     }
-
-
-def _iter_search_files(files: WorkspaceFileService, *, root: Path, include_default_search_excludes: bool):
-    for directory, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            dirname
-            for dirname in dirnames
-            if not files.is_excluded(Path(directory) / dirname, include_default_search_excludes=include_default_search_excludes)
-        ]
-        for filename in filenames:
-            path = Path(directory) / filename
-            if path.is_file() and not files.is_excluded(path, include_default_search_excludes=include_default_search_excludes):
-                yield path
 
 
 def _path_matches_query(path: str, *, query: str, terms: list[str]) -> bool:
@@ -4317,23 +4293,6 @@ def _path_matches_query(path: str, *, query: str, terms: list[str]) -> bool:
     if not any(ch in raw_query for ch in "*?[]"):
         return False
     return fnmatch.fnmatch(normalized_path, raw_query) or fnmatch.fnmatch(Path(normalized_path).name, raw_query)
-
-
-def _path_search_boundary(
-    files: WorkspaceFileService,
-    *,
-    safe_roots: list[Path],
-    using_default_roots: bool,
-) -> dict[str, Any]:
-    workspace_root = files.workspace_root.resolve()
-    searched_roots = [files.relative_path(root) or "." for root in safe_roots]
-    omitted_workspace_root = using_default_roots and all(root.resolve() != workspace_root for root in safe_roots)
-    return {
-        "searched_roots": searched_roots,
-        "used_default_roots": bool(using_default_roots),
-        "workspace_root": str(workspace_root),
-        "omitted_workspace_root": bool(omitted_workspace_root),
-    }
 
 
 def _format_path_search_no_results(query: str, boundary: dict[str, Any]) -> str:
@@ -4405,64 +4364,20 @@ def _search_text(
     limit: int,
     using_default_roots: bool,
     case_sensitive: bool = False,
-) -> list[dict[str, Any]]:
-    args = [
-        "--line-number",
-        "--column",
-        "--hidden",
-        "--no-ignore-parent",
-        "--max-count",
-        str(limit),
-    ]
-    if not bool(case_sensitive):
-        args.append("--ignore-case")
-    for excluded in DEFAULT_EXCLUDED_DIRS:
-        args.extend(["--glob", f"!**/{excluded}/**"])
-    for excluded in DEFAULT_RUNTIME_PRIVATE_PATHS:
-        args.extend(["--glob", f"!{excluded}"])
-    if using_default_roots:
-        for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
-            args.extend(["--glob", f"!{excluded}/**"])
-    if glob:
-        args.extend(["--glob", glob])
-    args.append(query)
-    completed = None
-    if files.search_root_args_are_workspace_relative(safe_roots):
-        args.extend(files.relative_path(root) or "." for root in safe_roots)
-        try:
-            completed = subprocess.run(
-                ["rg", *args],
-                cwd=files.workspace_root,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=8.0,
-                check=False,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
-            completed = None
-    if completed is None:
-        return _fallback_search_text(
-            files,
-            query=query,
-            safe_roots=safe_roots,
-            glob=glob,
-            limit=limit,
-            using_default_roots=using_default_roots,
-            case_sensitive=case_sensitive,
-        )
-    if completed.returncode not in {0, 1}:
-        return []
-    matches: list[dict[str, Any]] = []
-    for raw in completed.stdout.splitlines():
-        item = _parse_rg_match(raw)
-        if item:
-            matches.append(item)
-            if len(matches) >= limit:
-                break
-    return matches
+) -> dict[str, Any]:
+    service = WorkspaceSearchService(files.root_dir, file_service=files)
+    roots = [files.relative_path(root) or "." for root in safe_roots]
+    result = service.search_text(
+        query=query,
+        roots=roots,
+        glob=glob,
+        limit=limit,
+        case_sensitive=case_sensitive,
+        fallback_to_workspace=not bool(safe_roots),
+    )
+    meta = dict(result.get("search_meta") or {})
+    meta.setdefault("using_default_roots", bool(using_default_roots))
+    return {"matches": list(result.get("matches") or []), "search_meta": meta}
 
 
 def _search_text_in_paths(
@@ -4474,74 +4389,16 @@ def _search_text_in_paths(
     limit: int,
     case_sensitive: bool = False,
 ) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    pattern = str(glob or "").strip()
-    query_cmp = query if case_sensitive else query.lower()
-    for path in paths:
-        if len(matches) >= limit:
-            return matches
-        rel = files.relative_path(path)
-        if pattern and not fnmatch.fnmatch(rel, pattern):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            line_cmp = line if case_sensitive else line.lower()
-            column = line_cmp.find(query_cmp) + 1
-            if column <= 0:
-                continue
-            matches.append({"path": rel, "line": line_number, "column": column, "text": line[:240]})
-            if len(matches) >= limit:
-                return matches
-    return matches
-
-
-def _parse_rg_match(line: str) -> dict[str, Any]:
-    parts = str(line or "").replace("\\", "/").split(":", 3)
-    if len(parts) < 4:
-        return {}
-    path, line_no, column, text = parts
-    try:
-        parsed_line = int(line_no)
-        parsed_column = int(column)
-    except ValueError:
-        return {}
-    return {"path": path, "line": parsed_line, "column": parsed_column, "text": text[:240]}
-
-
-def _fallback_search_text(
-    files: WorkspaceFileService,
-    *,
-    query: str,
-    safe_roots: list[Path],
-    glob: str,
-    limit: int,
-    using_default_roots: bool,
-    case_sensitive: bool = False,
-) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    pattern = glob.strip() or "*"
-    query_cmp = query if case_sensitive else query.lower()
-    for root in safe_roots:
-        for path in root.rglob(pattern):
-            if len(matches) >= limit:
-                return matches
-            if not path.is_file() or files.is_excluded(path, include_default_search_excludes=using_default_roots):
-                continue
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                line_cmp = line if case_sensitive else line.lower()
-                column = line_cmp.find(query_cmp) + 1
-                if column <= 0:
-                    continue
-                matches.append({"path": files.relative_path(path), "line": line_number, "column": column, "text": line[:240]})
-                break
-    return matches
+    service = WorkspaceSearchService(files.root_dir, file_service=files)
+    result = service.search_text(
+        query=query,
+        paths=[files.relative_path(path) for path in list(paths or [])],
+        glob=glob,
+        limit=limit,
+        case_sensitive=case_sensitive,
+        fallback_to_workspace=False,
+    )
+    return [dict(item) for item in list(result.get("matches") or []) if isinstance(item, dict)]
 
 
 def _search_result_limit(args: dict[str, Any]) -> int:
@@ -4576,6 +4433,22 @@ def _format_text_search_output(matches: list[dict[str, Any]], *, query: str, out
     return "\n".join(f"{item['path']}:{item['line']}:{item['column']}:{item['text']}" for item in matches)
 
 
+def _append_text_search_status_notice(text: str, search_meta: dict[str, Any]) -> str:
+    meta = dict(search_meta or {})
+    status = str(meta.get("status") or "").strip()
+    notices: list[str] = []
+    if status == "timeout":
+        notices.append("搜索超时，结果可能未穷尽；请缩小 roots/glob 或分页继续。")
+    elif status in {"error", "permission_error"}:
+        detail = str(meta.get("error") or meta.get("stderr") or "").strip()
+        notices.append("搜索未完整执行：" + (detail[:240] if detail else status))
+    if meta.get("has_more"):
+        notices.append("搜索结果达到本页上限，可能还有更多匹配；请使用 offset/head_limit 继续分页或缩小范围。")
+    if not notices:
+        return text
+    return str(text or "").rstrip() + "\n" + "\n".join(notices)
+
+
 def _text_search_tool_result(
     *,
     query: str,
@@ -4587,11 +4460,20 @@ def _text_search_tool_result(
     total_matches: int,
     context_lines: int,
     total_lines_by_path: dict[str, int] | None = None,
+    search_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    meta = dict(search_meta or {})
+    returned_count = len(matches)
+    has_more = bool(meta.get("has_more")) or total_matches > returned_count + max(0, int(offset or 0))
+    status = str(meta.get("status") or ("ok" if matches else "no_match"))
     payload: dict[str, Any] = {
         "kind": "text_search",
+        "status": status,
         "query": query,
         "matches": matches,
+        "match_count": total_matches,
+        "returned_count": returned_count,
+        "has_more": has_more,
         "output_mode": output_mode,
         "recommended_read_windows": recommended_windows_for_matches(
             matches,
@@ -4599,6 +4481,7 @@ def _text_search_tool_result(
             total_lines_by_path=dict(total_lines_by_path or {}),
             query=query,
         ),
+        "search_meta": meta,
     }
     paths = [str(item) for item in list(requested_paths or []) if str(item)]
     if paths:

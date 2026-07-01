@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from capability_system.tools.workspace_file_service import WorkspaceFileService
-from .providers import TextHit
+from .models import SearchCandidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +21,7 @@ class FileSlicer:
     def __init__(self, root_dir: Path) -> None:
         self.files = WorkspaceFileService(root_dir)
 
-    def slices_for_hits(self, hits: list[TextHit], *, max_slices: int, max_slice_lines: int) -> list[FileSlice]:
+    def slices_for_hits(self, hits: list[SearchCandidate], *, max_slices: int, max_slice_lines: int) -> list[FileSlice]:
         slices: list[FileSlice] = []
         seen: set[tuple[str, int]] = set()
         for hit in hits:

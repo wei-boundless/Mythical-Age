@@ -63,11 +63,10 @@ def build_evidence_index_cursor(
                     "latest_evidence_ref": _latest_evidence_ref(item, windows=windows),
                     "covered_ranges_ref": _covered_ranges_ref(path=path, item=item, windows=windows),
                     "read_window_refs": windows,
-                    "missing_ranges": _missing_ranges(decision, item),
+                    "missing_ranges": _coverage_gap_ranges(item),
                     "cautions": _decision_windows(decision.get("cautions")),
                     "candidate_read_windows": _decision_windows(decision.get("candidate_read_windows")),
                     "required_read_windows": _decision_windows(decision.get("required_read_windows")),
-                    "next_suggested_read": _read_request_ref(dict(item.get("next_suggested_read") or {})),
                     "confidence": _file_confidence(confidence),
                     "rehydration_action": _rehydration_action(status=status, decision=decision, item=item),
                 }
@@ -105,7 +104,6 @@ def file_state_from_evidence_index_cursor(payload: dict[str, Any] | None) -> lis
                     "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                     "read_window_refs": [dict(window) for window in dict_tuple(item.get("read_window_refs"))],
                     "evidence_refs": _dedupe_strings(item.get("evidence_refs"))[-10:],
-                    "next_suggested_read": dict(item.get("next_suggested_read") or {}),
                 }
             )
         )
@@ -217,10 +215,7 @@ def _covered_ranges_ref(*, path: str, item: dict[str, Any], windows: list[dict[s
     return "evcov:" + stable_json_hash(seed).removeprefix("sha256:")[:16]
 
 
-def _missing_ranges(decision: dict[str, Any], item: dict[str, Any]) -> list[dict[str, Any]]:
-    windows = _decision_windows(decision.get("required_read_windows"))
-    if windows:
-        return windows
+def _coverage_gap_ranges(item: dict[str, Any]) -> list[dict[str, Any]]:
     coverage = dict(item.get("coverage") or {})
     result: list[dict[str, Any]] = []
     for segment in dict_tuple(coverage.get("missing_ranges"))[-4:]:
@@ -262,17 +257,6 @@ def _decision_windows(value: Any) -> list[dict[str, Any]]:
     return [window for window in windows if window]
 
 
-def _read_request_ref(value: dict[str, Any]) -> dict[str, Any]:
-    return drop_empty(
-        {
-            "path": _clean_path(value.get("path")),
-            "start_line": value.get("start_line"),
-            "line_count": value.get("line_count"),
-            "reason": compact_text(value.get("reason") or "", limit=160),
-        }
-    )
-
-
 def _file_confidence(value: dict[str, Any]) -> dict[str, Any]:
     return drop_empty(
         {
@@ -292,7 +276,7 @@ def _rehydration_action(*, status: str, decision: dict[str, Any], item: dict[str
     ]
     if normalized == "stale" or stale_cautions:
         return "read_file:stale_window"
-    if dict_tuple(decision.get("required_read_windows")) or dict(item.get("next_suggested_read") or {}):
+    if dict_tuple(decision.get("required_read_windows")):
         return "read_file:missing_window"
     if _latest_evidence_ref(item, windows=_read_window_refs(item)).startswith("read_observation:"):
         return "reuse_read_observation_ref"

@@ -66,6 +66,7 @@ def append_physical_prefix_frame_from_provider_success(
         session_id=session_id,
         turn_id=turn_id,
         previous_frame_id=str(previous.get("frame_id") or ""),
+        previous_frame=previous,
         provider_payload_manifest=provider_payload_manifest,
         provider_payload_messages_hash=provider_payload_messages_hash,
         physical_payload_family_hash=physical_payload_family_hash,
@@ -132,6 +133,7 @@ def build_physical_prefix_frame_from_provider_payload(
     session_id: str = "",
     turn_id: str = "",
     previous_frame_id: str = "",
+    previous_frame: dict[str, Any] | PhysicalPrefixFrame | None = None,
     provider_payload_manifest: Any | None,
     provider_payload_messages_hash: str = "",
     physical_payload_family_hash: str = "",
@@ -176,13 +178,19 @@ def build_physical_prefix_frame_from_provider_payload(
     normalized_current_append = tuple(
         sorted({_safe_int(value) for value in list(current_append_entry_indexes or []) if _safe_int(value) > 0})
     )
-    frame_source_segments = _frame_source_segments(
+    previous_confirmed_segments = _previous_confirmed_old_context_segments(previous_frame)
+    frame_source_segments = _current_append_source_segments(
         full_segments=full_segments,
-        physical_spine=physical_spine,
         current_append_entry_indexes=normalized_current_append,
         confirmation_by_item_key=confirmation_by_item_key,
+        existing_entry_indexes={
+            _safe_int(segment.provider_visible_entry_index)
+            for segment in previous_confirmed_segments
+            if _safe_int(segment.provider_visible_entry_index) > 0
+        },
     )
-    frame_segments: list[PhysicalPrefixFrameSegment] = []
+    frame_segments: list[PhysicalPrefixFrameSegment] = list(previous_confirmed_segments)
+    next_frame_ordinal = _next_frame_segment_ordinal(frame_segments)
     for spine_segment in frame_source_segments:
         if not isinstance(spine_segment, dict):
             continue
@@ -226,6 +234,7 @@ def build_physical_prefix_frame_from_provider_payload(
         segment_provider_serialized_hash = str(
             full.get("provider_serialized_hash")
             or spine_segment.get("provider_serialized_hash")
+            or provider_visible_hash
             or segment_content_hash
             or ""
         )
@@ -263,7 +272,7 @@ def build_physical_prefix_frame_from_provider_payload(
         frame_metadata["logical_segment_ref"] = str(frame_prefix_identity.get("logical_segment_ref") or "")
         frame_segments.append(
             PhysicalPrefixFrameSegment(
-                ordinal=_safe_int(full.get("ordinal") or spine_segment.get("ordinal")),
+                ordinal=next_frame_ordinal,
                 segment_id=segment_id,
                 transport_location=str(full.get("transport_location") or spine_segment.get("transport_location") or ""),
                 role=str(full.get("role") or spine_segment.get("role") or ""),
@@ -293,10 +302,12 @@ def build_physical_prefix_frame_from_provider_payload(
                 metadata=frame_metadata,
             )
         )
+        next_frame_ordinal += 1
 
     validation = _validate_frame_segments(
         frame_segments,
         physical_spine=physical_spine,
+        previous_confirmed_segments=previous_confirmed_segments,
         required_current_append_entry_indexes=normalized_current_append,
     )
     status = (
@@ -315,7 +326,7 @@ def build_physical_prefix_frame_from_provider_payload(
         "status": status,
         "provider_payload_prefix_hash": str(cache_boundary.get("provider_payload_prefix_hash") or ""),
         "segment_ids": [segment.segment_id for segment in frame_segments],
-        "content_hashes": [segment.content_hash for segment in frame_segments],
+        "provider_serialized_hashes": [segment.provider_serialized_hash for segment in frame_segments],
         "current_append_entry_indexes": list(normalized_current_append),
     }
     frame_id = "physframe:" + stable_json_hash(frame_seed).removeprefix("sha256:")[:16]
@@ -369,6 +380,8 @@ def build_physical_prefix_frame_from_provider_payload(
                 "provider_payload_physical_cache_spine_segment_ids": list(physical_spine.get("segment_ids") or []),
                 "lane_order": list(physical_spine.get("lane_order") or []),
                 "provider_tool_protocol_rounds": list(physical_spine.get("provider_tool_protocol_rounds") or []),
+                "previous_confirmed_old_context_segment_count": len(previous_confirmed_segments),
+                "current_append_promoted_segment_count": len(frame_source_segments),
             },
             "current_append_promotion": _current_append_promotion_diagnostics(
                 frame_segments,
@@ -721,6 +734,7 @@ def _validate_frame_segments(
     segments: list[PhysicalPrefixFrameSegment],
     *,
     physical_spine: dict[str, Any],
+    previous_confirmed_segments: list[PhysicalPrefixFrameSegment] | tuple[PhysicalPrefixFrameSegment, ...] = (),
     required_current_append_entry_indexes: list[int] | tuple[int, ...] = (),
 ) -> dict[str, Any]:
     del physical_spine
@@ -730,6 +744,12 @@ def _validate_frame_segments(
             "reason": "empty_physical_cache_spine",
             "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
         }
+    previous_copy_failure = _previous_confirmed_old_context_copy_failure(
+        segments,
+        previous_confirmed_segments=previous_confirmed_segments,
+    )
+    if previous_copy_failure:
+        return previous_copy_failure
     missing_current_append = _missing_current_append_entry_indexes(
         segments,
         required_current_append_entry_indexes=required_current_append_entry_indexes,
@@ -746,7 +766,10 @@ def _validate_frame_segments(
             ],
             "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
         }
-    provider_message_failure = _provider_visible_frame_message_source_failure(segments)
+    provider_message_failure = _provider_visible_frame_message_source_failure(
+        segments,
+        required_current_append_entry_indexes=required_current_append_entry_indexes,
+    )
     if provider_message_failure:
         return provider_message_failure
     for index, segment in enumerate(segments, start=1):
@@ -761,23 +784,100 @@ def _validate_frame_segments(
     return {
         "status": "ok",
         "segment_count": len(segments),
+        "previous_confirmed_old_context_segment_count": len(
+            [item for item in list(previous_confirmed_segments or ()) if isinstance(item, PhysicalPrefixFrameSegment)]
+        ),
         "validation_scope": "physical_storage_replay_only",
         "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
     }
 
 
-def _frame_source_segments(
+def _previous_confirmed_old_context_segments(
+    previous_frame: dict[str, Any] | PhysicalPrefixFrame | None,
+) -> list[PhysicalPrefixFrameSegment]:
+    if previous_frame is None:
+        return []
+    frame = (
+        previous_frame
+        if isinstance(previous_frame, PhysicalPrefixFrame)
+        else PhysicalPrefixFrame.from_dict(dict(previous_frame or {}))
+    )
+    if str(frame.status or "") != PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS:
+        return []
+    result: list[PhysicalPrefixFrameSegment] = []
+    for segment in sorted(tuple(frame.segments or ()), key=lambda item: int(item.ordinal or 0)):
+        if str(segment.transport_location or "") != "messages":
+            continue
+        if str(segment.physical_prefix_lane or "") != PROVIDER_VISIBLE_CONTEXT_PREFIX:
+            continue
+        if not dict(segment.provider_message or {}):
+            continue
+        # The previous frame is the byte authority. Copy the segment payload as-is;
+        # never rebuild old context from the current request manifest.
+        result.append(PhysicalPrefixFrameSegment.from_dict(segment.to_dict()))
+    return result
+
+
+def _next_frame_segment_ordinal(segments: list[PhysicalPrefixFrameSegment]) -> int:
+    if not segments:
+        return 1
+    return max(_safe_int(segment.ordinal) for segment in segments) + 1
+
+
+def _previous_confirmed_old_context_copy_failure(
+    segments: list[PhysicalPrefixFrameSegment],
+    *,
+    previous_confirmed_segments: list[PhysicalPrefixFrameSegment] | tuple[PhysicalPrefixFrameSegment, ...],
+) -> dict[str, Any]:
+    previous = [
+        segment
+        for segment in list(previous_confirmed_segments or ())
+        if isinstance(segment, PhysicalPrefixFrameSegment)
+    ]
+    if not previous:
+        return {}
+    if len(segments) < len(previous):
+        return {
+            "status": "rejected",
+            "reason": "previous_confirmed_old_context_not_copied_into_physical_prefix_frame",
+            "previous_confirmed_old_context_segment_count": len(previous),
+            "actual_segment_count": len(segments),
+            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+        }
+    mismatches: list[dict[str, Any]] = []
+    for index, expected in enumerate(previous):
+        actual = segments[index]
+        if actual.to_dict() == expected.to_dict():
+            continue
+        mismatches.append(
+            {
+                "index": index,
+                "expected_segment_id": expected.segment_id,
+                "actual_segment_id": actual.segment_id,
+                "expected_provider_message_hash": _provider_message_hash(dict(expected.provider_message or {})),
+                "actual_provider_message_hash": _provider_message_hash(dict(actual.provider_message or {})),
+            }
+        )
+        if len(mismatches) >= 5:
+            break
+    if mismatches:
+        return {
+            "status": "rejected",
+            "reason": "previous_confirmed_old_context_byte_copy_mismatch",
+            "mismatch_count": len(mismatches),
+            "mismatches": mismatches,
+            "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+        }
+    return {}
+
+
+def _current_append_source_segments(
     *,
     full_segments: list[dict[str, Any]],
-    physical_spine: dict[str, Any],
     current_append_entry_indexes: list[int] | tuple[int, ...] = (),
     confirmation_by_item_key: dict[str, int] | None = None,
+    existing_entry_indexes: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    included_ids = {
-        str(segment_id)
-        for segment_id in list(dict(physical_spine or {}).get("segment_ids") or [])
-        if str(segment_id or "")
-    }
     current_append_indexes = {
         _safe_int(value)
         for value in list(current_append_entry_indexes or [])
@@ -788,23 +888,14 @@ def _frame_source_segments(
         for key, value in dict(confirmation_by_item_key or {}).items()
         if str(key or "") and _safe_int(value) > 0
     }
+    existing_entries = {
+        _safe_int(value)
+        for value in set(existing_entry_indexes or set())
+        if _safe_int(value) > 0
+    }
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
-    seen_entry_indexes: set[int] = set()
-    for segment in full_segments:
-        segment_id = str(segment.get("segment_id") or "")
-        if not segment_id or segment_id not in included_ids:
-            continue
-        entry_index = _resolved_segment_provider_visible_entry_index(
-            segment,
-            confirmation_by_item_key=item_key_confirmations,
-        )
-        if entry_index > 0 and entry_index in seen_entry_indexes:
-            continue
-        result.append(dict(segment))
-        seen.add(segment_id)
-        if entry_index > 0:
-            seen_entry_indexes.add(entry_index)
+    seen_entry_indexes: set[int] = set(existing_entries)
     for segment in full_segments:
         segment_id = str(segment.get("segment_id") or "")
         if not segment_id or segment_id in seen:
@@ -945,7 +1036,14 @@ def _missing_current_append_entry_indexes(
 
 def _provider_visible_frame_message_source_failure(
     segments: list[PhysicalPrefixFrameSegment],
+    *,
+    required_current_append_entry_indexes: list[int] | tuple[int, ...],
 ) -> dict[str, Any]:
+    current_append_indexes = {
+        _safe_int(value)
+        for value in list(required_current_append_entry_indexes or [])
+        if _safe_int(value) > 0
+    }
     for segment in segments:
         if str(segment.transport_location or "") != "messages":
             continue
@@ -962,7 +1060,14 @@ def _provider_visible_frame_message_source_failure(
         message_source = str(
             dict(segment.metadata or {}).get("physical_prefix_frame_provider_message_source") or ""
         ).strip()
-        if message_source not in {"provider_request.messages", "provider_visible_append_candidate_message"}:
+        is_current_append_segment = (
+            _safe_int(segment.provider_visible_entry_index) > 0
+            and _safe_int(segment.provider_visible_entry_index) in current_append_indexes
+        )
+        if (
+            is_current_append_segment
+            and message_source not in {"provider_request.messages", "provider_visible_append_candidate_message"}
+        ):
             return {
                 "status": "rejected",
                 "reason": "provider_visible_frame_segment_not_copied_from_provider_request",
@@ -971,7 +1076,7 @@ def _provider_visible_frame_message_source_failure(
                 "message_source": message_source,
                 "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
             }
-        expected_hash = str(segment.provider_visible_hash or segment.content_hash or "").strip()
+        expected_hash = str(segment.provider_visible_hash or "").strip()
         if expected_hash and _provider_message_hash(dict(segment.provider_message or {})) != expected_hash:
             return {
                 "status": "rejected",

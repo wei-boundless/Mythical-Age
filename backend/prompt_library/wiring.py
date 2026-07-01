@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -9,11 +10,14 @@ from .descriptor_resolver import PromptDescriptorResolver
 from .environment_guidance_selection import select_environment_guidance_for_invocation
 from .models import (
     AgentPromptBinding,
+    PromptBindingSlot,
     PromptSet,
     RuntimePromptWiringPlan,
-    RuntimePromptWiringSlot,
+    PromptWiringBinding,
 )
+from .prompt_set_resolver import PromptSetResolver
 from .registry import PromptLibraryRegistry
+from .taxonomy import contract_priority_rank
 
 
 CORE_RUNTIME_SCHEMA_REFS = (
@@ -23,6 +27,80 @@ CORE_RUNTIME_SCHEMA_REFS = (
     "output_commit_schema",
     "context_fragment_metadata",
 )
+
+_CONFLICT_POLICY_ORDER = {
+    "override": 0,
+    "constrain": 1,
+    "factual_correction": 2,
+    "scoped_guidance": 3,
+    "background_only": 4,
+    "advisory": 5,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _SlotBindingCandidate:
+    slot: str
+    refs: tuple[str, ...]
+    pack_refs: tuple[str, ...]
+    owner_layer: str
+    cache_scope: str
+    visibility: str
+    locked: bool
+    contract_priority: str
+    conflict_policy: str
+    scope: str
+    source_prompt_set: str
+    order: int
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_slot(
+        cls,
+        slot: PromptBindingSlot,
+        *,
+        slot_name: str,
+        refs: tuple[str, ...],
+        pack_refs: tuple[str, ...],
+        prompt_set: PromptSet,
+        order: int,
+    ) -> "_SlotBindingCandidate":
+        return cls(
+            slot=str(slot_name or slot.slot or "").strip(),
+            refs=_dedupe(refs),
+            pack_refs=_dedupe(pack_refs),
+            owner_layer=str(slot.owner_layer or "").strip(),
+            cache_scope=str(slot.cache_scope or "").strip(),
+            visibility=str(slot.visibility or "model_visible").strip() or "model_visible",
+            locked=bool(slot.locked),
+            contract_priority=str(slot.contract_priority or "").strip(),
+            conflict_policy=str(slot.conflict_policy or "").strip(),
+            scope=str(slot.scope or "").strip(),
+            source_prompt_set=str(prompt_set.prompt_set_id or "").strip(),
+            order=int(order or 0),
+            metadata=dict(slot.metadata or {}),
+        )
+
+    @property
+    def priority_rank(self) -> int:
+        return contract_priority_rank(self.contract_priority)
+
+    def to_diagnostic(self) -> dict[str, Any]:
+        return {
+            "slot": self.slot,
+            "refs": list(self.refs),
+            "pack_refs": list(self.pack_refs),
+            "owner_layer": self.owner_layer,
+            "cache_scope": self.cache_scope,
+            "visibility": self.visibility,
+            "locked": self.locked,
+            "contract_priority": self.contract_priority,
+            "priority_rank": self.priority_rank,
+            "conflict_policy": self.conflict_policy,
+            "scope": self.scope,
+            "source_prompt_set": self.source_prompt_set,
+            "order": self.order,
+        }
 
 
 def agent_prompt_binding_from_profile(
@@ -72,49 +150,49 @@ def build_runtime_prompt_wiring_plan(
     binding = agent_prompt_binding_from_profile(agent_profile, environment_id=environment_id)
     invocation = str(invocation_kind or "").strip()
     prompt_set_refs = _prompt_set_refs_for_invocation(binding, invocation_kind=invocation)
+    prompt_set_resolution = PromptSetResolver(registry).resolve(prompt_set_refs)
     resolved_sets: list[PromptSet] = []
-    rejected_sets: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for prompt_set_ref in prompt_set_refs:
-        _collect_prompt_set(
-            registry,
-            prompt_set_ref=prompt_set_ref,
-            resolved=resolved_sets,
-            rejected=rejected_sets,
-            seen=seen,
+    prompt_set_resolution_diagnostics = dict(prompt_set_resolution.diagnostics)
+    rejected_sets = list(prompt_set_resolution_diagnostics.get("rejected_prompt_sets") or ())
+    for prompt_set in prompt_set_resolution.prompt_sets:
+        rejection_reason = _prompt_set_rejection_reason(
+            prompt_set,
+            agent_profile_id=profile_id,
+            environment_id=environment_id,
         )
+        if rejection_reason:
+            rejected_sets.append(
+                {
+                    "prompt_set_ref": prompt_set.prompt_set_id,
+                    "reason": rejection_reason,
+                    "owner_kind": prompt_set.owner_kind,
+                    "owner_ref": prompt_set.owner_ref,
+                }
+            )
+            continue
+        resolved_sets.append(prompt_set)
 
-    slots_by_name: dict[str, RuntimePromptWiringSlot] = {}
+    slot_candidates_by_name: dict[str, list[_SlotBindingCandidate]] = {}
     for prompt_set in resolved_sets:
         for slot_name, slot in prompt_set.slots.items():
             refs = slot.refs_for_invocation(invocation)
             pack_refs = slot.packs_for_invocation(invocation)
             if not refs and not pack_refs:
                 continue
-            existing = slots_by_name.get(slot_name)
-            slots_by_name[slot_name] = RuntimePromptWiringSlot(
-                slot=slot_name,
-                refs=_dedupe((*tuple(existing.refs if existing else ()), *refs)),
-                pack_refs=_dedupe((*tuple(existing.pack_refs if existing else ()), *pack_refs)),
-                owner_layer=slot.owner_layer or (existing.owner_layer if existing else ""),
-                cache_scope=slot.cache_scope or (existing.cache_scope if existing else ""),
-                visibility=slot.visibility or (existing.visibility if existing else "model_visible"),
-                locked=bool(slot.locked or (existing.locked if existing else False)),
-                contract_priority=slot.contract_priority or (existing.contract_priority if existing else ""),
-                conflict_policy=slot.conflict_policy or (existing.conflict_policy if existing else ""),
-                scope=slot.scope or (existing.scope if existing else ""),
-                source_prompt_sets=_dedupe(
-                    (*tuple(existing.source_prompt_sets if existing else ()), prompt_set.prompt_set_id)
-                ),
-                metadata={
-                    **dict(existing.metadata if existing else {}),
-                    **dict(slot.metadata or {}),
-                    "prompt_descriptors": [
-                        descriptor.to_dict()
-                        for descriptor in descriptor_resolver.resolve_prompt_refs(_dedupe((*refs, *pack_refs)))
-                    ],
-                },
+            slot_candidates_by_name.setdefault(slot_name, []).append(
+                _SlotBindingCandidate.from_slot(
+                    slot,
+                    slot_name=slot_name,
+                    refs=refs,
+                    pack_refs=pack_refs,
+                    prompt_set=prompt_set,
+                    order=len(slot_candidates_by_name.get(slot_name, ())),
+                )
             )
+    slots_by_name, slot_conflict_decisions = _resolve_prompt_wiring_slots(
+        slot_candidates_by_name,
+        descriptor_resolver=descriptor_resolver,
+    )
 
     environment_guidance_defaults = _environment_guidance_defaults_from_prompt_sets(
         resolved_sets,
@@ -185,7 +263,9 @@ def build_runtime_prompt_wiring_plan(
                 for descriptor in descriptor_resolver.resolve_prompt_refs([item.prompt_set_id for item in resolved_sets])
             ],
             "rejected_prompt_sets": rejected_sets,
+            "prompt_set_resolution": prompt_set_resolution.to_dict(),
             "conflict_policy": _conflict_policy_diagnostics(slots),
+            "slot_conflict_decisions": slot_conflict_decisions,
             "environment_guidance_selection": {
                 "source": "prompt_set.environment_guidance_catalog",
                 "defaults": dict(environment_guidance_defaults),
@@ -206,27 +286,6 @@ def build_runtime_prompt_wiring_plan(
             "authority": "prompt_library.wiring.build_runtime_prompt_wiring_plan",
         },
     )
-
-
-def _collect_prompt_set(
-    registry: PromptLibraryRegistry,
-    *,
-    prompt_set_ref: str,
-    resolved: list[PromptSet],
-    rejected: list[dict[str, Any]],
-    seen: set[str],
-) -> None:
-    ref = str(prompt_set_ref or "").strip()
-    if not ref or ref in seen:
-        return
-    seen.add(ref)
-    prompt_set = registry.get_prompt_set(ref)
-    if prompt_set is None:
-        rejected.append({"prompt_set_ref": ref, "reason": "prompt_set_not_found_or_inactive"})
-        return
-    for parent_ref in prompt_set.extends:
-        _collect_prompt_set(registry, prompt_set_ref=parent_ref, resolved=resolved, rejected=rejected, seen=seen)
-    resolved.append(prompt_set)
 
 
 def _prompt_set_refs_for_invocation(binding: AgentPromptBinding, *, invocation_kind: str) -> tuple[str, ...]:
@@ -266,6 +325,220 @@ def _environment_prompt_set_ref(environment_id: Any) -> str:
     if value == "env.general.workspace":
         return "prompt_set.environment.general"
     return ""
+
+
+def _prompt_set_rejection_reason(
+    prompt_set: PromptSet,
+    *,
+    agent_profile_id: str,
+    environment_id: str,
+) -> str:
+    allowed_agents = {str(item).strip() for item in tuple(prompt_set.allowed_agent_refs or ()) if str(item).strip()}
+    profile = str(agent_profile_id or "").strip()
+    if allowed_agents and (not profile or profile not in allowed_agents):
+        return "prompt_set_agent_ref_mismatch"
+    allowed_environments = {
+        str(item).strip() for item in tuple(prompt_set.allowed_environment_refs or ()) if str(item).strip()
+    }
+    environment = str(environment_id or "").strip()
+    if allowed_environments and environment and environment not in allowed_environments:
+        return "prompt_set_environment_ref_mismatch"
+    return ""
+
+
+def _resolve_prompt_wiring_slots(
+    candidates_by_name: dict[str, list[_SlotBindingCandidate]],
+    *,
+    descriptor_resolver: PromptDescriptorResolver,
+) -> tuple[dict[str, PromptWiringBinding], list[dict[str, Any]]]:
+    slots_by_name: dict[str, PromptWiringBinding] = {}
+    decisions: list[dict[str, Any]] = []
+    for slot_name in sorted(candidates_by_name):
+        candidates = list(candidates_by_name.get(slot_name) or [])
+        if not candidates:
+            continue
+        selected, omitted, reason = _select_slot_candidates(candidates)
+        if selected:
+            slots_by_name[slot_name] = _wiring_binding_from_selected_candidates(
+                slot_name,
+                selected,
+                descriptor_resolver=descriptor_resolver,
+                decision_reason=reason,
+                omitted=omitted,
+            )
+        decisions.append(
+            {
+                "slot": slot_name,
+                "decision": reason,
+                "selected": [candidate.to_diagnostic() for candidate in selected],
+                "omitted": [dict(item) for item in omitted],
+                "authority": "prompt_library.wiring.slot_conflict_resolver",
+            }
+        )
+    return slots_by_name, decisions
+
+
+def _select_slot_candidates(
+    candidates: list[_SlotBindingCandidate],
+) -> tuple[list[_SlotBindingCandidate], list[dict[str, Any]], str]:
+    ordered = sorted(candidates, key=_candidate_order_key)
+    locked_candidates = [candidate for candidate in ordered if candidate.locked]
+    if locked_candidates:
+        selected = [locked_candidates[0]]
+        selected_key = _candidate_identity(selected[0])
+        omitted = [
+            {
+                **candidate.to_diagnostic(),
+                "reason": "locked_slot_authority_selected_elsewhere"
+                if _candidate_identity(candidate) != selected_key
+                else "duplicate_locked_slot_candidate",
+            }
+            for candidate in ordered
+            if candidate is not selected[0]
+        ]
+        return selected, omitted, "locked_slot_authority"
+
+    selected: list[_SlotBindingCandidate] = []
+    omitted: list[dict[str, Any]] = []
+    for candidate in ordered:
+        blocker = _higher_override_blocker(selected, candidate)
+        if blocker is not None:
+            omitted.append(
+                {
+                    **candidate.to_diagnostic(),
+                    "reason": "blocked_by_higher_priority_override",
+                    "blocking_source_prompt_set": blocker.source_prompt_set,
+                    "blocking_contract_priority": blocker.contract_priority,
+                }
+            )
+            continue
+        if candidate.conflict_policy == "override":
+            retained: list[_SlotBindingCandidate] = []
+            for selected_candidate in selected:
+                if (
+                    _slot_scope_conflicts(selected_candidate, candidate)
+                    and selected_candidate.priority_rank >= candidate.priority_rank
+                ):
+                    omitted.append(
+                        {
+                            **selected_candidate.to_diagnostic(),
+                            "reason": "replaced_by_slot_override",
+                            "replacing_source_prompt_set": candidate.source_prompt_set,
+                            "replacing_contract_priority": candidate.contract_priority,
+                        }
+                    )
+                    continue
+                retained.append(selected_candidate)
+            selected = retained
+            selected.append(candidate)
+            continue
+        if candidate.conflict_policy in {"background_only", "advisory"} and _has_higher_hard_candidate(
+            selected,
+            candidate,
+        ):
+            omitted.append(
+                {
+                    **candidate.to_diagnostic(),
+                    "reason": "background_or_advisory_omitted_after_hard_slot_candidate",
+                }
+            )
+            continue
+        selected.append(candidate)
+    selected = sorted(selected, key=_candidate_order_key)
+    return selected, omitted, "priority_conflict_policy_resolved"
+
+
+def _wiring_binding_from_selected_candidates(
+    slot_name: str,
+    selected: list[_SlotBindingCandidate],
+    *,
+    descriptor_resolver: PromptDescriptorResolver,
+    decision_reason: str,
+    omitted: list[dict[str, Any]],
+) -> PromptWiringBinding:
+    ordered = sorted(selected, key=_candidate_order_key)
+    primary = ordered[0]
+    refs = _dedupe([ref for candidate in ordered for ref in candidate.refs])
+    pack_refs = _dedupe([ref for candidate in ordered for ref in candidate.pack_refs])
+    metadata: dict[str, Any] = {}
+    for candidate in ordered:
+        metadata.update(dict(candidate.metadata or {}))
+    metadata.update(
+        {
+            "prompt_descriptors": [
+                descriptor.to_dict()
+                for descriptor in descriptor_resolver.resolve_prompt_refs(_dedupe((*refs, *pack_refs)))
+            ],
+            "slot_conflict_resolution": {
+                "decision": decision_reason,
+                "selected_source_prompt_sets": [candidate.source_prompt_set for candidate in ordered],
+                "selected_contract_priorities": [candidate.contract_priority for candidate in ordered],
+                "selected_conflict_policies": [candidate.conflict_policy for candidate in ordered],
+                "omitted": [dict(item) for item in omitted],
+                "authority": "prompt_library.wiring.slot_conflict_resolver",
+            },
+        }
+    )
+    return PromptWiringBinding(
+        slot=slot_name,
+        refs=refs,
+        pack_refs=pack_refs,
+        owner_layer=primary.owner_layer,
+        cache_scope=primary.cache_scope,
+        visibility=primary.visibility,
+        locked=any(candidate.locked for candidate in ordered),
+        contract_priority=primary.contract_priority,
+        conflict_policy=primary.conflict_policy,
+        scope=primary.scope,
+        source_prompt_sets=_dedupe([candidate.source_prompt_set for candidate in ordered]),
+        metadata=metadata,
+    )
+
+
+def _candidate_order_key(candidate: _SlotBindingCandidate) -> tuple[int, int, int]:
+    return (
+        candidate.priority_rank,
+        _CONFLICT_POLICY_ORDER.get(candidate.conflict_policy, _CONFLICT_POLICY_ORDER["scoped_guidance"]),
+        candidate.order,
+    )
+
+
+def _candidate_identity(candidate: _SlotBindingCandidate) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+    return (candidate.slot, candidate.source_prompt_set, candidate.refs, candidate.pack_refs)
+
+
+def _higher_override_blocker(
+    selected: list[_SlotBindingCandidate],
+    candidate: _SlotBindingCandidate,
+) -> _SlotBindingCandidate | None:
+    for selected_candidate in selected:
+        if selected_candidate.conflict_policy != "override":
+            continue
+        if selected_candidate.priority_rank > candidate.priority_rank:
+            continue
+        if _slot_scope_conflicts(selected_candidate, candidate):
+            return selected_candidate
+    return None
+
+
+def _has_higher_hard_candidate(
+    selected: list[_SlotBindingCandidate],
+    candidate: _SlotBindingCandidate,
+) -> bool:
+    for selected_candidate in selected:
+        if selected_candidate.priority_rank > candidate.priority_rank:
+            continue
+        if selected_candidate.conflict_policy not in {"override", "constrain", "factual_correction"}:
+            continue
+        if _slot_scope_conflicts(selected_candidate, candidate):
+            return True
+    return False
+
+
+def _slot_scope_conflicts(left: _SlotBindingCandidate, right: _SlotBindingCandidate) -> bool:
+    left_scope = str(left.scope or "").strip()
+    right_scope = str(right.scope or "").strip()
+    return not left_scope or not right_scope or left_scope == right_scope
 
 
 def _string_tuple_map(value: Any) -> dict[str, tuple[str, ...]]:
@@ -315,7 +588,7 @@ def _environment_guidance_overrides_from_profile(agent_profile: Any, *, environm
 
 
 def _upsert_environment_guidance_wiring_slot(
-    slots_by_name: dict[str, RuntimePromptWiringSlot],
+    slots_by_name: dict[str, PromptWiringBinding],
     *,
     descriptor_resolver: PromptDescriptorResolver,
     slot_name: str,
@@ -330,7 +603,7 @@ def _upsert_environment_guidance_wiring_slot(
         return
     existing = slots_by_name.get(slot_name)
     selected_refs = _dedupe((*tuple(existing.refs if existing else ()), *refs))
-    slots_by_name[slot_name] = RuntimePromptWiringSlot(
+    slots_by_name[slot_name] = PromptWiringBinding(
         slot=slot_name,
         refs=selected_refs,
         pack_refs=tuple(existing.pack_refs if existing else ()),
@@ -378,7 +651,7 @@ def _dedupe(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _conflict_policy_diagnostics(slots: tuple[RuntimePromptWiringSlot, ...]) -> list[dict[str, Any]]:
+def _conflict_policy_diagnostics(slots: tuple[PromptWiringBinding, ...]) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     for slot in slots:
         diagnostics.append(

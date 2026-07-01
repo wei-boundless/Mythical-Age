@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
-from .context_segment_registry import (
+from .declarations import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
@@ -12,7 +12,7 @@ from .context_segment_registry import (
     context_segment_kind_declarations,
     context_segment_semantic_slot_defaults,
 )
-from .provider_message_replay_contract import (
+from .metadata import (
     physical_prefix_frame_replay_metadata,
     provider_protocol_append_candidate_metadata,
     provider_protocol_replay_metadata,
@@ -22,16 +22,25 @@ DEFAULT_PROVIDER_ADAPTER_CONTRACT = "deepseek_v4_provider_visible_message"
 
 DEFAULT_CONTEXT_APPEND_SLOT_RANKS: dict[str, int] = {
     "recovery_or_recent_work_facts": 10,
+    "previous_incomplete_output_memory": 12,
     "provider_protocol_history": 15,
     "selected_memory_and_task_state_facts": 20,
     "task_goal_context": 21,
     "task_plan_context": 22,
     "task_todo_context": 23,
+    "task_state_cursor": 24,
+    "graph_node_runtime_context": 25,
     "active_execution_lease": 24,
     "current_user_intent": 30,
     "active_user_steer_content": 35,
+    "active_user_steer_consumption_state": 36,
     "evidence_acquisition_horizon": 36,
     "evidence_refs_and_file_state_facts": 40,
+    "current_exact_evidence": 41,
+    "current_editor_evidence_delta": 41,
+    "evidence_semantic_summary": 42,
+    "read_coverage_projection": 43,
+    "execution_action_evidence": 44,
     "tool_transcript": 70,
     "context_memory_append": 90,
     "action_contract": 95,
@@ -88,7 +97,7 @@ class ContextSegmentPolicy:
     contract_slot: str = ""
     contract_ref: str = ""
     repair_feedback_slot: str = ""
-    authority: str = "runtime.context_management.context_segment_policy"
+    authority: str = "context_system.segments.policy"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -180,11 +189,38 @@ def _install_builtin_policy_defaults() -> None:
     )
     for stream, slot in STREAM_CONTEXT_APPEND_SLOT_DEFAULTS.items():
         register_context_segment_policy_defaults(stream=stream, semantic_slot=slot)
+    for kind, slot, rank in (
+        ("bound_task_runtime_context", "bound_task_runtime_context", 40),
+        ("task_goal_context", "task_goal_context", 21),
+        ("task_plan_context", "task_plan_context", 22),
+        ("task_todo_context", "task_todo_context", 23),
+        ("volatile_task_state", "task_state_cursor", 24),
+        ("graph_node_runtime_context", "graph_node_runtime_context", 25),
+        ("user_steering_consumption_tail", "active_user_steer_consumption_state", 36),
+        ("recovery_context_package", "recovery_or_recent_work_facts", 10),
+        ("previous_incomplete_output_memory", "previous_incomplete_output_memory", 12),
+        ("session_history_tail_context", "recovery_or_recent_work_facts", 10),
+        ("recent_work_outcome", "recovery_or_recent_work_facts", 10),
+        ("evidence_delta_summary", "evidence_semantic_summary", 42),
+        ("evidence_semantic_summary", "evidence_semantic_summary", 42),
+        ("read_evidence_injection", "current_exact_evidence", 41),
+        ("current_editor_evidence_delta", "current_editor_evidence_delta", 41),
+        ("read_coverage_projection", "read_coverage_projection", 43),
+        ("execution_action_evidence", "execution_action_evidence", 44),
+    ):
+        register_context_segment_policy_defaults(
+            kind=kind,
+            section=CONTEXT_APPEND,
+            prefix_cache_scope="none",
+            prefix_cache_role="volatile",
+            prefix_tier="volatile",
+            semantic_slot=slot,
+            semantic_slot_rank=rank,
+            commit_policy="append_then_seal",
+            replay_policy="current_append_commit_on_provider_success_then_next_physical_prefix_frame",
+            identity_policy="origin_ref_stable",
+        )
     for kind, rank in {
-        "bound_task_runtime_context": 40,
-        "task_goal_context": 21,
-        "task_plan_context": 22,
-        "task_todo_context": 23,
         "evidence_acquisition_horizon": 36,
     }.items():
         register_context_segment_policy_defaults(
@@ -240,7 +276,6 @@ def _install_builtin_policy_defaults() -> None:
     )
     for kind, slot in {
         "turn_state_guidance": "turn_state_guidance",
-        "turn_attention_index": "turn_attention_index",
         "turn_operating_contract": "turn_operating_contract",
         "runtime_control_signal_tail": "runtime_control_contract",
         "single_agent_turn_followup_action_contract": "action_contract",
@@ -271,6 +306,17 @@ def _install_builtin_policy_defaults() -> None:
         "runtime_control_signal_tail",
     }:
         register_context_segment_policy_defaults(kind=kind, repair_feedback_slot="system_repair_feedback")
+    for kind in context_segment_declared_kinds(section=DYNAMIC_TAIL):
+        register_context_segment_policy_defaults(
+            kind=kind,
+            section=DYNAMIC_TAIL,
+            prefix_cache_scope="none",
+            prefix_cache_role="volatile",
+            prefix_tier="volatile",
+            commit_policy="never_commit",
+            replay_policy="current_dynamic_tail_only",
+            identity_policy="current_invocation_only",
+        )
 
 
 def context_segment_policy_for_spec(
@@ -342,7 +388,7 @@ def context_segment_policy_for_spec(
         replay_policy=_first_text(
             metadata.get("context_replay_policy"),
             defaults.replay_policy,
-            "physical_prefix_frame_replay" if section == CONTEXT_MEMORY_PREFIX else "new_append_materialize_once",
+            _default_replay_policy(section),
         ),
         provider_adapter_contract=_first_text(
             metadata.get("provider_adapter_contract"),
@@ -567,8 +613,6 @@ def _section_from_authoritative_context_metadata(payload: dict[str, Any], *, met
         return CONTEXT_MEMORY_PREFIX
     if provider_protocol_append_candidate_metadata(metadata):
         return CONTEXT_APPEND
-    if metadata.get("provider_visible_append_entry_index"):
-        return CONTEXT_MEMORY_PREFIX
     if str(metadata.get("provider_visible_append_commit_stage") or "").strip() == "provider_success_required":
         return CONTEXT_APPEND
     history_status = str(metadata.get("provider_visible_history_status") or "").strip()
@@ -663,6 +707,15 @@ def _semantic_commit_class(*, kind: str, section: str) -> str:
             return "tool_transcript"
         return "context_memory_append"
     return "current_runtime_control"
+
+
+def _default_replay_policy(section: str) -> str:
+    normalized = str(section or "").strip()
+    if normalized == CONTEXT_MEMORY_PREFIX:
+        return "physical_prefix_frame_replay"
+    if normalized == DYNAMIC_TAIL:
+        return "current_dynamic_tail_only"
+    return "new_append_materialize_once"
 
 
 def _memory_commit_policy(*, kind: str, section: str) -> str:

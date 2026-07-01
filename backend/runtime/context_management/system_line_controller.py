@@ -11,8 +11,8 @@ from .context_capability_policy import (
     context_capability_decision_for_spec,
     context_capability_profile_from_payload,
 )
-from .context_segment_policy import ContextSegmentPolicy, context_segment_policy_for_spec, context_segment_policy_metadata
-from .provider_message_replay_contract import provider_message_byte_preservation_required, provider_message_replay_kind
+from context_system.segments.metadata import provider_message_byte_preservation_required, provider_message_replay_kind
+from context_system.segments.policy import ContextSegmentPolicy, context_segment_policy_for_spec, context_segment_policy_metadata
 from .system_asset_lines import (
     ContextInputEnvelope,
     ContextLineState,

@@ -4,10 +4,10 @@ import hashlib
 import json
 from typing import Any
 
-from .models import RuntimeContextLoadEntry, RuntimeContextLoadPlan, RuntimePromptSlotPlan
+from .models import RuntimeContextLoadEntry, RuntimeContextLoadPlan, RuntimeLoadSegmentPlan
 
 
-def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> RuntimeContextLoadPlan:
+def build_runtime_context_load_plan(slot_plan: RuntimeLoadSegmentPlan) -> RuntimeContextLoadPlan:
     raw_entries: list[tuple[int, int, RuntimeContextLoadEntry]] = []
     plan_seed = {
         "slot_plan_id": str(slot_plan.plan_id or ""),

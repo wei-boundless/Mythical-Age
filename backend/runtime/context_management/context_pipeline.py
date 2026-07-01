@@ -8,7 +8,7 @@ from runtime.prompt_accounting.provider_lane import normalize_provider_lane
 
 from .context_candidates import context_candidate_from_message_spec
 from .context_candidate_gateway import build_context_candidate_gateway
-from .context_segment_policy import (
+from context_system.segments.policy import (
     context_segment_policy_for_spec,
     context_segment_policy_is_provider_visible_sealable,
 )

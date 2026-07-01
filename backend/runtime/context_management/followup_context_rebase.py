@@ -5,14 +5,14 @@ from typing import Any
 
 from runtime.prompt_accounting.serializer import canonical_json, normalize_messages
 
-from .context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     STATIC_PREFIX,
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
-from .provider_message_replay_contract import (
+from context_system.segments.metadata import (
     PROVIDER_PROTOCOL_REPLAY_AUTHORITY,
     PROVIDER_PROTOCOL_REPLAY_POLICY,
     PROVIDER_PROTOCOL_REPLAY_STATUS,
@@ -112,22 +112,25 @@ def provider_protocol_prefix_replay_policy(
         "context_cache_section": CONTEXT_MEMORY_PREFIX,
         "context_semantic_slot": str(dict(metadata or {}).get("context_semantic_slot") or "provider_visible_history"),
         "fixed_context_package": "context_memory_prefix",
-        "context_commit_policy": "append_then_seal",
+        "context_commit_policy": "never_commit",
+        "memory_commit_policy": "never_commit",
         "context_replay_policy": PROVIDER_PROTOCOL_REPLAY_POLICY,
         "context_identity_policy": "origin_ref_stable",
         "context_origin_authority": origin_authority,
         "context_origin_ref": origin_ref,
         "provider_protocol_replay": True,
         "provider_protocol_prefix_replay": True,
+        "provider_protocol_replay_degraded": True,
+        "provider_protocol_replay_degraded_reason": "confirmed_old_context_replay_is_owned_by_physical_prefix_frame",
         "provider_message_replay_authority": PROVIDER_PROTOCOL_REPLAY_AUTHORITY,
         "provider_protocol_prefix_replay_reason": "follow-up base context is already present in the current turn provider message prefix",
         "provider_visible_history_status": PROVIDER_PROTOCOL_REPLAY_STATUS,
         "provider_visible_history_authority": origin_authority,
         "provider_visible_history_model_message_hash": _stable_model_message_hash(dict(message or {})),
-        "cache_impact": "provider_protocol_prefix_preserved",
+        "cache_impact": "degraded_provider_protocol_replay_diagnostic",
         "stability_rule": (
-            "this message was already sent to the provider in an earlier request; "
-            "the follow-up path must preserve the exact provider message from the current turn prefix"
+            "this message is retained only as a degraded byte-preservation diagnostic; "
+            "normal confirmed old context replay is owned by the physical prefix frame"
         ),
     }
     exact_spec = {

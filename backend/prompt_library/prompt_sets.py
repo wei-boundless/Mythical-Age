@@ -1,14 +1,26 @@
 from __future__ import annotations
 
 from .environment_guidance_prompts import ENVIRONMENT_GUIDANCE_PROMPT_DEFAULTS_BY_ENVIRONMENT
-from .models import PromptSet, PromptSetSlot
+from .models import PromptBindingSlot, PromptSet
 from .worker_prompts import WORKER_PROMPT_SPECS
 
 
-_MAIN_AGENT_WORK_ROLE_REFS = {
-    "single_agent_turn": ("agent.main_interactive_agent.single_agent_turn.work_role",),
-    "tool_observation_followup": ("agent.main_interactive_agent.tool_observation_followup.work_role",),
-    "task_execution": ("agent.main_interactive_agent.task_execution.work_role",),
+_MAIN_AGENT_WORK_ROLE_REFS_BY_PROFILE = {
+    "main_interactive_agent": {
+        "single_agent_turn": ("agent.main_interactive_agent.single_agent_turn.work_role",),
+        "tool_observation_followup": ("agent.main_interactive_agent.tool_observation_followup.work_role",),
+        "task_execution": ("agent.main_interactive_agent.task_execution.work_role",),
+    },
+    "main_coding_agent": {
+        "single_agent_turn": ("agent.main_coding_agent.single_agent_turn.work_role",),
+        "tool_observation_followup": ("agent.main_coding_agent.tool_observation_followup.work_role",),
+        "task_execution": ("agent.main_coding_agent.task_execution.work_role",),
+    },
+    "main_office_agent": {
+        "single_agent_turn": ("agent.main_office_agent.single_agent_turn.work_role",),
+        "tool_observation_followup": ("agent.main_office_agent.tool_observation_followup.work_role",),
+        "task_execution": ("agent.main_office_agent.task_execution.work_role",),
+    },
 }
 
 
@@ -20,7 +32,7 @@ def list_builtin_prompt_sets() -> tuple[PromptSet, ...]:
             owner_ref="runtime.turn",
             title="Runtime default turn prompt set",
             slots={
-                "runtime_prompt_pack": PromptSetSlot(
+                "runtime_prompt_pack": PromptBindingSlot(
                     slot="runtime_prompt_pack",
                     prompt_pack_refs_by_invocation={
                         "single_agent_turn": ("runtime.pack.single_agent_turn",),
@@ -102,6 +114,7 @@ def list_builtin_prompt_sets() -> tuple[PromptSet, ...]:
 
 
 def _main_agent_prompt_set(*, prompt_set_id: str, agent_profile_id: str, title: str) -> PromptSet:
+    work_role_refs = _main_agent_work_role_refs(agent_profile_id)
     return PromptSet(
         prompt_set_id=prompt_set_id,
         owner_kind="agent",
@@ -110,11 +123,12 @@ def _main_agent_prompt_set(*, prompt_set_id: str, agent_profile_id: str, title: 
         title=title,
         allowed_agent_refs=(agent_profile_id,),
         slots={
-            "agent_work_role": PromptSetSlot(
+            "agent_work_role": PromptBindingSlot(
                 slot="agent_work_role",
-                prompt_refs_by_invocation=_MAIN_AGENT_WORK_ROLE_REFS,
+                prompt_refs_by_invocation=work_role_refs,
                 owner_layer="agent",
                 cache_scope="session",
+                scope=f"agent:{agent_profile_id}",
             ),
         },
         policies={
@@ -122,6 +136,14 @@ def _main_agent_prompt_set(*, prompt_set_id: str, agent_profile_id: str, title: 
             "locked_slots": ["runtime_prompt_pack", "action_protocol_schema", "output_commit_schema"],
         },
     )
+
+
+def _main_agent_work_role_refs(agent_profile_id: str) -> dict[str, tuple[str, ...]]:
+    normalized = str(agent_profile_id or "").strip()
+    refs = _MAIN_AGENT_WORK_ROLE_REFS_BY_PROFILE.get(normalized)
+    if refs is None:
+        raise ValueError(f"missing main agent work role refs for profile: {normalized}")
+    return refs
 
 
 def _single_invocation_agent_prompt_set(
@@ -140,7 +162,7 @@ def _single_invocation_agent_prompt_set(
         title=title,
         allowed_agent_refs=(agent_profile_id,),
         slots={
-            "agent_work_role": PromptSetSlot(
+            "agent_work_role": PromptBindingSlot(
                 slot="agent_work_role",
                 prompt_refs_by_invocation={invocation_kind: (prompt_ref,)},
                 owner_layer="agent",
@@ -161,7 +183,7 @@ def _worker_prompt_set(*, prompt_set_id: str, prompt_ref: str, worker_kind: str,
         extends=("prompt_set.runtime.default_turn",),
         title=title,
         slots={
-            "agent_work_role": PromptSetSlot(
+            "agent_work_role": PromptBindingSlot(
                 slot="agent_work_role",
                 prompt_refs_by_invocation={"task_execution": (prompt_ref,)},
                 owner_layer="agent",
@@ -187,13 +209,13 @@ def _environment_prompt_set(
         title=title,
         allowed_environment_refs=(environment_id,),
         slots={
-            "environment_orientation": PromptSetSlot(
+            "environment_orientation": PromptBindingSlot(
                 slot="environment_orientation",
                 prompt_refs=(orientation_ref,),
                 owner_layer="environment",
                 cache_scope="static_environment",
             ),
-            "environment_guidance_catalog": PromptSetSlot(
+            "environment_guidance_catalog": PromptBindingSlot(
                 slot="environment_guidance_catalog",
                 prompt_refs=tuple(guidance_slot_refs.values()),
                 owner_layer="environment",

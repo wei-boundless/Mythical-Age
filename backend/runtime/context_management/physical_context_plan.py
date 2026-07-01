@@ -5,8 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_segment_policy import context_segment_policy_for_spec
-from .provider_message_replay_contract import provider_message_byte_preservation_required
+from context_system.segments.metadata import provider_message_byte_preservation_required
+from context_system.segments.policy import context_segment_policy_for_spec
 
 
 TRANSPORT_CONTRACT = "transport_contract"

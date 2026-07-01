@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Any
 
-from .models import PromptCompositionSlot, RuntimePromptSlot, RuntimePromptSlotPlan
+from .models import PromptManifestBinding, RuntimeLoadSegment, RuntimeLoadSegmentPlan
 from .slot_policy import (
     prompt_slot_policy_metadata,
     resolve_prompt_slot_policy,
@@ -17,8 +17,8 @@ def build_runtime_prompt_slot_plan(
     invocation_kind: str,
     packet_id: str,
     message_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-) -> RuntimePromptSlotPlan:
-    slots: list[RuntimePromptSlot] = []
+) -> RuntimeLoadSegmentPlan:
+    slots: list[RuntimeLoadSegment] = []
     for index, raw_spec in enumerate(list(message_specs or []), start=1):
         if not isinstance(raw_spec, dict):
             continue
@@ -28,6 +28,7 @@ def build_runtime_prompt_slot_plan(
         metadata = dict(spec.get("metadata") or {})
         prompt_source_manifest_id = str(metadata.get("runtime_prompt_source_manifest_id") or "")
         prompt_source_id = str(metadata.get("runtime_prompt_source_id") or "")
+        prompt_source_audit = dict(metadata.get("runtime_prompt_source_audit") or metadata.get("prompt_source_audit") or {})
         content_hash = _stable_text_hash(str(spec.get("content") or ""))
         slot_id = _slot_id(
             invocation_kind=invocation_kind,
@@ -38,7 +39,7 @@ def build_runtime_prompt_slot_plan(
             content_hash=content_hash,
         )
         slots.append(
-            RuntimePromptSlot(
+            RuntimeLoadSegment(
                 slot_id=slot_id,
                 invocation_kind=str(invocation_kind or ""),
                 packet_id=str(packet_id or ""),
@@ -62,6 +63,7 @@ def build_runtime_prompt_slot_plan(
                     "source_metadata": metadata,
                     "prompt_source_manifest_id": prompt_source_manifest_id,
                     "prompt_source_id": prompt_source_id,
+                    "prompt_source_audit": prompt_source_audit,
                     "slot_source": "runtime_prompt_source_manifest",
                     **prompt_slot_policy_metadata(slot_policy),
                 },
@@ -86,7 +88,7 @@ def build_runtime_prompt_slot_plan(
             for slot in slots
         ],
     }
-    return RuntimePromptSlotPlan(
+    return RuntimeLoadSegmentPlan(
         plan_id="rtpromptslots:" + _stable_hash(seed)[:16],
         invocation_kind=str(invocation_kind or ""),
         packet_id=str(packet_id or ""),
@@ -103,11 +105,11 @@ def build_runtime_prompt_slot_plan(
     )
 
 
-def composition_slots_from_runtime_slot_plan(slot_plan: RuntimePromptSlotPlan) -> tuple[PromptCompositionSlot, ...]:
-    slots: list[PromptCompositionSlot] = []
+def composition_slots_from_runtime_slot_plan(slot_plan: RuntimeLoadSegmentPlan) -> tuple[PromptManifestBinding, ...]:
+    slots: list[PromptManifestBinding] = []
     for slot in tuple(slot_plan.slots or ()):
         slots.append(
-            PromptCompositionSlot(
+            PromptManifestBinding(
                 slot_id=slot.slot_id,
                 invocation_kind=slot.invocation_kind,
                 layer=slot.layer,
@@ -129,6 +131,7 @@ def composition_slots_from_runtime_slot_plan(slot_plan: RuntimePromptSlotPlan) -
                     "load_phase": slot.load_phase,
                     "phase_order": slot.phase_order,
                     "render_contract": dict(slot.render_contract),
+                    "prompt_source_audit": dict(slot.metadata.get("prompt_source_audit") or {}),
                 },
             )
         )
@@ -159,7 +162,7 @@ def _render_contract(spec: dict[str, Any], *, source_kind: str) -> dict[str, Any
     )
 
 
-def _count_by(slots: list[RuntimePromptSlot], field_name: str) -> dict[str, int]:
+def _count_by(slots: list[RuntimeLoadSegment], field_name: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for slot in slots:
         key = str(getattr(slot, field_name, "") or "unknown")

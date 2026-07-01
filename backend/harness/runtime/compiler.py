@@ -48,7 +48,7 @@ from harness.current_work_receipt import current_work_operation_availability_fro
 from core.project_layout import ProjectLayout
 from runtime.model_gateway.lightweight_chat_model import provider_message_payloads
 from runtime.model_gateway.protocol_sanitizer import ProtocolSanitizerResult, sanitize_messages_for_prompt
-from runtime.context_management.provider_message_replay_contract import (
+from context_system.segments.metadata import (
     PROVIDER_PROTOCOL_APPEND_AUTHORITY,
     PROVIDER_PROTOCOL_APPEND_POLICY,
     PROVIDER_PROTOCOL_APPEND_STATUS,
@@ -56,7 +56,7 @@ from runtime.context_management.provider_message_replay_contract import (
     provider_message_byte_preservation_required,
     provider_message_replay_kind,
 )
-from runtime.context_management.context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     DYNAMIC_TAIL,
     context_segment_policy_for_spec,
@@ -82,9 +82,9 @@ from .context_contract import build_context_contract_inspection_payload, build_c
 from .environment_storage import ensure_environment_storage_dirs
 from .environment_prompt_controller import (
     GENERAL_ENVIRONMENT_ID,
-    build_base_prompt_mount_plan,
-    prompt_mount_plan_for_invocation,
-    prompt_mount_plan_from_payload,
+    build_base_environment_prompt_inventory,
+    environment_prompt_inventory_for_invocation,
+    environment_prompt_inventory_from_payload,
 )
 from .harness_spine_contract import (
     TASK_EXECUTOR_BASE_ACTION_TYPES,
@@ -546,7 +546,7 @@ class RuntimeCompiler:
             session_context=session_context_payload,
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
-        prompt_mount_plan = prompt_mount_plan_for_invocation(
+        prompt_mount_plan = environment_prompt_inventory_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="single_agent_turn",
             allowed_actions=allowed_actions,
@@ -666,8 +666,14 @@ class RuntimeCompiler:
             session_context_payload.get("prior_work_memory_context"),
             current_user_message=user_message,
         )
-        if prior_work_memory_payload:
-            volatile_runtime_payload["prior_work_memory_context"] = prior_work_memory_payload
+        previous_incomplete_output_memory_spec = _previous_incomplete_output_memory_message_spec(
+            prior_work_memory_payload,
+            validity_scope=turn_id,
+        )
+        previous_incomplete_output_guidance_spec = _previous_incomplete_output_guidance_message_spec(
+            prior_work_memory_payload,
+            validity_scope=turn_id,
+        )
         turn_memory_recovery_payload = _turn_memory_recovery_model_visible_payload(
             session_context_payload.get("turn_memory_recovery"),
             current_user_message=user_message,
@@ -868,6 +874,7 @@ class RuntimeCompiler:
                 else None,
                 *provider_protocol_specs,
                 *context_message_specs,
+                previous_incomplete_output_memory_spec,
                 _runtime_payload_spec(
                     role="user",
                     title="Current User Request",
@@ -912,10 +919,14 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "projection_strategy": "current_exact_or_required_read_tail",
+                        "projection_strategy": "current_exact_or_required_read_append",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
-                        "cache_impact": "volatile_suffix_only",
+                        "volatility_reason": "current exact text and read-required windows are current evidence facts; they are not runtime control tail instructions",
+                        "stability_rule": (
+                            "Read evidence exact windows use path/range as the stable fact slot and content hash as the version. "
+                            "Unchanged windows are not re-appended; changed windows supersede prior content after provider success."
+                        ),
+                        **_read_evidence_injection_append_metadata(read_evidence_prompt_payload),
                     },
                 )
                 if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
@@ -987,6 +998,7 @@ class RuntimeCompiler:
                 )
                 if turn_state_guidance_instruction.strip()
                 else None,
+                previous_incomplete_output_guidance_spec,
                 _runtime_payload_spec(
                     role="system",
                     title="Current Request Signals",
@@ -1026,7 +1038,7 @@ class RuntimeCompiler:
             "active_work_context",
             "recent_work_outcome",
             "current_work_boundary_receipt",
-            "prior_work_memory_context",
+            "previous_incomplete_output_memory",
             "work_state_repair_context",
             "work_observations",
             "request_input_facts",
@@ -1036,7 +1048,6 @@ class RuntimeCompiler:
             "turn_id",
             "history",
             "user_message",
-            "current_editor_evidence_delta",
             "turn_state_guidance",
         )
         prompt_manifest = build_runtime_prompt_manifest(
@@ -1308,7 +1319,7 @@ class RuntimeCompiler:
             execution_state=dict(execution_state or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
-        prompt_mount_plan = prompt_mount_plan_for_invocation(
+        prompt_mount_plan = environment_prompt_inventory_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="task_execution",
             allowed_actions=allowed_actions,
@@ -1795,14 +1806,29 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="ref_only",
                     metadata={
-                        "control_layer": "bound_task_runtime_tail",
-                        "context_cache_section": "dynamic_tail",
-                        "context_commit_policy": "never_commit",
-                        "context_replay_policy": "current_dynamic_tail_only",
-                        "context_identity_policy": "current_invocation_only",
-                        "fixed_context_package": "dynamic_tail",
-                        "cache_impact": "current_dynamic_tail_only",
-                        "stability_rule": "bound current context carries request-scoped refs and must not be sealed into the task prefix",
+                        **_current_append_fact_metadata(
+                            kind="bound_task_runtime_context",
+                            payload=bound_task_runtime_context_payload,
+                            semantic_slot="bound_task_runtime_context",
+                            semantic_rank=40,
+                            origin_ref=":".join(
+                                item
+                                for item in (
+                                    bound_task_context.source_ref,
+                                    str(bound_task_context.diagnostics.get("runtime_state_hash") or ""),
+                                )
+                                if item
+                            ),
+                            package="task_state_context",
+                            stream="bound_task_runtime_context",
+                            semantic_commit_class="current_task_state_fact",
+                        ),
+                        "control_layer": "bound_task_runtime_facts",
+                        "stability_rule": (
+                            "Bound task runtime context carries task refs, file refs, edit targets, artifacts, and "
+                            "rehydration refs. These are current task facts with a content-versioned append identity; "
+                            "runtime leases and action permissions remain in the control tail."
+                        ),
                         "content_source": "harness.runtime.bound_task_context",
                     },
                 )
@@ -1819,8 +1845,21 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="ref_only",
                     metadata={
-                        "volatility_reason": "graph node authorized inputs, memory snapshots, loop state, and upstream artifact payloads vary per node execution",
-                        "cache_impact": "volatile",
+                        **_current_append_fact_metadata(
+                            kind="graph_node_runtime_context",
+                            payload=graph_node_runtime_context_payload,
+                            semantic_slot="graph_node_runtime_context",
+                            semantic_rank=25,
+                            origin_ref="graph_node_runtime_context:" + _stable_json_hash(graph_node_runtime_context_payload).removeprefix("sha256:")[:16],
+                            package="task_state_context",
+                            stream="graph_node_runtime_context",
+                            semantic_commit_class="current_task_state_fact",
+                        ),
+                        "volatility_reason": "graph node authorized inputs, memory snapshots, loop state, and upstream artifact payloads vary per node execution and are emitted as content-versioned facts",
+                        "stability_rule": (
+                            "Graph node runtime context contains the visible node facts and requirements. "
+                            "The graph node completion prefix remains the separate current-output control tail."
+                        ),
                     },
                 )
                 if graph_node_runtime_context_payload
@@ -1857,10 +1896,14 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "projection_strategy": "current_exact_or_required_read_tail",
+                        "projection_strategy": "current_exact_or_required_read_append",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
-                        "cache_impact": "volatile_suffix_only",
+                        "volatility_reason": "current exact text and read-required windows are current evidence facts; they are not runtime control tail instructions",
+                        "stability_rule": (
+                            "Read evidence exact windows use path/range as the stable fact slot and content hash as the version. "
+                            "Unchanged windows are not re-appended; changed windows supersede prior content after provider success."
+                        ),
+                        **_read_evidence_injection_append_metadata(read_evidence_prompt_payload),
                     },
                 )
                 if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
@@ -1917,7 +1960,24 @@ class RuntimeCompiler:
                     cache_scope="none",
                     cache_role="volatile",
                     compression_role="summarize",
-                    metadata=_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
+                    metadata={
+                        **_dynamic_context_segment_metadata(dynamic_context, source="task_state"),
+                        **_current_append_fact_metadata(
+                            kind="volatile_task_state",
+                            payload=volatile_payload,
+                            semantic_slot="task_state_cursor",
+                            semantic_rank=24,
+                            origin_ref="task_execution_current_state:" + _stable_json_hash(volatile_payload).removeprefix("sha256:")[:16],
+                            package="task_state_context",
+                            stream="task_state_cursor",
+                            semantic_commit_class="current_task_state_fact",
+                        ),
+                        "stability_rule": (
+                            "Task execution current state is a compact task-state cursor. It is a current fact "
+                            "candidate with a content-versioned append identity; leases, permissions, and runtime "
+                            "control signals remain in the dynamic control tail."
+                        ),
+                    },
                 ),
                 _runtime_payload_spec(
                     role="system",
@@ -2011,10 +2071,23 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="summarize",
                     metadata={
-                        "volatility_reason": "user steer queue consumption changes during task execution and must not enter memory context",
-                        "projection_strategy": "current_user_steer_consumption_tail",
-                        "cache_impact": "volatile_suffix_only",
+                        **_current_append_fact_metadata(
+                            kind="user_steering_consumption_tail",
+                            payload=_user_steering_consumption_tail_payload(user_steering_payload),
+                            semantic_slot="active_user_steer_consumption_state",
+                            semantic_rank=36,
+                            origin_ref="user_steering_consumption:" + _stable_json_hash(_user_steering_consumption_tail_payload(user_steering_payload)).removeprefix("sha256:")[:16],
+                            package="user_steering_context",
+                            stream="user_steering_consumption",
+                            semantic_commit_class="current_user_steer_consumption_state",
+                        ),
+                        "volatility_reason": "user steer queue consumption changes during task execution and is emitted as a content-versioned current fact",
+                        "projection_strategy": "current_user_steer_consumption_state",
                         "steer_refs": _user_steering_refs(user_steering_payload),
+                        "stability_rule": (
+                            "User steer consumption state is a current fact about which user instructions remain active. "
+                            "It should be sealed only after provider success; the steer content itself remains in user_steering_context_append."
+                        ),
                     },
                 )
                 if _user_steering_consumption_tail_payload(user_steering_payload)
@@ -2059,8 +2132,6 @@ class RuntimeCompiler:
             "pending_user_steers",
             "active_contract_revisions",
             "runtime_control_signals",
-            "current_editor_evidence_delta",
-            "read_evidence_injection",
             "incremental_context_cursor",
             "turn_state_guidance",
         )
@@ -2278,7 +2349,7 @@ class RuntimeCompiler:
             session_context=dict(session_context or {}),
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
         )
-        prompt_mount_plan = prompt_mount_plan_for_invocation(
+        prompt_mount_plan = environment_prompt_inventory_for_invocation(
             _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload),
             invocation_kind="tool_observation_followup",
             allowed_actions=observation_allowed_actions,
@@ -2586,10 +2657,14 @@ class RuntimeCompiler:
                     cache_role="volatile",
                     compression_role="preserve",
                     metadata={
-                        "projection_strategy": "current_exact_or_required_read_tail",
+                        "projection_strategy": "current_exact_or_required_read_append",
                         "content_source": "harness.runtime.dynamic_context.read_evidence_projector",
-                        "volatility_reason": "only current exact text or current read-required windows stay in the dynamic tail; historical read refs are split into append-only read_evidence_context messages",
-                        "cache_impact": "volatile_suffix_only",
+                        "volatility_reason": "current exact text and read-required windows are current evidence facts; they are not runtime control tail instructions",
+                        "stability_rule": (
+                            "Read evidence exact windows use path/range as the stable fact slot and content hash as the version. "
+                            "Unchanged windows are not re-appended; changed windows supersede prior content after provider success."
+                        ),
+                        **_read_evidence_injection_append_metadata(read_evidence_prompt_payload),
                     },
                 )
                 if _read_evidence_current_prompt_payload(read_evidence_prompt_payload)
@@ -2649,7 +2724,6 @@ class RuntimeCompiler:
             "turn_id",
             "user_message",
             "observations",
-            "current_editor_evidence_delta",
         )
         prompt_manifest = build_runtime_prompt_manifest(
             invocation_kind="tool_observation_followup",
@@ -3290,46 +3364,213 @@ def _prior_work_memory_model_visible_payload(
         payload.get("interruption"),
         pending_commit_summary,
     )
+    interruption = dict(payload.get("interruption") or {}) if isinstance(payload.get("interruption"), dict) else {}
+    previous_work_ref = _previous_incomplete_output_work_ref(payload)
+    memory_refs = _drop_empty_payload(
+        {
+            "current_user_message_ref": str(current_context.get("current_user_message_ref") or ""),
+            "physical_prefix_frame_id": str(payload.get("physical_prefix_frame_id") or handoff_context.get("physical_prefix_frame_id") or ""),
+            "provider_request_refs": list(payload.get("provider_request_refs") or [])[-8:],
+            "provider_payload_manifest_refs": list(payload.get("provider_payload_manifest_refs") or [])[-8:],
+            "closed_tool_round_refs": list(payload.get("closed_tool_round_refs") or handoff_context.get("closed_tool_round_refs") or [])[-8:],
+            "active_steer_refs": list(payload.get("active_steer_refs") or handoff_context.get("active_steer_refs") or [])[-8:],
+            "assistant_draft_ref": str(payload.get("assistant_draft_ref") or ""),
+            "assistant_draft_sha256": str(payload.get("assistant_draft_sha256") or ""),
+            "current_append_hash": str(payload.get("current_append_hash") or ""),
+        }
+    )
+    state_signal_evidence = _previous_incomplete_output_state_signal_evidence(
+        payload,
+        previous_work_ref=previous_work_ref,
+        interruption=interruption,
+        closure_summary=closure_summary,
+        memory_refs=memory_refs,
+    )
     return _drop_empty_payload(
         {
-            "authority": "harness.compiler.prior_work_memory_context",
-            "state": "closed_interrupted_work_memory_package",
-            "source": "previous_interrupted_work_memory_package",
+            "authority": "harness.compiler.previous_incomplete_output_memory",
+            "memory_type": "previous_incomplete_output_memory",
+            "source": "previous_interrupted_work_output_hot_cache",
             "branch_id": str(payload.get("branch_id") or ""),
-            "status": str(payload.get("status") or ""),
-            "phase": str(payload.get("phase") or ""),
-            "closure": closure_summary,
-            "current_user_request": _compact_text(current_user_message, limit=4000),
-            "memory_refs": _drop_empty_payload(
+            "previous_work_ref": previous_work_ref,
+            "work_state": _drop_empty_payload(
                 {
-                    "current_user_message_ref": str(current_context.get("current_user_message_ref") or ""),
-                    "physical_prefix_frame_id": str(payload.get("physical_prefix_frame_id") or handoff_context.get("physical_prefix_frame_id") or ""),
-                    "provider_request_refs": list(payload.get("provider_request_refs") or [])[-8:],
-                    "provider_payload_manifest_refs": list(payload.get("provider_payload_manifest_refs") or [])[-8:],
-                    "closed_tool_round_refs": list(payload.get("closed_tool_round_refs") or handoff_context.get("closed_tool_round_refs") or [])[-8:],
-                    "active_steer_refs": list(payload.get("active_steer_refs") or handoff_context.get("active_steer_refs") or [])[-8:],
-                    "assistant_draft_ref": str(payload.get("assistant_draft_ref") or ""),
-                    "assistant_draft_sha256": str(payload.get("assistant_draft_sha256") or ""),
-                    "current_append_hash": str(payload.get("current_append_hash") or ""),
+                    "status": str(payload.get("status") or ""),
+                    "phase": str(payload.get("phase") or ""),
+                    "closure": closure_summary,
                 }
             ),
+            "state_signal_evidence": state_signal_evidence,
+            "closure": closure_summary,
+            "memory_refs": memory_refs,
             "memory_summaries": _drop_empty_payload(
                 {
                     "tool": pending_tool_summary,
                     "closure": closure_summary,
                 }
             ),
-            "followup_contract": [
-                "This is a read-only work memory package produced when prior work was interrupted and closed.",
-                "Use it only as background context for the current user request.",
-                "Do not resume or write to the closed work package, and do not treat it as task recovery.",
-                "Carry forward useful facts, constraints, tool observations, and partial work unless the current user instruction changes them.",
-            ],
-            "allowed_followup_posture": "current_request_with_prior_work_memory",
-            "forbidden_action": "resume_closed_work",
-            "read_only_context": True,
+            "completion_state": "incomplete_previous_output",
         }
     )
+
+
+def _previous_incomplete_output_memory_message_spec(
+    payload: dict[str, Any] | None,
+    *,
+    validity_scope: str,
+) -> dict[str, Any] | None:
+    memory_payload = _drop_empty_payload(dict(payload or {}))
+    if not memory_payload:
+        return None
+    source_ref = _previous_incomplete_output_memory_source_ref(memory_payload)
+    wrapped_payload = {
+        "previous_incomplete_work_context": memory_payload,
+    }
+    return _runtime_payload_spec(
+        role="system",
+        title="Previous incomplete work context",
+        payload=wrapped_payload,
+        kind="previous_incomplete_output_memory",
+        visible_kind="previous_incomplete_output_memory",
+        source_ref=source_ref,
+        cache_scope="none",
+        cache_role="volatile",
+        compression_role="summarize",
+        metadata={
+            **_current_append_fact_metadata(
+                kind="previous_incomplete_output_memory",
+                payload=wrapped_payload,
+                semantic_slot="previous_incomplete_output_memory",
+                semantic_rank=12,
+                origin_ref=source_ref,
+                package="previous_incomplete_output_memory",
+                stream="previous_incomplete_output_memory",
+                semantic_commit_class="previous_incomplete_output_memory",
+            ),
+            "content_source": "runtime.turn_memory.output_hot_cache",
+            "state_signal_evidence": dict(memory_payload.get("state_signal_evidence") or {}),
+            "stability_rule": (
+                "Previous incomplete output memory is a current request fact derived from output hot cache. "
+                "It may be sealed only after this provider request succeeds; guidance stays in the dynamic tail."
+            ),
+        },
+    )
+
+
+def _previous_incomplete_output_guidance_message_spec(
+    payload: dict[str, Any] | None,
+    *,
+    validity_scope: str,
+) -> dict[str, Any] | None:
+    memory_payload = _drop_empty_payload(dict(payload or {}))
+    if not memory_payload:
+        return None
+    source_ref = _previous_incomplete_output_memory_source_ref(memory_payload) + ":guidance"
+    guidance = _previous_incomplete_output_guidance_content(memory_payload)
+    if not guidance.strip():
+        return None
+    return _message_spec(
+        role="system",
+        content=_runtime_control_context_content(
+            guidance,
+            validity_scope=validity_scope,
+            source_ref=source_ref,
+            include_notice=False,
+        ),
+        kind="previous_incomplete_output_guidance",
+        source_ref=source_ref,
+        cache_scope="none",
+        cache_role="volatile",
+        compression_role="preserve",
+        metadata=_current_runtime_tail_metadata(
+            {
+                "content_source": "harness.runtime.compiler.previous_incomplete_output_guidance",
+                "state_signal_ref": str(dict(memory_payload.get("state_signal_evidence") or {}).get("signal_ref") or ""),
+                "volatility_reason": "guidance explains the current state signal for this request only",
+            },
+            semantic_slot="turn_state_guidance",
+            validity_scope=validity_scope,
+        ),
+    )
+
+
+def _previous_incomplete_output_guidance_content(payload: dict[str, Any]) -> str:
+    signal = dict(dict(payload or {}).get("state_signal_evidence") or {})
+    if str(signal.get("signal_type") or "") != "previous_output_interrupted":
+        return ""
+    return "\n".join(
+        (
+            "上一段工作被中断。你会收到一段上一段未完成工作的记忆，它只是一份当前请求可用的背景证据。",
+            "这些内容可能包含已完成的工具观察、临时草稿、尚未收尾的判断和约束。",
+            "请把它作为当前请求的背景证据继续判断，不要假设它已经是最终结论；如果当前用户指令改变方向，以当前用户指令为准。",
+        )
+    )
+
+
+def _previous_incomplete_output_state_signal_evidence(
+    payload: dict[str, Any],
+    *,
+    previous_work_ref: str,
+    interruption: dict[str, Any],
+    closure_summary: dict[str, Any],
+    memory_refs: dict[str, Any],
+) -> dict[str, Any]:
+    reason_class = str(dict(closure_summary or {}).get("reason") or "")
+    event_id = str(dict(interruption or {}).get("event_id") or "").strip()
+    event_offset = dict(interruption or {}).get("event_offset")
+    seed = {
+        "signal_type": "previous_output_interrupted",
+        "previous_work_ref": previous_work_ref,
+        "event_id": event_id,
+        "event_offset": event_offset,
+        "current_append_hash": str(dict(memory_refs or {}).get("current_append_hash") or ""),
+    }
+    return _drop_empty_payload(
+        {
+            "signal_type": "previous_output_interrupted",
+            "signal_ref": "statesignal:" + _stable_json_hash(seed).removeprefix("sha256:")[:16],
+            "evidence_source": "runtime.output_hot_cache",
+            "previous_work_ref": previous_work_ref,
+            "interruption": _drop_empty_payload(
+                {
+                    "reason_class": reason_class,
+                    "event_ref": event_id,
+                    "event_offset": event_offset,
+                }
+            ),
+            "memory_ref_summary": _drop_empty_payload(
+                {
+                    "provider_request_ref_count": len(list(dict(memory_refs or {}).get("provider_request_refs") or [])),
+                    "provider_payload_manifest_ref_count": len(list(dict(memory_refs or {}).get("provider_payload_manifest_refs") or [])),
+                    "closed_tool_round_ref_count": len(list(dict(memory_refs or {}).get("closed_tool_round_refs") or [])),
+                    "assistant_draft_ref": str(dict(memory_refs or {}).get("assistant_draft_ref") or ""),
+                    "current_append_hash": str(dict(memory_refs or {}).get("current_append_hash") or ""),
+                }
+            ),
+            "authority": "harness.compiler.previous_incomplete_output_memory.state_signal_evidence",
+        }
+    )
+
+
+def _previous_incomplete_output_work_ref(payload: dict[str, Any]) -> str:
+    return _first_runtime_text(
+        payload.get("turn_run_id"),
+        payload.get("previous_turn_id"),
+        payload.get("current_append_hash"),
+        "previous_incomplete_output",
+    )
+
+
+def _previous_incomplete_output_memory_source_ref(payload: dict[str, Any]) -> str:
+    signal = dict(dict(payload or {}).get("state_signal_evidence") or {})
+    explicit = str(signal.get("signal_ref") or "").strip()
+    if explicit:
+        return f"previous_incomplete_output_memory:{explicit}"
+    seed = {
+        "previous_work_ref": str(dict(payload or {}).get("previous_work_ref") or ""),
+        "memory_refs": dict(dict(payload or {}).get("memory_refs") or {}),
+    }
+    return "previous_incomplete_output_memory:" + _stable_json_hash(seed).removeprefix("sha256:")[:16]
 
 
 def _agent_visible_work_closure_summary(interruption: Any, pending_commit_summary: dict[str, Any]) -> dict[str, Any]:
@@ -3661,7 +3902,6 @@ def _current_turn_delta_model_payload(payload: dict[str, Any] | None) -> dict[st
     current.pop("turn_id", None)
     allowed_context_keys = (
         "attachment_context_index",
-        "current_editor_evidence_delta",
         "editor_context_index",
         "observations",
     )
@@ -4412,6 +4652,64 @@ def _current_user_context_append_metadata(payload: dict[str, Any] | None, *, tur
     }
 
 
+def _current_append_fact_metadata(
+    *,
+    kind: str,
+    payload: dict[str, Any],
+    semantic_slot: str,
+    semantic_rank: int,
+    origin_ref: str = "",
+    package: str = "",
+    stream: str = "",
+    semantic_commit_class: str = "",
+) -> dict[str, Any]:
+    normalized_kind = str(kind or "").strip()
+    normalized_slot = str(semantic_slot or normalized_kind or "context_memory_append").strip()
+    content_hash = _stable_json_hash(payload)
+    stable_origin_ref = str(origin_ref or "").strip() or f"{normalized_kind}:{content_hash}"
+    fact_slot_key = _stable_json_hash(
+        {
+            "schema": "semantic_fact_slot",
+            "kind": normalized_kind,
+            "semantic_slot": normalized_slot,
+            "origin_ref": stable_origin_ref,
+        }
+    )
+    item_key = _stable_json_hash(
+        {
+            "schema": "current_append_fact_context_item",
+            "kind": normalized_kind,
+            "semantic_slot": normalized_slot,
+            "origin_ref": stable_origin_ref,
+            "content_hash": content_hash,
+        }
+    )
+    return {
+        "cache_impact": "context_append_then_sealed_prefix",
+        "context_cache_section": CONTEXT_APPEND,
+        "context_prefix_cache_scope": "none",
+        "context_prefix_cache_role": "volatile",
+        "context_prefix_tier": "volatile",
+        "context_semantic_slot": normalized_slot,
+        "context_semantic_slot_rank": int(semantic_rank or 0),
+        "context_commit_policy": "append_then_seal",
+        "context_replay_policy": "current_append_commit_on_provider_success_then_next_physical_prefix_frame",
+        "context_identity_policy": "origin_ref_stable",
+        "context_origin_authority": "harness.runtime.compiler.current_append_fact",
+        "context_origin_ref": stable_origin_ref,
+        "append_only_context_package": str(package or normalized_slot or normalized_kind),
+        "append_only_context_stream": str(stream or normalized_slot or normalized_kind),
+        "append_only_context_item_key": item_key,
+        "append_only_content_hash": content_hash,
+        "fact_slot_key": fact_slot_key,
+        "fact_content_hash": content_hash,
+        "fact_change_class": "content_version_candidate",
+        "fact_supersession_policy": "same_fact_slot_latest_content_hash_supersedes_prior",
+        "semantic_commit_class": str(semantic_commit_class or "context_memory_append"),
+        "provider_visible_after_validity": "replay_after_provider_success_via_physical_prefix_frame",
+    }
+
+
 def _current_runtime_tail_metadata(
     metadata: dict[str, Any] | None,
     *,
@@ -4987,7 +5285,7 @@ def _file_evidence_policy_stable_payload() -> dict[str, Any]:
                 "known_path_boundary": (
                     "已知 bound/editor 文件路径，以及 task_run_contract 的 GoalContext、PlanContext 或 TodoContext working_scope 中表现为路径的 target_objects、"
                     "source_refs 或 workspace_refs，不需要通过 search_files 或 search_text 重新发现；"
-                    "未知位置才使用 search_files、glob_paths 或 search_text。"
+                    "未知位置先使用 search_text 这类 rg-like 搜索收敛候选；只有文件名/路径关键词或明确通配符线索时才用 search_files 或 glob_paths。"
                 ),
             },
             "current_evidence_sources": [
@@ -5364,11 +5662,11 @@ def _prompt_mount_plan_with_wiring_guidance(prompt_mount_plan: Any, wiring_plan:
         {
             "environment_guidance_selector_authority": "prompt_library.wiring.build_runtime_prompt_wiring_plan",
             "prompt_wiring_plan_ref": str(dict(wiring_plan or {}).get("wiring_id") or ""),
-            "prompt_mount_plan_role": "environment_mount_fact_adapter",
+            "environment_prompt_inventory_role": "environment_prompt_fact_adapter",
         }
     )
     payload["diagnostics"] = diagnostics
-    return prompt_mount_plan_from_payload(payload)
+    return environment_prompt_inventory_from_payload(payload)
 
 
 def _prompt_wiring_plan_manifest_payload(wiring_plan: dict[str, Any], *, prompt_policy: dict[str, Any]) -> dict[str, Any]:
@@ -5440,7 +5738,7 @@ def _prompt_mount_plan_payload_from_runtime_assembly(assembly_payload: dict[str,
     personality_prompt_refs = _string_tuple(assembly_payload.get("personality_prompt_refs"))
     profile_payload = dict(assembly_payload.get("profile") or {})
     prompt_policy = dict(profile_payload.get("prompt_policy") or assembly_payload.get("prompt_policy") or {})
-    plan = build_base_prompt_mount_plan(
+    plan = build_base_environment_prompt_inventory(
         selected_environment=environment_payload,
         personality_prompt_refs=personality_prompt_refs,
         prompt_policy=prompt_policy,
@@ -5664,7 +5962,7 @@ def _environment_model_visible_payload(
     file_management = dict(payload.get("file_management") or {})
     environment_boundary = dict(payload.get("environment_boundary") or {})
     boundary_contract = dict(environment_boundary.get("boundary_contract") or {})
-    mount_plan = prompt_mount_plan_from_payload(prompt_mount_plan)
+    mount_plan = environment_prompt_inventory_from_payload(prompt_mount_plan)
     prompt_refs = mount_plan.environment_prompt_refs or _string_tuple(environment_boundary.get("prompt_refs")) or tuple(
         str(item.get("prompt_id") or "").strip()
         for item in list(payload.get("environment_prompts") or [])
@@ -5865,6 +6163,46 @@ def _read_evidence_prompt_source_ref(payload: dict[str, Any] | None, *, fallback
     if not data:
         return str(fallback or "read_evidence_injection")
     return f"read_evidence:{_stable_json_hash(data).removeprefix('sha256:')[:16]}"
+
+
+def _read_evidence_injection_append_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
+    current_payload = _read_evidence_current_prompt_payload(payload)
+    return _current_append_fact_metadata(
+        kind="read_evidence_injection",
+        payload=current_payload,
+        semantic_slot="current_exact_evidence",
+        semantic_rank=41,
+        origin_ref=_read_evidence_injection_origin_ref(current_payload),
+        package="evidence_context",
+        stream="current_exact_evidence",
+        semantic_commit_class="current_exact_evidence_fact",
+    )
+
+
+def _read_evidence_injection_origin_ref(payload: dict[str, Any] | None) -> str:
+    data = dict(payload or {})
+    anchors: list[dict[str, Any]] = []
+    for collection, window_type in (
+        ("read_evidence_injections", "exact"),
+        ("read_required_windows", "read_required"),
+    ):
+        for item in list(data.get(collection) or [])[:8]:
+            if not isinstance(item, dict):
+                continue
+            anchors.append(
+                _drop_empty_payload(
+                    {
+                        "window_type": window_type,
+                        "path": str(item.get("path") or "").replace("\\", "/"),
+                        "start_line": item.get("start_line"),
+                        "end_line": item.get("end_line"),
+                    }
+                )
+            )
+    anchors = [item for item in anchors if item]
+    if not anchors:
+        return ""
+    return "read_evidence_window:" + _stable_json_hash({"anchors": anchors}).removeprefix("sha256:")[:16]
 
 
 def _active_skill_instruction(*, base_dir: Path, assembly_payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:

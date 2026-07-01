@@ -395,6 +395,7 @@ def _result_metadata_for_tool(
                 {
                     "kind": "continue_reading",
                     "tool_name": "read_file",
+                    "condition": "only if the current claim needs exact text beyond this visible window",
                     "args_hint": _drop_empty_dict(
                         {
                             "path": path,

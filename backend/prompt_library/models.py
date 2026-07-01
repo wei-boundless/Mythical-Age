@@ -1,9 +1,73 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .taxonomy import normalize_conflict_policy, normalize_contract_priority, normalize_prompt_scope
+
+
+@dataclass(frozen=True, slots=True)
+class PromptResourceOrigin:
+    origin_type: str = ""
+    workflow_id: str = ""
+    task_id: str = ""
+    graph_id: str = ""
+    node_id: str = ""
+    stage_id: str = ""
+    phase_id: str = ""
+    step_id: str = ""
+    step_kind: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for key in (
+            "origin_type",
+            "workflow_id",
+            "task_id",
+            "graph_id",
+            "node_id",
+            "stage_id",
+            "phase_id",
+            "step_id",
+            "step_kind",
+        ):
+            object.__setattr__(self, key, str(getattr(self, key) or "").strip())
+        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+
+    @property
+    def has_value(self) -> bool:
+        return any(
+            (
+                self.origin_type,
+                self.workflow_id,
+                self.task_id,
+                self.graph_id,
+                self.node_id,
+                self.stage_id,
+                self.phase_id,
+                self.step_id,
+                self.step_kind,
+                bool(self.metadata),
+            )
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "origin_type": self.origin_type,
+            "workflow_id": self.workflow_id,
+            "task_id": self.task_id,
+            "graph_id": self.graph_id,
+            "node_id": self.node_id,
+            "stage_id": self.stage_id,
+            "phase_id": self.phase_id,
+            "step_id": self.step_id,
+            "step_kind": self.step_kind,
+        }
+        result = {key: value for key, value in payload.items() if value}
+        if self.metadata:
+            result["metadata"] = dict(self.metadata)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,14 +86,7 @@ class PromptResource:
     resource_type: str = ""
     title: str = ""
     content: str = ""
-    workflow_id: str = ""
-    task_id: str = ""
-    graph_id: str = ""
-    node_id: str = ""
-    stage_id: str = ""
-    phase_id: str = ""
-    step_id: str = ""
-    step_kind: str = ""
+    origin: PromptResourceOrigin = field(default_factory=PromptResourceOrigin)
     tags: tuple[str, ...] = ()
     priority: int = 100
     cache_scope: str = "static"
@@ -67,6 +124,7 @@ class PromptResource:
             owner_ref=owner_ref,
         )
         status = str(self.status or ("active" if self.enabled else "deprecated")).strip()
+        origin = _prompt_resource_origin(self.origin)
         object.__setattr__(self, "prompt_id", prompt_id)
         object.__setattr__(self, "resource_id", resource_id)
         object.__setattr__(self, "resource_type", resource_type)
@@ -79,9 +137,11 @@ class PromptResource:
         object.__setattr__(self, "conflict_policy", conflict_policy)
         object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "status", status)
+        object.__setattr__(self, "origin", origin)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["origin"] = self.origin.to_dict()
         for key in (
             "allowed_invocation_kinds",
             "allowed_agent_refs",
@@ -90,6 +150,8 @@ class PromptResource:
         ):
             payload[key] = list(payload[key])
         payload["chars"] = len(self.content)
+        payload["content_hash"] = _content_hash(self.content)
+        payload["version_label"] = self.version
         return payload
 
     @property
@@ -235,7 +297,9 @@ class PromptRuleAssemblyResult:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptSetSlot:
+class PromptBindingSlot:
+    """Prompt-set binding declared by prompt_library before runtime wiring."""
+
     slot: str
     prompt_refs: tuple[str, ...] = ()
     prompt_pack_refs: tuple[str, ...] = ()
@@ -310,7 +374,7 @@ class PromptSet:
     owner_kind: str = ""
     owner_ref: str = ""
     extends: tuple[str, ...] = ()
-    slots: dict[str, PromptSetSlot] = field(default_factory=dict)
+    slots: dict[str, PromptBindingSlot] = field(default_factory=dict)
     policies: dict[str, Any] = field(default_factory=dict)
     status: str = "active"
     title: str = ""
@@ -377,7 +441,9 @@ class AgentPromptBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimePromptWiringSlot:
+class PromptWiringBinding:
+    """Resolved runtime prompt binding after PromptSet inheritance and invocation selection."""
+
     slot: str
     refs: tuple[str, ...] = ()
     pack_refs: tuple[str, ...] = ()
@@ -438,7 +504,7 @@ class RuntimePromptWiringPlan:
     agent_profile_id: str
     invocation_kind: str
     environment_id: str = ""
-    slots: tuple[RuntimePromptWiringSlot, ...] = ()
+    slots: tuple[PromptWiringBinding, ...] = ()
     schema_refs: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_library.runtime_prompt_wiring_plan"
@@ -526,8 +592,8 @@ class PromptAssemblyResult:
         return "\n".join(item.content for item in self.sections if item.content.strip()).strip()
 
 
-def prompt_set_slot_from_dict(payload: dict[str, Any]) -> PromptSetSlot:
-    return PromptSetSlot(
+def prompt_binding_slot_from_dict(payload: dict[str, Any]) -> PromptBindingSlot:
+    return PromptBindingSlot(
         slot=str(payload.get("slot") or ""),
         prompt_refs=_string_tuple(payload.get("prompt_refs")),
         prompt_pack_refs=_string_tuple(payload.get("prompt_pack_refs")),
@@ -572,8 +638,8 @@ def agent_prompt_binding_from_dict(payload: dict[str, Any]) -> AgentPromptBindin
     )
 
 
-def runtime_prompt_wiring_slot_from_dict(payload: dict[str, Any]) -> RuntimePromptWiringSlot:
-    return RuntimePromptWiringSlot(
+def prompt_wiring_binding_from_dict(payload: dict[str, Any]) -> PromptWiringBinding:
+    return PromptWiringBinding(
         slot=str(payload.get("slot") or ""),
         refs=_string_tuple(payload.get("refs")),
         pack_refs=_string_tuple(payload.get("pack_refs")),
@@ -596,7 +662,7 @@ def runtime_prompt_wiring_plan_from_dict(payload: dict[str, Any]) -> RuntimeProm
         invocation_kind=str(payload.get("invocation_kind") or ""),
         environment_id=str(payload.get("environment_id") or ""),
         slots=tuple(
-            runtime_prompt_wiring_slot_from_dict(dict(item))
+            prompt_wiring_binding_from_dict(dict(item))
             for item in list(payload.get("slots") or [])
             if isinstance(item, dict)
         ),
@@ -637,14 +703,7 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         resource_type=resource_type,
         title=str(payload.get("title") or payload.get("resource_id") or ""),
         content=str(payload.get("content") or ""),
-        workflow_id=str(payload.get("workflow_id") or ""),
-        task_id=str(payload.get("task_id") or ""),
-        graph_id=str(payload.get("graph_id") or ""),
-        node_id=str(payload.get("node_id") or ""),
-        stage_id=str(payload.get("stage_id") or ""),
-        phase_id=str(payload.get("phase_id") or ""),
-        step_id=str(payload.get("step_id") or ""),
-        step_kind=str(payload.get("step_kind") or ""),
+        origin=_prompt_resource_origin_from_payload(payload),
         tags=tuple(str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()),
         priority=int(payload.get("priority") or 100),
         cache_scope=str(payload.get("cache_scope") or "static"),
@@ -751,6 +810,58 @@ def _resource_type_from_category_subtype(category: str, subtype: str) -> str:
     return category_value or subtype_value or "runtime.instruction"
 
 
+def _content_hash(content: str) -> str:
+    return "sha256:" + hashlib.sha256(str(content or "").encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _prompt_resource_origin(value: Any) -> PromptResourceOrigin:
+    if isinstance(value, PromptResourceOrigin):
+        return value
+    if isinstance(value, dict):
+        return PromptResourceOrigin(
+            origin_type=str(value.get("origin_type") or value.get("type") or ""),
+            workflow_id=str(value.get("workflow_id") or ""),
+            task_id=str(value.get("task_id") or ""),
+            graph_id=str(value.get("graph_id") or ""),
+            node_id=str(value.get("node_id") or ""),
+            stage_id=str(value.get("stage_id") or ""),
+            phase_id=str(value.get("phase_id") or ""),
+            step_id=str(value.get("step_id") or ""),
+            step_kind=str(value.get("step_kind") or ""),
+            metadata=dict(value.get("metadata") or {}),
+        )
+    return PromptResourceOrigin()
+
+
+def _prompt_resource_origin_from_payload(payload: dict[str, Any]) -> PromptResourceOrigin:
+    origin = _prompt_resource_origin(payload.get("origin"))
+    legacy_values = {
+        "workflow_id": str(payload.get("workflow_id") or "").strip(),
+        "task_id": str(payload.get("task_id") or "").strip(),
+        "graph_id": str(payload.get("graph_id") or "").strip(),
+        "node_id": str(payload.get("node_id") or "").strip(),
+        "stage_id": str(payload.get("stage_id") or "").strip(),
+        "phase_id": str(payload.get("phase_id") or "").strip(),
+        "step_id": str(payload.get("step_id") or "").strip(),
+        "step_kind": str(payload.get("step_kind") or "").strip(),
+    }
+    if not any(legacy_values.values()):
+        return origin
+    origin_type = origin.origin_type or ("task_graph" if legacy_values["graph_id"] or legacy_values["node_id"] else "")
+    return PromptResourceOrigin(
+        origin_type=origin_type,
+        workflow_id=origin.workflow_id or legacy_values["workflow_id"],
+        task_id=origin.task_id or legacy_values["task_id"],
+        graph_id=origin.graph_id or legacy_values["graph_id"],
+        node_id=origin.node_id or legacy_values["node_id"],
+        stage_id=origin.stage_id or legacy_values["stage_id"],
+        phase_id=origin.phase_id or legacy_values["phase_id"],
+        step_id=origin.step_id or legacy_values["step_id"],
+        step_kind=origin.step_kind or legacy_values["step_kind"],
+        metadata=dict(origin.metadata),
+    )
+
+
 def _string_tuple(value: Any) -> tuple[str, ...]:
     if isinstance(value, str):
         raw_values = [value]
@@ -779,20 +890,20 @@ def _string_tuple_map(value: Any) -> dict[str, tuple[str, ...]]:
     return result
 
 
-def _prompt_set_slots(value: Any) -> dict[str, PromptSetSlot]:
+def _prompt_set_slots(value: Any) -> dict[str, PromptBindingSlot]:
     if not isinstance(value, dict):
         return {}
-    result: dict[str, PromptSetSlot] = {}
+    result: dict[str, PromptBindingSlot] = {}
     for key, raw_slot in value.items():
         slot_name = str(key or "").strip()
         if not slot_name:
             continue
-        if isinstance(raw_slot, PromptSetSlot):
+        if isinstance(raw_slot, PromptBindingSlot):
             slot = raw_slot
         else:
             payload = dict(raw_slot or {}) if isinstance(raw_slot, dict) else {}
             payload.setdefault("slot", slot_name)
-            slot = prompt_set_slot_from_dict(payload)
+            slot = prompt_binding_slot_from_dict(payload)
         if slot.slot:
             result[slot.slot] = slot
     return result

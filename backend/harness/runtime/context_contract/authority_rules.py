@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from runtime.context_management.context_prefix_identity import build_context_prefix_identity
-from runtime.context_management.context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
@@ -11,7 +11,7 @@ from runtime.context_management.context_segment_policy import (
     ContextSegmentPolicy,
     context_segment_policy_for_spec,
 )
-from runtime.context_management.context_segment_registry import (
+from context_system.segments.declarations import (
     ACTION_CONTRACTS,
     ACTIVE_SKILL,
     CONTEXT_MEMORY,
@@ -336,7 +336,7 @@ def _authority(payload: dict[str, Any], *, metadata: dict[str, Any], policy: Con
         metadata.get("physical_context_assembler_authority"),
         payload.get("authority"),
         policy.authority,
-        "runtime.context_management.context_segment_policy",
+        "context_system.segments.policy",
     )
 
 

@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from .provider_message_replay_contract import (
+from context_system.segments.metadata import (
     physical_prefix_frame_replay_metadata,
     provider_protocol_replay_metadata,
 )

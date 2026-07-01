@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.context_management.context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
     CONTEXT_MEMORY_PREFIX,
     DYNAMIC_TAIL,
@@ -12,7 +12,7 @@ from runtime.context_management.context_segment_policy import (
     context_segment_policy_for_spec,
     context_segment_policy_metadata,
 )
-from runtime.context_management.context_segment_registry import (
+from context_system.segments.declarations import (
     context_segment_dynamic_tier_defaults,
     context_segment_kind_source_kind,
     context_segment_layer_defaults,

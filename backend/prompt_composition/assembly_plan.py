@@ -15,7 +15,9 @@ from .slot_policy import (
 )
 
 @dataclass(frozen=True, slots=True)
-class PromptAssemblySlot:
+class PromptMaterialSegment:
+    """Material segment after source bundle normalization and slot policy resolution."""
+
     slot_id: str
     source_id: str
     invocation_kind: str
@@ -51,7 +53,7 @@ class PromptAssemblyPlan:
     invocation_kind: str
     packet_id: str
     source_bundle_id: str
-    slots: tuple[PromptAssemblySlot, ...] = ()
+    slots: tuple[PromptMaterialSegment, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_composition.assembly_plan"
 
@@ -73,13 +75,13 @@ def build_prompt_assembly_plan(
     provider_profile: dict[str, Any] | None = None,
 ) -> PromptAssemblyPlan:
     provider_profile_payload = dict(provider_profile or {})
-    planned: list[PromptAssemblySlot] = []
+    planned: list[PromptMaterialSegment] = []
     for source in tuple(source_bundle.sources or ()):
         slot = _slot_from_source(source, provider_profile=provider_profile_payload)
         planned.append(slot)
 
     ordered_sources = sorted(planned, key=_assembly_order_key)
-    slots: list[PromptAssemblySlot] = []
+    slots: list[PromptMaterialSegment] = []
     for order, slot in enumerate(ordered_sources, start=1):
         metadata = {
             **dict(slot.metadata or {}),
@@ -98,7 +100,7 @@ def build_prompt_assembly_plan(
         spec["compression_role"] = slot.compression_role
         spec["metadata"] = {**dict(spec.get("metadata") or {}), **metadata}
         slots.append(
-            PromptAssemblySlot(
+            PromptMaterialSegment(
                 slot_id=slot.slot_id,
                 source_id=slot.source_id,
                 invocation_kind=slot.invocation_kind,
@@ -155,11 +157,11 @@ def build_prompt_assembly_plan(
     )
 
 
-def _assembly_order_key(slot: PromptAssemblySlot) -> tuple[int]:
+def _assembly_order_key(slot: PromptMaterialSegment) -> tuple[int]:
     return (int(slot.source_order or 0),)
 
 
-def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any]) -> PromptAssemblySlot:
+def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any]) -> PromptMaterialSegment:
     source_spec = {
         **dict(source.message_spec or {}),
         "kind": source.kind,
@@ -185,7 +187,7 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
         "assembly_decided_by": "prompt_composition.slot_policy",
         **prompt_slot_policy_metadata(slot_policy),
     }
-    return PromptAssemblySlot(
+    return PromptMaterialSegment(
         slot_id=slot_id,
         source_id=source.source_id,
         invocation_kind=source.invocation_kind,
@@ -209,7 +211,7 @@ def _slot_from_source(source: PromptSource, *, provider_profile: dict[str, Any])
     )
 
 
-def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
+def _diagnostics(slots: list[PromptMaterialSegment]) -> dict[str, Any]:
     prefix_sequence = [slot.prefix_tier for slot in slots]
     cache_role_sequence = [slot.cache_role for slot in slots]
     layer_sequence = [slot.layer for slot in slots]
@@ -267,7 +269,7 @@ def _diagnostics(slots: list[PromptAssemblySlot]) -> dict[str, Any]:
     }
 
 
-def _count_by(slots: list[PromptAssemblySlot], field_name: str) -> dict[str, int]:
+def _count_by(slots: list[PromptMaterialSegment], field_name: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for slot in slots:
         key = str(getattr(slot, field_name, "") or "unknown")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from runtime.context_management.context_segment_registry import context_segment_kind_content_source
+from context_system.segments.declarations import context_segment_kind_content_source
 
 
 def build_model_message_spec(

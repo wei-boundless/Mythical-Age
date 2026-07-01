@@ -1,6 +1,6 @@
 # 提示词系统架构第二阶段优化计划书
 
-状态：待审阅  
+状态：已批准实施，核心上下文/搜索工具阶段已落地  
 日期：2026-07-01  
 范围：`prompt_library`、`prompt_composition`、`context_system`、`runtime.context_management`、`harness.runtime.compiler`、`runtime.tool_runtime`、`capability_system.tools`、`capability_system.capabilities.codebase_search`  
 前置基础：承接 `prompt_system_architecture_refactor_plan_20260701.md` 已完成的第一轮结构落地  
@@ -31,6 +31,27 @@
 8. 本地查找工具链弱于成熟 coding agent：读文件链路已较完整，但搜索命令存在双实现、文本化解析、默认输出不利于定位、`codebase_search` 依赖弱底层搜索的问题。
 
 正确终态不是减少功能，而是把提示词系统变成一条可追踪、可审计、单向流动的权威链。
+
+本次执行记录（2026-07-01）：
+
+- 已修复 `PromptSet.extends` 环路诊断：继承链出现 `A -> B -> C -> A` 时写入 `rejected_prompt_sets`，不再被全局 `seen` 静默吞掉。
+- 已按“第四段只保留当前系统路标”的标准收缩 `DYNAMIC_TAIL`：`bound_task_runtime_context`、`task_goal_context`、`task_plan_context`、`task_todo_context`、`volatile_task_state`、`graph_node_runtime_context`、`user_steering_consumption_tail`、`session_history_tail_context`、`recovery_context_package`、`recent_work_outcome`、`evidence_delta_summary`、`evidence_semantic_summary`、`read_coverage_projection`、`execution_action_evidence` 已改为 `CONTEXT_APPEND`。
+- 已在 producer/compiler 源头接线：上述可延续事实进入第三段 current append，并带 `semantic_slot`、`context_origin_ref`、`append_only_context_item_key`、`append_only_content_hash` 和 provider-success commit 策略。
+- 已按最新严格裁决将 `read_evidence_injection` 与 `current_editor_evidence_delta` 从第四段拔出，改接到第三段 `CONTEXT_APPEND`：它们是 current evidence fact，不是系统路标；fact slot 以 path/range/event 为稳定锚点，content hash 只作为版本，避免同一文件窗口未变化时反复注入。
+- 已保留第四段 current control：`active_execution_lease`、`evidence_acquisition_horizon`、`turn_state_guidance`、`turn_operating_contract`、`runtime_control_signal_tail`、`graph_node_completion_prefix`、partial stream recovery、answer contract、reasoning projection、active skill body 等仍为 `never_replay_tail` 或 request-local 控制。
+- 已统一第四段默认策略：`DYNAMIC_TAIL` 默认 `context_commit_policy=never_commit`、`context_replay_policy=current_dynamic_tail_only`、`context_identity_policy=current_invocation_only`，避免诊断上出现“动态尾却按新 append 物化”或“路标被稳定复用”的语义冲突。
+- 已完成 ContextSegment 声明/策略下沉：`context_system.segments.declarations`、`context_system.segments.policy`、`context_system.segments.metadata` 成为唯一源头，`runtime.context_management` 不再保留重复实现文件。
+- 已删除旧 runtime 侧 `context_segment_registry.py`、`context_segment_policy.py`、`provider_message_replay_contract.py`，并把 runtime、harness、prompt_composition、prompt_accounting 调用方改为直接消费 `context_system.segments`。
+- 已明确读文件优化原则：文件未变时可以复用/重建 exact read artifact；若 exact body 不可见或 artifact 不可恢复，工具应允许 fresh read，不应以“已读过”为理由拒绝合法读取。
+- 已升级搜索主链路：`WorkspaceSearchService` 成为路径关键词、内容搜索和 glob 搜索的结构化底层权威；`python_symbol_search` 作为独立 AST 符号层进入 `codebase_search`；`SearchFilesTool` / `SearchTextTool` / `GlobPathsTool` / native workspace search / `codebase_search.providers` 只做 adapter 或 orchestrator，不再复制工作区搜索算法或解析人类可读搜索文本。
+- `WorkspaceSearchService.glob_paths()` 已按成熟搜索工具标准优先使用 `rg --files --glob` 风格能力，保留 Python glob 作为 fallback，并在 `search_meta.backend` 中区分 `ripgrep_files` / `python_glob_fallback`。
+- 已按 agent 使用需求优化搜索算法：`rg` 保留为高召回底层 primitive；多关键词自然语言查询进入文档级 AND 交叉召回 + BM25-lite 排序 + 最短关键词窗口定位；自然语言词组会生成 `workspace_search_service` 这类复合路径候选；路径搜索增加短语、compact identifier、stem、basename term 分域评分和长标识符降噪。
+- 已修复搜索失败语义：Windows 下 `rg` 因不可读目录返回非 0 时，先解析 partial stdout，再按 structured Python fallback / keyword cross fallback 恢复；负结果必须带 `searched_roots`、backend、truncated/has_more，不再把 backend 异常误报成“没有证据”。
+- 已建立 `codebase_search` 多层合流：path layer 产出 direct path candidates，symbol layer 产出 AST `symbol_match`，text layer 产出 literal / keyword-cross hits，glob layer 产出候选文件集合；ranker 只负责证据排序和去重，不把任一层伪装成万能搜索。
+- 已补齐 `codebase_search` findings 的直接读窗：每条 finding 输出 `recommended_read_window`，同时 `code_structure_map` 保持 `read_request`；搜索 snippet 仍只作为 locator evidence，编辑/裁决前必须 `read_file`。
+- 已修正 environment guidance 资源审计身份：54 个 guidance asset 生成的 `PromptResource` 均带 `owner_kind=environment` 与 `owner_ref=<environment_id>`，不再只把环境身份藏在 metadata 中。
+- 已补充 PromptResource 内容审计基础：`PromptResource.to_dict()` 输出 `content_hash` 与 `version_label`，使 manifest/diagnostics 能追踪人工版本标签和真实内容哈希。
+- 已执行 `python -m py_compile` 覆盖本次修改的 prompt wiring、context policy/registry/capability、context producers/compiler/manager、native tools 文件。
 
 目标执行链：
 
@@ -306,6 +327,8 @@ RuntimePromptSlot
 
 第一类不应该长期留在 `never_replay_tail`。它们应收缩到第三段 `current_turn_tail`，以 `CONTEXT_APPEND` 进入当前上下文，并在 provider success 后由 append ledger / physical frame 决定是否成为下一轮 confirmed old context。
 
+第四段控制尾的准入必须更严格：它不是“变化频繁的上下文”，而是“不适合留在旧上下文里的当前系统状态路标”。只有当内容是当前租约、权限、恢复指令、动作 horizon、输出合同、reasoning/skill/request-local runtime flag，并且下一轮必须由 runtime 重新裁决时，才允许进入 `DYNAMIC_TAIL`。如果内容是任务事实、证据事实、读过什么、计划/todo 状态、最近工作结果，哪怕每回合都可能变化，也应作为第三段事实候选，通过 ref/hash/ledger 去重，而不是放进第四段过期。
+
 应收缩到第三段 `current_turn_tail` 的内容：
 
 | 当前 kind | 目标归宿 | 裁决 |
@@ -315,7 +338,7 @@ RuntimePromptSlot
 | `task_todo_context` | `CONTEXT_APPEND` / `current_turn_tail` | todo 是可延续工作状态；本轮新增或更新后，provider success 再确认进下一轮。 |
 | `bound_task_runtime_context` | 拆分后事实部分进 `current_turn_tail` | task/run 绑定事实应可回放；其中 lease、权限、执行窗口仍留第四段。 |
 | `volatile_task_state` | 拆分后稳定事实进 `current_turn_tail` | 名称里的 volatile 不能掩盖其内部可能包含可延续 task facts；临时 flag 才留第四段。 |
-| `turn_attention_index` | 压缩成 `current_turn_tail` 索引 | 如果是“本轮应关注哪些文件/证据/目标”的可解释索引，应以 refs 和摘要进入第三段；不要作为宽动态尾。 |
+| `turn_attention_index` | 拆分后裁决 | 若只重复指向 goal/plan/todo/evidence 的当前注意力路标，可留第四段并每轮重算；若承载唯一事实，必须把事实拆到第三段，第四段只保留路标。 |
 | `session_history_tail_context` | 合并到 `session_history` / `CONTEXT_APPEND` | 已有 `session_history` current append 语义；不应同时保留一个 dynamic duplicate。 |
 | `recovery_context_package` | 拆分后事实摘要进 `current_turn_tail` | 恢复指令留第四段；已发生的失败事实、最近输出事实可成为第三段当前事实。 |
 | `recent_work_outcome` | `CONTEXT_APPEND` / `current_turn_tail` | 最近工作结果是下一轮需要知道的事实，不应在当前尾巴过期。 |
@@ -323,6 +346,8 @@ RuntimePromptSlot
 | `evidence_semantic_summary` | `CONTEXT_APPEND` / `current_turn_tail` | 语义证据摘要属于当前事实，不是运行控制。 |
 | `read_coverage_projection` | `CONTEXT_APPEND` / `current_turn_tail` | read coverage 是回答和后续行动都需要的证据覆盖事实，应以 refs/coverage matrix 进入第三段。 |
 | `execution_action_evidence` | `CONTEXT_APPEND` / `current_turn_tail` | 已执行动作和对应证据是可验证事实，应进入当前 append。 |
+| `current_editor_evidence_delta` | `CONTEXT_APPEND` / `current_turn_tail` | 当前编辑器 exact delta 是 evidence fact；用 path/event/range 做 fact slot，文本 hash 做版本，未变化不重复注入。 |
+| `read_evidence_injection` | `CONTEXT_APPEND` / `current_turn_tail` | 当前 exact read window / read-required window 是 evidence fact；用 path/range/window_type 做 fact slot，内容 hash 做版本，变化时 supersede。 |
 | `user_steering_consumption_tail` | 合并到 user steer current append | 用户 steer 的可见内容已有 `user_steering_context_append`；消费状态若需模型知道，应成为第三段事实，否则只留 runtime ledger。 |
 | `graph_node_runtime_context` | 拆分后 node identity/facts 进 `current_turn_tail` | 节点身份、输入资产、裁决要求是当前任务事实；节点 lease、completion prefix、执行许可留第四段。 |
 
@@ -334,8 +359,6 @@ RuntimePromptSlot
 | `task_runtime_boundary_dynamic` | 当前 runtime 边界，下一轮应重新计算。 |
 | `graph_node_completion_prefix` | completion prefix 是当前输出形态控制，不能成为旧上下文。 |
 | `evidence_acquisition_horizon` | 当前行动 horizon，可由第三段 evidence/task facts 重新生成，不应直接 replay。 |
-| `current_editor_evidence_delta` | 当前编辑器 exact delta 只服务本轮；需要持久的证据应转为 `read_evidence_context` 或 evidence summary。 |
-| `read_evidence_injection` | 当前 exact text 注入只服务本轮；下一轮需要时应重新 read 或引用已确认 evidence refs。 |
 | `incremental_context_cursor` | 当前读取/增量游标是运行控制，不是历史事实。 |
 | `active_skills` | full skill body 不应盲目 seal；只可把 active skill refs/已调用技能事实进入第三段，正文走 skill resource 或 compact attachment。 |
 | `dynamic_projection` | 泛化动态桶应拆除；具体内容分别归第三段事实或第四段控制。 |
@@ -358,9 +381,11 @@ RuntimePromptSlot
 收缩规则：
 
 - 第三段只接收“当前事实候选”：内容可 hash、可解释来源、可在 provider success 后确认，且下一轮看见它不会误导 agent。
-- 第四段只接收“当前控制候选”：租约、权限、恢复、动作 horizon、输出合同、exact 当前注入和 request-local runtime flags。
-- 原始大文本、exact file content、skill body 不应因为“当前有用”就进入第三段；第三段应优先保存 refs、摘要、coverage、task state delta。
+- 第四段只接收“当前控制候选”：租约、权限、恢复、动作 horizon、输出合同、reasoning/skill/request-local runtime flags。
+- 原始大文本和 skill body 不应因为“当前有用”就进入第三段；bounded exact read/editor windows 只有带稳定 path/range/event fact slot、content hash 和 supersession 策略时，才允许作为 current evidence fact 进入第三段。
 - 若一个 kind 同时包含事实和控制，必须拆分 producer，不允许继续用一个 `dynamic_context_fragment` 混装。
+- 改接线必须改在 producer / policy 源头：能延续的事实线从 `DYNAMIC_TAIL / never_replay_tail` 拔掉，接到 `CONTEXT_APPEND / current_turn_tail`；当前控制线继续留在第四段。禁止在 physical assembler 里把第四段文本整体搬到第三段，因为那会绕开语义审查、provider success 确认和 fact slot 去重。
+- 每条线改接前必须做语义空间审查：先判断它是事实、控制、exact body、locator、coverage、recovery 还是 reasoning projection，再按成熟 agent 的上下文设计原则落位。不能因为名称里有 `context`、`state` 或 `tail` 就想当然迁移。
 
 ### 2.8 第三段 current context 不能变成重复记忆入口
 
@@ -988,7 +1013,7 @@ SearchResult:
 - 第三段新增 current fact entries 均有 `context_contract_ref` 或稳定 source identity、content hash、semantic slot。
 - 第三段 entries 在本轮仍不参与 expected cache read；provider success 后才允许由 append ledger / physical frame 确认。
 - 第四段 entries 的 `context_commit_policy` 均为 `never_commit`，且 diagnostics 能解释其过期条件。
-- `dynamic_projection`、`volatile_task_state` 这类宽泛桶被删除或降级为 diagnostics-only，不再作为主线模型可见输入。
+- `dynamic_projection` 保持 request-local control 或继续拆分；`volatile_task_state` 已收缩为 `task_state_cursor` 第三段事实，不再作为 `DYNAMIC_TAIL` 主线模型可见输入。
 
 验证：
 
@@ -1080,6 +1105,7 @@ SearchResult:
 
 设计裁决：
 
+- 不允许用一个搜索机制包打天下。成熟 agent 的本地检索应是多层体系：路径层、符号层、正文层、glob/文件集合层、历史层分别拥有自己的原语和失败语义，最后由 `codebase_search` 合流。
 - `search_text` 底层必须以 ripgrep 为主实现；fallback 只用于 rg 不可用或受限场景，并且 diagnostics 必须说明 fallback / incomplete。
 - `search_text` 默认输出策略应接近 Claude Code：默认偏 `files_with_matches` 或紧凑 matches，只有显式需要时才返回 content/context。
 - `search_text` 必须支持并结构化表达：`query`、`regex/literal`、`case_sensitive`、`glob`、`type`、`roots`、`paths`、`output_mode`、`context`、`head_limit`、`offset`、`truncated/incomplete`。
@@ -1091,6 +1117,14 @@ SearchResult:
 - `python_symbol_search` / AST 工具应作为 `symbol_search` 能力进入 codebase search 的候选源，专门服务定义、类、函数、引用定位；不能用纯文本 grep 冒充所有 symbol search。
 - 搜索命中进入第三段时只允许作为 locator fact：`source_path + line + query + result_hash + recommended_window`。只有 read/verification 后的 evidence summary / coverage delta 才能成为第三段可确认事实。
 - 搜索 negative result 也应结构化：说明 searched roots、filters、engine、是否 truncated / timeout。负结果不能在 incomplete 时被当成“项目里不存在”。
+
+多层打分机制：
+
+- path layer 只回答“路径/文件名像不像目标”：短语路径命中、compact identifier 命中、stem 精确命中、basename term 命中加分；泛词如 `context/service/tool` 权重很低；长 snake_case / identifier 查询必须满足更严格的 compact 或 basename 约束，防止 `same_fact_slot...` 退化成一堆泛 `fact` 文件。
+- symbol layer 只回答“代码符号是否命中”：基于 Python 官方 `ast` 的 `python_symbol_search` 输出 class/function/method/import/variable；exact name / qualname 高分，substring 较低；命中以 `symbol_match` 进入 evidence，不靠正文 grep 冒充定义定位。
+- text layer 只回答“内容是否共同承载这些概念”：先用 `rg` 做高召回 literal/regex；短语无命中时，多关键词查询进入文档级 AND 交叉召回，再用 BM25-lite、行内多词覆盖和最短关键词窗口定位排序。它适合概念检索，不替代 symbol layer。
+- orchestrator layer 负责合流：`codebase_search` 汇总 path / symbol / text / glob / git history 候选，按 `symbol_match > path_match > definition > call_site > config > text > test/doc` 的工程证据优先级排序，并按用户意图提升 test/doc，未请求时降低 test/doc。
+- 分数只表达证据强度，不能表达 edit authority；同分或分数饱和时用 tie-breaker 处理工程偏好，例如复合路径文件名命中优先、source path 优先、generated/cache 路径降权。
 
 目标工具分层：
 
@@ -1421,7 +1455,7 @@ codebase_search.providers 中解析人类可读搜索文本的 `_parse_path_resu
 控制：
 
 - `context_system.segments` 是唯一声明和 pure policy owner。
-- runtime 原文件若保留，只能 re-export，不能本地改写策略。
+- runtime 原 `context_segment_*` / replay contract 文件已删除，不保留 re-export 兼容入口。
 - composition 不允许实现自己的 section/cache fallback。
 
 ### 风险 3：PromptResource 字段迁移破坏旧存储
@@ -1465,7 +1499,7 @@ codebase_search.providers 中解析人类可读搜索文本的 `_parse_path_resu
 - Phase 3B 必须把第三段视为 fact delta candidate lane，而不是 memory append queue；小幅刷新不能生成新的模型可见记忆。
 - 同一 fact slot 的 replacement 必须声明 `supersedes`，并在 replay / compact 时折叠旧版本。
 - 第四段 current control 必须保持 `never_commit`，不能因为内容稳定就自动封存。
-- exact read text、skill body、reasoning projection 不直接进第三段；只允许 refs、摘要、coverage、事实 delta 进入。
+- exact read/editor text 只有作为 content-versioned current evidence fact 才能进入第三段，必须带稳定 path/range/event fact slot、content hash、provider-success commit 与 supersession 策略；skill body、reasoning projection 仍不作为事实记忆进入第三段。
 
 ### 风险 8：把搜索工具升级成新的上下文污染源
 
@@ -1511,16 +1545,16 @@ Phase 1 -> Phase 3 -> Phase 3A -> Phase 3B -> Phase 3C -> Phase 6 -> Phase 2 -> 
 - Phase 4 改名影响面大，应在数据和策略边界稳定后执行。
 - Phase 7 最后清旧链路，避免实施中间态误删仍在使用的路径。
 
-## 12. 审阅问题
+## 12. 执行后裁决回执
 
-实施前需要确认：
+本轮实施后的裁决状态：
 
-1. `PromptResource` 顶层 task graph 字段是否允许一次性迁入 `origin` 并停止双写？
-2. `context_segment_policy.py` 迁入 `context_system` 后，runtime 原文件是否允许直接删除，还是保留一个短期 re-export wrapper？
-3. Slot 类名是否按本文建议改名，还是只先增加 docstring 和阶段字段，待下一轮统一改名？
-4. 环境 guidance 文件化时，是否第一阶段完全不改正文，只迁移存储？
-5. prompt `version` 是否接受降级为 human-readable label，并以 `content_hash` 作为真实审计版本？
-6. Phase 7 是否允许删除 `PromptMountPlan` 的旧选择权威，只保留必要输入 DTO 或 diagnostics？
-7. Phase 3A 的 dynamic tail 收缩表是否作为执行裁决锁定：task/evidence/recent-work facts 进第三段，lease/recovery/action/exact injection/reasoning 继续留第四段或 side-channel？
-8. Phase 3B 是否锁定为第三段的记忆晋升规则：按 fact slot 归一，no-op/minor-refresh 不入模型可见 append，meaningful delta/replacement/new fact 才进入第三段？
-9. Phase 3C 是否锁定为搜索工具升级方向：共享 `WorkspaceSearchService` 为唯一搜索算法权威，`search_text/glob_paths/search_files` 输出结构化 payload，`codebase_search` 只做 orchestrator，不再解析人类可读搜索文本？
+1. `PromptResource` 顶层 task graph 字段已一次性迁入 `origin`，写出不再双写旧字段。
+2. `context_segment_policy.py` / `context_segment_registry.py` / `provider_message_replay_contract.py` 的 runtime 旧入口已删除；active 代码直接消费 `context_system.segments`，不保留 re-export wrapper。
+3. Slot 类名已按阶段职责重命名，active backend 不再出现旧 Slot 类名。
+4. 环境 guidance 已文件化，第一阶段只迁移存储，不重写正文。
+5. prompt `version` 已降级为 human-readable label，真实审计版本以 `content_hash` / `version_label` / manifest source audit 为准。
+6. `PromptMountPlan` 的旧选择权威已删除，保留的是环境 prompt inventory / diagnostics 输入事实。
+7. Phase 3A 的 dynamic tail 收缩表已按严格控制原则锁定：task/evidence/recent-work facts 进第三段；`read_evidence_injection` 与 `current_editor_evidence_delta` 也进第三段 current evidence fact；lease/recovery/action/reasoning/skill/request-local runtime 路标继续留第四段或 side-channel。
+8. Phase 3B 已锁定为第三段的记忆晋升规则：按 fact slot 归一，same slot + same content hash 为 no-op，meaningful delta/replacement/new fact 才进入第三段并在 provider success 后确认。
+9. Phase 3C 已锁定为搜索工具升级方向：共享 `WorkspaceSearchService` 为路径关键词、文本和 glob 搜索算法权威，`SearchFilesTool` / `SearchTextTool` / `GlobPathsTool` / native workspace search / `codebase_search` 只做 adapter 或 orchestrator，不再复制搜索算法或解析人类可读搜索文本。

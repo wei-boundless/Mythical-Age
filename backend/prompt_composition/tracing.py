@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import PromptCompositionSegmentBinding, PromptCompositionSlot
+from .models import PromptCompositionSegmentBinding, PromptManifestBinding
 from .slot_policy import runtime_source_kind_for_segment
 
 
 def bind_segments_to_slots(
     *,
     segments: tuple[dict[str, Any], ...],
-    slots: tuple[PromptCompositionSlot, ...],
+    slots: tuple[PromptManifestBinding, ...],
 ) -> tuple[PromptCompositionSegmentBinding, ...]:
     bindings: list[PromptCompositionSegmentBinding] = []
     for segment in segments:
@@ -39,7 +39,7 @@ def bind_segments_to_slots(
     return tuple(bindings)
 
 
-def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptCompositionSlot, ...]) -> tuple[PromptCompositionSlot, ...]:
+def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptManifestBinding, ...]) -> tuple[PromptManifestBinding, ...]:
     kind = str(segment.get("kind") or "").strip()
     metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
     prompt_slot_id = str(metadata.get("prompt_slot_id") or "").strip()
@@ -48,7 +48,7 @@ def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptCompositionSl
         if exact_matches:
             return tuple(exact_matches)
     source_tokens = _source_tokens(str(segment.get("source_ref") or ""))
-    matches: list[PromptCompositionSlot] = []
+    matches: list[PromptManifestBinding] = []
     for slot in slots:
         slot_tokens = {
             token
@@ -70,7 +70,7 @@ def _fallback_status(segment: dict[str, Any]) -> str:
     return runtime_source_kind_for_segment(segment)
 
 
-def _binding_status(*, segment: dict[str, Any], matching_slots: tuple[PromptCompositionSlot, ...]) -> str:
+def _binding_status(*, segment: dict[str, Any], matching_slots: tuple[PromptManifestBinding, ...]) -> str:
     if not matching_slots:
         return _fallback_status(segment)
     if any(slot.source_kind == "registered_prompt" for slot in matching_slots):
