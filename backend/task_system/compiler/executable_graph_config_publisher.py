@@ -338,7 +338,7 @@ def _expand_composition_sources(
         return {
             "nodes": nodes,
             "edges": edges,
-            "start_node_ids": _entry_ids_after_expansion(graph=graph, expanded_by_node_id={}),
+            "start_node_ids": _start_ids_after_expansion(graph=graph, expanded_by_node_id={}),
             "terminal_node_ids": _output_ids_after_expansion(graph=graph, expanded_by_node_id={}),
             "loop_frames": [],
             "resource_nodes": [],
@@ -390,7 +390,7 @@ def _expand_composition_sources(
     return {
         "nodes": tuple(all_nodes),
         "edges": tuple(all_edges),
-        "start_node_ids": _entry_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id),
+        "start_node_ids": _start_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id),
         "terminal_node_ids": _output_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id),
         "loop_frames": loop_frames,
         "resource_nodes": resource_nodes,
@@ -509,6 +509,21 @@ def _composition_bridge_edges(*, graph: Any, expanded_by_node_id: dict[str, dict
             for target_id in target_ids:
                 bridges.append(_bridge_edge(payload, source_node_id=source_id, target_node_id=target_id, bridge_role=bridge_role))
     return bridges
+
+
+def _start_ids_after_expansion(*, graph: Any, expanded_by_node_id: dict[str, dict[str, Any]]) -> list[str]:
+    runtime_policy = dict(getattr(graph, "runtime_policy", {}) or {})
+    explicit_start_ids = [str(item).strip() for item in list(runtime_policy.get("start_node_ids") or []) if str(item).strip()]
+    if explicit_start_ids:
+        resolved: list[str] = []
+        for node_id in explicit_start_ids:
+            expansion = expanded_by_node_id.get(node_id)
+            if expansion is not None:
+                resolved.extend(str(item) for item in list(expansion.get("start_node_ids") or []) if str(item))
+            else:
+                resolved.append(node_id)
+        return list(dict.fromkeys(resolved))
+    return _entry_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id)
 
 
 def _entry_ids_after_expansion(*, graph: Any, expanded_by_node_id: dict[str, dict[str, Any]]) -> list[str]:
@@ -996,6 +1011,7 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         "task_ref": task_ref,
         "agent_id": str(node.get("agent_id") or ""),
         "agent_profile_id": str(metadata.get("agent_profile_id") or metadata.get("agent_profile_ref") or ""),
+        "agent_group_id": str(node.get("agent_group_id") or metadata.get("agent_group_id") or dict(node.get("executor_policy") or {}).get("agent_group_id") or ""),
         "executor": {
             "executor_type": _executor_type_for_node(node),
             "executor_policy": dict(node.get("executor_policy") or metadata.get("executor_policy") or {}),
@@ -1138,6 +1154,7 @@ def _normalize_loop_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "parent_scope_id": str(frame.get("parent_scope_id") or "").strip(),
                     "title": str(frame.get("title") or "").strip(),
                     "kind": str(frame.get("kind") or "").strip(),
+                    "algorithm_kind": str(frame.get("algorithm_kind") or frame.get("algorithm") or frame.get("kind") or "").strip(),
                     "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
                     "router_node_id": str(frame.get("router_node_id") or "").strip(),
                     "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
@@ -1153,6 +1170,7 @@ def _normalize_loop_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
                     "preserve_iteration_results": frame.get("preserve_iteration_results"),
                     "aggregate_policy": dict(frame.get("aggregate_policy") or {}),
+                    "tree_reduce": dict(frame.get("tree_reduce") or {}),
                     "unit_kind": str(frame.get("unit_kind") or "").strip(),
                     "iteration_size_key": str(frame.get("iteration_size_key") or "").strip(),
                     "initial_inputs": dict(frame.get("initial_inputs") or {}),

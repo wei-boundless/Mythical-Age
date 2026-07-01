@@ -11,6 +11,7 @@ import { ToolRound, ToolWindow } from "./ToolTrace";
 
 import { workbenchMarkdownComponents } from "@/components/markdown/WorkbenchMarkdownComponents";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
+import { TOOL_ACTION_LABELS, displayToolActionName, isCommandToolName, toolDisplayFamily } from "@/lib/toolDisplay";
 import type {
   ActivityArchiveProjectionBlock,
   ProjectionRenderBlock,
@@ -365,20 +366,6 @@ function toolRoundPreview(entries: ActivityEntry[]) {
   return entries.length > 3 ? `${preview} 等` : preview;
 }
 
-const TOOL_ACTION_LABELS = [
-  "运行命令",
-  "匹配路径",
-  "列出目录",
-  "检查路径",
-  "读取文件",
-  "搜索文件",
-  "搜索文本",
-  "写入文件",
-  "编辑文件",
-  "批量编辑文件",
-  "应用补丁",
-];
-
 function toolPreviewPart(entry: ActivityEntry) {
   const text = cleanText(entry.text);
   for (const label of TOOL_ACTION_LABELS) {
@@ -654,25 +641,10 @@ function toolInvocationName(block: ToolProjectionBlock) {
   if (!rawTool || normalized === "tool") {
     return actionLabelFromText(block.title) || actionLabelFromText(block.detail) || "工具操作";
   }
-  if (isCommandToolName(normalized)) {
-    return "运行命令";
-  }
-  const labels: Record<string, string> = {
-    glob_paths: "匹配路径",
-    list_dir: "列出目录",
-    path_exists: "检查路径",
-    read_file: "读取文件",
-    read_files: "读取文件",
-    read_path: "读取文件",
-    search_files: "搜索文件",
-    search_text: "搜索文本",
-    stat_path: "检查路径",
-    write_file: "写入文件",
-    edit_file: "编辑文件",
-    batch_edit_file: "批量编辑文件",
-    apply_patch: "应用补丁",
-  };
-  return labels[normalized] || rawTool;
+  return displayToolActionName({
+    actionKind: cleanText(block.actionKind),
+    toolName: rawTool,
+  });
 }
 
 function toolInvocationTarget(block: ToolProjectionBlock) {
@@ -813,16 +785,11 @@ function isShellTool(block: ToolProjectionBlock) {
 }
 
 function toolWindowFamily(block: ToolProjectionBlock): ToolUiFamily {
-  const tool = cleanText(block.toolName || block.actionKind).toLowerCase();
-  if (isCommandToolName(tool)) return "command";
-  if (["read_file", "read_files", "read_path", "attachment_extract_text"].includes(tool)) return "file";
-  if (["search_files", "search_text", "glob_paths", "web_search", "deepsearch"].includes(tool)) return "search";
-  if (["list_dir", "stat_path", "path_exists"].includes(tool)) return "inspect";
-  if (["write_file", "edit_file", "batch_edit_file", "apply_patch"].includes(tool)) return "write";
-  if (["image_generate", "generate_image", "image_edit"].includes(tool)) return "media";
-  if (["mcp_structured_data", "structured_data", "read_spreadsheet", "read_table"].includes(tool)) return "data";
-  if (["memory_read", "memory_write", "memory_write_candidate"].includes(tool)) return "memory";
-  if (["browser_control", "browser", "playwright"].includes(tool)) return "browser";
+  const family = toolDisplayFamily({
+    actionKind: cleanText(block.actionKind),
+    toolName: cleanText(block.toolName),
+  });
+  if (family !== "generic") return family;
   const inferredAction = actionLabelFromText(block.title)
     || actionLabelFromText(block.detail)
     || actionLabelFromText(block.output);
@@ -832,7 +799,8 @@ function toolWindowFamily(block: ToolProjectionBlock): ToolUiFamily {
 }
 
 function toolFamilyFromActionLabel(label: string): ToolUiFamily | "" {
-  if (["读取文件"].includes(label)) return "file";
+  if (["读取文件", "读取工作区"].includes(label)) return "file";
+  if (["读取工具结果"].includes(label)) return "data";
   if (["搜索文件", "搜索文本", "匹配路径"].includes(label)) return "search";
   if (["列出目录", "检查路径"].includes(label)) return "inspect";
   if (["写入文件", "编辑文件", "批量编辑文件", "应用补丁"].includes(label)) return "write";
@@ -876,10 +844,6 @@ function stripWrappingQuotes(value: string) {
   return trimmed;
 }
 
-function isCommandToolName(value: string) {
-  return COMMAND_TOOL_NAMES.has(cleanText(value).toLowerCase());
-}
-
 function actionLabelFromText(value: unknown) {
   const text = cleanText(value).replace(/完成[:：]?.*$/u, "").trim();
   for (const label of TOOL_ACTION_LABELS) {
@@ -895,8 +859,6 @@ function actionLabelFromText(value: unknown) {
 function compactText(value: string) {
   return cleanText(value).replace(/\s+/g, "").toLowerCase();
 }
-
-const COMMAND_TOOL_NAMES = new Set(["bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"]);
 
 function cleanText(value: unknown) {
   return String(value ?? "")

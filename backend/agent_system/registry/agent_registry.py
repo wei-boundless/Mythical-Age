@@ -313,6 +313,32 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             metadata={"role": "project_network_aggregator", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 18, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_aggregator", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
         ),
         AgentDescriptor(
+            agent_id="agent:project_network_file_reviewer",
+            agent_name="项目网络单文件审查Agent",
+            agent_category="builtin_agent",
+            interface_target="worker_task_console",
+            description="你是一名单文件语义网络审查员。系统会直接提供当前文件文本、文件哈希、骨架卡片和可用 AST 投影；你只审查这个文件并输出模块级语义网络 work product，不搜索、不读取其它文件、不读取记忆、不扩展范围。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "project_network_file_reviewer", "builtin_kind": "specialist", "worker_kind": "project_network_review", "slot_index": 19, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_file_reviewer", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+        ),
+        AgentDescriptor(
+            agent_id="agent:project_network_directory_reviewer",
+            agent_name="项目网络目录汇总审查Agent",
+            agent_category="builtin_agent",
+            interface_target="worker_task_console",
+            description="你是一名目录层语义网络汇总审查员。你只消费当前目录内直接文件和子目录返回的 typed work products，合并稳定节点、证据边、冲突和覆盖信息，不重新扫描文件树、不读取源码、不把自然语言摘要当作图事实。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "project_network_directory_reviewer", "builtin_kind": "specialist", "worker_kind": "project_network_review", "slot_index": 20, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_directory_reviewer", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+        ),
+        AgentDescriptor(
             agent_id="agent:project_network_curator",
             agent_name="项目网络裁决Agent",
             agent_category="builtin_agent",
@@ -323,7 +349,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=True,
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "project_network_curator", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 19, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_curator", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+            metadata={"role": "project_network_curator", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 21, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_curator", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
         ),
     )
 
@@ -612,6 +638,5 @@ def _enforce_system_builtin_payload(
         ),
     }
     return enforced
-
 
 

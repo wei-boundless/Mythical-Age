@@ -42,6 +42,7 @@ from .runtime_objects import (
     store_work_order,
     work_order_summary,
 )
+from .runtime_algorithm_effects import apply_runtime_algorithm_side_effects
 from .scheduler_view import build_scheduler_view
 from .state_machine import GraphStateMachine
 from .transition_processor import (
@@ -188,7 +189,11 @@ class GraphLoop:
         state: GraphLoopState,
         max_requests: int | None = None,
     ) -> tuple[GraphNodeWorkOrder, ...]:
-        limit = int(max_requests or dict(graph_config.control or {}).get("max_active_nodes") or 1)
+        limit = max(1, int(max_requests or dict(graph_config.control or {}).get("max_active_nodes") or 1))
+        active_count = len(dict(state.active_work_orders or {}))
+        capacity = max(0, limit - active_count)
+        if capacity <= 0:
+            return ()
         allowed_ready = tuple(
             self._state_machine.ready_nodes(
                 graph_config=graph_config,
@@ -201,7 +206,7 @@ class GraphLoop:
             node_id
             for node_id in allowed_ready
             if node_id not in state.active_work_orders
-        ][: max(1, limit)]
+        ][:capacity]
         orders: list[GraphNodeWorkOrder] = []
         for node_id in selected:
             node = _node_by_id(graph_config, node_id)
@@ -299,6 +304,12 @@ class GraphLoop:
             raise ValueError("NodeResultEnvelope node is not active in GraphLoopState")
         if envelope.work_order_id != active_work_order_id:
             raise ValueError("NodeResultEnvelope work_order_id does not match active GraphNodeWorkOrder")
+        envelope = apply_runtime_algorithm_side_effects(
+            services=self._services,
+            graph_config=graph_config,
+            state=state,
+            result=envelope,
+        )
         node_states = {key: dict(value) for key, value in state.node_states.items()}
         current_node = dict(node_states.get(envelope.node_id) or {})
         current_node["status"] = _node_status_from_result(envelope)
@@ -1290,11 +1301,14 @@ def _normalize_loop_frame(frame: dict[str, Any]) -> dict[str, Any]:
             "frame_id": frame_id,
             "scope_id": str(frame.get("scope_id") or frame_id).strip(),
             "parent_scope_id": str(frame.get("parent_scope_id") or "").strip(),
+            "kind": str(frame.get("kind") or "").strip(),
+            "algorithm_kind": str(frame.get("algorithm_kind") or frame.get("algorithm") or frame.get("kind") or "").strip(),
             "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
             "router_node_id": str(frame.get("router_node_id") or "").strip(),
             "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
             "exit_node_id": str(frame.get("exit_node_id") or "").strip(),
             "scope_node_ids": [str(item) for item in list(frame.get("scope_node_ids") or []) if str(item)],
+            "unit_kind": str(frame.get("unit_kind") or "").strip(),
             "cursor_key": str(frame.get("cursor_key") or "").strip(),
             "start_key": str(frame.get("start_key") or "").strip(),
             "end_key": str(frame.get("end_key") or "").strip(),
@@ -1305,6 +1319,7 @@ def _normalize_loop_frame(frame: dict[str, Any]) -> dict[str, Any]:
             "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
             "preserve_iteration_results": frame.get("preserve_iteration_results"),
             "aggregate_policy": dict(frame.get("aggregate_policy") or {}),
+            "tree_reduce": dict(frame.get("tree_reduce") or {}),
         }
     )
 

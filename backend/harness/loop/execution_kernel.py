@@ -5,12 +5,13 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from capability_system.tools.tool_surface import action_kind_for_surface_tool
 from runtime.shared.tool_identity import canonical_action_tool_call_id, permission_decision_id
 from runtime.shared.file_observation_policy import read_window_fingerprint_defaults
 from runtime.tool_runtime.tool_invocation_control import build_tool_invocation_id
 
 from .action_permit import ActionPermit, action_permit_from_admission
-from .admission import AdmissionDecision, admit_model_action
+from .admission import AdmissionDecision, admit_model_action, resolve_tool_call_operation_identity
 from .model_action_protocol import AnyModelActionRequest
 
 @dataclass(frozen=True, slots=True)
@@ -228,7 +229,6 @@ def decide_model_action_lifecycle(
     allowed_tool_names: set[str] | tuple[str, ...] | None = None,
     runtime_profile: dict[str, Any] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: str = "",
     current_work_boundary_receipt: dict[str, Any] | None = None,
     session_id: str = "",
     turn_id: str = "",
@@ -245,7 +245,6 @@ def decide_model_action_lifecycle(
         allowed_tool_names=set(allowed_tool_names) if allowed_tool_names is not None else None,
         runtime_profile=runtime_profile,
         permission_mode=permission_mode,
-        side_effect_policy=side_effect_policy,
         current_work_boundary_receipt=current_work_boundary_receipt,
     )
     return build_action_lifecycle_from_admission(
@@ -257,7 +256,6 @@ def decide_model_action_lifecycle(
         packet_allowed_action_types=packet_allowed_action_types,
         allowed_tool_names=allowed_tool_names,
         permission_mode=permission_mode,
-        side_effect_policy=side_effect_policy,
         session_id=session_id,
         turn_id=turn_id,
         task_run_id=task_run_id,
@@ -426,7 +424,11 @@ def build_action_tool_invocation_identity(
         raise ValueError("build_action_tool_invocation_identity requires canonical tool_call_id")
     tool_args = dict(tool_args_override if tool_args_override is not None else (tool_call.get("args") or tool_call.get("tool_args") or {}))
     definition = dict(definitions_by_name or {}).get(tool_name)
-    operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+    operation_identity = resolve_tool_call_operation_identity(
+        definition,
+        tool_args,
+        fallback_tool_name=tool_name,
+    )
     normalized_caller_ref = str(caller_ref or "").strip()
     invocation_id = build_tool_invocation_id(
         caller_ref=normalized_caller_ref,
@@ -437,6 +439,7 @@ def build_action_tool_invocation_identity(
         run_cell_id=str(run_cell_id or ""),
     )
     permit_payload = action_permit.to_dict() if hasattr(action_permit, "to_dict") else dict(action_permit or {})
+    operation_id = str(permit_payload.get("operation_id") or operation_identity.get("operation_id") or tool_name).strip()
     lifecycle_ref = str(action_lifecycle_ref or permit_payload.get("action_lifecycle_ref") or f"action-lifecycle:{action_request_ref}").strip()
     control_line_ref = str(permit_payload.get("control_output_line_ref") or "")
     control_line_authority = str(permit_payload.get("control_output_line_authority") or "")
@@ -597,6 +600,7 @@ def build_tool_lifecycle_started_event_record(
         "control_output_line_ref": identity.control_output_line_ref,
         "control_output_line_authority": identity.control_output_line_authority,
         "tool_name": identity.tool_name,
+        "action_kind": action_kind_for_surface_tool(identity.tool_name, identity.tool_args),
         "target": str(target or ""),
         "arguments_preview": preview_payload,
         "state": normalized_state,
@@ -752,7 +756,6 @@ def build_action_lifecycle_from_admission(
     packet_allowed_action_types: tuple[str, ...] = (),
     allowed_tool_names: set[str] | tuple[str, ...] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: str = "",
     session_id: str = "",
     turn_id: str = "",
     task_run_id: str = "",
@@ -769,7 +772,6 @@ def build_action_lifecycle_from_admission(
         packet_allowed_action_types=packet_allowed_action_types,
         allowed_tool_names=allowed_tools,
         permission_mode=permission_mode,
-        side_effect_policy=side_effect_policy,
         session_id=session_id,
         turn_id=turn_id,
         task_run_id=task_run_id,

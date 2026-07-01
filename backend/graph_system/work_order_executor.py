@@ -17,12 +17,12 @@ from task_system.runtime_semantics.quality_gates import stage_business_acceptanc
 from task_system.runtime_semantics.chapter_progress import (
     ChapterProgressReceiptError,
     build_chapter_progress_receipt,
-    normalize_chapter_progress_receipt,
 )
 
 from .models import ExecutableGraphConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id, stable_safe_id
 from .model_overrides import sanitize_runtime_overrides, work_order_with_model_overrides
 from .output_policy import resolve_output_policy
+from .runtime_algorithm_adapters import postprocess_runtime_algorithm_outputs
 from .runtime_objects import node_result_summary, work_order_summary
 
 
@@ -292,7 +292,7 @@ class GraphNodeWorkOrderExecutor:
             final_answer=final_answer,
         )
         structured_outputs = _structured_agent_outputs(task_run_payload)
-        progress_receipts, progress_errors = _progress_receipts_from_structured_outputs(
+        algorithm_postprocess = postprocess_runtime_algorithm_outputs(
             structured_outputs,
             graph_config=graph_config,
             work_order=work_order,
@@ -304,14 +304,24 @@ class GraphNodeWorkOrderExecutor:
             final_answer=final_answer,
             memory_commit_receipts=memory_receipts,
         )
-        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors, *memory_commit_guard_errors]
+        postprocess_errors = [
+            *contract_artifact_errors,
+            *artifact_errors,
+            *memory_errors,
+            *[dict(item) for item in algorithm_postprocess.postprocess_errors],
+            *memory_commit_guard_errors,
+        ]
         result_status = "completed" if ok and not postprocess_errors else "failed"
-        quality_acceptance = _node_quality_acceptance(
+        node_quality_acceptance = _node_quality_acceptance(
             graph_config=graph_config,
             work_order=work_order,
             final_answer=final_answer,
             artifact_refs=artifact_refs,
             result_status=result_status,
+        )
+        quality_acceptance = _merge_quality_acceptance(
+            dict(algorithm_postprocess.quality_acceptance or {}),
+            node_quality_acceptance,
         )
         quality_gate_failed = bool(result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")))
         quality_soft_pass = _quality_failure_soft_passes(
@@ -367,10 +377,11 @@ class GraphNodeWorkOrderExecutor:
                 "executor_status": str(task_run_payload.get("status") or ("completed" if ok else "failed")),
                 "artifact_refs": artifact_refs,
                 **structured_outputs,
+                **dict(algorithm_postprocess.output_patch or {}),
             },
             artifact_refs=tuple(artifact_ref_value(item) for item in artifact_refs if artifact_ref_value(item)),
             memory_candidates=tuple(memory_candidates),
-            progress_receipts=tuple(progress_receipts),
+            progress_receipts=tuple(dict(item) for item in algorithm_postprocess.progress_receipts),
             artifact_materialization_receipts=tuple(artifact_receipts),
             memory_commit_receipts=tuple(memory_receipts),
             handoff_summary=final_answer[:1200],
@@ -382,6 +393,12 @@ class GraphNodeWorkOrderExecutor:
                 "executor_result": _public_executor_result(executor_result),
                 "formal_postprocess_errors": postprocess_errors,
                 **({"quality_acceptance": quality_acceptance} if quality_acceptance else {}),
+                **({"runtime_algorithm_postprocess": algorithm_postprocess.diagnostics} if algorithm_postprocess.diagnostics else {}),
+                **(
+                    {"runtime_algorithm_side_effects": [dict(item) for item in algorithm_postprocess.side_effects]}
+                    if algorithm_postprocess.side_effects
+                    else {}
+                ),
                 **({"quality_gate_soft_pass": True} if quality_soft_pass else {}),
                 **({"graph_model_override": dict(model_override_diagnostics or {})} if model_override_diagnostics else {}),
             },
@@ -632,6 +649,7 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
     final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
     allowed_keys = (
         "semantic_evidence",
+        "project_network_semantic_submissions",
         "monitor_verdict",
         "revision_route",
         "structured_output",
@@ -644,91 +662,6 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
             if value is not None:
                 outputs[key] = value
     return outputs
-
-
-def _progress_receipts_from_structured_outputs(
-    structured_outputs: dict[str, Any],
-    *,
-    graph_config: ExecutableGraphConfig,
-    work_order: GraphNodeWorkOrder,
-    final_answer: str = "",
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    policy = _progress_receipt_policy(graph_config=graph_config, work_order=work_order)
-    if not policy:
-        return [], []
-    key = str(policy.get("progress_receipt_key") or "chapter_progress_receipt").strip()
-    source = _structured_output_source(structured_outputs)
-    candidates = _progress_receipt_candidates(source=source, key=key, final_answer=final_answer)
-    if not candidates:
-        return [], [
-            {
-                "reason": "chapter_progress_receipt_missing",
-                "node_id": work_order.node_id,
-                "progress_receipt_key": key,
-                "authority": "graph_system.progress_receipt_postprocess",
-            }
-        ]
-    errors: list[str] = []
-    initial_inputs = _work_order_initial_inputs(work_order)
-    for candidate in candidates:
-        try:
-            receipt = normalize_chapter_progress_receipt(
-                candidate,
-                initial_inputs=initial_inputs,
-            )
-            return [receipt], []
-        except ChapterProgressReceiptError as exc:
-            errors.append(str(exc))
-    detail = ",".join(dict.fromkeys(errors)) if errors else "chapter_progress_receipt_invalid"
-    return [], [
-        {
-            "reason": "chapter_progress_receipt_invalid",
-            "detail": detail,
-            "node_id": work_order.node_id,
-            "progress_receipt_key": key,
-            "authority": "graph_system.progress_receipt_postprocess",
-        }
-    ]
-
-
-def _progress_receipt_candidates(*, source: dict[str, Any], key: str, final_answer: str) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
-    direct = source.get(key)
-    if isinstance(direct, dict):
-        candidates.append(direct)
-    for alternate_key in ("progress_receipt", "receipt"):
-        value = source.get(alternate_key)
-        if isinstance(value, dict):
-            candidates.append(value)
-    if str(source.get("authority") or "").strip() == "harness.writing.chapter_progress_receipt":
-        candidates.append(source)
-    for payload in _json_objects_from_text(final_answer):
-        if isinstance(payload.get(key), dict):
-            candidates.append(dict(payload.get(key) or {}))
-        if str(payload.get("authority") or "").strip() == "harness.writing.chapter_progress_receipt":
-            candidates.append(payload)
-    return candidates
-
-
-def _json_objects_from_text(text: str) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for match in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", str(text or ""), flags=re.IGNORECASE | re.DOTALL):
-        try:
-            payload = json.loads(match.group(1))
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            result.append(payload)
-    return result
-
-
-def _structured_output_source(structured_outputs: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(structured_outputs or {})
-    for key in ("structured_output", "node_output"):
-        nested = payload.get(key)
-        if isinstance(nested, dict):
-            return {**payload, **dict(nested)}
-    return payload
 
 
 def _progress_receipt_policy(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
@@ -2300,6 +2233,33 @@ def _node_quality_acceptance(
     }
 
 
+def _merge_quality_acceptance(*items: dict[str, Any]) -> dict[str, Any]:
+    accepted_items = [dict(item) for item in items if item]
+    if not accepted_items:
+        return {}
+    if len(accepted_items) == 1:
+        return accepted_items[0]
+    accepted = all(bool(item.get("accepted")) for item in accepted_items)
+    issues = list(
+        dict.fromkeys(
+            str(issue).strip()
+            for item in accepted_items
+            for issue in list(item.get("issues") or [])
+            if str(issue).strip()
+        )
+    )
+    primary = next((item for item in accepted_items if not bool(item.get("accepted"))), accepted_items[0])
+    return {
+        **primary,
+        "accepted": accepted,
+        "business_accepted": accepted,
+        "issues": issues,
+        "quality_issue_summary": str(primary.get("quality_issue_summary") or "; ".join(issues)),
+        "merged_quality_acceptance_count": len(accepted_items),
+        "authority": "graph_system.work_order_executor.merged_quality_acceptance",
+    }
+
+
 def _chapter_heading_quality_issues(*, explicit_inputs: dict[str, Any], final_answer: str) -> list[str]:
     expected = _int_template_value(explicit_inputs.get("current_chapter_index") or explicit_inputs.get("chapter_index"), 0)
     if expected <= 0:
@@ -2336,24 +2296,21 @@ def _node_result_error(
     recoverable: bool = False,
 ) -> dict[str, Any]:
     if quality_acceptance and not bool(quality_acceptance.get("accepted")):
+        recoverable_error = dict(quality_acceptance.get("recoverable_error") or {})
+        if recoverable and not recoverable_error:
+            recoverable_error = {
+                "error_code": "quality_gate_failed",
+                "retryable": True,
+                "recovery_action": "requeue_same_graph_node_with_quality_feedback",
+                "user_message": "质量门未通过，系统会把失败原因回灌给同一节点重修。",
+            }
         return {
             "reason": "quality_gate_failed",
             "quality_issue_summary": str(quality_acceptance.get("quality_issue_summary") or ""),
             "issues": [str(item) for item in list(quality_acceptance.get("issues") or []) if str(item)],
             "policy": str(quality_acceptance.get("policy") or ""),
             "authority": "graph_system.work_order_executor.quality_gate",
-            **(
-                {
-                    "recoverable_error": {
-                        "error_code": "quality_gate_failed",
-                        "retryable": True,
-                        "recovery_action": "requeue_same_graph_node_with_quality_feedback",
-                        "user_message": "质量门未通过，系统会把字数统计和原文回灌给同一节点重修。",
-                    }
-                }
-                if recoverable
-                else {}
-            ),
+            **({"recoverable_error": recoverable_error} if recoverable and recoverable_error else {}),
             **({"postprocess_errors": postprocess_errors} if postprocess_errors else {}),
         }
     return {

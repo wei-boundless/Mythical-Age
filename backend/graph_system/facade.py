@@ -10,7 +10,7 @@ from runtime.shared.models import TaskRun
 from .background_supervisor import GraphRunBackgroundSubmission, GraphRunBackgroundSupervisor
 from .loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
 from .model_overrides import merge_effective_runtime_overrides
-from .models import ExecutableGraphConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope
+from .models import ExecutableGraphConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope, safe_id
 from .resume import GraphResumeResult, GraphResumeService
 from .runner import GraphRunRunner, GraphRunRunnerResult
 from .runtime import GraphRuntime, GraphRuntimeStart
@@ -466,7 +466,7 @@ class GraphSystem:
             graph_payload = graph_run.to_dict()
             self._services.runtime_objects.put_object(
                 "graph_run",
-                _safe_ref_id(graph_run_id),
+                safe_id(graph_run_id),
                 {
                     **graph_payload,
                     "status": graph_status,
@@ -505,7 +505,7 @@ class GraphSystem:
         diagnostics = dict(payload.get("diagnostics") or {})
         self._services.runtime_objects.put_object(
             "graph_run",
-            _safe_ref_id(graph_run.graph_run_id),
+            safe_id(graph_run.graph_run_id),
             {
                 **payload,
                 "status": status,
@@ -577,7 +577,7 @@ class GraphSystem:
 
     def get_graph_run(self, graph_run_id: str) -> Any | None:
         try:
-            payload = self._services.runtime_objects.get_object(f"rtobj:graph_run:{_safe_ref_id(graph_run_id)}")
+            payload = self._services.runtime_objects.get_object(f"rtobj:graph_run:{safe_id(graph_run_id)}")
         except ValueError:
             return None
         if not payload:
@@ -681,10 +681,6 @@ class GraphSystem:
             except Exception:
                 return {}
         return {}
-
-
-def _safe_ref_id(value: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
 
 
 def _graph_config_monitor_view(graph_config: ExecutableGraphConfig | None, *, include_config: bool = False) -> dict[str, Any]:

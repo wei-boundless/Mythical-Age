@@ -265,7 +265,7 @@ GRAPH_NODE_BOUNDARY_RULE = """
 GRAPH_NODE_OUTPUT_CONTRACT_RULE = """
 完成图节点前必须检查：当前节点职责是否满足、授权输入是否被正确使用、输出是否符合输出合同。
 如果上游授权输入缺失、节点合同互相矛盾、输出合同无法理解或边界禁止继续，应 block 并说明原因。
-final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。
+没有专用提交通道时，final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。如果当前节点合同明确指定 diagnostics、artifact 或其它 typed 提交通道，则完整结构化事实进入合同指定通道，final_answer 只保留合同要求的用户可见收口。
 """.strip()
 
 

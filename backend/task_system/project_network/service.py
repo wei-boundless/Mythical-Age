@@ -10,6 +10,7 @@ from .build_contract_models import ProjectNetworkBuildContract
 from .layer_plan_models import GraphGenerationLineage
 from .projection import ProjectNetworkBuildProjection, build_project_network_store_projection
 from .repository import ProjectNetworkRepository, content_hash, stable_project_network_id
+from .semantic_artifact_materializer import ProjectNetworkSemanticArtifactMaterializer
 from .shard_models import ShardPlan
 from .store_models import (
     ProjectNetworkCandidateRecord,
@@ -37,6 +38,7 @@ class ProjectNetworkWorkProductIngestResult:
     generations: tuple[ProjectNetworkGenerationRecord, ...] = ()
     trace: ProjectNetworkTraceRecord | None = None
     projection: ProjectNetworkBuildProjection | None = None
+    semantic_artifact_set: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "task_system.project_network.work_product_ingest_result"
 
@@ -54,6 +56,7 @@ class ProjectNetworkWorkProductIngestResult:
                 "generations": [item.to_dict() for item in self.generations],
                 "trace": self.trace.to_dict() if self.trace is not None else {},
                 "projection": self.projection.to_dict() if self.projection is not None else {},
+                "semantic_artifact_set": self.semantic_artifact_set,
                 "metadata": self.metadata,
                 "authority": self.authority,
             }
@@ -167,6 +170,12 @@ class ProjectNetworkBuildService:
             shard_plans=shard_plans,
             lineages=lineages,
         )
+        semantic_artifact_set = {}
+        if products:
+            semantic_artifact_set = ProjectNetworkSemanticArtifactMaterializer(
+                base_dir=self.repository.root.parent.parent,
+                repository=self.repository,
+            ).materialize_build(resolved_build_id, graph_run_id=envelope.graph_run_id).to_dict()
         return ProjectNetworkWorkProductIngestResult(
             build_id=resolved_build_id,
             graph_run_id=envelope.graph_run_id,
@@ -179,6 +188,8 @@ class ProjectNetworkBuildService:
             generations=generation_records,
             trace=trace,
             projection=projection,
+            semantic_artifact_set=semantic_artifact_set,
+            metadata={"semantic_artifact_set": semantic_artifact_set} if semantic_artifact_set else {},
         )
 
     def publish_generation(
@@ -310,7 +321,7 @@ def _default_channels(products: tuple[GraphBuildWorkProductEnvelope, ...]) -> tu
 def _default_reducer(product: GraphBuildWorkProductEnvelope) -> str:
     if product.product_kind == "coverage_report":
         return "merge_scope_coverage"
-    if product.product_kind in {"layer_summary", "publish_candidate"}:
+    if product.product_kind in {"directory_summary", "layer_summary", "publish_candidate"}:
         return "replace_by_generation"
     if product.product_kind == "endpoint_index":
         return "reject_on_anchor_mismatch"
@@ -381,6 +392,7 @@ def _is_candidate_product(product: GraphBuildWorkProductEnvelope) -> bool:
         "module_index",
         "endpoint_index",
         "relation_candidates",
+        "directory_summary",
         "coverage_report",
         "conflict_report",
     }

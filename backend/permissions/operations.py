@@ -341,7 +341,7 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             "op.project_network_control",
             "project_network",
             "Project network control",
-            "Maintain traversal sessions, frontier items, visited refs, and agent control decisions for project network navigation.",
+            "Maintain navigation sessions, precomputed path candidates, opened refs, and agent path decisions for project network navigation.",
             aliases=("project_network_control",),
             risk_tags=("project_network", "deep_network", "state_write", "agent_control", "non_destructive"),
             max_result_size_chars=120_000,

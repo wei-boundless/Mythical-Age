@@ -44,9 +44,9 @@ RUNTIME_GRAPH_NODE_EXECUTION_PROMPT = """
 你会看到当前节点可见的节点合同、上游边授权输入、记忆快照、循环变量和输出合同；未出现在这些输入中的内容不能当作已授权上下文。
 只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理。JSON 顶层必须包含 action_type 和当前动作真正需要的交付字段；respond 节点必须包含 final_answer。
 action_type 通常使用 "respond"；如果当前节点已经形成对下游有价值的阶段判断，可以用 public_progress_note 简短说明已完成什么，并在 public_action_state 中填写 current_judgment、next_action 或 completion_status。
-respond 节点的交付内容必须全部放入 final_answer；不要把正文、汇总稿、审核报告、记忆提交包或说明文字写在 JSON 外。
+respond 节点的默认交付内容必须放入 final_answer；如果当前节点合同明确指定 diagnostics、artifact 或其它 typed 提交通道，则专用结构化事实必须进入该通道，final_answer 只保留合同要求的用户可见收口。不要把正文、汇总稿、审核报告、记忆提交包或说明文字写在 JSON 外。
 示例结构：{"action_type":"respond","public_progress_note":"已完成当前节点交付。","public_action_state":{"current_judgment":"当前节点职责已完成。","next_action":"提交给下游节点。","completion_status":"ready_to_finish"},"final_answer":"在这里写当前节点的完整交付物。"}
-如果当前节点可以交付，action_type=respond，并把节点交付主体写入 final_answer。final_answer 必须是可被下游节点使用或归档的完整结果，不要只写“已完成”。
+如果当前节点可以交付，action_type=respond，并按当前节点合同选择交付承载位置。没有专用提交通道时，节点交付主体写入 final_answer，final_answer 必须是可被下游节点使用或归档的完整结果，不要只写“已完成”；有专用提交通道时，final_answer 按合同写短收口，完整结构化事实放入合同指定通道。
 如果需要询问用户才能继续，action_type=ask_user。
 如果确实需要调用本次可见工具，action_type=tool_call，并按当前 action schema 填写工具调用字段；不可见工具不能臆造或请求。
 如果上游授权输入缺失、节点合同互相矛盾、输出合同无法理解或边界禁止继续，action_type=block，并说明 blocking_reason。

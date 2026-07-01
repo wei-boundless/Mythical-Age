@@ -57,7 +57,6 @@ def admit_model_action(
     allowed_tool_names: set[str] | None = None,
     runtime_profile: dict[str, Any] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: Literal["requires_task_run", "runtime_authorized"] = "requires_task_run",
     current_work_boundary_receipt: dict[str, Any] | None = None,
 ) -> AdmissionDecision:
     allowed_actions = {str(item or "").strip() for item in tuple(packet_allowed_action_types or ()) if str(item or "").strip()}
@@ -141,7 +140,12 @@ def admit_model_action(
                 action_issue=issue,
             )
         owner_scope = _tool_owner_scope(definition)
-        operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+        operation_identity = resolve_tool_call_operation_identity(
+            definition,
+            tool_args,
+            fallback_tool_name=tool_name,
+        )
+        operation_id = str(operation_identity.get("operation_id") or tool_name).strip()
         if invocation_kind in {"single_agent_turn", "agent_turn"} and (
             owner_scope in _TASK_RUNTIME_OWNER_SCOPES
             or tool_name in _TASK_RUNTIME_TOOL_NAMES
@@ -171,6 +175,7 @@ def admit_model_action(
                 permission_delta={
                     "tool_name": tool_name,
                     "operation_id": operation_id,
+                    **operation_identity,
                     "owner_scope": owner_scope,
                     "required_action": "request_task_run",
                     "invocation_kind": str(invocation_kind or ""),
@@ -206,27 +211,6 @@ def admit_model_action(
                 issue_code="plan_mode_blocks_side_effect_tool",
                 action_issue=issue,
             )
-        if not bool(getattr(definition, "is_read_only", False)) and side_effect_policy != "runtime_authorized":
-            issue = _action_issue(
-                action_request,
-                category="requires_task_run",
-                code="side_effect_tool_requires_task_run",
-                requested_tool_name=tool_name,
-                user_visible_summary="该动作会改变环境，需要先形成长任务资源和执行边界。",
-                repair_instruction="请先提交 request_task_run 或 ask_user 补齐目标、范围和验收标准。",
-            )
-            return _admission_decision(
-                action_request,
-                admission_id=f"admission:{action_request.request_id}",
-                action_request_ref=action_request.request_id,
-                decision="needs_contract",
-                user_visible_reason="这个动作会改变环境，需要先确认处理目标和安全边界。",
-                system_reason="side_effect_tool_requires_task_run",
-                resource_errors=(f"tool_requires_task_run:{tool_name}",),
-                issue_category="requires_task_run",
-                issue_code="side_effect_tool_requires_task_run",
-                action_issue=issue,
-            )
         return _admission_decision(
             action_request,
             admission_id=f"admission:{action_request.request_id}",
@@ -235,6 +219,7 @@ def admit_model_action(
             permission_delta={
                 "tool_name": tool_name,
                 "operation_id": operation_id,
+                **operation_identity,
                 "read_only": bool(getattr(definition, "is_read_only", False)),
                 "gate_stage": "deferred_to_tool_control_plane",
                 "permission_mode": str(permission_mode or "default"),
@@ -402,6 +387,36 @@ def admit_model_action(
         },
         decision="allow",
     )
+
+
+def resolve_tool_call_operation_identity(
+    definition: Any,
+    tool_args: dict[str, Any] | None,
+    *,
+    fallback_tool_name: str = "",
+) -> dict[str, str]:
+    primary_operation_id = str(getattr(definition, "operation_id", "") or fallback_tool_name or "").strip()
+    args = dict(tool_args or {}) if isinstance(tool_args, dict) else {}
+    tool_action = str(args.get("action") or "").strip()
+    action_operation_id = ""
+    if tool_action:
+        action_operation_id = str(
+            dict(getattr(definition, "action_operation_ids", {}) or {}).get(tool_action) or ""
+        ).strip()
+    operation_id = action_operation_id or primary_operation_id
+    if action_operation_id:
+        source = "tool_definition.action_operation_ids"
+    elif primary_operation_id and primary_operation_id != str(fallback_tool_name or "").strip():
+        source = "tool_definition.operation_id"
+    else:
+        source = "tool_name_fallback"
+    return {
+        "operation_id": operation_id,
+        "primary_operation_id": primary_operation_id,
+        "tool_action": tool_action,
+        "action_operation_id": action_operation_id,
+        "operation_resolution_source": source,
+    }
 
 
 def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDecision:

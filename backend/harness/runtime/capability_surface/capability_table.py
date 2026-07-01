@@ -56,11 +56,11 @@ class ToolCapabilityTable:
 
     @property
     def visible_tools(self) -> tuple[str, ...]:
-        return tuple(item.tool_name for item in self.capabilities if item.visible)
+        return tuple(dict.fromkeys(item.tool_name for item in self.capabilities if item.visible))
 
     @property
     def dispatchable_tools(self) -> tuple[str, ...]:
-        return tuple(item.tool_name for item in self.capabilities if item.dispatchable)
+        return tuple(dict.fromkeys(item.tool_name for item in self.capabilities if item.dispatchable))
 
     @property
     def visible_operations(self) -> tuple[str, ...]:
@@ -95,5 +95,4 @@ class ToolCapabilityTable:
             "source_trace": [item.to_dict() for item in self.source_trace],
             "authority": self.authority,
         }
-
 

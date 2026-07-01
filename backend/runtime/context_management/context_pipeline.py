@@ -198,11 +198,25 @@ def enrich_physical_context_inputs_with_provider_visible_append_ledger(
         for order, spec in list(current_append_specs_with_order or [])
         if isinstance(spec, dict)
     }
-    current_append_specs = [
-        dict(current_append_specs_by_order.get(int(order or 0)) or spec)
-        for order, spec in sorted(current_append_inputs, key=lambda item: int(item[0] or 0))
-        if isinstance(spec, dict)
+    provider_visible_candidate_orders = {
+        int(order or 0)
+        for order, _spec in list(provider_visible_append_candidates or [])
+    }
+    provider_visible_returned_orders = set(current_append_specs_by_order)
+    omitted_provider_visible_candidates = [
+        _omitted_provider_visible_candidate_diagnostic(order, spec)
+        for order, spec in list(provider_visible_append_candidates or [])
+        if int(order or 0) not in provider_visible_returned_orders
     ]
+    current_append_specs: list[dict[str, Any]] = []
+    for order, spec in sorted(current_append_inputs, key=lambda item: int(item[0] or 0)):
+        order_index = int(order or 0)
+        if order_index in provider_visible_candidate_orders:
+            enriched_spec = current_append_specs_by_order.get(order_index)
+            if enriched_spec:
+                current_append_specs.append(dict(enriched_spec))
+            continue
+        current_append_specs.append(dict(spec))
     final_inputs = replace(
         inputs,
         current_append_specs=tuple(current_append_specs),
@@ -216,6 +230,8 @@ def enrich_physical_context_inputs_with_provider_visible_append_ledger(
                 "current_append_input_count": len(current_append_inputs),
                 "provider_visible_candidate_count": len(provider_visible_append_candidates),
                 "provider_visible_enriched_count": len(current_append_specs_with_order),
+                "provider_visible_omitted_already_visible_count": len(omitted_provider_visible_candidates),
+                "provider_visible_omitted_already_visible_candidates": omitted_provider_visible_candidates[:80],
                 "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
             },
         },
@@ -231,6 +247,8 @@ def enrich_physical_context_inputs_with_provider_visible_append_ledger(
         "context_candidate_count": context_candidate_count,
         "non_sealable_context_append_tail_count": non_sealable_context_append_count,
         "provider_visible_current_append_spec_count": len(current_append_specs_with_order),
+        "provider_visible_omitted_already_visible_count": len(omitted_provider_visible_candidates),
+        "provider_visible_omitted_already_visible_candidates": omitted_provider_visible_candidates[:80],
         "current_append_spec_count": len(current_append_specs),
         "fork_inherited_provider_visible_append_spec_count": 0,
         "fork_inherited_provider_visible_append_scope": str(inheritance_contract.get("inherited_scope") or ""),
@@ -263,8 +281,22 @@ def enrich_physical_context_inputs_with_provider_visible_append_ledger(
         ),
         "current_turn_tail_spec_count": len(current_append_specs),
         "physical_input_stage": "final",
-        "physical_replay_rule": "ledger_enriches_current_append_then_assembler_splices_four_physical_segments",
+        "physical_replay_rule": "ledger_returns_only_new_provider_visible_append; already_visible_candidates_replay_from_physical_prefix_frame",
         "authority": "runtime.context_management.context_pipeline.provider_visible_append_ledger_enrichment",
+    }
+
+
+def _omitted_provider_visible_candidate_diagnostic(order: int, spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec or {})
+    metadata = dict(payload.get("metadata") or {})
+    return {
+        "original_order": int(order or 0),
+        "kind": str(payload.get("kind") or metadata.get("canonical_kind") or ""),
+        "source_ref": str(payload.get("source_ref") or metadata.get("source_ref") or ""),
+        "context_cache_section": str(metadata.get("context_cache_section") or ""),
+        "context_replay_policy": str(metadata.get("context_replay_policy") or ""),
+        "context_origin_ref": str(metadata.get("context_origin_ref") or metadata.get("append_only_context_item_key") or ""),
+        "reason": "provider_visible_append_ledger_did_not_return_candidate; confirmed_or_filtered_context_must_replay_from_physical_prefix_frame",
     }
 
 

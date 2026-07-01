@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -8,28 +10,37 @@ from task_system.repositories.common import next_prefixed_id
 from task_system.storage import TaskSystemStorage
 
 
+LEGACY_TASK_GRAPHS_FILE = "task_graphs.json"
+TASK_GRAPHS_DIR = "task_graphs"
+
+
 class TaskGraphRepository:
     def __init__(self, base_dir: Path) -> None:
         self.storage = TaskSystemStorage(base_dir)
 
     def list(self) -> list[TaskGraphDefinition]:
-        payload = self.storage.read_object("task_graphs.json", {"task_graphs": []})
-        graphs = [
-            task_graph_from_dict(item)
-            for item in list(payload.get("task_graphs") or [])
-            if isinstance(item, dict)
-        ]
+        graphs_by_id: dict[str, TaskGraphDefinition] = {}
+        for graph in self._legacy_graphs():
+            if graph.graph_id:
+                graphs_by_id.setdefault(graph.graph_id, graph)
+        for graph in self._folder_graphs():
+            if graph.graph_id:
+                graphs_by_id[graph.graph_id] = graph
+        graphs = list(graphs_by_id.values())
         graphs = sorted(
             [item for item in graphs if item.graph_id],
             key=lambda item: (item.domain_id, item.title, item.graph_id),
         )
-        normalized = [item.to_dict() for item in graphs]
-        if payload.get("task_graphs") != normalized:
-            self.storage.write_object("task_graphs.json", {"task_graphs": normalized})
+        self._write_graph_files(graphs)
         return graphs
 
     def get(self, graph_id: str) -> TaskGraphDefinition | None:
         target = str(graph_id or "").strip()
+        if not target:
+            return None
+        folder_payload = self.storage.read_object(_graph_object_path(target), {})
+        if folder_payload:
+            return task_graph_from_dict(folder_payload)
         return next((item for item in self.list() if item.graph_id == target), None)
 
     def next_id(self) -> str:
@@ -84,9 +95,42 @@ class TaskGraphRepository:
                 "metadata": dict(metadata or {}),
             }
         )
-        graphs = [item for item in self.list() if item.graph_id != target]
-        graphs.append(graph)
-        self.storage.write_object("task_graphs.json", {"task_graphs": [item.to_dict() for item in graphs]})
+        self.storage.write_object(_graph_object_path(target), graph.to_dict())
         return graph
 
+    def _legacy_graphs(self) -> list[TaskGraphDefinition]:
+        payload = self.storage.read_object(LEGACY_TASK_GRAPHS_FILE, {"task_graphs": []})
+        return [
+            task_graph_from_dict(item)
+            for item in list(payload.get("task_graphs") or [])
+            if isinstance(item, dict)
+        ]
 
+    def _folder_graphs(self) -> list[TaskGraphDefinition]:
+        root = self.storage.path(TASK_GRAPHS_DIR)
+        if not root.exists():
+            return []
+        graphs: list[TaskGraphDefinition] = []
+        for graph_file in sorted(root.glob("*/graph.json")):
+            relative = graph_file.relative_to(self.storage.root).as_posix()
+            payload = self.storage.read_object(relative, {})
+            if payload:
+                graphs.append(task_graph_from_dict(payload))
+        return graphs
+
+    def _write_graph_files(self, graphs: list[TaskGraphDefinition]) -> None:
+        for graph in graphs:
+            self.storage.write_object(_graph_object_path(graph.graph_id), graph.to_dict())
+
+
+def _graph_object_path(graph_id: str) -> str:
+    return f"{TASK_GRAPHS_DIR}/{_safe_graph_dir(graph_id)}/graph.json"
+
+
+def _safe_graph_dir(graph_id: str) -> str:
+    raw = str(graph_id or "").strip()
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._-")
+    if len(safe) > 120:
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        safe = f"{safe[:103].rstrip('._-')}_{digest}"
+    return safe or "graph"

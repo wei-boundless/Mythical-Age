@@ -457,6 +457,7 @@ def assemble_runtime(
         profile=profile,
         tool_names=tuple(tool_set.tool_names),
         definitions_by_name=definitions_by_name,
+        permission_mode=normalized_permission_mode,
     )
     tool_instances_by_name = {
         str(getattr(tool, "name", "") or ""): tool
@@ -2032,10 +2033,12 @@ def _filter_tool_names_by_profile(
     profile: RuntimeAssemblyProfile,
     tool_names: tuple[str, ...],
     definitions_by_name: dict[str, Any],
+    permission_mode: str = "default",
 ) -> tuple[tuple[str, ...], tuple[dict[str, str], ...]]:
     visible: list[str] = []
     filtered: list[dict[str, str]] = []
-    read_only_only = bool(dict(profile.tool_policy or {}).get("read_only_tools_only") is True)
+    full_access_mode = normalize_permission_mode(permission_mode) in {"full_access", "bypass"}
+    read_only_only = bool(dict(profile.tool_policy or {}).get("read_only_tools_only") is True) and not full_access_mode
     subagent_enabled = bool(dict(profile.subagent_policy or {}).get("enabled") is True)
     for tool_name in tool_names:
         definition = definitions_by_name.get(tool_name)

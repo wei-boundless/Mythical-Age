@@ -628,7 +628,14 @@ def _json_stable(value: Any) -> Any:
 _CONTRACT_FIELD_SPECS = (
     ("role_prompt", "role", "角色职责"),
     ("task_instruction", "task_instruction", "任务说明"),
+    ("input_boundary_contract", "input_boundary_contract", "输入边界"),
     ("output_instruction", "output_instruction", "输出要求"),
+    ("typed_submission_contract", "typed_submission_contract", "结构化提交通道"),
+    ("review_judgment_contract", "review_judgment_contract", "审查判断规则"),
+    ("semantic_network_contract", "semantic_network_contract", "语义网络规则"),
+    ("work_product_contract", "work_product_contract", "系统装配约束"),
+    ("quality_gate_contract", "quality_gate_contract", "验收门槛"),
+    ("failure_handling_contract", "failure_handling_contract", "失败处理"),
     ("forbidden_behavior", "forbidden_behavior", "禁止事项"),
     ("definition_of_done", "definition_of_done", "完成标准"),
 )
@@ -675,7 +682,46 @@ def _contract_sections(
 def _contract_field_content(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
-    items = [str(item).strip() for item in list(value or []) if str(item).strip()] if isinstance(value, (list, tuple)) else []
+    if isinstance(value, dict):
+        return _render_contract_value(value).strip()
+    items = [_render_contract_value(item).strip() for item in list(value or [])] if isinstance(value, (list, tuple)) else []
+    items = [item for item in items if item]
     if items:
         return "\n".join(f"- {item}" for item in items)
     return ""
+
+
+def _render_contract_value(value: Any, *, indent: int = 0) -> str:
+    prefix = "  " * max(0, indent)
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key in sorted(value):
+            item = value[key]
+            key_text = str(key or "").strip()
+            if not key_text:
+                continue
+            if isinstance(item, dict):
+                nested = _render_contract_value(item, indent=indent + 1)
+                if nested:
+                    lines.append(f"{prefix}{key_text}:")
+                    lines.append(nested)
+                continue
+            if isinstance(item, (list, tuple)):
+                rendered_items = [_render_contract_value(child, indent=indent + 1).strip() for child in item]
+                rendered_items = [child for child in rendered_items if child]
+                if rendered_items:
+                    lines.append(f"{prefix}{key_text}:")
+                    child_prefix = "  " * (indent + 1)
+                    lines.extend(f"{child_prefix}- {child}" for child in rendered_items)
+                continue
+            text = str(item or "").strip()
+            if text:
+                lines.append(f"{prefix}{key_text}: {text}")
+        return "\n".join(lines)
+    if isinstance(value, (list, tuple)):
+        return "\n".join(
+            f"{prefix}- {rendered}"
+            for rendered in (_render_contract_value(item, indent=indent + 1).strip() for item in value)
+            if rendered
+        )
+    return f"{prefix}{str(value or '').strip()}".rstrip()

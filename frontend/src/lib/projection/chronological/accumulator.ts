@@ -1,4 +1,5 @@
 import type { PublicProjectionFrame } from "@/lib/api";
+import { displayToolActionName, isCommandToolName, toolInvocationTitle } from "@/lib/toolDisplay";
 
 import { normalizeProjectionFrame, text } from "./normalize";
 import type {
@@ -347,18 +348,19 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
   const target = text(frame.target || frame.subject_label);
   const argumentsPreview = text(frame.arguments_preview);
   const toolName = text(frame.tool_name);
-  const title = text(frame.title || frame.text) || toolTitle(toolName, target);
+  const actionKind = text(frame.action_kind);
+  const title = text(frame.title || frame.text) || toolTitle(toolName, actionKind, target);
   return {
     id,
     toolCallId,
     toolLifecycleId,
     toolName,
-    actionKind: text(frame.action_kind),
+    actionKind,
     title,
     detail: text(frame.detail),
     target,
     argumentsPreview,
-    commandLine: toolCommandLine(toolName, target, argumentsPreview),
+    commandLine: toolCommandLine(toolName, actionKind, target, argumentsPreview),
     output: toolOutput(normalized, state),
     contentWindow: toolContentWindowFromFrame(frame.content_window),
     state,
@@ -427,7 +429,7 @@ function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecy
   ) {
     merged.toolName = existing.toolName;
     if (isGenericToolCommand(incoming.commandLine) || !merged.commandLine) {
-      merged.commandLine = toolCommandLine(merged.toolName, merged.target, merged.argumentsPreview);
+      merged.commandLine = toolCommandLine(merged.toolName, merged.actionKind, merged.target, merged.argumentsPreview);
     }
   }
   const incomingCommandIsOnlyToolName = sameCompactText(incoming.commandLine, incoming.toolName);
@@ -560,15 +562,16 @@ function stateForToolEvent(sourceEventType: string) {
   return "";
 }
 
-function toolTitle(toolName: string, target: string) {
-  return [toolLabel(toolName) || toolName || "工具", target].filter(Boolean).join(" ");
+function toolTitle(toolName: string, actionKind: string, target: string) {
+  return toolInvocationTitle({ toolName, actionKind, target });
 }
 
-function toolCommandLine(toolName: string, target: string, argumentsPreview: string) {
+function toolCommandLine(toolName: string, actionKind: string, target: string, argumentsPreview: string) {
   if (isCommandToolName(toolName)) {
     return commandTextFromProjection(target, argumentsPreview) || toolName || "command";
   }
-  return [toolName || "tool", target ? quote(target) : "", argumentsPreview && argumentsPreview !== target ? argumentsPreview : ""]
+  const action = displayToolActionName({ toolName, actionKind });
+  return [action || "工具操作", target ? quote(target) : "", argumentsPreview && argumentsPreview !== target ? argumentsPreview : ""]
     .filter(Boolean)
     .join(" ");
 }
@@ -604,10 +607,6 @@ function stripWrappingQuotes(value: string) {
   return trimmed;
 }
 
-function isCommandToolName(value: string) {
-  return COMMAND_TOOL_NAMES.has(text(value).toLowerCase());
-}
-
 function isGenericToolName(value: string) {
   const normalized = compactText(value);
   return !normalized || normalized === "tool" || normalized === "工具";
@@ -630,14 +629,14 @@ function toolOutput(normalized: NormalizedProjectionFrame, state: string) {
 
 const GENERIC_TOOL_DONE_OUTPUT = "工具调用已完成。";
 
-function completedToolOutput(tool: Pick<ToolLifecycle, "target" | "toolName">) {
+function completedToolOutput(tool: Pick<ToolLifecycle, "actionKind" | "target" | "toolName">) {
   const target = text(tool.target);
   if (!target) return "";
-  const label = toolLabel(tool.toolName) || "工具";
-  if (["读取文件", "检查路径", "列出目录", "搜索文件", "搜索文本", "匹配路径"].includes(label)) {
+  const label = displayToolActionName({ actionKind: tool.actionKind, toolName: tool.toolName }) || "工具";
+  if (["读取文件", "检查路径", "列出目录", "搜索文件", "搜索文本", "搜索工作区", "匹配路径", "查找符号"].includes(label)) {
     return `${label}完成：${target}`;
   }
-  if (["写入文件", "更新文件", "编辑文件", "批量编辑文件", "应用补丁"].includes(label)) {
+  if (["写入文件", "更新文件", "编辑文件", "批量编辑文件", "应用补丁", "编辑文档"].includes(label)) {
     return `${label}完成：${target}`;
   }
   return `${label}完成：${target}`;
@@ -696,35 +695,6 @@ function defaultStatusState(kind: StatusProjectionEvent["kind"]) {
   if (kind === "terminal_event") return "stopped";
   return "failed";
 }
-
-function toolLabel(toolName: string) {
-  const labels: Record<string, string> = {
-    bash: "运行命令",
-    cmd: "运行命令",
-    command: "运行命令",
-    glob_paths: "匹配路径",
-    list_dir: "列出目录",
-    path_exists: "检查路径",
-    powershell: "运行命令",
-    python_repl: "运行命令",
-    read_file: "读取文件",
-    read_files: "读取文件",
-    read_path: "读取文件",
-    search_files: "搜索文件",
-    search_text: "搜索文本",
-    shell: "运行命令",
-    stat_path: "检查路径",
-    terminal: "运行命令",
-    write_file: "写入文件",
-    edit_file: "更新文件",
-    batch_edit_file: "批量编辑文件",
-    apply_patch: "更新文件",
-    attachment_extract_text: "提取附件文字",
-  };
-  return labels[toolName.toLowerCase()] || toolName;
-}
-
-const COMMAND_TOOL_NAMES = new Set(["bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"]);
 
 function commitKey(frame: PublicProjectionFrame) {
   const commit = (frame.commit ?? {}) as Record<string, unknown>;

@@ -41,6 +41,7 @@ import {
   type OperationTool,
   type ToolPackageDefinition,
 } from "@/lib/api";
+import { displayCapabilityToolName, displayToolActionName } from "@/lib/toolDisplay";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { Button } from "@/ui/Button";
 
@@ -185,6 +186,7 @@ function skillSearchText(skill: OperationSkill) {
 
 function toolSearchText(tool: OperationTool) {
   return [
+    operationToolDisplayName(tool),
     tool.name,
     tool.display_name,
     tool.operation_id,
@@ -228,6 +230,7 @@ function unitSearchText(unit: CapabilityUnit) {
 
 function endpointSearchText(endpoint: CapabilityEndpoint) {
   return [
+    endpointDisplayName(endpoint),
     endpoint.endpoint_id,
     endpoint.kind,
     endpoint.name,
@@ -263,6 +266,7 @@ function mcpServerSearchText(server: MCPManagementServer) {
 
 function mcpToolSearchText(tool: MCPManagementTool) {
   return [
+    mcpToolDisplayName(tool),
     tool.provider_id,
     tool.provider_kind,
     tool.server_id,
@@ -318,6 +322,29 @@ function semanticToolPurpose(tool: OperationTool) {
     || tool.operation_metadata.note
     || tool.operation_metadata.tool_boundary
     || "暂无用途说明";
+}
+
+function operationToolDisplayName(tool: OperationTool) {
+  return displayCapabilityToolName({
+    displayName: tool.display_name,
+    operationId: tool.operation_id,
+    toolName: tool.name,
+  });
+}
+
+function mcpToolDisplayName(tool: MCPManagementTool) {
+  return displayCapabilityToolName({
+    displayName: tool.title,
+    operationId: tool.operation_id,
+    toolName: tool.tool_name,
+  });
+}
+
+function endpointDisplayName(endpoint: CapabilityEndpoint) {
+  return endpoint.title
+    || endpoint.name
+    || displayToolActionName({ operationId: endpoint.operation_id })
+    || endpoint.endpoint_id;
 }
 
 function packageLabel(toolPackage: ToolPackageDefinition | null) {
@@ -664,7 +691,7 @@ export function CapabilitySystemWorkbench() {
         llm_description: tool.operation_metadata.llm_description,
       });
       setCatalog(payload);
-      setNotice(`${tool.name} 已归入「${toolType}」。`);
+      setNotice(`${operationToolDisplayName(tool)} 已归入「${toolType}」。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存工具类型失败");
     } finally {
@@ -682,7 +709,7 @@ export function CapabilitySystemWorkbench() {
         llm_description: toolLlmDescriptionDraft,
       });
       setCatalog(payload);
-      setNotice(`${tool.name} 的管理备注已保存。`);
+      setNotice(`${operationToolDisplayName(tool)} 的管理备注已保存。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存工具备注失败");
     } finally {
@@ -1142,7 +1169,7 @@ export function CapabilitySystemWorkbench() {
               type="button"
             >
               <span>{packageLabel((packageByOperationId.get(tool.operation_id) ?? [])[0] ?? null)} · {tool.operation_metadata.risk_level}风险</span>
-              <strong>{tool.display_name || tool.name}</strong>
+              <strong>{operationToolDisplayName(tool)}</strong>
               <p>{semanticToolPurpose(tool)}</p>
             </button>
           ))}
@@ -1153,7 +1180,7 @@ export function CapabilitySystemWorkbench() {
               <div className="operation-detail__head">
                 <div>
                   <span>{packageLabel(selectedPackage)} · {visibilityLabel(selectedTool.runtime_visibility)}</span>
-                  <h3>{selectedTool.display_name || selectedTool.name}</h3>
+                  <h3>{operationToolDisplayName(selectedTool)}</h3>
                   <p>{semanticToolPurpose(selectedTool)}</p>
                 </div>
                 <div className={`operation-risk-badge ${RISK_CLASS[selectedTool.operation_metadata.risk_level] ?? ""}`}>
@@ -1310,7 +1337,7 @@ export function CapabilitySystemWorkbench() {
                 const key = `${tool.provider_id}:${tool.server_id}:${tool.tool_name}`;
                 return (
                   <button className={selectedMcpToolKey === key ? "mcp-tool-row mcp-tool-row--active" : "mcp-tool-row"} key={key} onClick={() => setSelectedMcpToolKey(key)} type="button">
-                    <strong>{tool.title || tool.tool_name}</strong>
+                    <strong>{mcpToolDisplayName(tool)}</strong>
                     <span>{visibilityLabel(tool.model_visibility)} · {statusLabel(tool.status || "not_inspected")}</span>
                   </button>
                 );
@@ -1321,7 +1348,7 @@ export function CapabilitySystemWorkbench() {
                 <FactGrid
                   columns={4}
                 items={[
-                    { label: "能力名称", value: selectedMcpTool.title || selectedMcpTool.tool_name },
+                    { label: "能力名称", value: mcpToolDisplayName(selectedMcpTool) },
                     { label: "模型可见", value: visibilityLabel(selectedMcpTool.model_visibility) },
                     { label: "可用状态", value: statusLabel(selectedMcpTool.status || "not_inspected") },
                     { label: "标签", value: compactList(selectedMcpTool.tags, "未标注") },
@@ -1352,13 +1379,13 @@ export function CapabilitySystemWorkbench() {
             <div className="capability-endpoint-list">
               {visibleEndpoints.map((endpoint) => (
                 <button className={selectedEndpoint?.endpoint_id === endpoint.endpoint_id ? "capability-endpoint-row capability-endpoint-row--active" : "capability-endpoint-row"} key={endpoint.endpoint_id} onClick={() => setSelectedEndpointId(endpoint.endpoint_id)} type="button">
-                  <strong>{endpoint.title || endpoint.name}</strong>
+                  <strong>{endpointDisplayName(endpoint)}</strong>
                   <span>{visibilityLabel(endpoint.model_visibility)} · {semanticEndpointPurpose(endpoint)}</span>
                 </button>
               ))}
             </div>
             {selectedEndpoint ? (
-              <Foldout title={selectedEndpoint.title || selectedEndpoint.name} note="调试">
+              <Foldout title={endpointDisplayName(selectedEndpoint)} note="调试">
                 <FactGrid
                   columns={4}
                   items={[

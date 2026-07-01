@@ -77,11 +77,14 @@ def _graph_node_runtime_profile(
     }
     if task_environment_id:
         payload["task_environment_id"] = task_environment_id
+    tool_contract = dict(node_contract.get("tool_contract") or {})
+    if tool_contract:
+        payload["tool_policy"] = tool_contract
     for key, value in {
         "model_requirement": node_contract.get("model_requirement"),
         "reasoning_policy": node_contract.get("reasoning_policy"),
         "completion_profile": node_contract.get("completion_profile"),
-        "tool_contract": node_contract.get("tool_contract"),
+        "tool_contract": tool_contract,
         "skill_contract": node_contract.get("skill_contract"),
         "permission_contract": node_contract.get("permission_contract"),
     }.items():

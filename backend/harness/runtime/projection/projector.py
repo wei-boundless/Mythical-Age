@@ -571,7 +571,7 @@ def _agent_state_plan_detail(plan: dict[str, Any]) -> str:
 def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     tool_call_id = text(data.get("tool_call_id"))
-    action_kind = action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
     if _is_agent_state_tool(tool_name):
         return _agent_state_hidden_trace_spec(data, state="running")
     if _is_trace_only_tool(tool_name):
@@ -1359,16 +1359,17 @@ def _protocol_diagnostic_spec(data: dict[str, Any], *, code: str, detail: str) -
 
 def _tool_request_text(data: dict[str, Any], *, tool_name: str, subject: str = "") -> str:
     visible_subject = subject or public_text(data.get("target") or data.get("arguments_preview"), limit=180)
-    structured = _structured_tool_action_text(tool_name=tool_name, subject=visible_subject)
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    structured = _structured_tool_action_text(tool_name=tool_name, action_kind=action_kind, subject=visible_subject)
     return structured or visible_subject or text(tool_name)
 
 
-def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
+def _structured_tool_action_text(*, tool_name: str, action_kind: str = "", subject: str) -> str:
     visible_subject = public_text(subject, limit=140)
     normalized_tool = text(tool_name).lower()
-    label = public_tool_label(normalized_tool)
+    label = _tool_action_display_label(normalized_tool, action_kind) or public_tool_label(normalized_tool)
     if normalized_tool == "workspace_search":
-        return f"搜索工作区：{visible_subject}" if visible_subject else "搜索工作区"
+        return f"{label}：{visible_subject}" if visible_subject else label
     if normalized_tool in {"workspace_read", "code_structure", "project_network", "memory"}:
         return f"{label}：{visible_subject}" if visible_subject else label
     if normalized_tool in {"workspace_edit", "office_document"}:
@@ -1386,16 +1387,17 @@ def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) 
     explicit = public_text(data.get("title") or data.get("summary"), limit=120)
     if explicit:
         return explicit
-    tool_label = _tool_display_label(tool_name)
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    tool_label = _tool_action_display_label(tool_name, action_kind) or _tool_display_label(tool_name)
     normalized_tool = text(tool_name).lower()
     if failed:
         return f"{tool_label}失败" if tool_label else "工具执行失败"
     if normalized_tool == "workspace_search":
-        return "搜索完成"
+        return f"{tool_label}完成" if tool_label else "搜索完成"
     if normalized_tool in {"workspace_read", "code_structure", "project_network", "memory"}:
-        return "读取完成"
+        return f"{tool_label}完成" if tool_label else "读取完成"
     if normalized_tool in {"workspace_edit", "office_document", "image"}:
-        return "文件更新完成"
+        return f"{tool_label}完成" if tool_label else "文件更新完成"
     if tool_label:
         return f"{tool_label}完成"
     return "工具执行完成"
@@ -1421,6 +1423,38 @@ def _tool_completion_detail(value: Any, *, limit: int) -> str:
 def _tool_display_label(tool_name: str) -> str:
     normalized = text(tool_name).lower()
     return public_tool_label(normalized)
+
+
+def _tool_action_display_label(tool_name: str, action_kind: str) -> str:
+    normalized_tool = text(tool_name).lower()
+    action = text(action_kind).lower()
+    if normalized_tool == "workspace_read":
+        if action in {"dir", "directory", "list", "list_dir"}:
+            return "列出目录"
+        if action in {"stat", "exists", "metadata"}:
+            return "检查路径"
+        if action in {"result", "tool_result"}:
+            return "读取工具结果"
+        if action in {"file", "read", "read_file"}:
+            return "读取文件"
+        return "读取工作区"
+    if normalized_tool == "workspace_search":
+        if action in {"path", "glob"}:
+            return "匹配路径"
+        if action == "text":
+            return "搜索文本"
+        if action == "symbol":
+            return "查找符号"
+        return "搜索工作区"
+    if normalized_tool == "workspace_edit":
+        if action == "write":
+            return "写入文件"
+        if action == "batch_edit":
+            return "批量编辑文件"
+        return "编辑文件"
+    if normalized_tool == "web":
+        return "读取网页" if action == "fetch" else "网络搜索"
+    return ""
 
 
 def _body_item_id(data: dict[str, Any]) -> str:

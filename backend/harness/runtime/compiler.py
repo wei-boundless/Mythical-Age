@@ -66,6 +66,10 @@ from runtime.context_management.context_pipeline import (
     build_context_pipeline,
     normalize_context_compaction_generation,
 )
+from runtime.prompt_accounting.provider_lane import (
+    PROVIDER_LANE_AGENT_TOOL_LOOP,
+    PROVIDER_LANE_COMPACTION,
+)
 from runtime.context_management.provider_tool_protocol import annotate_provider_tool_round_specs
 from task_system.contracts.runtime_contracts import expand_selected_skill_bodies
 
@@ -281,7 +285,10 @@ class RuntimeCompiler:
             ],
             provider_visible_append_scope=resolved_session_id,
             storage_root=self.base_dir,
-            model_selection=dict(model_selection or {}),
+            model_selection=_model_selection_with_provider_lane(
+                model_selection,
+                provider_lane=PROVIDER_LANE_COMPACTION,
+            ),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
             system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
         )
@@ -421,6 +428,7 @@ class RuntimeCompiler:
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
         runtime_assembly: Any | None = None,
+        tool_definitions_by_name: dict[str, Any] | None = None,
     ) -> RuntimeCompilationResult:
         initial_assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
         initial_profile_payload = dict(initial_assembly_payload.get("profile") or {})
@@ -442,6 +450,7 @@ class RuntimeCompiler:
             agent_profile_ref=agent_profile_ref,
             model_selection=model_selection,
             runtime_assembly=initial_assembly_payload,
+            tool_definitions_by_name=tool_definitions_by_name,
             prompt_pack_refs=prompt_pack_refs,
             base_dir=self.base_dir,
         )
@@ -720,7 +729,10 @@ class RuntimeCompiler:
             ),
             compaction_generation=_context_compaction_generation_from_session_context(session_context_payload),
             storage_root=self.base_dir,
-            model_selection=dict(model_selection or {}),
+            model_selection=_model_selection_with_provider_lane(
+                model_selection,
+                provider_lane=PROVIDER_LANE_AGENT_TOOL_LOOP,
+            ),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
             system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
             specs=[
@@ -2488,7 +2500,10 @@ class RuntimeCompiler:
             ),
             compaction_generation=_context_compaction_generation_from_session_context(followup_session_context),
             storage_root=self.base_dir,
-            model_selection=dict(model_selection or {}),
+            model_selection=_model_selection_with_provider_lane(
+                model_selection,
+                provider_lane=PROVIDER_LANE_AGENT_TOOL_LOOP,
+            ),
             context_capability_profile=_context_capability_profile_from_runtime_assembly(assembly_payload),
             system_wiring_manifest=_system_wiring_manifest_from_runtime_assembly(assembly_payload),
             specs=[
@@ -3085,6 +3100,45 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         )
     )
     pause_for_user_steer_available = "pause_for_user_steer" in allowed
+    tool_call_available = "tool_call" in allowed
+    action_shape_rules = [
+        "每次只选择一个当前请求行动。需要控制、询问或阻塞时，把动作写成一个顶层结构化对象；如果只是最终回答且当前请求边界允许 assistant 正文，可以直接自然回复。",
+        "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
+        "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
+        "block 必须把真实阻塞原因写在顶层 blocking_reason。",
+    ]
+    if tool_call_available:
+        action_shape_rules.append(
+            "需要工具观察或执行时，action_type=tool_call，并使用顶层 tool_call 或 tool_calls，二选一：单个工具用 tool_call: {tool_name, args}；同一判断目标内需要一组工具时用 tool_calls: [{tool_name, args}]。工具名必须来自当前可用工具，args 必须是对象。"
+        )
+    else:
+        action_shape_rules.append(
+            "当前 allowed_action_types 不包含 tool_call；不得输出 tool_call 或 tool_calls，也不要请求工具。材料不足时选择 ask_user 或 block；材料足够时选择 respond。"
+        )
+    if pause_for_user_steer_available:
+        action_shape_rules.extend(
+            [
+                "pause_for_user_steer 只能在当前请求的 allowed_action_types 明确包含它时使用；它不是工具，也不是缺权限、缺资源、预算耗尽或普通不确定性的兜底。",
+                "pause_for_user_steer 必须携带顶层 pause_request，并且不得在 diagnostics.consumed_steer_refs 或 diagnostics.consumed_user_steer_refs 中消费该 steer。",
+            ]
+        )
+    request_sequence = [
+        "第一步先判断当前是否已经足以回答。足以回答时，选择 respond，并把完整自然语言回复写入 final_answer。",
+        *(
+            [
+                "第二步，如果还需要查证、读取、修改或验证，且 tool_call 在 allowed_action_types 中，选择 tool_call/tool_calls。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用可以在同次输出的简短自然 preamble 中写公开反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 和 sidecar 都只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
+                "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入顶层 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
+                "第四步，工具观察返回后，重新判断：事实足够就 respond；缺用户决定就 ask_user；事实、权限或环境不足就 block；仍需查证且当前请求允许时再继续 tool_call。",
+            ]
+            if tool_call_available
+            else [
+                "第二步，当前动作面没有工具调用能力；不要请求工具或输出 tool_call。输入材料不足以完成任务时，选择 ask_user 或 block，并说明缺口。",
+                "第三步，当前材料足够时直接 respond；不要把结构化审查事实写进 final_answer 以外的错误位置，按任务契约指定通道提交。",
+            ]
+        ),
+        "如果用户问的是为什么卡住、为什么没回应、是否正常，先解释你已经知道的状态或需要核对的状态，再决定是否继续执行。",
+        "只有用户只是明确说继续、恢复、接着执行，并且没有提出新问题时，才可以只承接执行。"
+    ]
     schema = {
         "contract_name": "task_execution_action",
         "contract_ref": f"{TASK_EXECUTOR_RUNNER_CONTRACT_ID}.action_schema",
@@ -3093,56 +3147,45 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         "base_action_types": list(TASK_EXECUTOR_BASE_ACTION_TYPES),
         "conditional_action_types": list(TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES),
         "forbidden_action_types": list(TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES),
-        "action_shape_rules": [
-            "每次只选择一个当前请求行动。需要工具、控制、询问或阻塞时，把动作写成一个顶层结构化对象；如果只是最终回答且当前请求边界允许 assistant 正文，可以直接自然回复。",
-            "respond 必须把用户可见最终回复写在顶层 final_answer；不要写 payload.final_answer、payload.content、action.final_answer 或 action.content。",
-            "ask_user 必须把用户要回答的问题写在顶层 user_question；不要把询问用户伪装成工具调用。",
-            "block 必须把真实阻塞原因写在顶层 blocking_reason。",
-            "需要工具观察或执行时，action_type=tool_call，并使用顶层 tool_call 或 tool_calls，二选一：单个工具用 tool_call: {tool_name, args}；同一判断目标内需要一组工具时用 tool_calls: [{tool_name, args}]。工具名必须来自当前可用工具，args 必须是对象。",
-            *(
-                [
-                    "pause_for_user_steer 只能在当前请求的 allowed_action_types 明确包含它时使用；它不是工具，也不是缺权限、缺资源、预算耗尽或普通不确定性的兜底。",
-                    "pause_for_user_steer 必须携带顶层 pause_request，并且不得在 diagnostics.consumed_steer_refs 或 diagnostics.consumed_user_steer_refs 中消费该 steer。",
-                ]
-                if pause_for_user_steer_available
-                else []
-            ),
-        ],
+        "action_shape_rules": action_shape_rules,
         "public_response_obligation": {
-            "rule": "你始终要服务用户当前输入。工具可以帮你获得事实，但工具动作本身不是给用户的回答。",
-            "request_sequence": [
-                "第一步先判断当前是否已经足以回答。足以回答时，选择 respond，并把完整自然语言回复写入 final_answer。",
-                "第二步，如果还需要查证、读取、修改或验证，选择 tool_call/tool_calls。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用可以在同次输出的简短自然 preamble 中写公开反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 和 sidecar 都只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
-                "第三步，如果你使用结构化 action object 来发起工具动作，并且需要先向用户说明为什么查证，就把这句话写入顶层 public_progress_note；它只说明本批工具共同要确认的公开事实，不逐个复述工具名。",
-                "第四步，工具观察返回后，重新判断：事实足够就 respond；缺用户决定就 ask_user；事实、权限或环境不足就 block；仍需查证且当前请求允许时再继续 tool_call。",
-                "第五步，如果用户问的是为什么卡住、为什么没回应、是否正常，先解释你已经知道的状态或需要核对的状态，再决定是否继续执行。",
-                "只有用户只是明确说继续、恢复、接着执行，并且没有提出新问题时，才可以只承接执行。"
-            ],
-            "tool_observation_reporting": {
-                "must_explain_when": [
-                    "观察结果回答了用户问题，或改变了你对用户问题的判断。",
-                    "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
-                    "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
-                    "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
-                    "观察结果推翻了你先前的公开判断或暴露出不确定性。",
-                    "一批 tool_calls[] 的观察共同形成了新的公开结论、风险、阻塞、验收状态或下一步判断。",
-                    "你已经连续跨多个文件、多个工具批次或多次观察推进，或者刚处理过失败处理、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
-                ],
-                "may_keep_internal_when": [
-                    "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
-                    "一批 tool_calls[] 只是为同一个后续判断收集材料，单条观察没有独立用户价值，且批次尚未形成新的公开结论。",
-                    "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
-                    "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
-                ],
-                "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；批量工具结果按共同语义目标汇总，不按工具条数逐项播报；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
-            },
+            "rule": "你始终要服务用户当前输入。工具只有在 allowed_action_types 包含 tool_call 时才可使用；工具动作本身不是给用户的回答。",
+            "request_sequence": request_sequence,
+            **(
+                {
+                    "tool_observation_reporting": {
+                        "must_explain_when": [
+                            "观察结果回答了用户问题，或改变了你对用户问题的判断。",
+                            "观察结果发现错误、阻塞、权限问题、缺失信息、测试失败、运行异常或与用户预期冲突。",
+                            "观察结果改变下一步计划、任务范围、验收状态、风险或是否需要用户确认。",
+                            "观察结果完成了用户可见阶段，需要让用户知道结论或下一步。",
+                            "观察结果推翻了你先前的公开判断或暴露出不确定性。",
+                            "一批 tool_calls[] 的观察共同形成了新的公开结论、风险、阻塞、验收状态或下一步判断。",
+                            "你已经连续跨多个文件、多个工具批次或多次观察推进，或者刚处理过失败处理、写入、验证、范围切换或阶段结束，继续请求工具前需要给用户一个阶段反馈。"
+                        ],
+                        "may_keep_internal_when": [
+                            "观察只是短链路的低层文件读取、搜索、目录枚举或格式检查，且没有改变公开判断、风险、计划或用户问题的答案。",
+                            "一批 tool_calls[] 只是为同一个后续判断收集材料，单条观察没有独立用户价值，且批次尚未形成新的公开结论。",
+                            "观察只是为后续工具调用准备上下文，单独展示不会帮助用户理解进展。",
+                            "结构化工具槽已经足以表达动作状态，而没有新的语义结论。"
+                        ],
+                        "explanation_shape": "需要解释时，只说结论、依据的可见事实、影响和下一步；批量工具结果按共同语义目标汇总，不按工具条数逐项播报；不要粘贴原始工具输出，不要暴露内部事件编号、动作字段、隐藏推理或无关路径。不要求每个低层工具都单独反馈，但不允许长时间任务只剩工具列表而没有你的阶段判断。"
+                    },
+                }
+                if tool_call_available
+                else {}
+            ),
             "non_response_examples": [
-                "只输出 tool_call 或 block，没有解释用户当前问题。",
+                "只输出动作字段或 block，没有解释用户当前问题。",
                 "只说正在处理、开始处理、稍等、我会看看，但没有说明要判断什么公开事实。",
                 "把工具名、动作字段或执行步骤列表当成给用户的回答。"
             ]
         },
-        "public_progress_note": "这是你写给用户看的短判断：说明当前请求要确认什么、为什么要查证、或为什么要申请资源。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用如果无法提交顶层字段，可以在同次输出的简短自然 preamble 中写这句反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 会被系统归一为 assistant_public_feedback，不是 final_answer。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。",
+        "public_progress_note": (
+            "这是你写给用户看的短判断：说明当前请求要确认什么、为什么要查证、或为什么要申请资源。结构化 action object 使用顶层 public_progress_note；直接 provider 工具调用如果无法提交顶层字段，可以在同次输出的简短自然 preamble 中写这句反馈，或在工具参数 schema 明确提供 public_progress_note、public_note、current_judgment、public_action_state 这类公开 sidecar 字段时写入 sidecar。preamble 会被系统归一为 assistant_public_feedback，不是 final_answer。不要写内部事件、隐藏推理、泛化占位词；不要只说正在处理、开始处理、稍等、我会看看；不得预测工具结果，不得把尚未完成的动作说成已经完成。"
+            if tool_call_available
+            else "这是你写给用户看的短判断：当前动作面没有工具调用能力；不要说明将要调用工具。材料足够时 respond；材料不足时 ask_user 或 block，并说明缺口。"
+        ),
         "public_action_state": {
             "visible_status": "机器状态；thinking|waiting_for_tool|tool_returned|responding|blocked。不是用户可见正文；不要复制到 public_progress_note、current_judgment、next_action、final_answer 或 blocking_reason。",
             "current_judgment": "可选；你对当前公开状态的简短说明。首次工具调用前，如果你已经能向用户说明真实开局判断或处理边界，就把这句话写在这里；如果只是要表达正在思考、正在处理或等待工具，必须留空。只能写当前请求已经确定的事实或边界，不写隐藏推理。",
@@ -3154,10 +3197,16 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
-        "tool_call": {"tool_name": "单工具调用时填写；批量时不要同时填写", "args": {}},
-        "tool_calls": [
-            {"tool_name": "批量工具调用时填写；与 tool_call 二选一", "args": {"参数名": "参数值"}}
-        ],
+        **(
+            {
+                "tool_call": {"tool_name": "单工具调用时填写；批量时不要同时填写", "args": {}},
+                "tool_calls": [
+                    {"tool_name": "批量工具调用时填写；与 tool_call 二选一", "args": {"参数名": "参数值"}}
+                ],
+            }
+            if tool_call_available
+            else {}
+        ),
         **(
             {
                 "pause_for_user_steer_shape_rules": [
@@ -3211,6 +3260,16 @@ def task_execution_action_schema(*, allowed_action_types: tuple[str, ...] = ()) 
                     "requires_user_confirmation": False,
                     "proposed_goal": "",
                     "proposed_acceptance_criteria": [],
+                }
+            ],
+            "project_network_semantic_submissions": [
+                {
+                    "when_to_use": "仅当当前任务契约明确要求项目网络语义审查时填写；其它任务留空。",
+                    "submission_kind": "module_index 或 directory_summary，按当前节点契约选择且只提交一个。",
+                    "semantic_label": "当前文件或目录的可提取语义路标；完整审查事实放在本通道，不放进 final_answer。",
+                    "semantic_nodes_or_directory_nodes": "被接受的节点事实；每个节点必须有 stable_ref、node_kind、name、semantic_label、evidence_refs、anchor_refs、confidence。",
+                    "semantic_edges": "被接受的关系事实；每条边必须有 source_ref、target_ref、edge_kind、direction、status、evidence_refs、anchor_refs、confidence、limitations。",
+                    "coverage": "覆盖范围、未覆盖 refs、限制和需要父层继续判断的候选关系。",
                 }
             ],
             "plan_deviation": {
@@ -4413,6 +4472,16 @@ def _provider_visible_context_inheritance_from_session_context(
         "workspace_effect_policy": str(forked_from.get("workspace_effect_policy") or ""),
         "authority": "harness.runtime.compiler.provider_visible_context_inheritance_from_session_context",
     }
+
+
+def _model_selection_with_provider_lane(
+    model_selection: dict[str, Any] | None,
+    *,
+    provider_lane: str,
+) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    selection["provider_lane"] = str(provider_lane or "").strip()
+    return selection
 
 
 def _sanitize_model_messages_for_prompt_packet(
@@ -5809,7 +5878,7 @@ def _graph_node_prompt_contract_from_runtime(
 
 
 def _normalize_prompt_contract(payload: dict[str, Any], *, contract_id: str) -> dict[str, Any]:
-    return {
+    normalized = {
         "contract_id": str(contract_id or payload.get("contract_id") or "").strip(),
         "contract_identity": str(payload.get("contract_identity") or contract_id or "prompt_contract"),
         "role_prompt": _first_runtime_text(payload.get("role_prompt")),
@@ -5818,6 +5887,27 @@ def _normalize_prompt_contract(payload: dict[str, Any], *, contract_id: str) -> 
         "forbidden_behavior": _string_list(payload.get("forbidden_behavior")),
         "definition_of_done": _string_list(payload.get("definition_of_done")),
     }
+    for key in (
+        "input_boundary_contract",
+        "typed_submission_contract",
+        "review_judgment_contract",
+        "semantic_network_contract",
+        "work_product_contract",
+        "quality_gate_contract",
+        "failure_handling_contract",
+    ):
+        value = payload.get(key)
+        if _has_structured_prompt_contract_value(value):
+            normalized[key] = value
+    return normalized
+
+
+def _has_structured_prompt_contract_value(value: Any) -> bool:
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, (list, tuple)):
+        return any(_has_structured_prompt_contract_value(item) if isinstance(item, (dict, list, tuple)) else bool(str(item or "").strip()) for item in value)
+    return bool(str(value or "").strip())
 
 
 def _first_runtime_text(*values: Any) -> str:

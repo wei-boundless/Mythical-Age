@@ -12,10 +12,10 @@ from core.project_layout import ProjectLayout
 
 from .change_models import GitChangeSetRecord
 from .control_models import (
-    ProjectNetworkControlDecisionRecord,
-    ProjectNetworkFrontierItemRecord,
-    ProjectNetworkTraversalSessionRecord,
-    ProjectNetworkVisitedRefRecord,
+    ProjectNetworkNavigationSessionRecord,
+    ProjectNetworkOpenedRefRecord,
+    ProjectNetworkPathCandidateRecord,
+    ProjectNetworkPathDecisionRecord,
 )
 from .semantic_models import (
     NetworkMaintenanceRunRecord,
@@ -566,27 +566,27 @@ class ProjectStructureRepository:
             rows = conn.execute(sql, tuple(params)).fetchall()
         return tuple(_semantic_overlay_from_row(row) for row in rows)
 
-    def upsert_traversal_session(self, record: ProjectNetworkTraversalSessionRecord) -> ProjectNetworkTraversalSessionRecord:
+    def upsert_navigation_session(self, record: ProjectNetworkNavigationSessionRecord) -> ProjectNetworkNavigationSessionRecord:
         now = utc_now_iso()
-        created_at = record.created_at or now
-        stored = replace(record, created_at=created_at, updated_at=now)
+        stored = replace(record, created_at=record.created_at or now, updated_at=now)
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO project_structure_traversal_sessions (
-                    traversal_session_id, build_id, generation, goal,
-                    anchor_node_ids_json, anchor_stable_refs_json, current_node_ids_json,
-                    crawl_budget, status, created_by_task_run_id, created_by_agent_id,
-                    metadata_json, created_at, updated_at, authority
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(traversal_session_id) DO UPDATE SET
+                INSERT INTO project_structure_navigation_sessions (
+                    navigation_session_id, build_id, generation, goal,
+                    anchor_node_ids_json, anchor_stable_refs_json, focus_node_ids_json,
+                    route_depth, path_limit, status, created_by_task_run_id,
+                    created_by_agent_id, metadata_json, created_at, updated_at, authority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(navigation_session_id) DO UPDATE SET
                     build_id = excluded.build_id,
                     generation = excluded.generation,
                     goal = excluded.goal,
                     anchor_node_ids_json = excluded.anchor_node_ids_json,
                     anchor_stable_refs_json = excluded.anchor_stable_refs_json,
-                    current_node_ids_json = excluded.current_node_ids_json,
-                    crawl_budget = excluded.crawl_budget,
+                    focus_node_ids_json = excluded.focus_node_ids_json,
+                    route_depth = excluded.route_depth,
+                    path_limit = excluded.path_limit,
                     status = excluded.status,
                     created_by_task_run_id = excluded.created_by_task_run_id,
                     created_by_agent_id = excluded.created_by_agent_id,
@@ -595,14 +595,15 @@ class ProjectStructureRepository:
                     authority = excluded.authority
                 """,
                 (
-                    stored.traversal_session_id,
+                    stored.navigation_session_id,
                     stored.build_id,
                     int(stored.generation or 0),
                     stored.goal,
                     _json(list(stored.anchor_node_ids)),
                     _json(list(stored.anchor_stable_refs)),
-                    _json(list(stored.current_node_ids)),
-                    int(stored.crawl_budget or 0),
+                    _json(list(stored.focus_node_ids)),
+                    int(stored.route_depth or 0),
+                    int(stored.path_limit or 0),
                     stored.status,
                     stored.created_by_task_run_id,
                     stored.created_by_agent_id,
@@ -614,21 +615,21 @@ class ProjectStructureRepository:
             )
         return stored
 
-    def get_traversal_session(self, traversal_session_id: str) -> ProjectNetworkTraversalSessionRecord | None:
-        target = str(traversal_session_id or "").strip()
+    def get_navigation_session(self, navigation_session_id: str) -> ProjectNetworkNavigationSessionRecord | None:
+        target = str(navigation_session_id or "").strip()
         if not target:
             return None
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM project_structure_traversal_sessions WHERE traversal_session_id = ?", (target,)).fetchone()
-        return _traversal_session_from_row(row) if row is not None else None
+            row = conn.execute("SELECT * FROM project_structure_navigation_sessions WHERE navigation_session_id = ?", (target,)).fetchone()
+        return _navigation_session_from_row(row) if row is not None else None
 
-    def list_traversal_sessions(
+    def list_navigation_sessions(
         self,
         *,
         build_id: str = "",
         status: str = "",
         limit: int = 2000,
-    ) -> tuple[ProjectNetworkTraversalSessionRecord, ...]:
+    ) -> tuple[ProjectNetworkNavigationSessionRecord, ...]:
         filters: list[str] = []
         params: list[Any] = []
         if build_id:
@@ -637,46 +638,47 @@ class ProjectStructureRepository:
         if status:
             filters.append("status = ?")
             params.append(status)
-        sql = "SELECT * FROM project_structure_traversal_sessions"
+        sql = "SELECT * FROM project_structure_navigation_sessions"
         if filters:
             sql += " WHERE " + " AND ".join(filters)
-        sql += " ORDER BY updated_at DESC, traversal_session_id ASC LIMIT ?"
+        sql += " ORDER BY updated_at DESC, navigation_session_id ASC LIMIT ?"
         params.append(_limit(limit))
         with self._connect() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
-        return tuple(_traversal_session_from_row(row) for row in rows)
+        return tuple(_navigation_session_from_row(row) for row in rows)
 
-    def upsert_frontier_items(
+    def upsert_path_candidates(
         self,
-        records: tuple[ProjectNetworkFrontierItemRecord, ...] | list[ProjectNetworkFrontierItemRecord],
-    ) -> tuple[ProjectNetworkFrontierItemRecord, ...]:
+        records: tuple[ProjectNetworkPathCandidateRecord, ...] | list[ProjectNetworkPathCandidateRecord],
+    ) -> tuple[ProjectNetworkPathCandidateRecord, ...]:
         now = utc_now_iso()
-        stored_records: list[ProjectNetworkFrontierItemRecord] = []
+        stored_records: list[ProjectNetworkPathCandidateRecord] = []
         with self._connect() as conn:
             for record in records:
-                created_at = _existing_created_at(conn, "project_structure_frontier_items", "frontier_item_id", record.frontier_item_id) or now
+                created_at = _existing_created_at(conn, "project_structure_path_candidates", "path_candidate_id", record.path_candidate_id) or now
                 stored = replace(record, created_at=record.created_at or created_at, updated_at=now)
                 stored_records.append(stored)
                 conn.execute(
                     """
-                    INSERT INTO project_structure_frontier_items (
-                        frontier_item_id, traversal_session_id, build_id, generation,
-                        target_node_id, target_edge_id, stable_ref, source_node_id,
-                        via_edge_id, relation_kind, priority, reason, status,
-                        evidence_refs_json, semantic_overlay_ids_json, payload_json,
-                        created_at, updated_at, authority
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(frontier_item_id) DO UPDATE SET
-                        traversal_session_id = excluded.traversal_session_id,
+                    INSERT INTO project_structure_path_candidates (
+                        path_candidate_id, navigation_session_id, build_id, generation,
+                        path_kind, path_label, source_node_id, target_node_id,
+                        node_ids_json, edge_ids_json, stable_refs_json, score,
+                        reason, status, evidence_refs_json, semantic_overlay_ids_json,
+                        payload_json, created_at, updated_at, authority
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(path_candidate_id) DO UPDATE SET
+                        navigation_session_id = excluded.navigation_session_id,
                         build_id = excluded.build_id,
                         generation = excluded.generation,
-                        target_node_id = excluded.target_node_id,
-                        target_edge_id = excluded.target_edge_id,
-                        stable_ref = excluded.stable_ref,
+                        path_kind = excluded.path_kind,
+                        path_label = excluded.path_label,
                         source_node_id = excluded.source_node_id,
-                        via_edge_id = excluded.via_edge_id,
-                        relation_kind = excluded.relation_kind,
-                        priority = excluded.priority,
+                        target_node_id = excluded.target_node_id,
+                        node_ids_json = excluded.node_ids_json,
+                        edge_ids_json = excluded.edge_ids_json,
+                        stable_refs_json = excluded.stable_refs_json,
+                        score = excluded.score,
                         reason = excluded.reason,
                         status = excluded.status,
                         evidence_refs_json = excluded.evidence_refs_json,
@@ -686,17 +688,18 @@ class ProjectStructureRepository:
                         authority = excluded.authority
                     """,
                     (
-                        stored.frontier_item_id,
-                        stored.traversal_session_id,
+                        stored.path_candidate_id,
+                        stored.navigation_session_id,
                         stored.build_id,
                         int(stored.generation or 0),
-                        stored.target_node_id,
-                        stored.target_edge_id,
-                        stored.stable_ref,
+                        stored.path_kind,
+                        stored.path_label,
                         stored.source_node_id,
-                        stored.via_edge_id,
-                        stored.relation_kind,
-                        int(stored.priority or 0),
+                        stored.target_node_id,
+                        _json(list(stored.node_ids)),
+                        _json(list(stored.edge_ids)),
+                        _json(list(stored.stable_refs)),
+                        int(stored.score or 0),
                         stored.reason,
                         stored.status,
                         _json(list(stored.evidence_refs)),
@@ -709,43 +712,43 @@ class ProjectStructureRepository:
                 )
         return tuple(stored_records)
 
-    def list_frontier_items(
+    def list_path_candidates(
         self,
         *,
-        traversal_session_id: str,
+        navigation_session_id: str,
         status: str = "",
         limit: int = 2000,
-    ) -> tuple[ProjectNetworkFrontierItemRecord, ...]:
-        filters = ["traversal_session_id = ?"]
-        params: list[Any] = [str(traversal_session_id or "").strip()]
+    ) -> tuple[ProjectNetworkPathCandidateRecord, ...]:
+        filters = ["navigation_session_id = ?"]
+        params: list[Any] = [str(navigation_session_id or "").strip()]
         if status:
             filters.append("status = ?")
             params.append(status)
-        sql = "SELECT * FROM project_structure_frontier_items WHERE " + " AND ".join(filters)
-        sql += " ORDER BY priority DESC, updated_at DESC, frontier_item_id ASC LIMIT ?"
+        sql = "SELECT * FROM project_structure_path_candidates WHERE " + " AND ".join(filters)
+        sql += " ORDER BY score DESC, updated_at DESC, path_candidate_id ASC LIMIT ?"
         params.append(_limit(limit))
         with self._connect() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
-        return tuple(_frontier_item_from_row(row) for row in rows)
+        return tuple(_path_candidate_from_row(row) for row in rows)
 
-    def upsert_visited_refs(
+    def upsert_opened_refs(
         self,
-        records: tuple[ProjectNetworkVisitedRefRecord, ...] | list[ProjectNetworkVisitedRefRecord],
-    ) -> tuple[ProjectNetworkVisitedRefRecord, ...]:
+        records: tuple[ProjectNetworkOpenedRefRecord, ...] | list[ProjectNetworkOpenedRefRecord],
+    ) -> tuple[ProjectNetworkOpenedRefRecord, ...]:
         now = utc_now_iso()
-        stored_records: list[ProjectNetworkVisitedRefRecord] = []
+        stored_records: list[ProjectNetworkOpenedRefRecord] = []
         with self._connect() as conn:
             for record in records:
                 stored = replace(record, created_at=record.created_at or now)
                 stored_records.append(stored)
                 conn.execute(
                     """
-                    INSERT INTO project_structure_visited_refs (
-                        visited_ref_id, traversal_session_id, build_id, generation,
+                    INSERT INTO project_structure_opened_refs (
+                        opened_ref_id, navigation_session_id, build_id, generation,
                         ref_kind, ref_id, reason, payload_json, created_at, authority
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(visited_ref_id) DO UPDATE SET
-                        traversal_session_id = excluded.traversal_session_id,
+                    ON CONFLICT(opened_ref_id) DO UPDATE SET
+                        navigation_session_id = excluded.navigation_session_id,
                         build_id = excluded.build_id,
                         generation = excluded.generation,
                         ref_kind = excluded.ref_kind,
@@ -755,8 +758,8 @@ class ProjectStructureRepository:
                         authority = excluded.authority
                     """,
                     (
-                        stored.visited_ref_id,
-                        stored.traversal_session_id,
+                        stored.opened_ref_id,
+                        stored.navigation_session_id,
                         stored.build_id,
                         int(stored.generation or 0),
                         stored.ref_kind,
@@ -769,44 +772,44 @@ class ProjectStructureRepository:
                 )
         return tuple(stored_records)
 
-    def list_visited_refs(
+    def list_opened_refs(
         self,
         *,
-        traversal_session_id: str,
+        navigation_session_id: str,
         ref_kind: str = "",
         limit: int = 2000,
-    ) -> tuple[ProjectNetworkVisitedRefRecord, ...]:
-        filters = ["traversal_session_id = ?"]
-        params: list[Any] = [str(traversal_session_id or "").strip()]
+    ) -> tuple[ProjectNetworkOpenedRefRecord, ...]:
+        filters = ["navigation_session_id = ?"]
+        params: list[Any] = [str(navigation_session_id or "").strip()]
         if ref_kind:
             filters.append("ref_kind = ?")
             params.append(ref_kind)
-        sql = "SELECT * FROM project_structure_visited_refs WHERE " + " AND ".join(filters)
-        sql += " ORDER BY created_at DESC, visited_ref_id ASC LIMIT ?"
+        sql = "SELECT * FROM project_structure_opened_refs WHERE " + " AND ".join(filters)
+        sql += " ORDER BY created_at DESC, opened_ref_id ASC LIMIT ?"
         params.append(_limit(limit))
         with self._connect() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
-        return tuple(_visited_ref_from_row(row) for row in rows)
+        return tuple(_opened_ref_from_row(row) for row in rows)
 
-    def upsert_control_decision(self, record: ProjectNetworkControlDecisionRecord) -> ProjectNetworkControlDecisionRecord:
+    def upsert_path_decision(self, record: ProjectNetworkPathDecisionRecord) -> ProjectNetworkPathDecisionRecord:
         now = utc_now_iso()
         stored = replace(record, created_at=record.created_at or now)
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO project_structure_control_decisions (
-                    decision_id, traversal_session_id, build_id, generation,
-                    decision_kind, selected_frontier_item_id, selected_node_id,
+                INSERT INTO project_structure_path_decisions (
+                    decision_id, navigation_session_id, build_id, generation,
+                    decision_kind, selected_path_candidate_id, selected_node_id,
                     selected_edge_id, reason, status, evidence_refs_json,
                     created_by_task_run_id, created_by_agent_id, payload_json,
                     created_at, authority
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(decision_id) DO UPDATE SET
-                    traversal_session_id = excluded.traversal_session_id,
+                    navigation_session_id = excluded.navigation_session_id,
                     build_id = excluded.build_id,
                     generation = excluded.generation,
                     decision_kind = excluded.decision_kind,
-                    selected_frontier_item_id = excluded.selected_frontier_item_id,
+                    selected_path_candidate_id = excluded.selected_path_candidate_id,
                     selected_node_id = excluded.selected_node_id,
                     selected_edge_id = excluded.selected_edge_id,
                     reason = excluded.reason,
@@ -819,11 +822,11 @@ class ProjectStructureRepository:
                 """,
                 (
                     stored.decision_id,
-                    stored.traversal_session_id,
+                    stored.navigation_session_id,
                     stored.build_id,
                     int(stored.generation or 0),
                     stored.decision_kind,
-                    stored.selected_frontier_item_id,
+                    stored.selected_path_candidate_id,
                     stored.selected_node_id,
                     stored.selected_edge_id,
                     stored.reason,
@@ -838,23 +841,23 @@ class ProjectStructureRepository:
             )
         return stored
 
-    def list_control_decisions(
+    def list_path_decisions(
         self,
         *,
-        traversal_session_id: str,
+        navigation_session_id: str,
         limit: int = 2000,
-    ) -> tuple[ProjectNetworkControlDecisionRecord, ...]:
+    ) -> tuple[ProjectNetworkPathDecisionRecord, ...]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT * FROM project_structure_control_decisions
-                WHERE traversal_session_id = ?
+                SELECT * FROM project_structure_path_decisions
+                WHERE navigation_session_id = ?
                 ORDER BY created_at DESC, decision_id ASC
                 LIMIT ?
                 """,
-                (str(traversal_session_id or "").strip(), _limit(limit)),
+                (str(navigation_session_id or "").strip(), _limit(limit)),
             ).fetchall()
-        return tuple(_control_decision_from_row(row) for row in rows)
+        return tuple(_path_decision_from_row(row) for row in rows)
 
     def upsert_maintenance_run(self, record: NetworkMaintenanceRunRecord) -> NetworkMaintenanceRunRecord:
         now = utc_now_iso()
@@ -1157,49 +1160,51 @@ class ProjectStructureRepository:
                     authority TEXT NOT NULL DEFAULT 'file_management.project_structure.semantic_overlay'
                 );
 
-                CREATE TABLE IF NOT EXISTS project_structure_traversal_sessions (
-                    traversal_session_id TEXT PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS project_structure_navigation_sessions (
+                    navigation_session_id TEXT PRIMARY KEY,
                     build_id TEXT NOT NULL,
                     generation INTEGER NOT NULL DEFAULT 0,
                     goal TEXT NOT NULL DEFAULT '',
                     anchor_node_ids_json TEXT NOT NULL DEFAULT '[]',
                     anchor_stable_refs_json TEXT NOT NULL DEFAULT '[]',
-                    current_node_ids_json TEXT NOT NULL DEFAULT '[]',
-                    crawl_budget INTEGER NOT NULL DEFAULT 40,
+                    focus_node_ids_json TEXT NOT NULL DEFAULT '[]',
+                    route_depth INTEGER NOT NULL DEFAULT 3,
+                    path_limit INTEGER NOT NULL DEFAULT 80,
                     status TEXT NOT NULL DEFAULT 'active',
                     created_by_task_run_id TEXT NOT NULL DEFAULT '',
                     created_by_agent_id TEXT NOT NULL DEFAULT '',
                     metadata_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
-                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_traversal_session'
+                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_navigation_session'
                 );
 
-                CREATE TABLE IF NOT EXISTS project_structure_frontier_items (
-                    frontier_item_id TEXT PRIMARY KEY,
-                    traversal_session_id TEXT NOT NULL,
+                CREATE TABLE IF NOT EXISTS project_structure_path_candidates (
+                    path_candidate_id TEXT PRIMARY KEY,
+                    navigation_session_id TEXT NOT NULL,
                     build_id TEXT NOT NULL,
                     generation INTEGER NOT NULL DEFAULT 0,
-                    target_node_id TEXT NOT NULL DEFAULT '',
-                    target_edge_id TEXT NOT NULL DEFAULT '',
-                    stable_ref TEXT NOT NULL DEFAULT '',
+                    path_kind TEXT NOT NULL DEFAULT '',
+                    path_label TEXT NOT NULL DEFAULT '',
                     source_node_id TEXT NOT NULL DEFAULT '',
-                    via_edge_id TEXT NOT NULL DEFAULT '',
-                    relation_kind TEXT NOT NULL DEFAULT '',
-                    priority INTEGER NOT NULL DEFAULT 50,
+                    target_node_id TEXT NOT NULL DEFAULT '',
+                    node_ids_json TEXT NOT NULL DEFAULT '[]',
+                    edge_ids_json TEXT NOT NULL DEFAULT '[]',
+                    stable_refs_json TEXT NOT NULL DEFAULT '[]',
+                    score INTEGER NOT NULL DEFAULT 50,
                     reason TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'queued',
+                    status TEXT NOT NULL DEFAULT 'available',
                     evidence_refs_json TEXT NOT NULL DEFAULT '[]',
                     semantic_overlay_ids_json TEXT NOT NULL DEFAULT '[]',
                     payload_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
-                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_frontier_item'
+                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_path_candidate'
                 );
 
-                CREATE TABLE IF NOT EXISTS project_structure_visited_refs (
-                    visited_ref_id TEXT PRIMARY KEY,
-                    traversal_session_id TEXT NOT NULL,
+                CREATE TABLE IF NOT EXISTS project_structure_opened_refs (
+                    opened_ref_id TEXT PRIMARY KEY,
+                    navigation_session_id TEXT NOT NULL,
                     build_id TEXT NOT NULL,
                     generation INTEGER NOT NULL DEFAULT 0,
                     ref_kind TEXT NOT NULL DEFAULT '',
@@ -1207,16 +1212,16 @@ class ProjectStructureRepository:
                     reason TEXT NOT NULL DEFAULT '',
                     payload_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT '',
-                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_visited_ref'
+                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_opened_ref'
                 );
 
-                CREATE TABLE IF NOT EXISTS project_structure_control_decisions (
+                CREATE TABLE IF NOT EXISTS project_structure_path_decisions (
                     decision_id TEXT PRIMARY KEY,
-                    traversal_session_id TEXT NOT NULL,
+                    navigation_session_id TEXT NOT NULL,
                     build_id TEXT NOT NULL,
                     generation INTEGER NOT NULL DEFAULT 0,
                     decision_kind TEXT NOT NULL DEFAULT '',
-                    selected_frontier_item_id TEXT NOT NULL DEFAULT '',
+                    selected_path_candidate_id TEXT NOT NULL DEFAULT '',
                     selected_node_id TEXT NOT NULL DEFAULT '',
                     selected_edge_id TEXT NOT NULL DEFAULT '',
                     reason TEXT NOT NULL DEFAULT '',
@@ -1226,7 +1231,7 @@ class ProjectStructureRepository:
                     created_by_agent_id TEXT NOT NULL DEFAULT '',
                     payload_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT '',
-                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_control_decision'
+                    authority TEXT NOT NULL DEFAULT 'file_management.project_structure.project_network_path_decision'
                 );
 
                 CREATE TABLE IF NOT EXISTS project_structure_maintenance_runs (
@@ -1304,14 +1309,14 @@ class ProjectStructureRepository:
                     ON project_structure_semantic_overlays(build_id, skeleton_node_id, status, overlay_kind);
                 CREATE INDEX IF NOT EXISTS idx_project_structure_semantic_overlays_edge
                     ON project_structure_semantic_overlays(build_id, skeleton_edge_id, status, overlay_kind);
-                CREATE INDEX IF NOT EXISTS idx_project_structure_traversal_sessions_build
-                    ON project_structure_traversal_sessions(build_id, status, updated_at);
-                CREATE INDEX IF NOT EXISTS idx_project_structure_frontier_items_session
-                    ON project_structure_frontier_items(traversal_session_id, status, priority);
-                CREATE INDEX IF NOT EXISTS idx_project_structure_visited_refs_session
-                    ON project_structure_visited_refs(traversal_session_id, ref_kind, created_at);
-                CREATE INDEX IF NOT EXISTS idx_project_structure_control_decisions_session
-                    ON project_structure_control_decisions(traversal_session_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_project_structure_navigation_sessions_build
+                    ON project_structure_navigation_sessions(build_id, status, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_project_structure_path_candidates_session
+                    ON project_structure_path_candidates(navigation_session_id, status, score);
+                CREATE INDEX IF NOT EXISTS idx_project_structure_opened_refs_session
+                    ON project_structure_opened_refs(navigation_session_id, ref_kind, created_at);
+                CREATE INDEX IF NOT EXISTS idx_project_structure_path_decisions_session
+                    ON project_structure_path_decisions(navigation_session_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_project_structure_repair_items_change_set
                     ON project_structure_semantic_repair_work_items(change_set_id, status, priority);
                 """
@@ -1463,54 +1468,56 @@ def _semantic_overlay_from_row(row: sqlite3.Row) -> SemanticOverlayRecord:
     )
 
 
-def _traversal_session_from_row(row: sqlite3.Row) -> ProjectNetworkTraversalSessionRecord:
-    return ProjectNetworkTraversalSessionRecord(
-        traversal_session_id=str(row["traversal_session_id"]),
+def _navigation_session_from_row(row: sqlite3.Row) -> ProjectNetworkNavigationSessionRecord:
+    return ProjectNetworkNavigationSessionRecord(
+        navigation_session_id=str(row["navigation_session_id"]),
         build_id=str(row["build_id"]),
         generation=int(row["generation"] or 0),
         goal=str(row["goal"] or ""),
         anchor_node_ids=tuple(_strings(_loads(row["anchor_node_ids_json"], []))),
         anchor_stable_refs=tuple(_strings(_loads(row["anchor_stable_refs_json"], []))),
-        current_node_ids=tuple(_strings(_loads(row["current_node_ids_json"], []))),
-        crawl_budget=int(row["crawl_budget"] or 0),
+        focus_node_ids=tuple(_strings(_loads(row["focus_node_ids_json"], []))),
+        route_depth=int(row["route_depth"] or 0),
+        path_limit=int(row["path_limit"] or 0),
         status=str(row["status"] or "active"),
         created_by_task_run_id=str(row["created_by_task_run_id"] or ""),
         created_by_agent_id=str(row["created_by_agent_id"] or ""),
         created_at=str(row["created_at"] or ""),
         updated_at=str(row["updated_at"] or ""),
         metadata=_loads(row["metadata_json"], {}),
-        authority=str(row["authority"] or "file_management.project_structure.project_network_traversal_session"),
+        authority=str(row["authority"] or "file_management.project_structure.project_network_navigation_session"),
     )
 
 
-def _frontier_item_from_row(row: sqlite3.Row) -> ProjectNetworkFrontierItemRecord:
-    return ProjectNetworkFrontierItemRecord(
-        frontier_item_id=str(row["frontier_item_id"]),
-        traversal_session_id=str(row["traversal_session_id"]),
+def _path_candidate_from_row(row: sqlite3.Row) -> ProjectNetworkPathCandidateRecord:
+    return ProjectNetworkPathCandidateRecord(
+        path_candidate_id=str(row["path_candidate_id"]),
+        navigation_session_id=str(row["navigation_session_id"]),
         build_id=str(row["build_id"]),
         generation=int(row["generation"] or 0),
-        target_node_id=str(row["target_node_id"] or ""),
-        target_edge_id=str(row["target_edge_id"] or ""),
-        stable_ref=str(row["stable_ref"] or ""),
+        path_kind=str(row["path_kind"] or ""),
+        path_label=str(row["path_label"] or ""),
         source_node_id=str(row["source_node_id"] or ""),
-        via_edge_id=str(row["via_edge_id"] or ""),
-        relation_kind=str(row["relation_kind"] or ""),
-        priority=int(row["priority"] or 0),
+        target_node_id=str(row["target_node_id"] or ""),
+        node_ids=tuple(_strings(_loads(row["node_ids_json"], []))),
+        edge_ids=tuple(_strings(_loads(row["edge_ids_json"], []))),
+        stable_refs=tuple(_strings(_loads(row["stable_refs_json"], []))),
+        score=int(row["score"] or 0),
         reason=str(row["reason"] or ""),
-        status=str(row["status"] or "queued"),
+        status=str(row["status"] or "available"),
         evidence_refs=tuple(_strings(_loads(row["evidence_refs_json"], []))),
         semantic_overlay_ids=tuple(_strings(_loads(row["semantic_overlay_ids_json"], []))),
         created_at=str(row["created_at"] or ""),
         updated_at=str(row["updated_at"] or ""),
         payload=_loads(row["payload_json"], {}),
-        authority=str(row["authority"] or "file_management.project_structure.project_network_frontier_item"),
+        authority=str(row["authority"] or "file_management.project_structure.project_network_path_candidate"),
     )
 
 
-def _visited_ref_from_row(row: sqlite3.Row) -> ProjectNetworkVisitedRefRecord:
-    return ProjectNetworkVisitedRefRecord(
-        visited_ref_id=str(row["visited_ref_id"]),
-        traversal_session_id=str(row["traversal_session_id"]),
+def _opened_ref_from_row(row: sqlite3.Row) -> ProjectNetworkOpenedRefRecord:
+    return ProjectNetworkOpenedRefRecord(
+        opened_ref_id=str(row["opened_ref_id"]),
+        navigation_session_id=str(row["navigation_session_id"]),
         build_id=str(row["build_id"]),
         generation=int(row["generation"] or 0),
         ref_kind=str(row["ref_kind"] or ""),
@@ -1518,18 +1525,18 @@ def _visited_ref_from_row(row: sqlite3.Row) -> ProjectNetworkVisitedRefRecord:
         reason=str(row["reason"] or ""),
         created_at=str(row["created_at"] or ""),
         payload=_loads(row["payload_json"], {}),
-        authority=str(row["authority"] or "file_management.project_structure.project_network_visited_ref"),
+        authority=str(row["authority"] or "file_management.project_structure.project_network_opened_ref"),
     )
 
 
-def _control_decision_from_row(row: sqlite3.Row) -> ProjectNetworkControlDecisionRecord:
-    return ProjectNetworkControlDecisionRecord(
+def _path_decision_from_row(row: sqlite3.Row) -> ProjectNetworkPathDecisionRecord:
+    return ProjectNetworkPathDecisionRecord(
         decision_id=str(row["decision_id"]),
-        traversal_session_id=str(row["traversal_session_id"]),
+        navigation_session_id=str(row["navigation_session_id"]),
         build_id=str(row["build_id"]),
         generation=int(row["generation"] or 0),
         decision_kind=str(row["decision_kind"] or ""),
-        selected_frontier_item_id=str(row["selected_frontier_item_id"] or ""),
+        selected_path_candidate_id=str(row["selected_path_candidate_id"] or ""),
         selected_node_id=str(row["selected_node_id"] or ""),
         selected_edge_id=str(row["selected_edge_id"] or ""),
         reason=str(row["reason"] or ""),
@@ -1539,7 +1546,7 @@ def _control_decision_from_row(row: sqlite3.Row) -> ProjectNetworkControlDecisio
         created_by_agent_id=str(row["created_by_agent_id"] or ""),
         created_at=str(row["created_at"] or ""),
         payload=_loads(row["payload_json"], {}),
-        authority=str(row["authority"] or "file_management.project_structure.project_network_control_decision"),
+        authority=str(row["authority"] or "file_management.project_structure.project_network_path_decision"),
     )
 
 

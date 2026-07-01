@@ -6,6 +6,7 @@ from typing import Any
 from .ledger import PROVIDER_CACHE_BUS_FILE
 from .models import ModelTokenUsageRecord, CachePlanRecord
 from .provider_cache_bus_record import ProviderCacheBusRecord, build_provider_cache_bus_record
+from .provider_lane import PROVIDER_LANE_AGENT_CONTROL_NO_TOOL, PROVIDER_LANE_AGENT_TOOL_LOOP
 
 
 PROVIDER_CACHE_BUS_AUTHORITY = "runtime.prompt_accounting.provider_cache_bus"
@@ -57,7 +58,7 @@ def build_provider_cache_log_view(
     for row in rows:
         status = str(row.get("cache_status") or "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
-    latest = rows[0] if rows else {}
+    latest = _latest_interactive_agent_row(rows)
     latest_health = dict(latest.get("provider_prefix_cache_health") or {}) if latest else {}
     latest_status = str(latest.get("cache_status") or "")
     latest_under_read_tokens = _row_under_read_tokens(latest)
@@ -126,6 +127,13 @@ def build_provider_cache_log_view(
         "records": rows,
         "updated_at": max((float(row.get("created_at") or 0.0) for row in rows), default=0.0),
     }
+
+
+def _latest_interactive_agent_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    for row in rows:
+        if str(row.get("provider_lane") or "") in {PROVIDER_LANE_AGENT_TOOL_LOOP, PROVIDER_LANE_AGENT_CONTROL_NO_TOOL}:
+            return row
+    return rows[0] if rows else {}
 
 
 def list_provider_cache_log_records(

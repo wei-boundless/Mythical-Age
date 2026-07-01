@@ -167,7 +167,7 @@ SemanticControlRoute attaches_to ordered SkeletonEdges + endpoint anchors
 ```text
 missing_physical_edge_request
 coverage_gap
-next_crawl_request
+path_gap_request
 ```
 
 不能直接把这条边写成 accepted semantic relation。
@@ -234,8 +234,10 @@ Semantic Overlay Card:
 当前站在哪个物理/语义节点？
 周围有哪些 skeleton nodes / skeleton edges？
 哪些 semantic overlays 可以作为路标？
-当前 frontier、visited、crawl budget 和控制决策状态是什么？
-哪些引用可以继续展开，哪些证据需要读取或刷新？
+当前 navigation focus 是什么？
+有哪些已经预构建的多级 path candidates？
+哪些 path / node / edge 已被 agent 打开或裁决？
+哪些路径候选需要证据读取、语义审查或刷新？
 ```
 
 因此 runtime 层需要保持三条线分开：
@@ -249,19 +251,19 @@ Project Semantic Space Lane
   它不占用工具说明槽位，也不把工具文档伪装成项目地图。
 
 Agent Neural Control Lane
-  放 traversal session、frontier、visited、当前目标、crawl budget、控制决策日志。
-  它只表达 agent 当前如何在网络上移动，不写入物理事实，也不改写语义事实。
+  放 navigation session、focus nodes、path candidates、opened refs、path decisions。
+  它只表达 agent 当前如何使用网络路径，不写入物理事实，也不改写语义事实。
 ```
 
 硬边界：
 
-- `Tool Lane` 是手和脚；`Project Semantic Space Lane` 是地图；`Agent Neural Control Lane` 是当前位置、注意力和下一跳决策状态。
+- `Tool Lane` 是手和脚；`Project Semantic Space Lane` 是地图；`Agent Neural Control Lane` 是当前焦点、路径包和路径选择记录。
 - 深度搜索工具返回的主要价值不是散文本，而是更新后的 semantic space projection / control projection。
 - 语义空间不进入工具 catalog，不增加工具说明噪声；但它仍然会消耗上下文预算，所以只能投影局部切片、索引摘要和必要 refs。
-- 大图必须持久化在 `file_management.project_structure` / store 中；当前回合只加载和目标有关的局部可爬视图。
-- agent 的下一跳仍由 agent 在普通 `tool_call` / task execution 决策中选择；系统只提供结构化候选、证据、状态和边界。
-- `Semantic Overlay` 不允许写 `next_action`、active frontier、当前回合预算等控制字段；这些属于 `Agent Neural Control Lane`。
-- `Agent Neural Control Lane` 不允许伪造 `skeleton_node_id`、`skeleton_edge_id`、anchor、hash 或 accepted semantic relation；它只能引用已有物理/语义节点并记录 traversal decision。
+- 大图必须持久化在 `file_management.project_structure` / store 中；当前回合只加载和目标有关的路径包摘要与局部切片。
+- agent 不是一回合一回合被系统驱动爬行；系统预先给出可跳转路径，agent 自己选择路径、读取证据、形成裁决。
+- `Semantic Overlay` 不允许写 `next_action`、active path queue、当前回合预算等控制字段；这些属于 `Agent Neural Control Lane`。
+- `Agent Neural Control Lane` 不允许伪造 `skeleton_node_id`、`skeleton_edge_id`、anchor、hash 或 accepted semantic relation；它只能引用已有物理/语义节点并记录 path decision。
 
 目标接线形态：
 
@@ -271,10 +273,11 @@ ProjectStructureStore
   -> Semantic Overlay Index
 
 ProjectNetworkControlStore
-  -> traversal session
-  -> frontier / visited
-  -> crawl budget
-  -> agent control decisions
+  -> navigation session
+  -> focus nodes
+  -> path candidates
+  -> opened refs
+  -> agent path decisions
 
 RuntimeCompiler / DynamicContextManager
   -> RuntimePacketContext.project_semantic_space
@@ -282,12 +285,12 @@ RuntimeCompiler / DynamicContextManager
   -> provider-visible local semantic slice
 
 project_network tool
-  -> start_traversal / continue_traversal / read_frontier / record_decision
+  -> start_navigation / read_paths / select_path / record_decision
   -> ToolObservation returns updated control state refs
 
 agent
   -> reads semantic space lane
-  -> chooses next hop through normal action protocol
+  -> chooses path candidates or exact refs through normal action protocol
   -> uses tools as execution limbs
 ```
 
@@ -351,7 +354,7 @@ Distributed Extractors
 -> Central Identity / Relation Normalizer
 -> Materialized Skeleton Graph Index
 -> Local Slice Projection
--> Agent Crawler / Graph Task Semantic Overlay
+-> Agent Navigation / Graph Task Semantic Overlay
 -> Curator Publish Generation
 ```
 
@@ -368,8 +371,8 @@ Distributed Extractors
 | Extract | 分布式 | 每个 extractor 只观察自己的事实源 | 可单独复跑、单独比对 |
 | Fact Stream | append-only | 保存原始事实和 provenance | 可追踪谁产出事实 |
 | Normalize | 中心化 | stable identity、边归一、冲突合并 | 可统一审查规则 |
-| Materialize | 中心化索引 | adjacency、reverse index、slice index | 可快速查询和爬行 |
-| Crawl | 局部化 | agent 只拿当前目标切片 | 避免上下文爆炸 |
+| Materialize | 中心化索引 | adjacency、reverse index、slice index | 可快速查询和路径投影 |
+| Navigate | 局部化 | agent 只拿当前目标路径包与切片 | 避免上下文爆炸 |
 | Semantic Overlay | 图任务分布式 | agent 分层审查语义 | 每个决策可回溯 |
 | Publish | 中心化 gate | curator 校验并发布 generation | 防止未审语义入库 |
 
@@ -463,9 +466,9 @@ state://sqlite/storage/tasks/project_network.sqlite/project_network_edges
 ```text
 exact -> 可进入 Skeleton accepted structure edge
 derived -> 可进入 Skeleton candidate edge
-historical -> traversal priority / hypothesis evidence
+historical -> path score / hypothesis evidence
 semantic -> Semantic Overlay candidate
-unresolved -> 只能作为 frontier 或 coverage gap
+unresolved -> 只能作为 path candidate 或 coverage gap
 ```
 
 ### 3.0.5 增量构建算法
@@ -491,7 +494,7 @@ seed = changed skeleton node/edge
 for reverse_edge in incoming_edges(seed):
   if edge_kind in stale_propagation_policy:
     mark semantic annotation stale
-    enqueue repair frontier
+    expose repair path candidates
 stop at budget / layer boundary / published generation boundary
 ```
 
@@ -499,7 +502,7 @@ stop at budget / layer boundary / published generation boundary
 
 - 文件小改只刷新相关子图。
 - registry 改动只刷新 prompt/tool/profile/runtime 相关边。
-- git 历史只影响 traversal priority 和 stale 证据，不强行改语义边。
+- git 历史只影响 path score 和 stale 证据，不强行改语义边。
 
 ### 3.0.6 可读性与审查性设计
 
@@ -525,7 +528,7 @@ EdgeCard:
   extractor provenance
   review decisions
   stale status
-  next crawl hints
+  next path hints
 ```
 
 审查界面和 agent 上下文默认只显示：
@@ -536,41 +539,41 @@ top inbound/outbound edges
 unresolved edges
 conflict edges
 coverage gaps
-recommended frontier
+recommended path candidates
 ```
 
 全图只作为后端索引，不作为 prompt 或前端默认视图。
 
-### 3.0.7 爬行算法
+### 3.0.7 路径包算法
 
-agent 爬图使用 weighted best-first frontier，而不是盲目 BFS 或全文搜索。
+agent 使用项目网络时不应被系统按单步队列驱动。系统应围绕目标和 anchor 生成一个可跳转的路径包，agent 读取路径包后自行选择路径、读取证据、形成判断。
 
 ```text
-priority =
+path_score =
   goal_relevance
   + edge_kind_weight
   + node_kind_weight
-  + unresolved_bonus
-  + conflict_bonus
-  + stale_bonus
+  + semantic_overlay_bonus
+  + evidence_confidence_bonus
   + git_hotspot_bonus
   + coverage_gap_bonus
-  - already_visited_penalty
+  - path_length_penalty
   - high_degree_noise_penalty
 ```
 
 常用算法：
 
-- `best-first expansion`：选择最高价值 frontier。
-- `bidirectional BFS`：用于 trace A 到 B 的路径。
-- `bounded DFS`：用于沿单条控制链深入。
+- `bounded k-path materialization`：围绕 anchor 预生成多条候选路径。
+- `hierarchy ascent/descent`：从文件/函数回到 folder/system，再下钻到相关模块。
+- `bidirectional path trace`：用于 trace A 到 B 的路径。
+- `bounded relation-chain extraction`：用于沿调用、导入、定义、包含关系生成路径候选。
 - `SCC detection`：识别循环依赖或强耦合模块。
 - `degree / centrality`：只用于排序和热点提示，不作为语义事实。
 - `co-change clustering`：只用于候选影响范围，不作为 accepted dependency。
 
 成熟边界：
 
-- 图算法给 agent 推荐下一跳，不替 agent 裁决语义。
+- 图算法生成可读、可跳转的路径候选，不替 agent 裁决语义，也不要求 agent 每回合走一步。
 - embedding / BM25 / 文本搜索只用于 seed discovery 或 fallback，不写入 hard skeleton edge。
 - high-degree node 要降权，避免所有路径都跑到 common utils / base classes。
 
@@ -586,8 +589,10 @@ project_network_adjacency
 project_network_reverse_adjacency
 project_network_semantic_node_annotations
 project_network_semantic_edge_annotations
-project_network_traversal_sessions
-project_network_frontier_items
+project_network_navigation_sessions
+project_network_path_candidates
+project_network_opened_refs
+project_network_path_decisions
 ```
 
 后续如果图规模扩大，再考虑专用图数据库或列式索引。首版优先保证：
@@ -698,9 +703,9 @@ project://langchain-agent
 2. AST extractor 在 file_module 下挂 class/function/call/import。
 3. Registry extractor 在 project 下挂 registry namespace，再通过 `declares/uses` 边连到 file/module/endpoint。
 4. Semantic system candidate 通过 `owns` 边覆盖 folder/file/module，但不改变 file tree 的物理 parent。
-5. Normalizer 生成 `hierarchy_path` 和 `ancestor_node_ids`，供 projection 和 crawler 快速使用。
+5. Normalizer 生成 `hierarchy_path` 和 `ancestor_node_ids`，供 projection 和 navigation 快速使用。
 
-爬行约束：
+路径投影约束：
 
 - 默认 expand 先返回同层高价值邻居，再返回下层 children，最后返回上层 ancestors。
 - impact scope 先向上找到 folder/system，再横向找同系统关系，再向下列出受影响 module/endpoint。
@@ -878,7 +883,7 @@ file_revision supersedes file_revision
 
 GitHistoryExtractor 的边界：
 
-- co-change 不是语义依赖，只能作为 traversal priority 或 hypothesis evidence。
+- co-change 不是语义依赖，只能作为 path score 或 hypothesis evidence。
 - git 历史不能覆盖 AST/registry hard facts。
 - rename/copy 检测首版可以依赖 git 命令结果，不自己发明相似度算法。
 
@@ -1045,7 +1050,7 @@ SemanticEdgeAnnotation:
 你不负责重新抽取代码结构，也不能凭经验补不存在的边。
 你需要对每条候选边给出 accepted、rejected 或 uncertain 裁决。
 accepted 必须引用 skeleton_edge_id 和 evidence_ref。
-证据不足时，你必须输出 coverage gap 或 next crawl request。
+证据不足时，你必须输出 coverage gap 或 path gap request。
 ```
 
 ## 6. Skeleton Slice 给 agent 看什么
@@ -1088,16 +1093,16 @@ conflicting candidates
 unresolved reason
 ```
 
-## 7. Crawler 与图任务的关系
+## 7. Navigation 与图任务的关系
 
-图任务是批量建语义网络的生产线；crawler 是 agent 日常使用网络、补图、审边的交互方式。
+图任务是批量建语义网络的生产线；navigation 是 agent 日常使用网络、打开路径包、补图、审边的交互方式。
 
 ```text
 Graph Task:
   大规模、分层、可恢复、可聚合。
 
-Crawler:
-  目标驱动、局部展开、frontier 控制、交互式审查。
+Navigation:
+  目标驱动、路径包投影、焦点切换、交互式审查。
 
 Skeleton Graph:
   两者共享的结构底座。
@@ -1127,7 +1132,7 @@ file hash changed
 -> mark affected skeleton nodes/edges stale
 -> mark dependent semantic annotations stale
 -> queue graph task repair shards
--> crawler frontier receives stale review items
+-> navigation path candidates expose stale review paths
 ```
 
 ### 8.2.1 Git 驱动的网络维护
@@ -1230,7 +1235,7 @@ status
 5. reverse adjacency 找到 inbound/outbound 受影响边。
 6. stale propagation 标记 semantic overlay annotations。
 7. 按 priority 生成 repair work items。
-8. graph task 或 crawler 派发给 Network Maintenance Agent。
+8. graph task 或 navigation 派发给 Network Maintenance Agent。
 9. curator 校验 repair decisions，更新 semantic overlay generation。
 ```
 
@@ -1457,7 +1462,7 @@ backend/file_management/project_structure/skeleton_index_service.py
 - mark stale。
 - expose extraction report。
 
-### Phase 6：Crawler Slice Index
+### Phase 6：Navigation Slice Index
 
 新增：
 
@@ -1505,15 +1510,31 @@ backend/task_system/project_network/projection.py
 - node result 输出 semantic annotations / edge decisions。
 - service 将 work products 写入 semantic overlay。
 
-### Phase 9：Crawler 与工具
+### Phase 9：Navigation 与工具
 
-复用 `06_network_crawler_index_and_review_plan.md`：
+统一使用 `project_network` action tool，工具动作分为物理骨架、语义覆盖、维护和路径导航四组：
 
 ```text
-project_network action=search|expand|trace|read_node|read_edge|crawl|review_edge|coverage
+physical:
+  build_skeleton
+  read_node
+  read_edge
+  expand
+  directory_relations
+
+semantic / maintenance:
+  submit_overlay
+  collect_changes
+  repair_items
+
+navigation control:
+  start_navigation
+  read_paths
+  select_path
+  record_decision
 ```
 
-首版 crawler 只读 Skeleton + Semantic Overlay 的局部切片，不读全图。
+首版 navigation 只投影 Skeleton + Semantic Overlay 的局部路径包，不读全图、不把全图塞进上下文。
 
 ### Phase 10：Git-driven Network Maintenance
 
@@ -1617,7 +1638,7 @@ backend/task_system/project_network/projection.py
 
 - skeleton generation status。
 - local slice。
-- frontier。
+- path candidates。
 - stale refs。
 - unresolved/conflict refs。
 - semantic overlay coverage。
@@ -1956,7 +1977,7 @@ git extractor:
 
 - 第一版只做 exact/derived/unresolved 三档。
 - semantic 判断全部留给 graph task agent。
-- crawler 工具等 service smoke 通过后再接。
+- navigation 工具等 service smoke 通过后再接。
 
 ### 10.10 完成定义
 
@@ -2085,7 +2106,7 @@ Agent 试用结论：
 
 因此下一步要做 Semantic Route Overlay：
   attaches_to skeleton node/edge
-  records purpose / recommended next hops / review focus / verification target
+  records purpose / relation labels / review focus / verification target
   may span multiple physical nodes
   must keep every hop anchored to skeleton_node_id or skeleton_edge_id
 ```
@@ -2107,7 +2128,7 @@ Agent 试用结论：
 - 系统能从真实项目目录生成 folder/file_module skeleton nodes。
 - 系统能从 `FileModuleAstIndex` 生成 class/function/call/import skeleton nodes 和 contains/calls_text/imports_text edges。
 - 系统能生成 hierarchy spine：project -> folder/system candidate -> file_module -> endpoint -> evidence point。
-- crawler 能从 project/folder 纵向 descend 到 module/endpoint，再沿 relation 横向 traverse，并向上 ascend 汇总 impact scope。
+- navigation 能从 project/folder 纵向 descend 到 module/endpoint，再沿 relation 横向 trace，并向上 ascend 汇总 impact scope。
 - 系统能从 tool/prompt/agent/profile/template registry 生成 registry nodes/edges。
 - graph task module node 能收到 skeleton slice，而不是重新从空白文本开始审查。
 - agent 产出的 semantic edge decision 必须引用 skeleton_edge_id。

@@ -34,9 +34,33 @@ class HarnessRuntimeRequest:
     editor_context: dict[str, Any] = field(default_factory=dict)
     client_message_id: str = ""
 
+    def runtime_profile_payload(self) -> dict[str, Any]:
+        return _dict_payload(self.runtime_profile)
+
+    def environment_binding_payload(self) -> dict[str, Any]:
+        return _dict_payload(self.environment_binding)
+
+    def runtime_contract_payload(self) -> dict[str, Any]:
+        return _dict_payload(self.runtime_contract)
+
+    def model_selection_payload(self) -> dict[str, Any]:
+        return _dict_payload(self.model_selection)
+
+    def image_generation_payload(self) -> dict[str, Any]:
+        return _dict_payload(self.image_generation)
+
+    def editor_context_payload(self) -> dict[str, Any]:
+        return _dict_payload(self.editor_context)
+
+    def stream_run_id(self) -> str:
+        return str(self.runtime_profile_payload().get("stream_run_id") or "").strip()
+
 
 @dataclass(slots=True)
 class HarnessRuntimeResult:
     content: str
     segments: list[dict[str, Any]] = field(default_factory=list)
 
+
+def _dict_payload(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}

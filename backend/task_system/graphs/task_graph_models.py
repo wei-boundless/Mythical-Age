@@ -244,9 +244,9 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
     explicit_execution_bindings = dict(explicit_bindings.get("execution") or {})
-    node_contract_id = str(explicit_execution_bindings.get("node_contract_id") or "").strip()
-    input_contract_id = str(explicit_schema_bindings.get("input_contract_id") or "").strip()
-    output_contract_id = str(explicit_schema_bindings.get("output_contract_id") or "").strip()
+    node_contract_id = str(explicit_execution_bindings.get("node_contract_id") or payload.get("node_contract_id") or "").strip()
+    input_contract_id = str(explicit_schema_bindings.get("input_contract_id") or payload.get("input_contract_id") or "").strip()
+    output_contract_id = str(explicit_schema_bindings.get("output_contract_id") or payload.get("output_contract_id") or "").strip()
     executor_policy = dict(payload.get("executor_policy") or {})
     memory_read_policy = dict(payload.get("memory_read_policy") or {})
     memory_writeback_policy = dict(payload.get("memory_writeback_policy") or {})
@@ -347,7 +347,7 @@ def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinitio
     )
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
-    payload_contract_id = str(explicit_schema_bindings.get("payload_contract_id") or "").strip()
+    payload_contract_id = str(explicit_schema_bindings.get("payload_contract_id") or payload.get("payload_contract_id") or "").strip()
     context_filter_policy = dict(payload.get("context_filter_policy") or {})
     artifact_ref_policy = dict(payload.get("artifact_ref_policy") or {})
     working_memory_handoff_policy = dict(payload.get("working_memory_handoff_policy") or {})
@@ -910,5 +910,4 @@ def _subtask_refs_from_graph_payload(graph: TaskGraphDefinition) -> list[str]:
         ],
     ]
     return list(dict.fromkeys(value for value in refs if value.startswith("task.")))
-
 

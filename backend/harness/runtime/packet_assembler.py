@@ -38,6 +38,7 @@ def build_single_agent_turn_packet_context(
     agent_profile_ref: str = "main_interactive_agent",
     model_selection: dict[str, Any] | None = None,
     runtime_assembly: Any | None = None,
+    tool_definitions_by_name: dict[str, Any] | None = None,
     prompt_pack_refs: tuple[str, ...] = (),
     base_dir: Path | str | None = None,
 ) -> RuntimePacketContext:
@@ -56,6 +57,7 @@ def build_single_agent_turn_packet_context(
     tool_plan = _single_agent_turn_tool_plan(
         assembly_payload=assembly_payload,
         control_capabilities=control_capabilities,
+        tool_definitions_by_name=tool_definitions_by_name,
     )
     model_visible_tools = tuple(dict(item) for item in tool_plan.model_visible_tools)
     surface = _single_agent_turn_model_action_surface(
@@ -233,7 +235,7 @@ def build_task_execution_packet_context(
         environment_payload=environment_payload,
         effective_control_capabilities=effective_capabilities,
         operation_availability={
-            "tool_call": True,
+            "tool_call": bool(model_visible_tools),
             "pause_for_user_steer": "pause_for_user_steer" in surface.allowed_action_types,
             "source_authority": "harness.runtime.packet_assembler.operation_availability",
             "source_ref": task_run_id,
@@ -448,7 +450,11 @@ def _task_execution_model_action_surface(
         user_steering_payload,
         task_run_id=task_run_id,
     )
-    actions = list(TASK_EXECUTOR_BASE_ACTION_TYPES)
+    actions = [
+        action
+        for action in TASK_EXECUTOR_BASE_ACTION_TYPES
+        if action != "tool_call" or bool(model_visible_tools)
+    ]
     if steer_refs:
         actions.extend(TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES)
     return RuntimePacketModelActionSurface(
@@ -624,15 +630,17 @@ def _single_agent_turn_tool_plan(
     *,
     assembly_payload: dict[str, Any],
     control_capabilities: dict[str, Any],
+    tool_definitions_by_name: dict[str, Any] | None = None,
 ) -> Any:
+    definitions_by_name = dict(tool_definitions_by_name or {})
     if bool(control_capabilities.get("may_call_tools") is False):
         return build_runtime_tool_plan(
             runtime_assembly={**dict(assembly_payload or {}), "available_tools": []},
             invocation_kind="single_agent_turn",
-            tool_definitions_by_name={},
+            tool_definitions_by_name=definitions_by_name,
         )
     return build_runtime_tool_plan(
         runtime_assembly=assembly_payload,
         invocation_kind="single_agent_turn",
-        tool_definitions_by_name={},
+        tool_definitions_by_name=definitions_by_name,
     )

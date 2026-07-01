@@ -88,7 +88,7 @@ class ProjectNetworkControlService:
                 created_by_agent_id=str(created_by_agent_id or "").strip(),
                 metadata={
                     "control_lane": "agent_neural_navigation_control",
-                    "path_model": "precomputed_network_paths_not_stepwise_crawl",
+                    "path_model": "precomputed_network_paths_not_stepwise_cursor",
                     "semantic_overlay_write_policy": "not_allowed_from_control_service",
                     "physical_skeleton_write_policy": "not_allowed_from_control_service",
                 },
@@ -322,7 +322,7 @@ class ProjectNetworkControlService:
             limitations=(
                 "navigation_projection_does_not_create_physical_or_semantic_facts",
                 "path_scores_are_map_ordering_not_agent_next_action",
-                "paths_are_precomputed_navigation_routes_not_stepwise_crawl_state",
+                "paths_are_precomputed_navigation_routes_not_stepwise_cursor_state",
             ),
         )
 

@@ -79,6 +79,7 @@ from .execution_kernel import (
     build_action_tool_invocation_identity,
     build_tool_lifecycle_started_event_record,
     decide_model_action_lifecycle,
+    resolve_tool_call_operation_identity,
 )
 from .active_turn_steering import ActiveTurnQueuedUserSteers, claim_active_turn_queued_user_steers
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
@@ -1503,7 +1504,6 @@ async def _replay_approved_pending_tool_call(
         permit_invocation_kind="task_execution",
         packet_ref=str(pending.get("directive_ref") or ""),
         permission_mode=runtime_permission_mode,
-        side_effect_policy="runtime_authorized",
         session_id=current_task.session_id,
         turn_id=replay_turn_id,
         task_run_id=current_task.task_run_id,
@@ -2125,7 +2125,6 @@ async def _execute_claimed_task_run(
             allowed_tool_names=allowed_tool_names,
             runtime_profile=dict(runtime_assembly.profile.to_dict()),
             permission_mode=runtime_permission_mode,
-            side_effect_policy="runtime_authorized",
             session_id=current_task.session_id,
             turn_id=action_turn_id,
             task_run_id=current_task.task_run_id,
@@ -2622,7 +2621,6 @@ async def _process_task_tool_call_batch(
             allowed_tool_names=allowed_tool_names,
             runtime_profile=dict(runtime_assembly.profile.to_dict()),
             permission_mode=runtime_permission_mode,
-            side_effect_policy="runtime_authorized",
             session_id=current_task.session_id,
             turn_id=tool_turn_id,
             task_run_id=current_task.task_run_id,
@@ -4647,7 +4645,14 @@ async def _execute_task_tool_call(
     tool_args = dict(action_request.tool_call.get("args") or action_request.tool_call.get("tool_args") or {})
     tool_args = _runtime_bound_tool_args(tool_name, tool_args, task_run=task_run)
     definition = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {}).get(tool_name)
-    operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+    operation_id = str(
+        resolve_tool_call_operation_identity(
+            definition,
+            tool_args,
+            fallback_tool_name=tool_name,
+        ).get("operation_id")
+        or tool_name
+    )
     tool_turn_id = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("turn_id") or task_run.task_id or "")
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run.task_run_id)
     file_policy = _task_file_policy(runtime_assembly, sandbox_policy=sandbox_policy, runtime_host=runtime_host)
@@ -4679,7 +4684,6 @@ async def _execute_task_tool_call(
         packet_allowed_action_types=("respond", "ask_user", "tool_call", "block"),
         allowed_tool_names=set(getattr(runtime_tool_plan, "dispatchable_tool_names", ()) or ()),
         permission_mode=runtime_permission_mode,
-        side_effect_policy="runtime_authorized",
         session_id=task_run.session_id,
         turn_id=tool_turn_id,
         task_run_id=task_run.task_run_id,
@@ -10662,7 +10666,7 @@ def _tool_target_preview(args: dict[str, Any]) -> str:
 def _tool_arguments_preview(args: dict[str, Any]) -> str:
     if not args:
         return ""
-    priority = ("path", "file_path", "target_path", "prompt", "query", "command", "start_line", "line_count")
+    priority = ("action", "path", "file_path", "target_path", "prompt", "query", "command", "start_line", "line_count")
     skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
     ordered_keys = [key for key in priority if key in args]
     ordered_keys.extend(key for key in sorted(args) if key not in ordered_keys and key not in skipped)

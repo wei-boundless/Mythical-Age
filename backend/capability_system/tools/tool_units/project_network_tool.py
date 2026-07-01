@@ -28,9 +28,9 @@ ProjectNetworkAction = Literal[
     "collect_changes",
     "repair_items",
     "submit_overlay",
-    "start_traversal",
-    "read_frontier",
-    "continue_traversal",
+    "start_navigation",
+    "read_paths",
+    "select_path",
     "record_decision",
 ]
 
@@ -74,18 +74,19 @@ class ProjectNetworkInput(BaseModel):
     created_by_task_run_id: str = Field(default="", description="Task run id that produced the overlay.")
     created_by_agent_id: str = Field(default="", description="Agent id that produced the overlay.")
     overlay_id: str = Field(default="", description="Optional overlay id for update.")
-    traversal_session_id: str = Field(default="", description="Project network traversal session id.")
-    goal: str = Field(default="", description="Traversal goal stated in agent-operable terms.")
-    anchor_node_ids: list[str] = Field(default_factory=list, description="Traversal anchor skeleton node ids.")
-    anchor_stable_refs: list[str] = Field(default_factory=list, description="Traversal anchor stable physical refs.")
-    anchor_paths: list[str] = Field(default_factory=list, description="Traversal anchor workspace paths.")
-    crawl_budget: int = Field(default=40, ge=1, le=500, description="Remaining traversal budget for control state.")
-    selected_frontier_item_id: str = Field(default="", description="Frontier item chosen or updated by the agent.")
+    navigation_session_id: str = Field(default="", description="Project network navigation session id.")
+    goal: str = Field(default="", description="Navigation goal stated in agent-operable terms.")
+    anchor_node_ids: list[str] = Field(default_factory=list, description="Navigation anchor skeleton node ids.")
+    anchor_stable_refs: list[str] = Field(default_factory=list, description="Navigation anchor stable physical refs.")
+    anchor_paths: list[str] = Field(default_factory=list, description="Navigation anchor workspace paths.")
+    route_depth: int = Field(default=3, ge=1, le=6, description="Maximum physical edge depth for precomputed path candidates.")
+    path_limit: int = Field(default=80, ge=1, le=500, description="Maximum precomputed path candidates to materialize.")
+    selected_path_candidate_id: str = Field(default="", description="Path candidate chosen or updated by the agent.")
     decision_kind: str = Field(default="", description="Agent control decision kind.")
     reason: str = Field(default="", description="Agent-readable reason for the control decision.")
     decision_status: str = Field(default="recorded", description="Status for record_decision.")
-    frontier_status: str = Field(default="queued", description="Frontier status to read.")
-    enqueue_neighbors: bool = Field(default=True, description="Whether continue_traversal should enqueue neighbors.")
+    path_status: str = Field(default="available", description="Path candidate status to read.")
+    refresh_paths: bool = Field(default=True, description="Whether select_path should refresh path candidates around the selected focus.")
     include_local_slice: bool = Field(default=True, description="Include local physical/semantic slice in control projection.")
 
 
@@ -106,7 +107,7 @@ class ProjectNetworkTool(BaseTool):
     def _run(self, action: str, run_manager: CallbackManagerForToolRun | None = None, **kwargs: Any) -> Any:
         _ = run_manager
         normalized = str(action or "").strip()
-        if normalized in {"start_traversal", "read_frontier", "continue_traversal", "record_decision"}:
+        if normalized in {"start_navigation", "read_paths", "select_path", "record_decision"}:
             return self._run_control_action(normalized, kwargs)
         tool = self._tool_for_action(normalized)
         if tool is None:
@@ -133,45 +134,46 @@ class ProjectNetworkTool(BaseTool):
     def _run_control_action(self, action: str, values: dict[str, Any]) -> dict[str, Any]:
         service = ProjectNetworkControlService.from_backend_dir(self._root_dir)
         try:
-            if action == "start_traversal":
-                projection = service.start_traversal(
+            if action == "start_navigation":
+                projection = service.start_navigation(
                     build_id=str(values.get("build_id") or ""),
                     goal=str(values.get("goal") or ""),
                     anchor_node_ids=list(values.get("anchor_node_ids") or []),
                     anchor_stable_refs=list(values.get("anchor_stable_refs") or []),
                     anchor_paths=list(values.get("anchor_paths") or []),
                     generation=int(values.get("generation") or 0) or None,
-                    crawl_budget=int(values.get("crawl_budget") or 40),
+                    route_depth=int(values.get("route_depth") or 3),
+                    path_limit=int(values.get("path_limit") or 80),
                     created_by_task_run_id=str(values.get("created_by_task_run_id") or ""),
                     created_by_agent_id=str(values.get("created_by_agent_id") or ""),
-                    traversal_session_id=str(values.get("traversal_session_id") or ""),
+                    navigation_session_id=str(values.get("navigation_session_id") or ""),
                     include_local_slice=bool(values.get("include_local_slice") is not False),
                 )
-            elif action == "read_frontier":
-                projection = service.read_frontier(
-                    traversal_session_id=str(values.get("traversal_session_id") or ""),
-                    status=str(values.get("frontier_status") or "queued"),
+            elif action == "read_paths":
+                projection = service.read_paths(
+                    navigation_session_id=str(values.get("navigation_session_id") or ""),
+                    status=str(values.get("path_status") or "available"),
                     limit=int(values.get("limit") or 50),
                     include_local_slice=bool(values.get("include_local_slice") is not False),
                 )
-            elif action == "continue_traversal":
-                projection = service.continue_traversal(
-                    traversal_session_id=str(values.get("traversal_session_id") or ""),
-                    selected_frontier_item_id=str(values.get("selected_frontier_item_id") or ""),
+            elif action == "select_path":
+                projection = service.select_path(
+                    navigation_session_id=str(values.get("navigation_session_id") or ""),
+                    selected_path_candidate_id=str(values.get("selected_path_candidate_id") or ""),
                     node_id=str(values.get("node_id") or ""),
                     edge_id=str(values.get("edge_id") or ""),
                     reason=str(values.get("reason") or ""),
                     evidence_refs=list(values.get("evidence_refs") or []),
-                    enqueue_neighbors=bool(values.get("enqueue_neighbors") is not False),
+                    refresh_paths=bool(values.get("refresh_paths") is not False),
                     created_by_task_run_id=str(values.get("created_by_task_run_id") or ""),
                     created_by_agent_id=str(values.get("created_by_agent_id") or ""),
                     include_local_slice=bool(values.get("include_local_slice") is not False),
                 )
             elif action == "record_decision":
                 projection = service.record_decision(
-                    traversal_session_id=str(values.get("traversal_session_id") or ""),
+                    navigation_session_id=str(values.get("navigation_session_id") or ""),
                     decision_kind=str(values.get("decision_kind") or ""),
-                    selected_frontier_item_id=str(values.get("selected_frontier_item_id") or ""),
+                    selected_path_candidate_id=str(values.get("selected_path_candidate_id") or ""),
                     selected_node_id=str(values.get("node_id") or ""),
                     selected_edge_id=str(values.get("edge_id") or ""),
                     reason=str(values.get("reason") or ""),
@@ -266,22 +268,22 @@ def _payload_for_action(action: str, values: dict[str, Any]) -> dict[str, Any]:
 
 
 def _format_control_projection(payload: dict[str, Any]) -> str:
-    session = dict(payload.get("traversal_session") or {})
-    frontier = list(payload.get("frontier_items") or [])
-    visited = list(payload.get("visited_refs") or [])
+    session = dict(payload.get("navigation_session") or {})
+    paths = list(payload.get("path_candidates") or [])
+    opened = list(payload.get("opened_refs") or [])
     decisions = list(payload.get("recent_decisions") or [])
     lines = [
-        f"Project network traversal: {session.get('traversal_session_id')}",
-        f"build_id={session.get('build_id')}, generation={session.get('generation')}, status={session.get('status')}, budget={session.get('crawl_budget')}",
+        f"Project network navigation: {session.get('navigation_session_id')}",
+        f"build_id={session.get('build_id')}, generation={session.get('generation')}, status={session.get('status')}, route_depth={session.get('route_depth')}, path_limit={session.get('path_limit')}",
         f"goal={session.get('goal') or '<none>'}",
-        f"current_nodes={len(session.get('current_node_ids') or [])}, frontier={len(frontier)}, visited={len(visited)}, decisions={len(decisions)}",
+        f"focus_nodes={len(session.get('focus_node_ids') or [])}, paths={len(paths)}, opened_refs={len(opened)}, decisions={len(decisions)}",
     ]
-    for item in frontier[:12]:
+    for item in paths[:12]:
         lines.append(
-            "- frontier "
-            f"{item.get('priority')} {item.get('relation_kind')} -> "
-            f"{item.get('stable_ref') or item.get('target_node_id')} "
-            f"[{item.get('frontier_item_id')}]"
+            "- path "
+            f"{item.get('score')} {item.get('path_kind')} -> "
+            f"{item.get('path_label') or item.get('target_node_id')} "
+            f"[{item.get('path_candidate_id')}]"
         )
     return "\n".join(lines)
 

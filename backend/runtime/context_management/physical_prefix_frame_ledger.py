@@ -699,7 +699,160 @@ def _latest_confirmed_frame_from_ledger(
             str(item.get("frame_id") or ""),
         )
     )
-    return dict(frames[-1])
+    return _latest_frame_with_cumulative_confirmed_old_context(dict(frames[-1]), frames=frames)
+
+
+def _latest_frame_with_cumulative_confirmed_old_context(
+    latest_frame: dict[str, Any],
+    *,
+    frames: list[dict[str, Any]],
+) -> dict[str, Any]:
+    latest = dict(latest_frame or {})
+    lineage = _physical_frame_lineage(frames, latest)
+    if not lineage:
+        return latest
+    cumulative_segments = _cumulative_provider_visible_segments(lineage)
+    if not cumulative_segments:
+        return latest
+    stored_segments = _provider_visible_frame_segment_dicts(latest)
+    stored_keys = _provider_visible_segment_identity_sequence(stored_segments)
+    cumulative_keys = _provider_visible_segment_identity_sequence(cumulative_segments)
+    fragmented_repair = stored_keys != cumulative_keys
+    diagnostics = dict(latest.get("diagnostics") or {})
+    diagnostics["physical_prefix_frame_lineage_recovery"] = {
+        "status": "recovered" if fragmented_repair else "already_cumulative",
+        "lineage_frame_ids": [
+            str(frame.get("frame_id") or "")
+            for frame in lineage
+            if str(frame.get("frame_id") or "")
+        ],
+        "lineage_frame_count": len(lineage),
+        "stored_provider_visible_entry_count": len(stored_segments),
+        "cumulative_provider_visible_entry_count": len(cumulative_segments),
+        "fragmented_frame_repair": fragmented_repair,
+        "closure_rule": "confirmed_old_context_equals_previous_confirmed_old_context_plus_current_append",
+        "authority": PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY,
+    }
+    if not fragmented_repair:
+        latest["diagnostics"] = diagnostics
+        return latest
+    recovered_segments = _renumber_frame_segments(cumulative_segments)
+    latest["segments"] = recovered_segments
+    latest["segment_count"] = len(recovered_segments)
+    latest["message_segment_count"] = len(
+        [
+            segment
+            for segment in recovered_segments
+            if str(segment.get("transport_location") or "") == "messages"
+        ]
+    )
+    latest["tool_segment_count"] = len(
+        [
+            segment
+            for segment in recovered_segments
+            if str(segment.get("transport_location") or "") == "tools"
+        ]
+    )
+    latest["diagnostics"] = diagnostics
+    return latest
+
+
+def _physical_frame_lineage(frames: list[dict[str, Any]], latest_frame: dict[str, Any]) -> list[dict[str, Any]]:
+    latest_id = str(dict(latest_frame or {}).get("frame_id") or "").strip()
+    if not latest_id:
+        return []
+    by_id = {
+        str(frame.get("frame_id") or "").strip(): dict(frame)
+        for frame in list(frames or [])
+        if isinstance(frame, dict) and str(frame.get("frame_id") or "").strip()
+    }
+    if latest_id not in by_id:
+        by_id[latest_id] = dict(latest_frame or {})
+    lineage_reversed: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    current_id = latest_id
+    while current_id and current_id in by_id and current_id not in seen:
+        current = dict(by_id.get(current_id) or {})
+        lineage_reversed.append(current)
+        seen.add(current_id)
+        current_id = str(current.get("previous_frame_id") or "").strip()
+    return list(reversed(lineage_reversed))
+
+
+def _cumulative_provider_visible_segments(lineage: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for frame in list(lineage or []):
+        for segment in _provider_visible_frame_segment_dicts(frame):
+            key = _provider_visible_segment_dedupe_key(segment)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(dict(segment))
+    return result
+
+
+def _provider_visible_frame_segment_dicts(frame: dict[str, Any]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for segment in list(dict(frame or {}).get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        if not _segment_dict_is_provider_visible_context_message(segment):
+            continue
+        result.append(dict(segment))
+    return sorted(result, key=_provider_visible_segment_sort_key)
+
+
+def _segment_dict_is_provider_visible_context_message(segment: dict[str, Any]) -> bool:
+    metadata = dict(segment.get("metadata") or {})
+    return (
+        str(segment.get("transport_location") or "") == "messages"
+        and str(segment.get("physical_prefix_lane") or metadata.get("physical_prefix_lane") or "")
+        == PROVIDER_VISIBLE_CONTEXT_PREFIX
+    )
+
+
+def _provider_visible_segment_sort_key(segment: dict[str, Any]) -> tuple[int, int, str]:
+    entry_index = _segment_provider_visible_entry_index(segment)
+    ordinal = _safe_int(segment.get("ordinal"))
+    return (
+        0 if entry_index > 0 else 1,
+        entry_index if entry_index > 0 else ordinal,
+        str(segment.get("segment_id") or ""),
+    )
+
+
+def _provider_visible_segment_dedupe_key(segment: dict[str, Any]) -> str:
+    entry_index = _segment_provider_visible_entry_index(segment)
+    if entry_index > 0:
+        return f"entry:{entry_index}"
+    segment_id = str(segment.get("segment_id") or "").strip()
+    if segment_id:
+        return f"segment:{segment_id}"
+    provider_hash = str(segment.get("provider_visible_hash") or "").strip()
+    if provider_hash:
+        return f"provider_hash:{provider_hash}"
+    return stable_json_hash(dict(segment or {}))
+
+
+def _provider_visible_segment_identity_sequence(segments: list[dict[str, Any]]) -> list[tuple[int, str, str]]:
+    return [
+        (
+            _segment_provider_visible_entry_index(segment),
+            str(segment.get("provider_visible_hash") or ""),
+            str(segment.get("segment_id") or ""),
+        )
+        for segment in list(segments or [])
+    ]
+
+
+def _renumber_frame_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for ordinal, segment in enumerate(list(segments or []), start=1):
+        item = dict(segment)
+        item["ordinal"] = ordinal
+        result.append(item)
+    return result
 
 
 def _matches_or_empty(previous: Any, current: Any) -> bool:
@@ -805,7 +958,7 @@ def _previous_confirmed_old_context_segments(
     if str(frame.status or "") != PHYSICAL_PREFIX_FRAME_CONFIRMED_STATUS:
         return []
     result: list[PhysicalPrefixFrameSegment] = []
-    for segment in sorted(tuple(frame.segments or ()), key=lambda item: int(item.ordinal or 0)):
+    for segment in sorted(tuple(frame.segments or ()), key=_physical_frame_segment_replay_sort_key):
         if str(segment.transport_location or "") != "messages":
             continue
         if str(segment.physical_prefix_lane or "") != PROVIDER_VISIBLE_CONTEXT_PREFIX:
@@ -816,6 +969,16 @@ def _previous_confirmed_old_context_segments(
         # never rebuild old context from the current request manifest.
         result.append(PhysicalPrefixFrameSegment.from_dict(segment.to_dict()))
     return result
+
+
+def _physical_frame_segment_replay_sort_key(segment: PhysicalPrefixFrameSegment) -> tuple[int, int, str]:
+    entry_index = _safe_int(segment.provider_visible_entry_index)
+    ordinal = _safe_int(segment.ordinal)
+    return (
+        0 if entry_index > 0 else 1,
+        entry_index if entry_index > 0 else ordinal,
+        str(segment.segment_id or ""),
+    )
 
 
 def _next_frame_segment_ordinal(segments: list[PhysicalPrefixFrameSegment]) -> int:

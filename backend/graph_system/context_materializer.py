@@ -52,6 +52,11 @@ class GraphContextMaterializer:
             dispatch_seq=dispatch_seq,
             graph_clock_seq=graph_clock_seq,
         )
+        visible_inbound_context = [
+            dict(item)
+            for item in list(input_package.get("inbound_context") or inbound_context or [])
+            if isinstance(item, dict)
+        ]
         work_order_id = f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{graph_clock_seq}:{int(time.time() * 1000)}"
         graph_slot = self.build_graph_slot(
             graph_config=graph_config,
@@ -59,7 +64,7 @@ class GraphContextMaterializer:
             node=node,
             work_order_id=work_order_id,
             input_package=input_package,
-            inbound_context=inbound_context,
+            inbound_context=visible_inbound_context,
         )
         environment_refs = _environment_refs(graph_config)
         structure_hash = state.structure_hash or graph_config.expected_structural_hash()
@@ -158,7 +163,7 @@ class GraphContextMaterializer:
                 "round_index": _dispatch_round_index(input_package=input_package, dispatch_seq=dispatch_seq),
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
                 "executor": executor,
-                "inbound_context_count": len(inbound_context),
+                "inbound_context_count": len(visible_inbound_context),
                 "materializer": self.authority,
             },
         )
@@ -295,6 +300,14 @@ class GraphContextMaterializer:
         initial_inputs.update(_revision_request_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
         initial_inputs.update(_quality_revision_inputs(node=node, inbound_context=inbound_context, initial_inputs=initial_inputs))
         initial_inputs.update(_current_chapter_outline_inputs(initial_inputs=initial_inputs, inbound_context=inbound_context))
+        initial_inputs.update(_project_network_file_review_inputs(node=node, services=self._services))
+        initial_inputs.update(_project_network_directory_aggregate_inputs(node=node, services=self._services))
+        inbound_context = _with_project_network_directory_aggregate_context(
+            graph_config=graph_config,
+            node=node,
+            inbound_context=inbound_context,
+            initial_inputs=initial_inputs,
+        )
         inbound_context = _sanitize_revision_context_for_current_chapter(
             node_id=node_id,
             initial_inputs=initial_inputs,
@@ -1182,6 +1195,10 @@ def _execution_runtime_scope(value: Any) -> dict[str, Any]:
         "scope_id",
         "graph_binding_mode",
         "memory_namespace_id",
+        "project_network_build_id",
+        "directory_frame_id",
+        "directory_root_frame_id",
+        "directory_parent_frame_id",
     }
     return _drop_empty({key: scope.get(key) for key in allowed})
 
@@ -1412,6 +1429,7 @@ def _execution_loop_context(value: Any) -> dict[str, Any]:
             "cursor_key": str(loop_context.get("cursor_key") or ""),
             "cursor_value": loop_context.get("cursor_value"),
             "active_frame": _execution_loop_frame(loop_context.get("active_frame")),
+            "current_frame": _execution_loop_frame(loop_context.get("current_frame")),
             "result_history_counts": dict(loop_context.get("result_history_counts") or {}),
             "contract_inputs": _loop_contract_inputs(loop_context.get("contract_inputs")),
         }
@@ -1424,8 +1442,12 @@ def _execution_loop_frame(value: Any) -> dict[str, Any]:
         {
             "frame_id": str(frame.get("frame_id") or ""),
             "scope_id": str(frame.get("scope_id") or ""),
+            "parent_scope_id": str(frame.get("parent_scope_id") or ""),
             "status": str(frame.get("status") or ""),
             "kind": str(frame.get("kind") or ""),
+            "algorithm_kind": str(frame.get("algorithm_kind") or frame.get("kind") or ""),
+            "unit_kind": str(frame.get("unit_kind") or ""),
+            "entry_node_id": str(frame.get("entry_node_id") or ""),
             "router_node_id": str(frame.get("router_node_id") or ""),
             "exit_node_id": str(frame.get("exit_node_id") or ""),
             "cursor_key": str(frame.get("cursor_key") or ""),
@@ -1442,7 +1464,31 @@ def _execution_loop_frame(value: Any) -> dict[str, Any]:
             "end": frame.get("end"),
             "active_iteration_id": str(frame.get("active_iteration_id") or ""),
             "initial_inputs": _loop_contract_inputs(frame.get("initial_inputs")),
+            "tree_reduce": _execution_tree_reduce(frame.get("tree_reduce")),
+            "aggregate_policy": dict(frame.get("aggregate_policy") or {}),
             "authority": str(frame.get("authority") or ""),
+        }
+    )
+
+
+def _execution_tree_reduce(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    if not payload:
+        return {}
+    return _drop_empty(
+        {
+            "physical_authority": str(payload.get("physical_authority") or ""),
+            "semantic_authority": str(payload.get("semantic_authority") or ""),
+            "frame_status": str(payload.get("frame_status") or ""),
+            "depth": payload.get("depth"),
+            "folder_node_id": str(payload.get("folder_node_id") or ""),
+            "folder_stable_ref": str(payload.get("folder_stable_ref") or ""),
+            "manifest_ref": str(payload.get("manifest_ref") or ""),
+            "direct_file_count": payload.get("direct_file_count"),
+            "child_folder_count": payload.get("child_folder_count"),
+            "child_return_count": payload.get("child_return_count"),
+            "aggregate_policy": str(payload.get("aggregate_policy") or ""),
+            "authority": "graph_system.execution_tree_reduce_projection",
         }
     )
 
@@ -1474,6 +1520,8 @@ def _execution_initial_inputs(value: Any, *, include_project_brief: bool = False
         "group_target_measure",
         "last_batch_words",
         "metric_label",
+        "project_network_file_review",
+        "project_network_directory_aggregate",
         "project_title",
         "quality_gate_feedback",
         "revision_queue_chapter_indexes",
@@ -1505,6 +1553,360 @@ def _execution_initial_inputs(value: Any, *, include_project_brief: bool = False
     return _drop_empty(result)
 
 
+def _project_network_file_review_inputs(*, node: dict[str, Any], services: Any | None) -> dict[str, Any]:
+    metadata = dict(node.get("metadata") or {})
+    shard = dict(metadata.get("semantic_shard") or {})
+    assigned_scope = dict(shard.get("assigned_scope") or metadata.get("assigned_scope") or {})
+    is_single_file_review = bool(metadata.get("low_config_single_file_review")) or str(assigned_scope.get("scope_kind") or "") == "single_file_module"
+    if not is_single_file_review:
+        return {}
+    file_path = str(assigned_scope.get("file_path") or "").strip()
+    if not file_path:
+        return {}
+    text, truncated, read_error = _read_project_network_file_text(file_path, services=services, max_chars=60000)
+    payload = _drop_empty(
+        {
+            "scope_kind": "single_file_module",
+            "file_node_id": str(assigned_scope.get("file_node_id") or ""),
+            "file_stable_ref": str(assigned_scope.get("file_stable_ref") or ""),
+            "file_path": file_path,
+            "file_hash": str(assigned_scope.get("file_hash") or ""),
+            "folder_stable_ref": str(assigned_scope.get("folder_stable_ref") or ""),
+            "directory_frame_id": str(assigned_scope.get("directory_frame_id") or metadata.get("directory_frame_id") or ""),
+            "manifest_ref": str(assigned_scope.get("manifest_ref") or metadata.get("directory_manifest_ref") or ""),
+            "required_anchor_refs": list(shard.get("required_anchor_refs") or metadata.get("required_anchor_refs") or []),
+            "current_file_text": text,
+            "current_file_text_truncated": truncated,
+            "read_error": read_error,
+            "input_policy": "system_supplied_single_file_packet_no_agent_file_tools",
+            "authority": "graph_system.context_materializer.project_network_file_review_input",
+        }
+    )
+    return {"project_network_file_review": payload} if payload else {}
+
+
+def _project_network_directory_aggregate_inputs(*, node: dict[str, Any], services: Any | None) -> dict[str, Any]:
+    metadata = dict(node.get("metadata") or {})
+    node_contracts = dict(node.get("contracts") or {})
+    bindings = dict(node.get("contract_bindings") or node_contracts.get("contract_bindings") or {})
+    semantic = dict(bindings.get("semantic") or {})
+    runtime_policy = dict(node.get("runtime_policy") or {})
+    context_policy = dict(runtime_policy.get("context_policy") or {})
+    project_network_policy = dict(context_policy.get("project_network") or {})
+    directory_policy = dict(project_network_policy.get("directory_tree_reduce") or {})
+    is_directory_aggregate = (
+        str(semantic.get("work_unit_kind") or metadata.get("work_unit_kind") or "") == "directory_aggregate"
+        or str(semantic.get("aggregation_policy") or "") == "tree_reduce_typed_work_products"
+        or bool(directory_policy.get("enabled") is True)
+    )
+    if not is_directory_aggregate:
+        return {}
+
+    overrides = dict(node.get("node_config_overrides") or {})
+    frame = dict(overrides.get("directory_frame") or {})
+    manifest = dict(overrides.get("directory_manifest") or {})
+    child_returns = [dict(item) for item in list(overrides.get("child_returns") or []) if isinstance(item, dict)]
+    build_id = str(frame.get("build_id") or metadata.get("project_network_build_id") or "")
+    frame_id = str(frame.get("frame_id") or metadata.get("directory_frame_id") or semantic.get("directory_frame_id") or "")
+    repository = _project_network_repository(services)
+    repository_child_returns = _project_network_current_child_returns(
+        build_id=build_id,
+        frame_id=frame_id,
+        repository=repository,
+    )
+    if repository_child_returns:
+        child_returns = repository_child_returns
+    child_summary_refs = [str(item.get("child_summary_product_ref") or "") for item in child_returns]
+    if not child_summary_refs:
+        child_summary_refs = list(metadata.get("child_summary_product_refs") or [])
+    source_refs = _dedupe_strings(
+        [
+            *list(overrides.get("source_work_product_refs") or []),
+            *list(metadata.get("source_work_product_refs") or []),
+            *child_summary_refs,
+        ]
+    )
+    work_products = _project_network_work_product_cards(source_refs, services=services)
+    if not frame and not manifest and not child_returns and not work_products:
+        return {}
+
+    payload = _drop_empty(
+        {
+            "scope_kind": "directory_tree_reduce_aggregate",
+            "build_id": build_id,
+            "directory_frame_id": frame_id,
+            "root_frame_id": str(frame.get("root_frame_id") or metadata.get("directory_root_frame_id") or ""),
+            "parent_frame_id": str(frame.get("parent_frame_id") or metadata.get("directory_parent_frame_id") or ""),
+            "folder_stable_ref": str(frame.get("folder_stable_ref") or metadata.get("folder_stable_ref") or ""),
+            "folder_path": str(frame.get("folder_path") or metadata.get("folder_path") or ""),
+            "manifest_ref": str(manifest.get("manifest_id") or metadata.get("directory_manifest_ref") or ""),
+            "direct_file_refs": _dedupe_strings(list(manifest.get("direct_file_refs") or metadata.get("direct_file_refs") or [])),
+            "child_folder_refs": _dedupe_strings(list(manifest.get("child_folder_refs") or [])),
+            "child_returns": [_child_return_card(item) for item in child_returns],
+            "child_return_count": len(child_returns),
+            "source_work_product_refs": source_refs,
+            "typed_work_products": work_products,
+            "typed_work_product_count": len(work_products),
+            "input_policy": "system_supplied_directory_tree_reduce_packet_no_agent_tools",
+            "authority": "graph_system.context_materializer.project_network_directory_aggregate_input",
+        }
+    )
+    return {"project_network_directory_aggregate": payload} if payload else {}
+
+
+def _project_network_work_product_cards(refs: list[str], *, services: Any | None) -> list[dict[str, Any]]:
+    repository = _project_network_repository(services)
+    if repository is None:
+        return []
+    cards: list[dict[str, Any]] = []
+    for ref in refs[:64]:
+        try:
+            product = repository.get_work_product(ref)
+        except Exception:
+            product = None
+        if product is None:
+            continue
+        payload = dict(getattr(product, "payload", {}) or {})
+        network_index = dict(payload.get("semantic_network_index") or {})
+        cards.append(
+            _drop_empty(
+                {
+                    "work_product_id": str(getattr(product, "work_product_id", "") or ref),
+                    "product_kind": str(getattr(product, "product_kind", "") or ""),
+                    "contract_id": str(getattr(product, "contract_id", "") or ""),
+                    "graph_run_id": str(getattr(product, "graph_run_id", "") or ""),
+                    "node_id": str(getattr(product, "node_id", "") or ""),
+                    "layer_id": str(getattr(product, "layer_id", "") or ""),
+                    "stable_ref": str(getattr(product, "stable_ref", "") or payload.get("folder_stable_ref") or ""),
+                    "status": str(getattr(product, "status", "") or ""),
+                    "semantic_label": _truncate_value(dict(payload.get("semantic_label") or {}), max_chars=1600)
+                    if isinstance(payload.get("semantic_label"), dict)
+                    else str(payload.get("semantic_label") or "")[:1600],
+                    "summary": str(payload.get("directory_summary") or payload.get("module_summary") or payload.get("summary") or "")[:2400],
+                    "parent_return_payload": _truncate_value(dict(payload.get("parent_return_payload") or {}), max_chars=2400)
+                    if isinstance(payload.get("parent_return_payload"), dict)
+                    else {},
+                    "coverage": _truncate_value(dict(getattr(product, "coverage", {}) or payload.get("coverage") or {}), max_chars=1600)
+                    if isinstance(getattr(product, "coverage", {}) or payload.get("coverage"), dict)
+                    else str(payload.get("coverage") or "")[:1600],
+                    "source_work_product_refs": _dedupe_strings(
+                        list(payload.get("source_work_product_refs") or [])
+                        + list(network_index.get("source_work_product_refs") or [])
+                    ),
+                    "direct_module_refs": _dedupe_strings(list(payload.get("direct_module_refs") or [])),
+                    "child_summary_refs": _dedupe_strings(list(payload.get("child_summary_refs") or [])),
+                    "directory_nodes": _bounded_network_nodes(network_index.get("directory_nodes") or payload.get("directory_nodes")),
+                    "module_nodes": _bounded_network_nodes(network_index.get("module_nodes") or payload.get("module_nodes")),
+                    "semantic_edges": _bounded_network_edges(network_index.get("edges") or payload.get("semantic_edges")),
+                    "external_stubs": _bounded_dicts(network_index.get("external_stubs") or payload.get("external_stubs"), limit=16),
+                    "accepted_relation_candidates": _bounded_dicts(payload.get("accepted_relation_candidates"), limit=24),
+                    "conflicts": _bounded_dicts(payload.get("conflicts"), limit=16),
+                    "uncovered_refs": _dedupe_strings(list(payload.get("uncovered_refs") or []))[:32],
+                    "evidence_refs": list(getattr(product, "evidence_refs", ()) or [])[:32],
+                    "anchor_refs": list(getattr(product, "anchor_refs", ()) or [])[:32],
+                    "confidence": str(getattr(product, "confidence", "") or ""),
+                    "authority": "graph_system.context_materializer.project_network_work_product_card",
+                }
+            )
+        )
+    return cards
+
+
+def _project_network_repository(services: Any | None) -> Any | None:
+    backend_dir = Path(getattr(services, "backend_dir", "") or Path.cwd()).resolve()
+    try:
+        from task_system.project_network.repository import ProjectNetworkRepository
+
+        return ProjectNetworkRepository(backend_dir)
+    except Exception:
+        return None
+
+
+def _project_network_current_child_returns(*, build_id: str, frame_id: str, repository: Any | None) -> list[dict[str, Any]]:
+    if repository is None or not build_id or not frame_id:
+        return []
+    try:
+        frame = repository.get_directory_frame(frame_id)
+        returns = list(repository.list_directory_child_returns(build_id=build_id, parent_frame_id=frame_id))
+    except Exception:
+        return []
+    if not returns:
+        return []
+    by_child_frame: dict[str, list[Any]] = {}
+    for item in returns:
+        if str(getattr(item, "status", "") or "") in {"rejected", "blocked", "failed"}:
+            continue
+        child_frame_id = str(getattr(item, "child_frame_id", "") or "")
+        if child_frame_id:
+            by_child_frame.setdefault(child_frame_id, []).append(item)
+    selected: list[Any] = []
+    expected_child_ids = list(getattr(frame, "child_frame_ids", ()) or []) if frame is not None else list(by_child_frame)
+    for child_frame_id in expected_child_ids:
+        candidates = by_child_frame.get(str(child_frame_id)) or []
+        if not candidates:
+            continue
+        try:
+            child_frame = repository.get_directory_frame(str(child_frame_id))
+        except Exception:
+            child_frame = None
+        current_product_ref = str(getattr(child_frame, "aggregate_work_product_ref", "") or "")
+        current = [item for item in candidates if str(getattr(item, "child_summary_product_ref", "") or "") == current_product_ref]
+        selected.append(current[0] if current else candidates[0])
+    selected_ids = {str(getattr(item, "return_id", "") or "") for item in selected}
+    for child_frame_id, candidates in by_child_frame.items():
+        if str(child_frame_id) in {str(item) for item in expected_child_ids}:
+            continue
+        for candidate in candidates:
+            return_id = str(getattr(candidate, "return_id", "") or "")
+            if return_id in selected_ids:
+                continue
+            selected.append(candidate)
+            selected_ids.add(return_id)
+            break
+    return [item.to_dict() if hasattr(item, "to_dict") else dict(item) for item in selected]
+
+
+def _with_project_network_directory_aggregate_context(
+    *,
+    graph_config: ExecutableGraphConfig,
+    node: dict[str, Any],
+    inbound_context: list[dict[str, Any]],
+    initial_inputs: dict[str, Any],
+) -> list[dict[str, Any]]:
+    aggregate = dict(initial_inputs.get("project_network_directory_aggregate") or {})
+    if not aggregate:
+        return inbound_context
+    node_id = str(node.get("node_id") or "")
+    context = {
+        "context_id": f"project_network_directory_aggregate::{safe_id(node_id)}",
+        "packet_type": "project_network.directory_tree_reduce_input",
+        "source_node_id": "__project_network_store__",
+        "target_node_id": node_id,
+        "edge_id": f"project_network_store::{node_id}",
+        "payload_contract_id": "project_network.directory_aggregate.inputs.v1",
+        "packet_contract_id": "project_network.directory_aggregate.inputs.v1",
+        "target_context_key": "project_network_directory_aggregate",
+        "target_input_slot": "project_network_directory_aggregate",
+        "delivery_policy": "contract_payload",
+        "payload": {
+            "initial_inputs": {"project_network_directory_aggregate": aggregate},
+            "graph_id": graph_config.graph_id,
+            "authority": "graph_system.project_network_directory_aggregate_context",
+        },
+        "artifact_refs": [],
+        "memory_refs": [],
+        "result_refs": [],
+        "visibility": {
+            "model_visible": True,
+            "source": "system_supplied_typed_work_products",
+            "authority": "graph_system.project_network_directory_aggregate_context_visibility",
+        },
+        "authority": "graph_system.project_network_directory_aggregate_context",
+    }
+    return [*inbound_context, context]
+
+
+def _child_return_card(item: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "return_id": str(item.get("return_id") or ""),
+            "child_frame_id": str(item.get("child_frame_id") or ""),
+            "child_folder_ref": str(item.get("child_folder_ref") or ""),
+            "child_summary_product_ref": str(item.get("child_summary_product_ref") or ""),
+            "status": str(item.get("status") or ""),
+            "coverage": dict(item.get("coverage") or {}) if isinstance(item.get("coverage"), dict) else {},
+            "blockers": [str(value) for value in list(item.get("blockers") or []) if str(value)],
+            "authority": "graph_system.context_materializer.project_network_child_return_card",
+        }
+    )
+
+
+def _bounded_network_nodes(value: Any) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for item in list(value or [])[:48]:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("semantic_label")
+        cards.append(
+            _drop_empty(
+                {
+                    "stable_ref": str(item.get("stable_ref") or ""),
+                    "node_kind": str(item.get("node_kind") or ""),
+                    "name": str(item.get("name") or ""),
+                    "semantic_label": _truncate_value(dict(label or {}), max_chars=1200)
+                    if isinstance(label, dict)
+                    else str(label or "")[:1200],
+                    "evidence_refs": [str(ref) for ref in list(item.get("evidence_refs") or [])[:16] if str(ref)],
+                    "anchor_refs": [str(ref) for ref in list(item.get("anchor_refs") or [])[:16] if str(ref)],
+                    "confidence": str(item.get("confidence") or ""),
+                }
+            )
+        )
+    return cards
+
+
+def _bounded_network_edges(value: Any) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for item in list(value or [])[:64]:
+        if not isinstance(item, dict):
+            continue
+        cards.append(
+            _drop_empty(
+                {
+                    "source_ref": str(item.get("source_ref") or ""),
+                    "target_ref": str(item.get("target_ref") or ""),
+                    "edge_kind": str(item.get("edge_kind") or ""),
+                    "direction": str(item.get("direction") or ""),
+                    "status": str(item.get("status") or ""),
+                    "evidence_refs": [str(ref) for ref in list(item.get("evidence_refs") or [])[:16] if str(ref)],
+                    "anchor_refs": [str(ref) for ref in list(item.get("anchor_refs") or [])[:16] if str(ref)],
+                    "confidence": str(item.get("confidence") or ""),
+                    "limitations": [str(ref) for ref in list(item.get("limitations") or [])[:8] if str(ref)]
+                    if isinstance(item.get("limitations"), list)
+                    else str(item.get("limitations") or "")[:800],
+                }
+            )
+        )
+    return cards
+
+
+def _dedupe_strings(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _read_project_network_file_text(path: str, *, services: Any | None, max_chars: int) -> tuple[str, bool, str]:
+    workspace_root = _project_workspace_root_from_services(services)
+    raw = Path(str(path or "").replace("\\", "/"))
+    candidates = [raw] if raw.is_absolute() else [workspace_root / raw]
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(workspace_root.resolve())
+        except (OSError, ValueError):
+            continue
+        try:
+            if not resolved.exists() or not resolved.is_file():
+                continue
+            text = resolved.read_text(encoding="utf-8", errors="replace")
+            return text[:max_chars], len(text) > max_chars, ""
+        except OSError as exc:
+            return "", False, f"file_read_failed:{type(exc).__name__}"
+    return "", False, "file_not_found_or_outside_workspace"
+
+
+def _project_workspace_root_from_services(services: Any | None) -> Path:
+    backend_dir = Path(getattr(services, "backend_dir", "") or Path.cwd()).resolve()
+    return backend_dir.parent if backend_dir.name == "backend" else backend_dir
+
+
 def _loop_contract_inputs(value: Any) -> dict[str, Any]:
     payload = dict(value or {})
     allowed_keys = {
@@ -1529,6 +1931,13 @@ def _loop_contract_inputs(value: Any) -> dict[str, Any]:
         "revision_execution_range",
         "active_chapter_range",
         "round_index",
+        "project_network_build_id",
+        "directory_frame_id",
+        "directory_root_frame_id",
+        "directory_parent_frame_id",
+        "directory_manifest_ref",
+        "folder_stable_ref",
+        "folder_path",
     }
     return {key: payload.get(key) for key in allowed_keys if payload.get(key) not in ("", None, [], {})}
 

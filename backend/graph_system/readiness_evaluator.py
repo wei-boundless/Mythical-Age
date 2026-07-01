@@ -22,7 +22,6 @@ class GraphReadinessEvaluator:
         scheduler_view = build_scheduler_view(graph_config)
         executable_ids = set(scheduler_view.executable_node_ids)
         start_ids = set(scheduler_view.start_node_ids)
-        gated_exit_ids = _active_loop_exit_node_ids(graph_config=graph_config, loop_state=loop_state)
         closed_scope_ids = _closed_loop_scope_node_ids(graph_config=graph_config, loop_state=loop_state)
         inbound_by_target = _inbound_scheduler_edges_by_target(tuple(scheduler_view.dependency_edges))
 
@@ -37,8 +36,8 @@ class GraphReadinessEvaluator:
             node_id = str(node.get("node_id") or "")
             if not node_id or node_id not in executable_ids or not is_executable_node(node):
                 continue
-            if node_id in gated_exit_ids or node_id in closed_scope_ids:
-                reasons[node_id] = {"status": "loop_scope_closed_or_gated", "authority": self.authority}
+            if node_id in closed_scope_ids:
+                reasons[node_id] = {"status": "loop_scope_closed", "authority": self.authority}
                 continue
 
             node_status = str(dict(node_states.get(node_id) or {}).get("status") or "")
@@ -163,8 +162,25 @@ def _edge_readiness_decision(
         if failed_count and not pending_count:
             return {**base, "decision": "blocked", "reason": "all_available_incoming_edges_failed"}
         return {**base, "decision": "waiting", "reason": "waiting_any_incoming_edge_ready"}
-    if join_policy == "allow_partial_with_issues" and ready_count >= 1:
-        return {**base, "decision": "ready", "reason": "partial_ready_with_issues"}
+    if join_policy == "allow_partial_with_issues":
+        if pending_count or waiting_count:
+            return {
+                **base,
+                "decision": "waiting",
+                "reason": "waiting_all_incoming_edges_terminal_for_partial_join",
+                "pending_count": pending_count,
+                "waiting_count": waiting_count,
+            }
+        if ready_count >= 1:
+            return {
+                **base,
+                "decision": "ready",
+                "reason": "partial_ready_with_issues" if failed_count else "all_available_incoming_edges_ready",
+                "failed_count": failed_count,
+            }
+        if failed_count:
+            return {**base, "decision": "blocked", "reason": "no_successful_incoming_edges_for_partial_join"}
+        return {**base, "decision": "waiting", "reason": "waiting_partial_join_inputs"}
     if wait_policy == "manual_release":
         if ready_count == len(active_statuses):
             return {**base, "decision": "ready", "reason": "manual_release_ready"}
@@ -206,23 +222,6 @@ def _quorum_value(node: dict[str, Any]) -> int:
             if value > 0:
                 return value
     return 0
-
-
-def _active_loop_exit_node_ids(*, graph_config: ExecutableGraphConfig, loop_state: dict[str, Any] | None) -> set[str]:
-    frames = dict(dict(loop_state or {}).get("frames") or {})
-    if not frames:
-        return set()
-    exit_ids: set[str] = set()
-    for raw_frame in graph_config.loop_frames:
-        configured = dict(raw_frame or {})
-        frame_id = str(configured.get("frame_id") or configured.get("scope_id") or "").strip()
-        frame = dict(frames.get(frame_id) or {})
-        if str(frame.get("status") or "") != "active":
-            continue
-        exit_id = str(frame.get("exit_node_id") or configured.get("exit_node_id") or "").strip()
-        if exit_id:
-            exit_ids.add(exit_id)
-    return exit_ids
 
 
 def _closed_loop_scope_node_ids(*, graph_config: ExecutableGraphConfig, loop_state: dict[str, Any] | None) -> set[str]:

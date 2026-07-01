@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
+from capability_system.tools.tool_surface import action_kind_for_surface_tool
 from file_management import build_file_access_table, resolve_file_environment
 from permissions.operations import build_default_operation_registry
 from runtime.shared.runtime_directive import RuntimeDirective
@@ -944,6 +945,7 @@ def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: A
         "tool_call_id": str(request.tool_call_id or ""),
         "tool_name": str(request.tool_name or ""),
         "operation_id": _request_operation_id(request),
+        "action_kind": action_kind_for_surface_tool(request.tool_name, tool_args),
         "target": _tool_lifecycle_public_target(str(request.tool_name or ""), tool_args),
         "arguments_preview": _tool_lifecycle_arguments_preview(tool_args),
         "action_request_ref": str(request.action_request_ref or ""),
@@ -977,6 +979,7 @@ def _tool_lifecycle_arguments_preview(args: dict[str, Any]) -> str:
     if not args:
         return ""
     priority = (
+        "action",
         "path",
         "file",
         "file_path",

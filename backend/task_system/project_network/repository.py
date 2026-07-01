@@ -11,6 +11,12 @@ from typing import Any
 from core.project_layout import ProjectLayout
 
 from .build_contract_models import ProjectNetworkBuildContract
+from .directory_render_models import (
+    DirectoryChildReturnEnvelope,
+    DirectoryManifestProduct,
+    DirectoryRenderBudget,
+    DirectoryRenderFrame,
+)
 from .lifecycle_policy import validate_generation_status_transition
 from .store_models import (
     ProjectNetworkBuildRecord,
@@ -761,6 +767,264 @@ class ProjectNetworkRepository:
             rows = conn.execute(sql, tuple(params)).fetchall()
         return tuple(_trace_from_row(row) for row in rows)
 
+    def upsert_directory_frame(self, frame: DirectoryRenderFrame) -> DirectoryRenderFrame:
+        now = utc_now_iso()
+        with self._connect() as conn:
+            created_at = _existing_created_at(conn, "project_network_directory_frames", "frame_id", frame.frame_id) or now
+            stored = replace(frame, created_at=frame.created_at or created_at, updated_at=now)
+            conn.execute(
+                """
+                INSERT INTO project_network_directory_frames (
+                    frame_id, build_id, root_frame_id, parent_frame_id, depth,
+                    skeleton_build_id, skeleton_generation, folder_node_id,
+                    folder_stable_ref, folder_path, manifest_ref, child_frame_ids_json,
+                    direct_file_refs_json, child_return_refs_json, aggregate_work_product_ref,
+                    graph_id, graph_run_id, status, budget_json, metadata_json,
+                    created_at, updated_at, authority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(frame_id) DO UPDATE SET
+                    build_id = excluded.build_id,
+                    root_frame_id = excluded.root_frame_id,
+                    parent_frame_id = excluded.parent_frame_id,
+                    depth = excluded.depth,
+                    skeleton_build_id = excluded.skeleton_build_id,
+                    skeleton_generation = excluded.skeleton_generation,
+                    folder_node_id = excluded.folder_node_id,
+                    folder_stable_ref = excluded.folder_stable_ref,
+                    folder_path = excluded.folder_path,
+                    manifest_ref = excluded.manifest_ref,
+                    child_frame_ids_json = excluded.child_frame_ids_json,
+                    direct_file_refs_json = excluded.direct_file_refs_json,
+                    child_return_refs_json = excluded.child_return_refs_json,
+                    aggregate_work_product_ref = excluded.aggregate_work_product_ref,
+                    graph_id = excluded.graph_id,
+                    graph_run_id = excluded.graph_run_id,
+                    status = excluded.status,
+                    budget_json = excluded.budget_json,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at,
+                    authority = excluded.authority
+                """,
+                (
+                    stored.frame_id,
+                    stored.build_id,
+                    stored.root_frame_id,
+                    stored.parent_frame_id,
+                    int(stored.depth or 0),
+                    stored.skeleton_build_id,
+                    int(stored.skeleton_generation or 0),
+                    stored.folder_node_id,
+                    stored.folder_stable_ref,
+                    stored.folder_path,
+                    stored.manifest_ref,
+                    _json(list(stored.child_frame_ids)),
+                    _json(list(stored.direct_file_refs)),
+                    _json(list(stored.child_return_refs)),
+                    stored.aggregate_work_product_ref,
+                    stored.graph_id,
+                    stored.graph_run_id,
+                    stored.status,
+                    _json(stored.budget.to_dict()),
+                    _json(stored.metadata),
+                    stored.created_at,
+                    stored.updated_at,
+                    stored.authority,
+                ),
+            )
+        return stored
+
+    def get_directory_frame(self, frame_id: str) -> DirectoryRenderFrame | None:
+        target = str(frame_id or "").strip()
+        if not target:
+            return None
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM project_network_directory_frames WHERE frame_id = ?", (target,)).fetchone()
+        return _directory_frame_from_row(row) if row is not None else None
+
+    def list_directory_frames(
+        self,
+        *,
+        build_id: str = "",
+        root_frame_id: str = "",
+        parent_frame_id: str = "",
+        graph_run_id: str = "",
+        status: str = "",
+        limit: int = 2000,
+    ) -> tuple[DirectoryRenderFrame, ...]:
+        filters: list[str] = []
+        params: list[Any] = []
+        if build_id:
+            filters.append("build_id = ?")
+            params.append(build_id)
+        if root_frame_id:
+            filters.append("root_frame_id = ?")
+            params.append(root_frame_id)
+        if parent_frame_id:
+            filters.append("parent_frame_id = ?")
+            params.append(parent_frame_id)
+        if graph_run_id:
+            filters.append("graph_run_id = ?")
+            params.append(graph_run_id)
+        if status:
+            filters.append("status = ?")
+            params.append(status)
+        sql = "SELECT * FROM project_network_directory_frames"
+        if filters:
+            sql += " WHERE " + " AND ".join(filters)
+        sql += " ORDER BY depth ASC, folder_path ASC, frame_id ASC LIMIT ?"
+        params.append(_limit(limit))
+        with self._connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_directory_frame_from_row(row) for row in rows)
+
+    def upsert_directory_manifest(self, manifest: DirectoryManifestProduct) -> DirectoryManifestProduct:
+        now = utc_now_iso()
+        with self._connect() as conn:
+            created_at = _existing_created_at(conn, "project_network_directory_manifests", "manifest_id", manifest.manifest_id) or now
+            stored = replace(manifest, created_at=manifest.created_at or created_at, updated_at=now)
+            conn.execute(
+                """
+                INSERT INTO project_network_directory_manifests (
+                    manifest_id, build_id, frame_id, skeleton_build_id, skeleton_generation,
+                    folder_node_id, folder_stable_ref, folder_path, child_folder_node_ids_json,
+                    child_folder_refs_json, direct_file_node_ids_json, direct_file_refs_json,
+                    skipped_refs_json, child_folder_nodes_json, direct_file_nodes_json,
+                    content_hash, status, metadata_json, created_at, updated_at, authority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(manifest_id) DO UPDATE SET
+                    build_id = excluded.build_id,
+                    frame_id = excluded.frame_id,
+                    skeleton_build_id = excluded.skeleton_build_id,
+                    skeleton_generation = excluded.skeleton_generation,
+                    folder_node_id = excluded.folder_node_id,
+                    folder_stable_ref = excluded.folder_stable_ref,
+                    folder_path = excluded.folder_path,
+                    child_folder_node_ids_json = excluded.child_folder_node_ids_json,
+                    child_folder_refs_json = excluded.child_folder_refs_json,
+                    direct_file_node_ids_json = excluded.direct_file_node_ids_json,
+                    direct_file_refs_json = excluded.direct_file_refs_json,
+                    skipped_refs_json = excluded.skipped_refs_json,
+                    child_folder_nodes_json = excluded.child_folder_nodes_json,
+                    direct_file_nodes_json = excluded.direct_file_nodes_json,
+                    content_hash = excluded.content_hash,
+                    status = excluded.status,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at,
+                    authority = excluded.authority
+                """,
+                (
+                    stored.manifest_id,
+                    stored.build_id,
+                    stored.frame_id,
+                    stored.skeleton_build_id,
+                    int(stored.skeleton_generation or 0),
+                    stored.folder_node_id,
+                    stored.folder_stable_ref,
+                    stored.folder_path,
+                    _json(list(stored.child_folder_node_ids)),
+                    _json(list(stored.child_folder_refs)),
+                    _json(list(stored.direct_file_node_ids)),
+                    _json(list(stored.direct_file_refs)),
+                    _json(list(stored.skipped_refs)),
+                    _json([dict(item) for item in stored.child_folder_nodes]),
+                    _json([dict(item) for item in stored.direct_file_nodes]),
+                    stored.content_hash,
+                    stored.status,
+                    _json(stored.metadata),
+                    stored.created_at,
+                    stored.updated_at,
+                    stored.authority,
+                ),
+            )
+        return stored
+
+    def get_directory_manifest(self, manifest_id: str) -> DirectoryManifestProduct | None:
+        target = str(manifest_id or "").strip()
+        if not target:
+            return None
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM project_network_directory_manifests WHERE manifest_id = ?", (target,)).fetchone()
+        return _directory_manifest_from_row(row) if row is not None else None
+
+    def upsert_directory_child_return(self, envelope: DirectoryChildReturnEnvelope) -> DirectoryChildReturnEnvelope:
+        now = utc_now_iso()
+        with self._connect() as conn:
+            created_at = _existing_created_at(conn, "project_network_directory_child_returns", "return_id", envelope.return_id) or now
+            stored = replace(envelope, created_at=envelope.created_at or created_at, updated_at=now)
+            conn.execute(
+                """
+                INSERT INTO project_network_directory_child_returns (
+                    return_id, build_id, parent_frame_id, child_frame_id, child_folder_ref,
+                    child_folder_node_id, child_summary_product_ref, status, payload_ref,
+                    coverage_json, blockers_json, metadata_json, created_at, updated_at, authority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(return_id) DO UPDATE SET
+                    build_id = excluded.build_id,
+                    parent_frame_id = excluded.parent_frame_id,
+                    child_frame_id = excluded.child_frame_id,
+                    child_folder_ref = excluded.child_folder_ref,
+                    child_folder_node_id = excluded.child_folder_node_id,
+                    child_summary_product_ref = excluded.child_summary_product_ref,
+                    status = excluded.status,
+                    payload_ref = excluded.payload_ref,
+                    coverage_json = excluded.coverage_json,
+                    blockers_json = excluded.blockers_json,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at,
+                    authority = excluded.authority
+                """,
+                (
+                    stored.return_id,
+                    stored.build_id,
+                    stored.parent_frame_id,
+                    stored.child_frame_id,
+                    stored.child_folder_ref,
+                    stored.child_folder_node_id,
+                    stored.child_summary_product_ref,
+                    stored.status,
+                    stored.payload_ref,
+                    _json(stored.coverage),
+                    _json(list(stored.blockers)),
+                    _json(stored.metadata),
+                    stored.created_at,
+                    stored.updated_at,
+                    stored.authority,
+                ),
+            )
+        return stored
+
+    def list_directory_child_returns(
+        self,
+        *,
+        build_id: str = "",
+        parent_frame_id: str = "",
+        child_frame_id: str = "",
+        status: str = "",
+        limit: int = 2000,
+    ) -> tuple[DirectoryChildReturnEnvelope, ...]:
+        filters: list[str] = []
+        params: list[Any] = []
+        if build_id:
+            filters.append("build_id = ?")
+            params.append(build_id)
+        if parent_frame_id:
+            filters.append("parent_frame_id = ?")
+            params.append(parent_frame_id)
+        if child_frame_id:
+            filters.append("child_frame_id = ?")
+            params.append(child_frame_id)
+        if status:
+            filters.append("status = ?")
+            params.append(status)
+        sql = "SELECT * FROM project_network_directory_child_returns"
+        if filters:
+            sql += " WHERE " + " AND ".join(filters)
+        sql += " ORDER BY updated_at DESC, return_id ASC LIMIT ?"
+        params.append(_limit(limit))
+        with self._connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_directory_child_return_from_row(row) for row in rows)
+
     def snapshot(self, build_id: str, *, limit: int = 2000) -> ProjectNetworkStoreSnapshot:
         target = str(build_id or "").strip()
         return ProjectNetworkStoreSnapshot(
@@ -931,6 +1195,74 @@ class ProjectNetworkRepository:
                     authority TEXT NOT NULL DEFAULT 'task_system.project_network.trace_record'
                 );
 
+                CREATE TABLE IF NOT EXISTS project_network_directory_frames (
+                    frame_id TEXT PRIMARY KEY,
+                    build_id TEXT NOT NULL,
+                    root_frame_id TEXT NOT NULL DEFAULT '',
+                    parent_frame_id TEXT NOT NULL DEFAULT '',
+                    depth INTEGER NOT NULL DEFAULT 0,
+                    skeleton_build_id TEXT NOT NULL DEFAULT '',
+                    skeleton_generation INTEGER NOT NULL DEFAULT 0,
+                    folder_node_id TEXT NOT NULL DEFAULT '',
+                    folder_stable_ref TEXT NOT NULL DEFAULT '',
+                    folder_path TEXT NOT NULL DEFAULT '',
+                    manifest_ref TEXT NOT NULL DEFAULT '',
+                    child_frame_ids_json TEXT NOT NULL DEFAULT '[]',
+                    direct_file_refs_json TEXT NOT NULL DEFAULT '[]',
+                    child_return_refs_json TEXT NOT NULL DEFAULT '[]',
+                    aggregate_work_product_ref TEXT NOT NULL DEFAULT '',
+                    graph_id TEXT NOT NULL DEFAULT '',
+                    graph_run_id TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'planned',
+                    budget_json TEXT NOT NULL DEFAULT '{}',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    authority TEXT NOT NULL DEFAULT 'task_system.project_network.directory_render_frame'
+                );
+
+                CREATE TABLE IF NOT EXISTS project_network_directory_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    build_id TEXT NOT NULL,
+                    frame_id TEXT NOT NULL,
+                    skeleton_build_id TEXT NOT NULL DEFAULT '',
+                    skeleton_generation INTEGER NOT NULL DEFAULT 0,
+                    folder_node_id TEXT NOT NULL DEFAULT '',
+                    folder_stable_ref TEXT NOT NULL DEFAULT '',
+                    folder_path TEXT NOT NULL DEFAULT '',
+                    child_folder_node_ids_json TEXT NOT NULL DEFAULT '[]',
+                    child_folder_refs_json TEXT NOT NULL DEFAULT '[]',
+                    direct_file_node_ids_json TEXT NOT NULL DEFAULT '[]',
+                    direct_file_refs_json TEXT NOT NULL DEFAULT '[]',
+                    skipped_refs_json TEXT NOT NULL DEFAULT '[]',
+                    child_folder_nodes_json TEXT NOT NULL DEFAULT '[]',
+                    direct_file_nodes_json TEXT NOT NULL DEFAULT '[]',
+                    content_hash TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'manifest_ready',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    authority TEXT NOT NULL DEFAULT 'task_system.project_network.directory_manifest_product'
+                );
+
+                CREATE TABLE IF NOT EXISTS project_network_directory_child_returns (
+                    return_id TEXT PRIMARY KEY,
+                    build_id TEXT NOT NULL,
+                    parent_frame_id TEXT NOT NULL DEFAULT '',
+                    child_frame_id TEXT NOT NULL DEFAULT '',
+                    child_folder_ref TEXT NOT NULL DEFAULT '',
+                    child_folder_node_id TEXT NOT NULL DEFAULT '',
+                    child_summary_product_ref TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'candidate',
+                    payload_ref TEXT NOT NULL DEFAULT '',
+                    coverage_json TEXT NOT NULL DEFAULT '{}',
+                    blockers_json TEXT NOT NULL DEFAULT '[]',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    authority TEXT NOT NULL DEFAULT 'task_system.project_network.directory_child_return'
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_project_network_work_products_build_layer
                     ON project_network_work_products(build_id, layer_id, product_kind, status);
                 CREATE INDEX IF NOT EXISTS idx_project_network_work_products_graph
@@ -945,6 +1277,14 @@ class ProjectNetworkRepository:
                     ON project_network_generations(build_id, status, generation);
                 CREATE INDEX IF NOT EXISTS idx_project_network_traces_build_graph
                     ON project_network_traces(build_id, graph_run_id, node_id);
+                CREATE INDEX IF NOT EXISTS idx_project_network_directory_frames_build_parent
+                    ON project_network_directory_frames(build_id, root_frame_id, parent_frame_id, status);
+                CREATE INDEX IF NOT EXISTS idx_project_network_directory_frames_folder
+                    ON project_network_directory_frames(build_id, skeleton_build_id, skeleton_generation, folder_stable_ref);
+                CREATE INDEX IF NOT EXISTS idx_project_network_directory_manifests_frame
+                    ON project_network_directory_manifests(build_id, frame_id, content_hash);
+                CREATE INDEX IF NOT EXISTS idx_project_network_directory_child_returns_parent
+                    ON project_network_directory_child_returns(build_id, parent_frame_id, status);
                 """
             )
 
@@ -1117,6 +1457,80 @@ def _trace_from_row(row: sqlite3.Row) -> ProjectNetworkTraceRecord:
         payload=_loads(row["payload_json"], {}),
         created_at=str(row["created_at"] or ""),
         authority=str(row["authority"] or "task_system.project_network.trace_record"),
+    )
+
+
+def _directory_frame_from_row(row: sqlite3.Row) -> DirectoryRenderFrame:
+    return DirectoryRenderFrame(
+        frame_id=str(row["frame_id"]),
+        build_id=str(row["build_id"]),
+        root_frame_id=str(row["root_frame_id"] or ""),
+        parent_frame_id=str(row["parent_frame_id"] or ""),
+        depth=int(row["depth"] or 0),
+        skeleton_build_id=str(row["skeleton_build_id"] or ""),
+        skeleton_generation=int(row["skeleton_generation"] or 0),
+        folder_node_id=str(row["folder_node_id"] or ""),
+        folder_stable_ref=str(row["folder_stable_ref"] or ""),
+        folder_path=str(row["folder_path"] or ""),
+        manifest_ref=str(row["manifest_ref"] or ""),
+        child_frame_ids=tuple(_strings(_loads(row["child_frame_ids_json"], []))),
+        direct_file_refs=tuple(_strings(_loads(row["direct_file_refs_json"], []))),
+        child_return_refs=tuple(_strings(_loads(row["child_return_refs_json"], []))),
+        aggregate_work_product_ref=str(row["aggregate_work_product_ref"] or ""),
+        graph_id=str(row["graph_id"] or ""),
+        graph_run_id=str(row["graph_run_id"] or ""),
+        status=str(row["status"] or "planned"),  # type: ignore[arg-type]
+        budget=DirectoryRenderBudget.from_dict(_loads(row["budget_json"], {})),
+        created_at=str(row["created_at"] or ""),
+        updated_at=str(row["updated_at"] or ""),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.project_network.directory_render_frame"),
+    )
+
+
+def _directory_manifest_from_row(row: sqlite3.Row) -> DirectoryManifestProduct:
+    return DirectoryManifestProduct(
+        manifest_id=str(row["manifest_id"]),
+        build_id=str(row["build_id"]),
+        frame_id=str(row["frame_id"] or ""),
+        skeleton_build_id=str(row["skeleton_build_id"] or ""),
+        skeleton_generation=int(row["skeleton_generation"] or 0),
+        folder_node_id=str(row["folder_node_id"] or ""),
+        folder_stable_ref=str(row["folder_stable_ref"] or ""),
+        folder_path=str(row["folder_path"] or ""),
+        child_folder_node_ids=tuple(_strings(_loads(row["child_folder_node_ids_json"], []))),
+        child_folder_refs=tuple(_strings(_loads(row["child_folder_refs_json"], []))),
+        direct_file_node_ids=tuple(_strings(_loads(row["direct_file_node_ids_json"], []))),
+        direct_file_refs=tuple(_strings(_loads(row["direct_file_refs_json"], []))),
+        skipped_refs=tuple(_strings(_loads(row["skipped_refs_json"], []))),
+        child_folder_nodes=tuple(dict(item) for item in list(_loads(row["child_folder_nodes_json"], [])) if isinstance(item, dict)),
+        direct_file_nodes=tuple(dict(item) for item in list(_loads(row["direct_file_nodes_json"], [])) if isinstance(item, dict)),
+        content_hash=str(row["content_hash"] or ""),
+        status=str(row["status"] or "manifest_ready"),
+        created_at=str(row["created_at"] or ""),
+        updated_at=str(row["updated_at"] or ""),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.project_network.directory_manifest_product"),
+    )
+
+
+def _directory_child_return_from_row(row: sqlite3.Row) -> DirectoryChildReturnEnvelope:
+    return DirectoryChildReturnEnvelope(
+        return_id=str(row["return_id"]),
+        build_id=str(row["build_id"]),
+        parent_frame_id=str(row["parent_frame_id"] or ""),
+        child_frame_id=str(row["child_frame_id"] or ""),
+        child_folder_ref=str(row["child_folder_ref"] or ""),
+        child_folder_node_id=str(row["child_folder_node_id"] or ""),
+        child_summary_product_ref=str(row["child_summary_product_ref"] or ""),
+        status=str(row["status"] or "candidate"),
+        payload_ref=str(row["payload_ref"] or ""),
+        coverage=_loads(row["coverage_json"], {}),
+        blockers=tuple(_strings(_loads(row["blockers_json"], []))),
+        created_at=str(row["created_at"] or ""),
+        updated_at=str(row["updated_at"] or ""),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.project_network.directory_child_return"),
     )
 
 

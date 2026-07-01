@@ -37,6 +37,7 @@ class AgentRuntimeServices:
     agent_runtime_profile_resolver: Any | None = None
     artifact_repository_service: Any | None = None
     formal_memory_service: Any | None = None
+    runtime_algorithm_effect_sink: Any | None = None
     backend_config: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -53,6 +54,7 @@ class AgentRuntimeServices:
         agent_runtime_profile_resolver: Any | None = None,
         artifact_repository_service: Any | None = None,
         formal_memory_service: Any | None = None,
+        runtime_algorithm_effect_sink: Any | None = None,
         backend_config: dict[str, Any] | None = None,
     ) -> "AgentRuntimeServices":
         resolved_artifact_repository_service = artifact_repository_service
@@ -84,6 +86,7 @@ class AgentRuntimeServices:
             agent_runtime_profile_resolver=agent_runtime_profile_resolver,
             artifact_repository_service=resolved_artifact_repository_service,
             formal_memory_service=resolved_formal_memory_service,
+            runtime_algorithm_effect_sink=runtime_algorithm_effect_sink,
             backend_config=dict(backend_config or {}),
         )
 
@@ -149,4 +152,3 @@ class TaskExecutorServices:
 
     def all_tool_instances(self) -> list[Any]:
         return list(self.tool_instances)
-

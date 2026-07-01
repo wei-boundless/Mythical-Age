@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from harness.receipt_payload import receipt_payload
+
 
 CURRENT_WORK_BOUNDARY_RECEIPT_AUTHORITY = "harness.entrypoint.current_work_boundary_receipt"
 CURRENT_WORK_CONTROL_REQUIRED_DECISION = "current_work_control_required"
@@ -37,7 +39,7 @@ class CurrentWorkControlAvailability:
 def current_work_control_availability_from_receipt(
     receipt: dict[str, Any] | Any | None,
 ) -> CurrentWorkControlAvailability:
-    payload = _payload_from_receipt(receipt)
+    payload = receipt_payload(receipt)
     operations = dict(payload.get("operation_availability") or {})
     observed = "active_work_control" in operations
     requested_available = operations.get("active_work_control") is True
@@ -94,18 +96,8 @@ def current_work_boundary_receipt_allows_active_work_control(
 def current_work_operation_availability_from_receipt(
     receipt: dict[str, Any] | Any | None,
 ) -> dict[str, Any]:
-    payload = _payload_from_receipt(receipt)
+    payload = receipt_payload(receipt)
     operations = dict(payload.get("operation_availability") or {})
     if "active_work_control" in operations:
         operations["active_work_control"] = current_work_boundary_receipt_allows_active_work_control(payload)
     return operations
-
-
-def _payload_from_receipt(receipt: dict[str, Any] | Any | None) -> dict[str, Any]:
-    if receipt is None:
-        return {}
-    if hasattr(receipt, "to_dict"):
-        return dict(receipt.to_dict())
-    if isinstance(receipt, dict):
-        return dict(receipt)
-    return {}

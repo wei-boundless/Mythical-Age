@@ -81,12 +81,16 @@ def assemble_provider_visible_append_specs(
         compaction_generation=normalized_generation,
     )
     inherited_entries_by_key = _entries_by_key({"entries": inherited_entries})
+    inherited_entries_by_provider_visible_hash = _entries_by_provider_visible_hash({"entries": inherited_entries})
     entries_by_key = _entries_by_key({"entries": existing_entries})
+    active_entries_by_provider_visible_hash = _entries_by_provider_visible_hash({"entries": all_existing_entries})
     entries_by_fact_slot = _entries_by_fact_slot({"entries": existing_entries})
     inherited_entries_by_fact_slot = _entries_by_fact_slot({"entries": inherited_entries})
     changed = bool(failure)
     filtered_candidates: list[dict[str, Any]] = []
     current_append_specs: list[tuple[int, dict[str, Any]]] = []
+    pending_candidates_by_key: dict[str, dict[str, Any]] = {}
+    pending_candidates_by_provider_visible_hash: dict[str, dict[str, Any]] = {}
 
     for original_order, raw_spec in sorted(list(items or []), key=context_append_order_key):
         spec = dict(raw_spec or {})
@@ -95,6 +99,39 @@ def assemble_provider_visible_append_specs(
         if not provider_message:
             continue
         provider_hash = _stable_json_hash(provider_message)
+        visible_hash_entry = dict(active_entries_by_provider_visible_hash.get(provider_hash) or {})
+        if visible_hash_entry:
+            filtered_candidates.append(
+                _filtered_provider_visible_candidate(
+                    spec,
+                    provider_visible_hash=provider_hash,
+                    reason="same_provider_visible_hash_already_visible",
+                    matched_entry=visible_hash_entry,
+                )
+            )
+            continue
+        inherited_hash_entry = dict(inherited_entries_by_provider_visible_hash.get(provider_hash) or {})
+        if inherited_hash_entry:
+            filtered_candidates.append(
+                _filtered_provider_visible_candidate(
+                    spec,
+                    provider_visible_hash=provider_hash,
+                    reason="same_provider_visible_hash_inherited_from_parent_scope",
+                    matched_entry=inherited_hash_entry,
+                )
+            )
+            continue
+        pending_hash_entry = dict(pending_candidates_by_provider_visible_hash.get(provider_hash) or {})
+        if pending_hash_entry:
+            filtered_candidates.append(
+                _filtered_provider_visible_candidate(
+                    spec,
+                    provider_visible_hash=provider_hash,
+                    reason="same_provider_visible_hash_already_selected_for_current_append",
+                    matched_entry=pending_hash_entry,
+                )
+            )
+            continue
         fact_identity = _fact_identity_from_spec(spec)
         fact_slot_key = str(fact_identity.get("fact_slot_key") or "").strip()
         fact_content_hash = str(fact_identity.get("fact_content_hash") or "").strip()
@@ -125,6 +162,34 @@ def assemble_provider_visible_append_specs(
                 )
                 continue
         item_key = _provider_visible_item_key(spec, provider_visible_hash=provider_hash, policy=policy)
+        pending_key_entry = dict(pending_candidates_by_key.get(item_key) or {})
+        if pending_key_entry:
+            pending_hash = str(pending_key_entry.get("provider_visible_hash") or "").strip()
+            if pending_hash and pending_hash != provider_hash:
+                failure = _structured_failure(
+                    scope=normalized_scope,
+                    code="provider_visible_duplicate_candidate_item_key_hash_mismatch",
+                    message="provider-visible append candidate item key maps to different content in the same request",
+                    details={
+                        "item_key": item_key,
+                        "previous_provider_visible_hash": pending_hash,
+                        "current_provider_visible_hash": provider_hash,
+                        "kind": str(spec.get("kind") or ""),
+                        "source_ref": str(spec.get("source_ref") or ""),
+                    },
+                )
+                ledger = _record_recovery_event(ledger, failure)
+                changed = True
+                continue
+            filtered_candidates.append(
+                _filtered_provider_visible_candidate(
+                    spec,
+                    provider_visible_hash=provider_hash,
+                    reason="same_provider_visible_item_already_selected_for_current_append",
+                    matched_entry=pending_key_entry,
+                )
+            )
+            continue
         existing = dict(entries_by_key.get(item_key) or {})
         if existing:
             previous_hash = str(existing.get("provider_visible_hash") or "").strip()
@@ -178,6 +243,15 @@ def assemble_provider_visible_append_specs(
                 ),
             )
         )
+        pending_candidate = {
+            "entry_index": 0,
+            "item_key": item_key,
+            "provider_visible_hash": provider_hash,
+            "kind": str(spec.get("kind") or ""),
+            "source_ref": str(spec.get("source_ref") or ""),
+        }
+        pending_candidates_by_key[item_key] = pending_candidate
+        pending_candidates_by_provider_visible_hash[provider_hash] = pending_candidate
 
     ledger = _finalize_ledger(
         ledger,
@@ -327,6 +401,7 @@ def confirm_provider_visible_append_entries(
         )
         active_entries = _active_confirmed_ledger_entries(ledger)
         entries_by_key = _entries_by_key({"entries": active_entries})
+        entries_by_provider_visible_hash = _entries_by_provider_visible_hash({"entries": active_entries})
         changed = False
         group_failed = False
         group_confirmations: list[dict[str, Any]] = []
@@ -428,6 +503,22 @@ def confirm_provider_visible_append_entries(
                 confirmations.append(confirmation)
                 group_confirmations.append(confirmation)
                 continue
+            existing_by_hash = dict(entries_by_provider_visible_hash.get(expected_hash) or {})
+            if existing_by_hash:
+                confirmation = {
+                    "scope": scope,
+                    "entry_index": _safe_int(existing_by_hash.get("entry_index")),
+                    "item_key": str(existing_by_hash.get("item_key") or item_key),
+                    "status": str(existing_by_hash.get("commit_status") or ""),
+                    "already_confirmed": True,
+                    "same_provider_visible_hash_already_confirmed": True,
+                    "requested_item_key": item_key,
+                    "provider_visible_hash": expected_hash,
+                    "confirmed_turn_id": str(existing_by_hash.get("confirmed_turn_id") or ""),
+                }
+                confirmations.append(confirmation)
+                group_confirmations.append(confirmation)
+                continue
             entries_by_index = _entries_by_index(ledger)
             next_index = _next_entry_index(ledger, entries_by_index=entries_by_index)
             entry = _ledger_entry(
@@ -466,6 +557,7 @@ def confirm_provider_visible_append_entries(
             }
             ledger["next_entry_index"] = next_index + 1
             entries_by_key[item_key] = entry
+            entries_by_provider_visible_hash[expected_hash] = entry
             active_entries = _filter_superseded_fact_entries([*active_entries, entry])
             confirmation = {
                 "scope": scope,
@@ -892,6 +984,11 @@ def _finalize_ledger(
         for entry in active_entries
         if str(entry.get("item_key") or "").strip()
     }
+    payload["provider_visible_hash_items"] = {
+        str(entry.get("provider_visible_hash") or ""): _safe_int(entry.get("entry_index"))
+        for entry in active_entries
+        if str(entry.get("provider_visible_hash") or "").strip()
+    }
     payload["entry_index"] = max([_safe_int(entry.get("entry_index")) for entry in payload["entries"]] or [0])
     payload["next_entry_index"] = max(_safe_int(payload.get("next_entry_index")), int(payload["entry_index"]) + 1)
     active_anchor = _active_provider_success_anchor(payload)
@@ -1250,6 +1347,18 @@ def _entries_by_key(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _entries_by_provider_visible_hash(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for entry in sorted(
+        [dict(item) for item in list(dict(ledger or {}).get("entries") or []) if isinstance(item, dict)],
+        key=lambda item: _safe_int(item.get("entry_index")),
+    ):
+        key = str(entry.get("provider_visible_hash") or "").strip()
+        if key:
+            result[key] = entry
+    return result
+
+
 def _entries_by_fact_slot(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for entry in sorted(
@@ -1298,6 +1407,27 @@ def _filtered_fact_candidate(
         "matched_entry_index": _safe_int(dict(matched_entry or {}).get("entry_index")),
         "matched_fact_content_hash": str(dict(matched_entry or {}).get("fact_content_hash") or ""),
         "authority": "runtime.context_management.provider_visible_append_ledger.fact_filter",
+    }
+
+
+def _filtered_provider_visible_candidate(
+    spec: dict[str, Any],
+    *,
+    provider_visible_hash: str,
+    reason: str,
+    matched_entry: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(dict(spec or {}).get("metadata") or {})
+    return {
+        "reason": str(reason or ""),
+        "kind": str(dict(spec or {}).get("kind") or metadata.get("kind") or ""),
+        "source_ref": str(dict(spec or {}).get("source_ref") or metadata.get("source_ref") or ""),
+        "semantic_slot": str(metadata.get("context_semantic_slot") or metadata.get("semantic_slot") or ""),
+        "provider_visible_hash": str(provider_visible_hash or ""),
+        "matched_entry_index": _safe_int(dict(matched_entry or {}).get("entry_index")),
+        "matched_item_key": str(dict(matched_entry or {}).get("item_key") or ""),
+        "matched_provider_visible_hash": str(dict(matched_entry or {}).get("provider_visible_hash") or ""),
+        "authority": "runtime.context_management.provider_visible_append_ledger.provider_visible_hash_filter",
     }
 
 

@@ -97,6 +97,58 @@ def build_parser() -> argparse.ArgumentParser:
     trace_parser.add_argument("task_run_id")
     trace_parser.add_argument("--include-payloads", action="store_true")
 
+    graph_parser = subparsers.add_parser("graph", help="Publish, start, or inspect backend task graphs")
+    graph_subparsers = graph_parser.add_subparsers(dest="graph_command", required=True)
+    publish_frame_parser = graph_subparsers.add_parser(
+        "publish-directory-frame",
+        help="Publish a project-network directory frame as a TaskGraph and ExecutableGraphConfig",
+    )
+    publish_frame_parser.add_argument("--frame-id", required=True)
+    publish_frame_parser.add_argument("--backend-dir", default="")
+    publish_frame_parser.add_argument("--publish-version", default="runtime")
+    publish_frame_parser.add_argument("--source-work-product-ref", action="append", default=[])
+    publish_frame_parser.add_argument("--max-active-nodes", type=int, default=0)
+    publish_frame_parser.add_argument("--full", action="store_true", help="Print the full materialization payload")
+    start_frame_parser = graph_subparsers.add_parser(
+        "start-directory-frame",
+        help="Publish a directory frame and start it through the backend graph starter",
+    )
+    start_frame_parser.add_argument("--frame-id", required=True)
+    start_frame_parser.add_argument("--backend-dir", default="")
+    start_frame_parser.add_argument("--publish-version", default="runtime")
+    start_frame_parser.add_argument("--source-work-product-ref", action="append", default=[])
+    start_frame_parser.add_argument("--max-active-nodes", type=int, default=0)
+    start_frame_parser.add_argument("--session", default="")
+    start_frame_parser.add_argument("--session-title", default="Directory frame graph CLI")
+    start_frame_parser.add_argument("--initial-inputs-file", default="")
+    start_frame_parser.add_argument("--run-mode", choices=["dispatch_only", "auto_run"], default="dispatch_only")
+    start_frame_parser.add_argument("--wait-for-completion", action="store_true")
+    start_frame_parser.add_argument("--no-dispatch-ready", action="store_true")
+    start_frame_parser.add_argument("--include-trace", action="store_true")
+    start_frame_parser.add_argument("--no-watch", action="store_true")
+    start_frame_parser.add_argument("--full", action="store_true", help="Print the full publish/start payload")
+    start_graph_parser = graph_subparsers.add_parser(
+        "start-task-graph",
+        help="Start an already-published TaskGraph through the backend graph starter",
+    )
+    start_graph_parser.add_argument("graph_id")
+    start_graph_parser.add_argument("--session", default="")
+    start_graph_parser.add_argument("--session-title", default="Task graph CLI")
+    start_graph_parser.add_argument("--task-id", default="")
+    start_graph_parser.add_argument("--initial-inputs-file", default="")
+    start_graph_parser.add_argument("--run-mode", choices=["dispatch_only", "auto_run"], default="dispatch_only")
+    start_graph_parser.add_argument("--wait-for-completion", action="store_true")
+    start_graph_parser.add_argument("--no-dispatch-ready", action="store_true")
+    start_graph_parser.add_argument("--include-trace", action="store_true")
+    start_graph_parser.add_argument("--include-graph-config", action="store_true")
+    start_graph_parser.add_argument("--no-watch", action="store_true")
+    start_graph_parser.add_argument("--full", action="store_true", help="Print the full start payload")
+    monitor_graph_parser = graph_subparsers.add_parser("monitor", help="Show a GraphRun monitor payload")
+    monitor_graph_parser.add_argument("graph_run_id")
+    monitor_graph_parser.add_argument("--graph-config-id", default="")
+    monitor_graph_parser.add_argument("--event-limit", type=int, default=80)
+    monitor_graph_parser.add_argument("--full", action="store_true", help="Print the full monitor payload")
+
     config_parser = subparsers.add_parser("config", help="Show CLI config")
     config_parser.add_argument("config_command", choices=["show"])
 
@@ -138,6 +190,8 @@ def run_command(
             return _run_monitor(args, client=client, store=store, stdout=stdout)
         if args.command == "task-run":
             return _run_task_run_command(args, client=client, store=store, stdout=stdout, stderr=stderr)
+        if args.command == "graph":
+            return _run_graph_command(args, client=client, store=store, stdout=stdout)
         if args.command == "config":
             _print_json({"api_base": client.api_base, "selected_session_id": store.load().selected_session_id}, stdout)
             return 0
@@ -423,6 +477,244 @@ def _run_task_run_command(
     return 2
 
 
+def _run_graph_command(
+    args: argparse.Namespace,
+    *,
+    client: AgentCliClient,
+    store: CliStateStore,
+    stdout: TextIO,
+) -> int:
+    if args.graph_command == "publish-directory-frame":
+        result = _publish_directory_frame_from_cli(args)
+        _print_json(result.to_dict() if bool(getattr(args, "full", False)) else _directory_publish_summary(result), stdout)
+        return 0
+    if args.graph_command == "start-directory-frame":
+        publish_result = _publish_directory_frame_from_cli(args)
+        session_id = _ensure_graph_launch_session(
+            client=client,
+            explicit_session_id=str(getattr(args, "session", "") or ""),
+            title=str(getattr(args, "session_title", "") or "Directory frame graph CLI"),
+        )
+        initial_inputs = {
+            **dict(publish_result.start_initial_inputs or {}),
+            **_load_optional_json_object_file(str(getattr(args, "initial_inputs_file", "") or "")),
+        }
+        start = client.start_task_graph_run(
+            publish_result.graph_config.graph_id,
+            session_id=session_id,
+            session_scope=_graph_task_scope(),
+            initial_inputs=initial_inputs,
+            include_trace=bool(getattr(args, "include_trace", False)),
+            include_graph_config=False,
+            dispatch_ready=not bool(getattr(args, "no_dispatch_ready", False)),
+            run_mode=str(getattr(args, "run_mode", "") or "dispatch_only"),
+            wait_for_completion=bool(getattr(args, "wait_for_completion", False)),
+        )
+        _directory_runtime_service_from_cli(args).record_frame_graph_start(
+            publish_result.frame_id,
+            graph_run_id=str(start.get("graph_run_id") or ""),
+            graph_config_id=str(start.get("graph_config_id") or ""),
+            metadata={"start_source": "backend.cli.graph.start-directory-frame"},
+        )
+        payload = {
+            "authority": "backend.cli.graph.start_directory_frame",
+            "publish": publish_result.to_dict() if bool(getattr(args, "full", False)) else _directory_publish_summary(publish_result),
+            "start": start if bool(getattr(args, "full", False)) else _graph_start_summary(start),
+        }
+        _print_json(payload, stdout)
+        if bool(getattr(args, "no_watch", False)):
+            return 0
+        return _watch_graph_run(
+            str(start.get("graph_run_id") or ""),
+            graph_config_id=str(start.get("graph_config_id") or ""),
+            client=client,
+            stdout=stdout,
+        )
+    if args.graph_command == "start-task-graph":
+        session_id = _ensure_graph_launch_session(
+            client=client,
+            explicit_session_id=str(getattr(args, "session", "") or ""),
+            title=str(getattr(args, "session_title", "") or "Task graph CLI"),
+        )
+        start = client.start_task_graph_run(
+            str(getattr(args, "graph_id", "") or ""),
+            session_id=session_id,
+            task_id=str(getattr(args, "task_id", "") or ""),
+            session_scope=_graph_task_scope(),
+            initial_inputs=_load_optional_json_object_file(str(getattr(args, "initial_inputs_file", "") or "")),
+            include_trace=bool(getattr(args, "include_trace", False)),
+            include_graph_config=bool(getattr(args, "include_graph_config", False)),
+            dispatch_ready=not bool(getattr(args, "no_dispatch_ready", False)),
+            run_mode=str(getattr(args, "run_mode", "") or "dispatch_only"),
+            wait_for_completion=bool(getattr(args, "wait_for_completion", False)),
+        )
+        _print_json(start if bool(getattr(args, "full", False)) else _graph_start_summary(start), stdout)
+        if bool(getattr(args, "no_watch", False)):
+            return 0
+        return _watch_graph_run(
+            str(start.get("graph_run_id") or ""),
+            graph_config_id=str(start.get("graph_config_id") or ""),
+            client=client,
+            stdout=stdout,
+        )
+    if args.graph_command == "monitor":
+        monitor = client.get_graph_run_monitor(
+            str(getattr(args, "graph_run_id", "") or ""),
+            graph_config_id=str(getattr(args, "graph_config_id", "") or ""),
+            event_limit=max(1, int(getattr(args, "event_limit", 80) or 80)),
+        )
+        _print_json(monitor if bool(getattr(args, "full", False)) else _graph_monitor_summary(monitor), stdout)
+        return 0
+    return 2
+
+
+def _publish_directory_frame_from_cli(args: argparse.Namespace):
+    service = _directory_runtime_service_from_cli(args)
+    return service.publish_frame_graph(
+        str(getattr(args, "frame_id", "") or ""),
+        publish_version=str(getattr(args, "publish_version", "") or "runtime"),
+        source_work_product_refs=tuple(str(item) for item in list(getattr(args, "source_work_product_ref", []) or []) if str(item)),
+        max_active_nodes=max(0, int(getattr(args, "max_active_nodes", 0) or 0)),
+    )
+
+
+def _directory_publish_summary(result: Any) -> dict[str, Any]:
+    package = result.package
+    frame = package.frame
+    current_frame = result.projection.frame if result.projection is not None else frame
+    manifest = package.manifest
+    graph_config = result.graph_config
+    task_graph = result.task_graph
+    return {
+        "authority": "backend.cli.graph.directory_publish_summary",
+        "build_id": result.build_id,
+        "frame_id": result.frame_id,
+        "folder_path": frame.folder_path,
+        "frame_status": current_frame.status,
+        "graph_id": graph_config.graph_id,
+        "graph_config_id": graph_config.config_id,
+        "graph_config_hash": graph_config.content_hash,
+        "node_count": len(task_graph.nodes),
+        "edge_count": len(task_graph.edges),
+        "loop_frame_count": len(task_graph.loop_frames),
+        "direct_file_count": len(manifest.direct_file_refs),
+        "child_return_count": len(package.child_returns),
+        "start_node_count": len(list(dict(graph_config.control or {}).get("start_node_ids") or [])),
+        "max_active_nodes": int(dict(graph_config.control or {}).get("max_active_nodes") or 0),
+        "start_initial_input_keys": sorted(str(key) for key in dict(result.start_initial_inputs or {})),
+    }
+
+
+def _graph_start_summary(start: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "authority": "backend.cli.graph.start_summary",
+        "graph_id": str(start.get("graph_id") or ""),
+        "graph_run_id": str(start.get("graph_run_id") or ""),
+        "graph_config_id": str(start.get("graph_config_id") or ""),
+        "launch_session_id": str(start.get("launch_session_id") or ""),
+        "graph_session_id": str(start.get("graph_session_id") or ""),
+        "task_run_id": str(start.get("task_run_id") or ""),
+        "work_order_count": len(list(start.get("node_work_orders") or [])),
+        "event_count": len(list(start.get("events") or [])),
+        "runner_result_available": bool(start.get("runner_result")),
+        "background_submission_available": bool(start.get("background_submission")),
+    }
+
+
+def _graph_monitor_summary(monitor: dict[str, Any]) -> dict[str, Any]:
+    graph_run = dict(monitor.get("graph_run") or {})
+    loop_state = dict(monitor.get("graph_loop_state") or {})
+    active_work_orders = list(monitor.get("active_node_work_orders") or [])
+    return {
+        "authority": "backend.cli.graph.monitor_summary",
+        "graph_run_id": str(monitor.get("graph_run_id") or graph_run.get("graph_run_id") or ""),
+        "graph_id": str(graph_run.get("graph_id") or loop_state.get("graph_id") or ""),
+        "graph_config_id": str(graph_run.get("config_id") or loop_state.get("config_id") or ""),
+        "status": str(graph_run.get("status") or loop_state.get("status") or ""),
+        "ready_count": len(list(loop_state.get("ready_node_ids") or [])),
+        "running_count": len(list(loop_state.get("running_node_ids") or [])),
+        "completed_count": len(list(loop_state.get("completed_node_ids") or [])),
+        "failed_count": len(list(loop_state.get("failed_node_ids") or [])),
+        "blocked_count": len(list(loop_state.get("blocked_node_ids") or [])),
+        "active_work_order_count": len(active_work_orders),
+        "active_node_ids": [str(item.get("node_id") or "") for item in active_work_orders if isinstance(item, dict)],
+        "event_count": int(monitor.get("event_count") or 0),
+    }
+
+
+def _directory_runtime_service_from_cli(args: argparse.Namespace):
+    from task_system.project_network import DirectoryRuntimeService
+
+    return DirectoryRuntimeService.from_backend_dir(_backend_dir_for_cli(str(getattr(args, "backend_dir", "") or "")))
+
+
+def _backend_dir_for_cli(value: str) -> Path:
+    raw = str(value or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+def _ensure_graph_launch_session(
+    *,
+    client: AgentCliClient,
+    explicit_session_id: str,
+    title: str,
+) -> str:
+    resolved = str(explicit_session_id or "").strip()
+    if resolved:
+        return resolved
+    session = client.create_session(title or "Task graph CLI", scope=_graph_task_scope())
+    session_id = str(session.get("id") or "").strip()
+    if not session_id:
+        raise AgentCliClientError("Backend created a graph launch session without an id.")
+    return session_id
+
+
+def _graph_task_scope() -> dict[str, str]:
+    return {
+        "workspace_view": "graph_task",
+        "task_environment_id": "",
+        "project_id": "",
+    }
+
+
+def _watch_graph_run(
+    graph_run_id: str,
+    *,
+    graph_config_id: str,
+    client: AgentCliClient,
+    stdout: TextIO,
+) -> int:
+    if not graph_run_id:
+        raise AgentCliClientError("Backend start response did not include graph_run_id.")
+    seen_signature = ""
+    while True:
+        monitor = client.get_graph_run_monitor(graph_run_id, graph_config_id=graph_config_id)
+        graph_run = dict(monitor.get("graph_run") or {})
+        loop_state = dict(monitor.get("graph_loop_state") or {})
+        status = str(graph_run.get("status") or loop_state.get("status") or "").strip()
+        ready_count = len(list(loop_state.get("ready_node_ids") or []))
+        running_count = len(list(loop_state.get("running_node_ids") or []))
+        completed_count = len(list(loop_state.get("completed_node_ids") or []))
+        failed_count = len(list(loop_state.get("failed_node_ids") or []))
+        blocked_count = len(list(loop_state.get("blocked_node_ids") or []))
+        signature = f"{status}:{ready_count}:{running_count}:{completed_count}:{failed_count}:{blocked_count}"
+        if signature != seen_signature:
+            print(
+                f"[{status or 'running'}] ready={ready_count} running={running_count} "
+                f"completed={completed_count} failed={failed_count} blocked={blocked_count}",
+                file=stdout,
+            )
+            seen_signature = signature
+        if status in {"completed", "failed", "aborted", "cancelled", "error", "blocked"}:
+            return 0 if status == "completed" else 1
+        if not ready_count and not running_count and status in {"", "running"}:
+            _print_json(monitor, stdout)
+            return 0
+        time.sleep(2.0)
+
+
 def _run_task_mode_slash_start(
     args: argparse.Namespace,
     *,
@@ -676,6 +968,13 @@ def _load_json_object_file(path: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise AgentCliClientError("Contract file must contain a JSON object.")
     return dict(payload)
+
+
+def _load_optional_json_object_file(path: str) -> dict[str, Any]:
+    normalized = str(path or "").strip()
+    if not normalized:
+        return {}
+    return _load_json_object_file(normalized)
 
 
 def _runtime_contract_for_task_run_start(payload: dict[str, Any], *, task_environment_id: str = "") -> dict[str, Any]:

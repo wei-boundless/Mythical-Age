@@ -725,8 +725,8 @@ function providerPrefixCacheWarningTitle(tokenStats: TokenStats) {
   }
   const records = Array.isArray(cacheLog.records) ? cacheLog.records : [];
   const latest = records[0];
-  const latestHealth = recordValue(latest?.provider_prefix_cache_health ?? cacheLog.summary?.latest_prefix_health);
-  const latestStatus = textValue(latest?.cache_status ?? cacheLog.summary?.latest_status);
+  const latestHealth = recordValue(cacheLog.summary?.latest_prefix_health ?? latest?.provider_prefix_cache_health);
+  const latestStatus = textValue(cacheLog.summary?.latest_status ?? latest?.cache_status);
   const latestVerdict = textValue(latestHealth.verdict);
   const latestUnderReadTokens = nonNegativeTokenCount(
     cacheLog.summary?.latest_under_read_tokens

@@ -217,8 +217,9 @@ def _tool_allowed_for_runtime_plan(
 ) -> bool:
     tool_name = _tool_name(tool)
     definition = definition_by_name.get(tool_name)
-    operation_ids = _definition_operation_ids(definition, fallback=tool_name)
+    operation_ids = _tool_operation_ids(tool, definition=definition, fallback=tool_name)
     operation_id = operation_ids[0] if operation_ids else tool_name
+    operation_resolution = _operation_resolution_metadata(tool, definition=definition, operation_ids=operation_ids)
     owner_scope = _tool_owner_scope(tool, definition)
     if tool_name in _SUBAGENT_LIFECYCLE_TOOL_NAMES and invocation_kind != "task_execution":
         filtered_issues.append(
@@ -227,7 +228,7 @@ def _tool_allowed_for_runtime_plan(
                 tool_name=tool_name,
                 reason="subagent_lifecycle_requires_task_execution",
                 source="invocation_kind",
-                metadata={"invocation_kind": str(invocation_kind or "")},
+                metadata={**operation_resolution, "invocation_kind": str(invocation_kind or "")},
             )
         )
         return False
@@ -243,6 +244,7 @@ def _tool_allowed_for_runtime_plan(
                 reason="task_scoped_tool_requires_task_run",
                 source="runtime_scope",
                 metadata={
+                    **operation_resolution,
                     "invocation_kind": str(invocation_kind or ""),
                     "owner_scope": owner_scope,
                     "required_action": "request_task_run",
@@ -267,7 +269,7 @@ def _tool_allowed_for_runtime_plan(
                 tool_name=tool_name,
                 reason="operation_missing_from_authorization_projection",
                 source="operation_authorization",
-                metadata={"operation_ids": list(operation_ids)},
+                metadata={**operation_resolution, "authority": "harness.runtime.operation_authorization"},
             )
         )
         return False
@@ -279,7 +281,7 @@ def _tool_allowed_for_runtime_plan(
                 tool_name=tool_name,
                 reason=str(first_decision.get("reason") or "operation_denied"),
                 source="operation_authorization",
-                metadata={"operation_ids": list(operation_ids), "decisions": list(authorization_decisions.values())},
+                metadata={**operation_resolution, "decisions": list(authorization_decisions.values())},
             )
         )
         return False
@@ -296,7 +298,7 @@ def _tool_with_authorization_metadata(
     payload = dict(tool or {})
     tool_name = _tool_name(payload)
     definition = definition_by_name.get(tool_name)
-    operation_ids = _definition_operation_ids(definition, fallback=tool_name)
+    operation_ids = _tool_operation_ids(payload, definition=definition, fallback=tool_name)
     requires_operations = {
         str(item or "").strip()
         for item in list(operation_authorization.get("requires_approval_operations") or [])
@@ -435,20 +437,88 @@ def _definition_operation_ids(definition: Any | None, *, fallback: str = "") -> 
     return tuple(result)
 
 
+def _tool_operation_ids(tool: dict[str, Any], *, definition: Any | None, fallback: str = "") -> tuple[str, ...]:
+    operation_ids = [
+        *_definition_operation_ids(definition),
+        *_tool_payload_operation_ids(tool),
+    ]
+    if not operation_ids and fallback:
+        operation_ids.append(str(fallback or "").strip())
+    return _dedupe_operation_ids(operation_ids)
+
+
+def _tool_payload_operation_ids(tool: dict[str, Any]) -> tuple[str, ...]:
+    payload = dict(tool or {})
+    operation_ids: list[str] = []
+    primary = str(payload.get("operation_id") or "").strip()
+    if primary:
+        operation_ids.append(primary)
+    operation_ids.extend(_operation_values(payload.get("action_operation_ids")))
+    operation_ids.extend(_operation_values(payload.get("authorized_operation_ids")))
+    return _dedupe_operation_ids(operation_ids)
+
+
+def _operation_values(payload: Any) -> tuple[str, ...]:
+    if isinstance(payload, dict):
+        iterable = payload.values()
+    elif isinstance(payload, (list, tuple, set)):
+        iterable = payload
+    else:
+        iterable = ()
+    return tuple(str(item or "").strip() for item in iterable if str(item or "").strip())
+
+
+def _dedupe_operation_ids(operation_ids: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for operation_id in operation_ids:
+        value = str(operation_id or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return tuple(result)
+
+
+def _operation_resolution_metadata(
+    tool: dict[str, Any],
+    *,
+    definition: Any | None,
+    operation_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    payload = dict(tool or {})
+    definition_ids = _definition_operation_ids(definition)
+    payload_operation_id = str(payload.get("operation_id") or "").strip()
+    payload_action_operation_ids = _operation_values(payload.get("action_operation_ids"))
+    payload_authorized_operation_ids = _operation_values(payload.get("authorized_operation_ids"))
+    if definition_ids:
+        source = "definition"
+    elif payload_operation_id:
+        source = "runtime_assembly.operation_id"
+    elif payload_action_operation_ids:
+        source = "runtime_assembly.action_operation_ids"
+    elif payload_authorized_operation_ids:
+        source = "runtime_assembly.authorized_operation_ids"
+    else:
+        source = "tool_name_fallback"
+    return {
+        "operation_ids": list(operation_ids),
+        "operation_resolution_source": source,
+        "definition_present": definition is not None,
+        "definition_operation_ids": list(definition_ids),
+        "payload_operation_id": payload_operation_id,
+        "payload_action_operation_ids": list(payload_action_operation_ids),
+        "payload_authorized_operation_ids": list(payload_authorized_operation_ids),
+    }
+
+
 def _authorized_operation_ids_for_tool(
     tool: dict[str, Any],
     *,
     definition: Any | None,
     operation_decisions: dict[str, dict[str, Any]],
 ) -> tuple[str, ...]:
-    explicit = tuple(
-        str(item or "").strip()
-        for item in list(tool.get("authorized_operation_ids") or [])
-        if str(item or "").strip()
-    )
-    if explicit:
-        return explicit
-    operation_ids = _definition_operation_ids(definition, fallback=_tool_name(tool))
+    operation_ids = _tool_operation_ids(tool, definition=definition, fallback=_tool_name(tool))
     if not operation_decisions:
         return operation_ids
     return tuple(

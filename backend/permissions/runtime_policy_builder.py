@@ -287,6 +287,29 @@ def _decide_runtime_operation(
     sandbox_policy: dict[str, Any],
     permission_mode: str,
 ) -> ResourceDecision:
+    normalized_permission_mode = normalize_permission_mode(permission_mode)
+    if descriptor is None:
+        return ResourceDecision(
+            operation_id=operation_id,
+            decision="deny",
+            reason="unknown operation",
+            diagnostics={"fail_closed": True},
+        )
+    if normalized_permission_mode in {"full_access", "bypass"}:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason=f"operation allowed by runtime permission mode {normalized_permission_mode}",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={
+                "permission_mode": normalized_permission_mode,
+                "approval_policy": approval_policy,
+                "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
+                "destructive": bool(descriptor.destructive),
+                "profile_allowed": operation_id in agent_allowed,
+                "profile_blocked": operation_id in agent_blocked,
+            },
+        )
     if operation_id in agent_blocked:
         return ResourceDecision(
             operation_id=operation_id,
@@ -300,13 +323,6 @@ def _decide_runtime_operation(
             decision="deny",
             reason="operation outside agent capability profile",
             risk_tags=tuple(descriptor.risk_tags) if descriptor is not None else (),
-        )
-    if descriptor is None:
-        return ResourceDecision(
-            operation_id=operation_id,
-            decision="deny",
-            reason="unknown operation",
-            diagnostics={"fail_closed": True},
         )
     if is_model_visible_agent_operation(descriptor.operation_id):
         return ResourceDecision(
@@ -328,19 +344,6 @@ def _decide_runtime_operation(
             decision="not_executable",
             reason="mcp and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
-        )
-    if normalize_permission_mode(permission_mode) in {"full_access", "bypass"}:
-        return ResourceDecision(
-            operation_id=descriptor.operation_id,
-            decision="allow",
-            reason=f"operation allowed by runtime permission mode {normalize_permission_mode(permission_mode)}",
-            risk_tags=descriptor.risk_tags,
-            diagnostics={
-                "permission_mode": normalize_permission_mode(permission_mode),
-                "approval_policy": approval_policy,
-                "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
-                "destructive": bool(descriptor.destructive),
-            },
         )
     if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.workspace_write", "op.workspace_edit", "op.office_document"}:
         return ResourceDecision(

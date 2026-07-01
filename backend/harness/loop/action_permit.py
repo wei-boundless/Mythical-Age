@@ -25,7 +25,6 @@ class ActionPermit:
     operation_id: str = ""
     read_only: bool = False
     permission_mode: str = "default"
-    side_effect_policy: str = ""
     risk_fingerprint: str = ""
     strict_review: bool = False
     approval_ref: str = ""
@@ -77,7 +76,6 @@ def action_permit_from_admission(
     packet_allowed_action_types: tuple[str, ...] = (),
     allowed_tool_names: set[str] | tuple[str, ...] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: str = "",
     session_id: str = "",
     turn_id: str = "",
     task_run_id: str = "",
@@ -135,7 +133,6 @@ def action_permit_from_admission(
         operation_id=operation_id,
         read_only=bool(permission_delta.get("read_only") is True),
         permission_mode=str(permission_delta.get("permission_mode") or permission_mode or "default"),
-        side_effect_policy=str(side_effect_policy or ""),
         risk_fingerprint=risk_fingerprint,
         strict_review=bool(
             permission_delta.get("strict_review")

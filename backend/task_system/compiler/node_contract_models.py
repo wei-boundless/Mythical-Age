@@ -74,6 +74,7 @@ def build_node_contract(
                 {
                     "agent_id": str(node.get("agent_id") or ""),
                     "agent_profile_id": str(node.get("agent_profile_id") or ""),
+                    "agent_group_id": str(node.get("agent_group_id") or ""),
                     "agent_selection_policy": str(metadata.get("agent_selection_policy") or ""),
                 }
             ),

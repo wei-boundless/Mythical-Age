@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from harness.receipt_payload import receipt_payload
+
 
 RECOVERY_BOUNDARY_RECEIPT_AUTHORITY = "harness.continuation.recovery_boundary_receipt"
 TASK_RECOVERY_RESUME_DECISION = "resume_task_recovery"
@@ -35,7 +37,7 @@ class TaskRecoveryResumeAvailability:
 
 
 def task_recovery_resume_availability_from_receipt(receipt: dict[str, Any] | Any | None) -> TaskRecoveryResumeAvailability:
-    payload = _payload_from_receipt(receipt)
+    payload = receipt_payload(receipt)
     operations = dict(payload.get("operation_availability") or {})
     observed = "resume_task_recovery" in operations
     requested_available = operations.get("resume_task_recovery") is True
@@ -88,18 +90,8 @@ def task_recovery_boundary_receipt_allows_resume(receipt: dict[str, Any] | Any |
 
 
 def task_recovery_operation_availability_from_receipt(receipt: dict[str, Any] | Any | None) -> dict[str, Any]:
-    payload = _payload_from_receipt(receipt)
+    payload = receipt_payload(receipt)
     operations = dict(payload.get("operation_availability") or {})
     if "resume_task_recovery" in operations:
         operations["resume_task_recovery"] = task_recovery_boundary_receipt_allows_resume(payload)
     return operations
-
-
-def _payload_from_receipt(receipt: dict[str, Any] | Any | None) -> dict[str, Any]:
-    if receipt is None:
-        return {}
-    if hasattr(receipt, "to_dict"):
-        return dict(receipt.to_dict())
-    if isinstance(receipt, dict):
-        return dict(receipt)
-    return {}

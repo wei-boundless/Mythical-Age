@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
 
+import { TOOL_ACTION_LABELS } from "@/lib/toolDisplay";
+
 import type { ActivityEntry, ActivityRenderUnit, ToolUiFamily } from "./PublicTimelineActivity";
 
 export function ToolRound({ group }: { group: Extract<ActivityRenderUnit, { kind: "tool_round" }> }) {
@@ -1282,24 +1284,9 @@ function isToolNamePlaceholder(value: string) {
   );
 }
 
-const TOOL_TITLE_ACTIONS = [
-  "运行命令",
-  "匹配路径",
-  "列出目录",
-  "检查路径",
-  "读取文件",
-  "搜索文件",
-  "搜索文本",
-  "写入文件",
-  "编辑文件",
-  "批量编辑文件",
-  "应用补丁",
-  "工具操作",
-];
-
 function splitToolTitle(value: string) {
   const text = String(value || "").trim();
-  for (const action of TOOL_TITLE_ACTIONS) {
+  for (const action of TOOL_ACTION_LABELS) {
     if (text === action) return { action, target: "" };
     if (text.startsWith(`${action} `)) return { action, target: text.slice(action.length).trim() };
     if (text.startsWith(`${action}：`)) return { action, target: text.slice(action.length + 1).trim() };

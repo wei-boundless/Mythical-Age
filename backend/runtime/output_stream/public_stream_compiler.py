@@ -4,7 +4,11 @@ import json
 import re
 from typing import Any
 
-from capability_system.tools.tool_surface import is_agent_state_tool_name, is_local_execution_tool_name
+from capability_system.tools.tool_surface import (
+    action_kind_for_surface_tool,
+    is_agent_state_tool_name,
+    is_local_execution_tool_name,
+)
 from harness.runtime.output_boundary import (
     contains_inline_pseudo_tool_call,
     contains_internal_protocol,
@@ -864,6 +868,7 @@ def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]
             "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
             "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
             "tool_name": tool_name,
+            "action_kind": action_kind_for_surface_tool(tool_name, args),
             "target": target,
             "arguments_preview": _tool_arguments_preview(args),
             "created_at": _public_created_at(raw_data, raw_event, payload, request, tool),
@@ -961,6 +966,7 @@ def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
+        "action_kind": str(payload.get("action_kind") or action_kind_for_surface_tool(tool_name, payload.get("arguments_preview") or payload.get("target"))),
         "title": _safe_public_action_text(payload.get("title")),
         "target": _safe_public_action_text(payload.get("target")),
         "arguments_preview": _safe_public_action_text(payload.get("arguments_preview")),
@@ -1047,6 +1053,7 @@ def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
         "turn_run_id": str(tool_observation.get("caller_ref") or observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
         "task_run_id": str(observation.get("task_run_id") or tool_observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
         "tool_name": tool_name,
+        "action_kind": action_kind_for_surface_tool(tool_name, tool_args),
         "title": _safe_public_action_text(tool_observation.get("title") or observation.get("title") or result_envelope.get("title")),
         "target": _safe_public_tool_target(tool_args, tool_name=tool_name),
         "arguments_preview": _tool_arguments_preview(tool_args),
@@ -1569,6 +1576,7 @@ def _tool_arguments_preview(args: dict[str, Any]) -> str:
         return ""
     parts: list[str] = []
     priority = (
+        "action",
         "path",
         "file",
         "file_path",

@@ -1148,6 +1148,157 @@ def _editor_index_record(
     )
 
 
+def _dict_from_container(container: Any, key: str) -> dict[str, Any]:
+    if not isinstance(container, dict):
+        return {}
+    value = container.get(key)
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _latest_project_network_control_tool_result(tool_results: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    entries = [dict(entry) for entry in list(tool_results or ()) if isinstance(entry, dict)]
+    for item in reversed(entries):
+        candidates = [item]
+        structured = dict(item.get("structured_payload") or {}) if isinstance(item.get("structured_payload"), dict) else {}
+        if structured:
+            candidates.append(structured)
+        if isinstance(item.get("tool_result"), dict):
+            candidates.append(dict(item.get("tool_result") or {}))
+        if isinstance(structured.get("tool_result"), dict):
+            candidates.append(dict(structured.get("tool_result") or {}))
+        for candidate in candidates:
+            if candidate.get("navigation_session") or candidate.get("path_candidates"):
+                return candidate
+    return {}
+
+
+def _project_network_control_lane_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload:
+        return {}
+    local_slice = dict(payload.get("local_slice") or {}) if isinstance(payload.get("local_slice"), dict) else {}
+    return drop_empty(
+        {
+            "navigation_session": _bounded_projection_dict(payload.get("navigation_session"), limit=16, chars=1200),
+            "path_candidates": [
+                _project_network_path_card(dict(item))
+                for item in list(payload.get("path_candidates") or [])[:12]
+                if isinstance(item, dict)
+            ],
+            "path_candidate_count": len(list(payload.get("path_candidates") or [])),
+            "opened_ref_count": len(list(payload.get("opened_refs") or [])),
+            "opened_refs": [
+                _bounded_projection_dict(item, limit=8, chars=500)
+                for item in list(payload.get("opened_refs") or [])[:20]
+                if isinstance(item, dict)
+            ],
+            "recent_decisions": [
+                _bounded_projection_dict(item, limit=10, chars=700)
+                for item in list(payload.get("recent_decisions") or [])[:8]
+                if isinstance(item, dict)
+            ],
+            "local_slice_summary": _project_network_slice_summary(local_slice),
+            "limitations": string_tuple(payload.get("limitations"))[:8],
+            "authority": "harness.runtime.dynamic_context.project_network_control_lane",
+        }
+    )
+
+
+def _project_semantic_space_lane_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload:
+        return {}
+    if payload.get("local_slice") and isinstance(payload.get("local_slice"), dict):
+        payload = dict(payload.get("local_slice") or {})
+    return drop_empty(
+        {
+            "build_id": compact_text(payload.get("build_id") or "", limit=160),
+            "generation": payload.get("generation"),
+            "seed_node_ids": string_tuple(payload.get("seed_node_ids"))[:12],
+            "node_count": len(list(payload.get("nodes") or [])),
+            "edge_count": len(list(payload.get("edges") or [])),
+            "semantic_overlay_count": len(list(payload.get("semantic_overlays") or [])),
+            "nodes": [
+                _project_network_node_card(dict(item))
+                for item in list(payload.get("nodes") or [])[:24]
+                if isinstance(item, dict)
+            ],
+            "edges": [
+                _project_network_edge_card(dict(item))
+                for item in list(payload.get("edges") or [])[:24]
+                if isinstance(item, dict)
+            ],
+            "semantic_overlays": [
+                _bounded_projection_dict(item, limit=8, chars=700)
+                for item in list(payload.get("semantic_overlays") or [])[:16]
+                if isinstance(item, dict)
+            ],
+            "limitations": string_tuple(payload.get("limitations"))[:8],
+            "authority": "harness.runtime.dynamic_context.project_semantic_space_lane",
+        }
+    )
+
+
+def _project_network_path_card(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "path_candidate_id": compact_text(item.get("path_candidate_id") or "", limit=180),
+            "path_kind": compact_text(item.get("path_kind") or "", limit=80),
+            "path_label": compact_text(item.get("path_label") or "", limit=300),
+            "score": item.get("score"),
+            "status": compact_text(item.get("status") or "", limit=80),
+            "target_node_id": compact_text(item.get("target_node_id") or "", limit=180),
+            "node_ids": string_tuple(item.get("node_ids"))[:8],
+            "edge_ids": string_tuple(item.get("edge_ids"))[:8],
+            "stable_refs": string_tuple(item.get("stable_refs"))[:8],
+            "semantic_overlay_ids": string_tuple(item.get("semantic_overlay_ids"))[:8],
+            "reason": compact_text(item.get("reason") or "", limit=240),
+        }
+    )
+
+
+def _project_network_node_card(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "node_id": compact_text(item.get("node_id") or "", limit=180),
+            "node_kind": compact_text(item.get("node_kind") or "", limit=80),
+            "stable_ref": compact_text(item.get("stable_ref") or "", limit=260),
+            "display_name": compact_text(item.get("display_name") or "", limit=180),
+            "path": compact_text(item.get("path") or "", limit=260),
+            "layer_kind": compact_text(item.get("layer_kind") or "", limit=80),
+        }
+    )
+
+
+def _project_network_edge_card(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "edge_id": compact_text(item.get("edge_id") or "", limit=180),
+            "edge_kind": compact_text(item.get("edge_kind") or "", limit=100),
+            "src_node_id": compact_text(item.get("src_node_id") or "", limit=180),
+            "dst_node_id": compact_text(item.get("dst_node_id") or "", limit=180),
+            "dst_candidate_ref": compact_text(item.get("dst_candidate_ref") or "", limit=220),
+            "resolution_status": compact_text(item.get("resolution_status") or "", limit=80),
+            "freshness": compact_text(item.get("freshness") or "", limit=80),
+        }
+    )
+
+
+def _project_network_slice_summary(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return drop_empty(
+        {
+            "build_id": compact_text(value.get("build_id") or "", limit=160),
+            "generation": value.get("generation"),
+            "seed_node_ids": string_tuple(value.get("seed_node_ids"))[:8],
+            "node_count": len(list(value.get("nodes") or [])),
+            "edge_count": len(list(value.get("edges") or [])),
+            "semantic_overlay_count": len(list(value.get("semantic_overlays") or [])),
+        }
+    )
+
+
 def _merge_editor_index_record(
     records: list[dict[str, Any]],
     by_path: dict[str, int],

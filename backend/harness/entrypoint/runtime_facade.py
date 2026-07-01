@@ -11,6 +11,7 @@ from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
 from graph_system.facade import GraphSystem
 from harness.current_work_receipt import current_work_control_availability_from_receipt
+from harness.receipt_payload import receipt_payload
 from harness.continuation import (
     build_recovery_boundary_input,
     build_recovery_packet,
@@ -176,6 +177,7 @@ class HarnessRuntimeFacade:
             tool_runtime_executor=self.tool_runtime_executor,
             tool_instances=tuple(self._all_tool_instances()),
             agent_runtime_profile_resolver=self.agent_runtime_registry.get_profile,
+            runtime_algorithm_effect_sink=self._handle_runtime_algorithm_effects,
         )
         self.task_executor_controller = TaskExecutorController(
             runtime_host=self.single_agent_runtime_host,
@@ -191,6 +193,66 @@ class HarnessRuntimeFacade:
             "graph_system": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "task_executor_recovery": self.task_executor_recovery,
+        }
+
+    def _handle_runtime_algorithm_effects(
+        self,
+        *,
+        effect_requests: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+        graph_config: Any,
+        graph_state: Any,
+        node_result: Any,
+    ) -> dict[str, Any]:
+        del graph_config, graph_state
+        receipts: list[dict[str, Any]] = []
+        for request in [dict(item) for item in list(effect_requests or []) if isinstance(item, dict)]:
+            effect_kind = str(request.get("effect_kind") or "").strip()
+            if effect_kind == "project_network_work_product_ingest":
+                receipts.append(self._ingest_project_network_work_product_effect(request=request, node_result=node_result))
+                continue
+            receipts.append(
+                {
+                    "effect_kind": effect_kind,
+                    "status": "failed" if bool(request.get("required", False)) else "skipped",
+                    "reason": "unsupported_runtime_algorithm_effect",
+                    "required": bool(request.get("required", False)),
+                    "authority": "harness.entrypoint.runtime_algorithm_effect_sink.unsupported",
+                }
+            )
+        return {
+            "receipts": receipts,
+            "authority": "harness.entrypoint.runtime_algorithm_effect_sink",
+        }
+
+    def _ingest_project_network_work_product_effect(self, *, request: dict[str, Any], node_result: Any) -> dict[str, Any]:
+        from task_system.project_network import DirectoryRuntimeService
+
+        context = dict(request.get("context") or {})
+        service = DirectoryRuntimeService.from_backend_dir(self.base_dir)
+        ingest = service.accept_directory_node_result(
+            node_result,
+            frame_id=str(context.get("directory_frame_id") or ""),
+            build_id=str(context.get("build_id") or ""),
+            default_shard_id=str(context.get("default_shard_id") or ""),
+            default_layer_id=str(context.get("default_layer_id") or ""),
+        )
+        work_products = tuple(getattr(ingest, "work_products", ()) or ())
+        metadata = dict(getattr(ingest, "metadata", {}) or {})
+        semantic_artifact_set = dict(getattr(ingest, "semantic_artifact_set", {}) or metadata.get("semantic_artifact_set") or {})
+        return {
+            "effect_kind": "project_network_work_product_ingest",
+            "status": "completed" if work_products else "failed",
+            "reason": "" if work_products else "no_project_network_work_products_ingested",
+            "required": bool(request.get("required", False)),
+            "build_id": str(getattr(ingest, "build_id", "") or ""),
+            "graph_run_id": str(getattr(ingest, "graph_run_id", "") or ""),
+            "node_id": str(getattr(ingest, "node_id", "") or ""),
+            "work_product_count": len(work_products),
+            "work_product_ids": [str(getattr(item, "work_product_id", "") or "") for item in work_products],
+            "channel_count": len(tuple(getattr(ingest, "channel_states", ()) or ())),
+            "directory_child_return_count": int(metadata.get("directory_child_return_count") or 0),
+            "semantic_artifact_set": semantic_artifact_set,
+            "authority": "harness.entrypoint.project_network_work_product_effect",
         }
 
     @property
@@ -416,7 +478,7 @@ class HarnessRuntimeFacade:
         }
 
     def prepare_chat_run_request_for_schedule(self, request: HarnessRuntimeRequest, *, stream_run_id: str) -> HarnessRuntimeRequest:
-        runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        runtime_profile = request.runtime_profile_payload()
         if str(runtime_profile.get("precommitted_user_message_turn_id") or "").strip():
             return request
         history_record = self.session_manager.load_session_record(request.session_id)
@@ -455,7 +517,7 @@ class HarnessRuntimeFacade:
         )
 
     async def astream(self, request: HarnessRuntimeRequest):
-        request_runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        request_runtime_profile = request.runtime_profile_payload()
         model_user_message = str(request.message or "")
         precommitted_turn_id = str(request_runtime_profile.get("precommitted_user_message_turn_id") or "").strip()
         history_record = self.session_manager.load_session_record(request.session_id)
@@ -541,7 +603,7 @@ class HarnessRuntimeFacade:
         project_binding = dict(conversation_state.get("project_binding") or {})
         if project_binding:
             session_context["project_binding"] = project_binding
-        editor_context = dict(getattr(request, "editor_context", {}) or {})
+        editor_context = request.editor_context_payload()
         if editor_context:
             session_context["editor_context"] = editor_context
         attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
@@ -578,7 +640,7 @@ class HarnessRuntimeFacade:
                 self.single_agent_runtime_host.active_turn_registry.start(
                     session_id=request.session_id,
                     turn_id=turn_id,
-                    stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
+                    stream_run_id=str(request_runtime_profile.get("stream_run_id") or ""),
                     state="starting",
                 )
                 started_active_turn_id = turn_id
@@ -621,11 +683,13 @@ class HarnessRuntimeFacade:
 
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
                 agent_runtime_profile = self._resolve_request_agent_runtime_profile(request)
-                request_environment_binding = dict(getattr(request, "environment_binding", {}) or {})
+                request_environment_binding = request.environment_binding_payload()
+                request_runtime_contract = request.runtime_contract_payload()
+                request_model_selection = request.model_selection_payload()
                 runtime_contract = _runtime_contract_for_turn(
-                    request_runtime_contract=dict(request.runtime_contract or {}),
+                    request_runtime_contract=request_runtime_contract,
                     turn_id=turn_id,
-                    runtime_profile=dict(request.runtime_profile or {}),
+                    runtime_profile=request_runtime_profile,
                     active_turn_present=active_turn is not None,
                 )
                 agent_invocation_id = f"aginvoke:{turn_id}:main"
@@ -636,7 +700,7 @@ class HarnessRuntimeFacade:
                     turn_id=turn_id,
                     agent_invocation_id=agent_invocation_id,
                     runtime_contract=runtime_contract,
-                    model_selection=dict(request.model_selection or {}),
+                    model_selection=request_model_selection,
                     environment_binding=request_environment_binding,
                     agent_runtime_profile=agent_runtime_profile,
                     tool_instances=tool_instances,
@@ -714,7 +778,7 @@ class HarnessRuntimeFacade:
                     active_work_candidate=active_work_context,
                     recent_work_outcome_candidate=recent_work_outcome,
                     environment_binding=request_environment_binding,
-                    runtime_profile=dict(request.runtime_profile or {}),
+                    runtime_profile=request_runtime_profile,
                     editor_context=editor_context,
                 )
                 session_context["turn_id"] = turn_id
@@ -726,7 +790,7 @@ class HarnessRuntimeFacade:
                     active_work_context=active_work_context,
                     runtime_branch=runtime_branch,
                     runtime_assembly=runtime_assembly,
-                    model_selection=dict(request.model_selection or {}),
+                    model_selection=request_model_selection,
                 )
                 session_context["current_work_boundary_receipt"] = current_work_receipt.to_dict()
                 yield {
@@ -909,7 +973,7 @@ class HarnessRuntimeFacade:
             session_context=session_context,
             agent_invocation_id=agent_invocation_id,
             agent_runtime_profile=agent_runtime_profile,
-            model_selection=dict(request.model_selection or {}),
+            model_selection=request.model_selection_payload(),
             runtime_assembly=runtime_assembly,
             runtime_host=self.single_agent_runtime_host,
             runtime_branch=runtime_branch,
@@ -917,7 +981,7 @@ class HarnessRuntimeFacade:
             current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
             model_runtime=getattr(self.model_response_executor, "model_runtime", None),
             commit_assistant_message=self._apply_assistant_message_commit_async,
-            stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
+            stream_run_id=request.stream_run_id(),
             start_task_from_action_request=start_task,
             apply_active_work_control=lambda action_request: self._run_current_work_control_action_request(
                 request=request,
@@ -1327,7 +1391,7 @@ class HarnessRuntimeFacade:
             runtime_branch=runtime_branch,
             control_capabilities=dict(assembly_payload.get("control_capabilities") or {}),
             context_policy=dict(profile_payload.get("context_policy") or {}),
-            editor_context_summary=dict(getattr(request, "editor_context", {}) or {}),
+            editor_context_summary=request.editor_context_payload(),
         )
         decision = decide_current_work_boundary(boundary_input)
         receipt = current_work_boundary_receipt_from_decision(decision)
@@ -1390,7 +1454,7 @@ class HarnessRuntimeFacade:
             context=fresh_context,
             turn_id=turn_id,
             user_message=request.message,
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
+            editor_context=request.editor_context_payload(),
         )
         if isinstance(result, dict):
             content = str(result.get("content") or result.get("message") or "").strip()
@@ -1634,7 +1698,6 @@ class HarnessRuntimeFacade:
             allowed_tool_names=set(),
             runtime_profile=_runtime_profile_payload_from_assembly(launch_runtime_assembly),
             permission_mode=_runtime_permission_mode_from_assembly(launch_runtime_assembly),
-            side_effect_policy="runtime_authorized",
             current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
             session_id=request.session_id,
             turn_id=turn_id,
@@ -2285,8 +2348,8 @@ class HarnessRuntimeFacade:
         )
 
     def _resolve_request_agent_runtime_profile(self, request: Any) -> Any:
-        request_profile = dict(getattr(request, "runtime_profile", {}) or {})
-        runtime_contract = dict(getattr(request, "runtime_contract", {}) or {})
+        request_profile = _request_payload(request, "runtime_profile")
+        runtime_contract = _request_payload(request, "runtime_contract")
         contract_profile = dict(runtime_contract.get("runtime_profile") or {})
         profile_id = _first_non_empty_string(
             request_profile.get("agent_profile_id"),
@@ -2885,7 +2948,7 @@ class HarnessRuntimeFacade:
         return await self.runtime_memory_context_provider.for_task_execution(dict(payload or {}))
 
     def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
-        payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
+        payload = receipt_payload(receipt)
         continuity_succeeded = bool(payload.get("conversation_continuity_succeeded") is True)
         durable_succeeded = bool(payload.get("durable_memory_succeeded") is True)
         durable_write_count = int(payload.get("durable_write_count") or 0)
@@ -2922,6 +2985,15 @@ class HarnessRuntimeFacade:
         if not callable(getter):
             return None
         return getter(name)
+
+
+def _request_payload(request: Any, field_name: str) -> dict[str, Any]:
+    payload_reader = getattr(request, f"{field_name}_payload", None)
+    if callable(payload_reader):
+        return payload_reader()
+    value = getattr(request, field_name, {})
+    return dict(value) if isinstance(value, dict) else {}
+
 
 def _task_resume_schedule_failure_reply(result: dict[str, Any]) -> str:
     reason = str(result.get("reason") or result.get("error") or "unknown").strip()

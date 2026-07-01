@@ -1810,6 +1810,7 @@ async def run_single_agent_turn(
                 },
             }
 
+        tool_definitions_by_name = dict(getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}) or {})
         compilation = compiler.compile_single_agent_turn_packet(
             session_id=session_id,
             turn_id=turn_id,
@@ -1822,6 +1823,7 @@ async def run_single_agent_turn(
             agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
             model_selection=dict(model_selection or {}),
             runtime_assembly=runtime_assembly,
+            tool_definitions_by_name=tool_definitions_by_name,
         )
         _patch_turn_memory(
             runtime_host,
@@ -1854,7 +1856,6 @@ async def run_single_agent_turn(
             "turn_run_id": turn_run.turn_run_id if turn_run is not None else "",
             "active_turn_id": turn_id,
         }
-        tool_definitions_by_name = dict(getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}) or {})
         runtime_tool_plan = build_runtime_tool_plan(
             runtime_assembly=runtime_assembly,
             invocation_kind="single_agent_turn",
@@ -2051,6 +2052,7 @@ async def run_single_agent_turn(
                     model_messages=closeout_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + attempt,
+                    provider_lane=PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                     **provider_visible_followup_ledger,
                 )
                 closeout_response = None
@@ -2427,6 +2429,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
+                    provider_lane=PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                     **provider_visible_followup_ledger,
                 )
                 model_messages_segment_plan = dict(recovery_segment_plan or {})
@@ -2517,7 +2520,6 @@ async def run_single_agent_turn(
                     allowed_tool_names=set(runtime_tool_plan.dispatchable_tool_names),
                     runtime_profile=_runtime_profile_payload(runtime_assembly),
                     permission_mode=runtime_permission_mode,
-                    side_effect_policy="runtime_authorized",
                     current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                     session_id=session_id,
                     turn_id=turn_id,
@@ -2913,6 +2915,7 @@ async def run_single_agent_turn(
                     agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
                     model_selection=dict(model_selection or {}),
                     runtime_assembly=runtime_assembly,
+                    tool_definitions_by_name=tool_definitions_by_name,
                 )
                 model_messages = _copy_model_messages_without_rewriting(list(followup_compilation.packet.model_messages))
                 round_tool_context_indexed_messages = []
@@ -3218,6 +3221,7 @@ async def run_single_agent_turn(
                     model_messages=model_messages,
                     packet_id=current_packet_ref,
                     tool_iteration=tool_iteration + 1,
+                    provider_lane=PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
                     **provider_visible_followup_ledger,
                 )
                 model_messages_segment_plan = dict(recovery_segment_plan or {})
@@ -3310,7 +3314,6 @@ async def run_single_agent_turn(
                 ),
                 runtime_profile=_runtime_profile_payload(runtime_assembly),
                 permission_mode=runtime_permission_mode,
-                side_effect_policy="runtime_authorized",
                 current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                 session_id=session_id,
                 turn_id=turn_id,
@@ -3387,7 +3390,6 @@ async def run_single_agent_turn(
                         ),
                         runtime_profile=_runtime_profile_payload(runtime_assembly),
                         permission_mode=runtime_permission_mode,
-                        side_effect_policy="runtime_authorized",
                         current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
                         session_id=session_id,
                         turn_id=turn_id,
@@ -4529,6 +4531,7 @@ async def _repair_single_agent_admission_failure(
         model_messages=repair_messages,
         packet_id=packet_ref,
         tool_iteration=iteration + 1,
+        provider_lane=PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
         **_provider_visible_followup_ledger_kwargs_from_accounting(
             accounting_context,
             model_selection=dict(model_selection or {}),
@@ -6178,7 +6181,7 @@ def _native_tool_public_target(args: dict[str, Any]) -> str:
 def _native_tool_arguments_preview(args: dict[str, Any]) -> str:
     if not args:
         return ""
-    priority = ("path", "file_path", "target_path", "query", "pattern", "url", "start_line", "line_count", "command")
+    priority = ("action", "path", "file_path", "target_path", "query", "pattern", "url", "start_line", "line_count", "command")
     skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
     ordered_keys = [key for key in priority if key in args]
     ordered_keys.extend(key for key in sorted(args) if key not in ordered_keys and key not in skipped)
@@ -7514,7 +7517,12 @@ def _single_agent_turn_followup_prompt_payload(
     storage_root: Path | None = None,
     provider_visible_append_scope: str = "",
     model_selection: dict[str, Any] | None = None,
+    provider_lane: str = PROVIDER_LANE_AGENT_TOOL_LOOP,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    lane_model_selection = _model_selection_with_provider_lane(
+        model_selection,
+        provider_lane=provider_lane,
+    )
     append_only_messages = _copy_model_messages_without_rewriting(model_messages)
     specs, prefix_lock_report = _single_agent_turn_append_only_followup_message_specs(
         base_segment_plan=base_segment_plan,
@@ -7534,7 +7542,7 @@ def _single_agent_turn_followup_prompt_payload(
         specs,
         storage_root=storage_root,
         scope=provider_visible_append_scope,
-        model_selection=model_selection,
+        model_selection=lane_model_selection,
     )
     context_candidate_gateway_result = build_context_candidate_gateway(
         specs,
@@ -7547,7 +7555,7 @@ def _single_agent_turn_followup_prompt_payload(
         invocation_kind="single_agent_turn_tool_followup",
         provider_visible_append_scope=provider_visible_append_scope,
         storage_root=storage_root,
-        model_selection=model_selection,
+        model_selection=lane_model_selection,
         apply_capability_profile_stage=False,
     )
     specs = [dict(item) for item in context_pipeline_result.message_specs]
@@ -7600,6 +7608,16 @@ def _single_agent_turn_followup_prompt_payload(
             )
         )
     return append_only_messages, segment_plan
+
+
+def _model_selection_with_provider_lane(
+    model_selection: dict[str, Any] | None,
+    *,
+    provider_lane: str,
+) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    selection["provider_lane"] = str(provider_lane or "").strip()
+    return selection
 
 
 def _standardize_followup_provider_tool_protocol_specs(

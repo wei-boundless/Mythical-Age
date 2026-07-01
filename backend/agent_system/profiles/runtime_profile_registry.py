@@ -885,6 +885,86 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             },
         ),
         _runtime_profile(
+            agent_profile_id="project_network_file_reviewer_agent",
+            agent_id="agent:project_network_file_reviewer",
+            extra_allowed_operations=("op.model_response",),
+            blocked_operations=(
+                "op.codebase_search",
+                "op.workspace_read",
+                "op.workspace_search",
+                "op.code_structure_read",
+                "op.git_read",
+                "op.project_network_read",
+                "op.project_network_build",
+                "op.project_network_maintenance",
+                "op.memory_read",
+                "op.memory_write_candidate",
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
+                "op.workspace_write",
+                "op.workspace_edit",
+                "op.shell",
+            ),
+            allowed_memory_scopes=(),
+            allowed_context_sections=("task", "projection", "runtime_contracts", "code_intelligence"),
+            approval_policy="model_response_only",
+            lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("project_network_review"),
+            metadata={
+                "worker_kind": "project_network_review",
+                "subagent_task_kind": "project_network_file_review",
+                "runtime_template_id": "builtin.specialist.project_network_file_reviewer",
+                "worker_prompt_ref": "worker.prompt.project_network_review",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="deep_ast"),
+                "output_contract": {
+                    "required_fields": ("project_network_semantic_submissions", "semantic_label", "coverage", "limitations"),
+                    "forbidden_actions": ("file_read", "workspace_search", "memory_read", "file_write", "source_edit", "generation_publish"),
+                },
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="project_network_directory_reviewer_agent",
+            agent_id="agent:project_network_directory_reviewer",
+            extra_allowed_operations=("op.model_response",),
+            blocked_operations=(
+                "op.codebase_search",
+                "op.workspace_read",
+                "op.workspace_search",
+                "op.code_structure_read",
+                "op.git_read",
+                "op.project_network_read",
+                "op.project_network_build",
+                "op.project_network_maintenance",
+                "op.memory_read",
+                "op.memory_write_candidate",
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
+                "op.workspace_write",
+                "op.workspace_edit",
+                "op.shell",
+            ),
+            allowed_memory_scopes=(),
+            allowed_context_sections=("task", "projection", "runtime_contracts", "upstream_outputs"),
+            approval_policy="model_response_only",
+            lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("project_network_review"),
+            metadata={
+                "worker_kind": "project_network_review",
+                "subagent_task_kind": "project_network_directory_review",
+                "runtime_template_id": "builtin.specialist.project_network_directory_reviewer",
+                "worker_prompt_ref": "worker.prompt.project_network_review",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace"),
+                "output_contract": {
+                    "required_fields": ("project_network_semantic_submissions", "semantic_label", "coverage", "limitations"),
+                    "forbidden_actions": ("file_read", "workspace_search", "memory_read", "file_write", "source_edit", "generation_publish"),
+                },
+            },
+        ),
+        _runtime_profile(
             agent_profile_id="project_network_curator_agent",
             agent_id="agent:project_network_curator",
             extra_allowed_operations=(
@@ -1275,6 +1355,7 @@ def _enforce_system_builtin_profile_payload(
     enforced = dict(default_payload)
     enforced.update(payload)
     enforced["agent_id"] = agent_id
+    default_profile_matches = str(payload.get("agent_profile_id") or "") == str(default_payload.get("agent_profile_id") or "")
     for key in (
         "extra_allowed_operations",
         "blocked_operations",
@@ -1289,9 +1370,12 @@ def _enforce_system_builtin_profile_payload(
         default_payload.get("subagent_policy"),
         payload.get("subagent_policy"),
     )
+    if default_profile_matches:
+        enforced["prompt_set_refs"] = list(default_payload.get("prompt_set_refs") or [])
+        enforced["prompt_bindings"] = dict(default_payload.get("prompt_bindings") or {})
     default_model_profile = dict(default_payload.get("model_profile") or {})
     if (
-        str(payload.get("agent_profile_id") or "") == str(default_payload.get("agent_profile_id") or "")
+        default_profile_matches
         and _model_profile_has_default_authority(default_model_profile)
     ):
         enforced["model_profile"] = default_model_profile
@@ -1309,7 +1393,7 @@ def _enforce_system_builtin_profile_payload(
         allowed_operations=enforced_allowed_operations,
     )
     default_metadata_keys: set[str] = set()
-    if str(payload.get("agent_profile_id") or "") == str(default_payload.get("agent_profile_id") or ""):
+    if default_profile_matches:
         default_metadata_keys.update(
             {
                 "system_key",
@@ -1320,6 +1404,7 @@ def _enforce_system_builtin_profile_payload(
                 "default_task_environment_id",
                 "runtime_policy",
                 "worker_kind",
+                "worker_prompt_ref",
                 "subagent_task_kind",
                 "input_contract",
                 "output_contract",
