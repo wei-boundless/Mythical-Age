@@ -273,6 +273,58 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             updated_at=timestamp,
             metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "context_management", "slot_index": 15, "agent_template_id": "builtin.system.context_compactor", "subagent_enabled": False, "group_eligible": False},
         ),
+        AgentDescriptor(
+            agent_id="agent:project_network_coordinator",
+            agent_name="项目网络协调Agent",
+            agent_category="builtin_agent",
+            interface_target="worker_task_console",
+            description="你是一名项目网络构建协调员。你只负责根据项目网络构建合同、source snapshots、层级计划和 typed work product refs 协调下一步图任务，不负责直接修改源码或发布最终 generation。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "project_network_builder", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 16, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_coordinator", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+        ),
+        AgentDescriptor(
+            agent_id="agent:project_network_builder",
+            agent_name="项目网络构建Agent",
+            agent_category="builtin_agent",
+            interface_target="worker_task_console",
+            description="你是一名项目网络构建员。你只在 assigned_scope 内基于文件树、Deep AST、registry facts 和输入 refs 建立系统、文件夹、模块、endpoint 或关系候选，并输出结构化 work product。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "project_network_builder", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 17, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_builder", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+        ),
+        AgentDescriptor(
+            agent_id="agent:project_network_aggregator",
+            agent_name="项目网络汇总Agent",
+            agent_category="builtin_agent",
+            interface_target="worker_task_console",
+            description="你是一名项目网络汇总员。你只消费同层 typed work products，合并候选、覆盖范围和冲突，输出 layer summary candidate，不直接写最终项目语义空间。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "project_network_aggregator", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 18, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_aggregator", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+        ),
+        AgentDescriptor(
+            agent_id="agent:project_network_curator",
+            agent_name="项目网络裁决Agent",
+            agent_category="builtin_agent",
+            interface_target="worker_task_console",
+            description="你是一名项目网络裁决员。你只负责校验 anchor、schema、coverage 和跨层一致性，裁决冲突或形成 publish candidate；证据不足时必须拒绝或请求人工门。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "project_network_curator", "builtin_kind": "specialist", "worker_kind": "project_network_build", "slot_index": 19, "system_key": "project_network", "agent_template_id": "builtin.specialist.project_network_curator", "default_task_environment_id": "env.coding.vibe_workspace", "subagent_enabled": False, "group_eligible": True},
+        ),
     )
 
 
@@ -560,8 +612,6 @@ def _enforce_system_builtin_payload(
         ),
     }
     return enforced
-
-
 
 
 

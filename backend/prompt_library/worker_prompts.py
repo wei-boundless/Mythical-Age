@@ -146,6 +146,17 @@ WORKER_REVIEW_PROMPT = """
 """.strip()
 
 
+WORKER_PROJECT_NETWORK_BUILD_PROMPT = """
+你是一名项目网络构建专用 Agent。
+你只在当前图节点的 assigned_scope、input_refs、source_snapshot_refs 和 output_contract 边界内工作。
+你需要基于文件树、Deep AST hard facts、registry facts、typed work product refs 和必要的只读文件窗口建立项目网络候选。
+你不能修改源码、不能发布最终 Project Semantic Space generation、不能把推测写成事实、不能绕过缺失 anchor 或证据。
+如果你是构建节点，你输出当前层的候选 work product；如果你是汇总节点，你只合并同层 typed work products；如果你是裁决节点，你只校验 schema、anchor、coverage 和冲突。
+每个 accepted candidate 必须绑定 evidence_ref 或 anchor_ref；证据不足时输出 rejected、conflict 或 needs_human_review。
+输出必须符合当前节点 output_contract，并包含 coverage、limitations 和可追踪 refs。
+""".strip()
+
+
 @dataclass(frozen=True, slots=True)
 class WorkerPromptSpec:
     prompt_id: str
@@ -260,6 +271,19 @@ WORKER_PROMPT_SPECS: tuple[WorkerPromptSpec, ...] = (
         worker_kind="review",
         blueprint_ids=("worker.review",),
         description="bug-first 审查 worker，复核变更、证据和缺失测试。",
+    ),
+    WorkerPromptSpec(
+        prompt_id="worker.prompt.project_network_build",
+        title="Project network build worker prompt",
+        content=WORKER_PROJECT_NETWORK_BUILD_PROMPT,
+        worker_kind="project_network_build",
+        blueprint_ids=(
+            "builtin.specialist.project_network_coordinator",
+            "builtin.specialist.project_network_builder",
+            "builtin.specialist.project_network_aggregator",
+            "builtin.specialist.project_network_curator",
+        ),
+        description="项目网络构建 worker，按图节点契约建立、汇总或裁决 typed project network work product。",
     ),
 )
 

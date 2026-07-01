@@ -175,6 +175,7 @@ def build_graph_config_from_graph(
         "tools": tools,
         "agents": {
             "coordinator_agent_id": str(graph_runtime_policy.get("coordinator_agent_id") or graph_metadata.get("coordinator_agent_id") or "agent:0"),
+            "coordinator_agent_profile_id": str(graph_runtime_policy.get("coordinator_agent_profile_id") or graph_metadata.get("coordinator_agent_profile_id") or ""),
             "agent_group_id": str(graph_runtime_policy.get("agent_group_id") or graph_metadata.get("agent_group_id") or ""),
         },
         "contracts": {
@@ -1015,6 +1016,8 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
             "role_prompt": str(prompt_contract.get("role_prompt") or metadata.get("role_prompt") or ""),
             "task_instruction": str(prompt_contract.get("task_instruction") or metadata.get("task_instruction") or ""),
             "output_instruction": str(prompt_contract.get("output_instruction") or metadata.get("output_instruction") or ""),
+            "forbidden_behavior": list(prompt_contract.get("forbidden_behavior") or metadata.get("forbidden_behavior") or []),
+            "definition_of_done": list(prompt_contract.get("definition_of_done") or metadata.get("definition_of_done") or []),
         },
         "context": dict(node.get("context_visibility_policy") or {}),
         "memory": {

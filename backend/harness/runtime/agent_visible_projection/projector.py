@@ -24,6 +24,7 @@ def build_agent_visible_runtime_projection(
     prompt_policy_payload = dict(prompt_policy or {})
     task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
     planning = dict(profile_payload.get("planning_policy") or {})
+    context_policy = dict(profile_payload.get("context_policy") or {})
     planning_protocol = _planning_protocol_payload(
         invocation_kind=invocation_kind,
         profile_payload=profile_payload,
@@ -134,6 +135,9 @@ def build_agent_visible_runtime_projection(
             "permission_mode": str(permission_mode or "default"),
         },
     }
+    code_intelligence = _agent_visible_code_intelligence(context_policy)
+    if code_intelligence:
+        payload["code_intelligence"] = code_intelligence
     if _prompt_policy_visible(prompt_policy_payload, "runtime_environment_boundary_visibility", default=True):
         payload["environment_boundary"] = {
             "environment_contract_present": bool(environment_payload.get("environment_id") or environment_boundary),
@@ -141,6 +145,36 @@ def build_agent_visible_runtime_projection(
             "persistent_environment_storage_available": bool(storage.get("environment_storage_root")),
         }
     return payload
+
+
+def _agent_visible_code_intelligence(context_policy: dict[str, Any]) -> dict[str, Any]:
+    policy = dict(context_policy or {})
+    code_intelligence = dict(policy.get("code_intelligence") or {})
+    ast_capability = dict(code_intelligence.get("ast") or code_intelligence.get("ast_capability") or {})
+    if not ast_capability:
+        return {}
+    return {
+        "ast": _agent_visible_ast_capability(ast_capability),
+        "authority": "agent_runtime_profile.context_policy.code_intelligence",
+    }
+
+
+def _agent_visible_ast_capability(ast_capability: dict[str, Any]) -> dict[str, Any]:
+    mode = str(ast_capability.get("mode") or "disabled").strip() or "disabled"
+    enabled = ast_capability.get("enabled") is not False and mode not in {"", "disabled", "none", "off"}
+    return {
+        "enabled": enabled,
+        "mode": mode if enabled else "disabled",
+        "required": bool(ast_capability.get("required") is True),
+        "language_profiles": [str(item) for item in list(ast_capability.get("language_profiles") or []) if str(item)],
+        "read_units": [str(item) for item in list(ast_capability.get("read_units") or []) if str(item)],
+        "refresh_policy": str(ast_capability.get("refresh_policy") or ""),
+        "projection_policy": str(ast_capability.get("projection_policy") or ""),
+        "freshness_policy": str(ast_capability.get("freshness_policy") or ""),
+        "index_store_policy": str(ast_capability.get("index_store_policy") or ""),
+        "degraded_behavior": str(ast_capability.get("degraded_behavior") or ""),
+        "authority": "agent_runtime_profile.ast_capability_projection",
+    }
 
 
 def _planning_protocol_payload(

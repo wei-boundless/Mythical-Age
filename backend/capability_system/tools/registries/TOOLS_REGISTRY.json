@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 41,
+  "tool_count": 49,
   "tools": [
     {
       "name": "agent_todo",
@@ -1178,6 +1178,579 @@
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
+    },
+    {
+      "name": "project_structure_build_skeleton",
+      "display_name": "构建项目结构骨架",
+      "operation_id": "op.project_structure_build_skeleton",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "build_id"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "scope_roots",
+          "generation",
+          "include_git_snapshot"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "skeleton_graph",
+        "code_intelligence"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "index_write",
+        "state_write",
+        "non_destructive"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "skeleton_build"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/project_structure_build_skeleton",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "explicit_resource",
+      "native_runtime_only": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "project_structure_read_node",
+      "display_name": "读取项目结构节点",
+      "operation_id": "op.project_structure_read_node",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "node_id",
+          "build_id",
+          "stable_ref",
+          "path",
+          "generation",
+          "include_semantic_overlay"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "path",
+        "path_kind": "workspace",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "node_card",
+        "semantic_overlay",
+        "read"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "project_index"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "read_node",
+        "node_card"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/project_structure_read_node",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "explicit_resource",
+      "native_runtime_only": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "project_structure_read_edge",
+      "display_name": "读取项目结构关系",
+      "operation_id": "op.project_structure_read_edge",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "edge_id"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "edge_card",
+        "relation",
+        "read"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "project_index"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "read_edge",
+        "relation_card"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/project_structure_read_edge",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "none",
+      "native_runtime_only": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "project_structure_expand",
+      "display_name": "扩展项目结构网络",
+      "operation_id": "op.project_structure_expand",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "build_id"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "seed_node_ids",
+          "seed_stable_refs",
+          "seed_paths",
+          "generation",
+          "edge_kinds",
+          "depth",
+          "limit",
+          "include_inbound",
+          "include_semantic_overlay"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "network_expand",
+        "relation",
+        "read"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "project_index"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "expand",
+        "network_navigation"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/project_structure_expand",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "explicit_resource",
+      "native_runtime_only": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "project_structure_directory_relations",
+      "display_name": "读取目录结构关系",
+      "operation_id": "op.project_structure_directory_relations",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "build_id",
+          "scope_root"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "generation",
+          "edge_kinds",
+          "max_nodes",
+          "max_edges",
+          "include_external",
+          "include_semantic_overlay"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "scope_root",
+        "path_kind": "workspace",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "directory_relations",
+        "scope_relations",
+        "read"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "project_index"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "directory_relations",
+        "scope_network"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/project_structure_directory_relations",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "explicit_resource",
+      "native_runtime_only": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "project_structure_collect_git_changes",
+      "display_name": "收集项目结构变更",
+      "operation_id": "op.project_structure_collect_git_changes",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "build_id"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "change_mode",
+          "skeleton_generation"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "git_changes",
+        "maintenance"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "state_write",
+        "git_read"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "git_change_set",
+        "maintenance"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/project_structure_collect_git_changes",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "none",
+      "native_runtime_only": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "project_structure_create_repair_work_items",
+      "display_name": "创建语义修复任务项",
+      "operation_id": "op.project_structure_create_repair_work_items",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "change_set_id"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "skeleton_generation",
+          "group_by_folder_threshold"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "semantic_repair",
+        "maintenance"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "state_write",
+        "non_destructive"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "semantic_repair",
+        "maintenance"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/project_structure_create_repair_work_items",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "none",
+      "native_runtime_only": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "project_structure_submit_semantic_overlay",
+      "display_name": "提交项目语义覆盖",
+      "operation_id": "op.project_structure_submit_semantic_overlay",
+      "module": "tools.project_structure_tools",
+      "contract": {
+        "required_inputs": [
+          "build_id",
+          "overlay_kind"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "stable_ref",
+          "skeleton_node_id",
+          "skeleton_edge_id",
+          "anchor_ref",
+          "status",
+          "confidence",
+          "generation",
+          "payload",
+          "evidence_refs",
+          "created_by_task_run_id",
+          "created_by_agent_id",
+          "overlay_id"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "project_structure",
+        "deep_network",
+        "semantic_overlay",
+        "candidate_write"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "state_write",
+        "semantic_candidate",
+        "non_destructive"
+      ],
+      "route_hints": [
+        "tool",
+        "project_structure",
+        "deep_network",
+        "semantic_overlay",
+        "semantic_submit"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/project_structure_submit_semantic_overlay",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_plus_guidance",
+      "resource_exposure_policy": "none",
+      "native_runtime_only": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
     },
     {
       "name": "memory_search",
@@ -2797,6 +3370,47 @@
       }
     },
     {
+      "package_id": "pkg.deep_network.management",
+      "title": "深度网络管理",
+      "description": "构建、读取、扩展和维护项目结构网络；支持按目录读取关系、生成语义修复任务项，并提交 agent 审查后的语义覆盖候选。",
+      "category": "项目网络",
+      "operation_ids": [
+        "op.project_structure_build_skeleton",
+        "op.project_structure_read_node",
+        "op.project_structure_read_edge",
+        "op.project_structure_expand",
+        "op.project_structure_directory_relations",
+        "op.project_structure_collect_git_changes",
+        "op.project_structure_create_repair_work_items",
+        "op.project_structure_submit_semantic_overlay"
+      ],
+      "risk_level": "中",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "project_structure",
+        "deep_network",
+        "semantic_overlay",
+        "maintenance"
+      ],
+      "metadata": {
+        "state_owner": "file_management.project_structure",
+        "storage": "storage/file_management/project_structure/project_structure.sqlite",
+        "read_operations": [
+          "op.project_structure_read_node",
+          "op.project_structure_read_edge",
+          "op.project_structure_expand",
+          "op.project_structure_directory_relations"
+        ],
+        "write_operations": [
+          "op.project_structure_build_skeleton",
+          "op.project_structure_collect_git_changes",
+          "op.project_structure_create_repair_work_items",
+          "op.project_structure_submit_semantic_overlay"
+        ]
+      }
+    },
+    {
       "package_id": "pkg.git.read",
       "title": "Git 只读",
       "description": "查看版本库状态、差异、日志、对象和分支。",
@@ -2877,6 +3491,24 @@
       "metadata": {}
     },
     {
+      "package_id": "pkg.browser.control",
+      "title": "浏览器控制",
+      "description": "观察和操作真实浏览器页面，用于页面状态、交互、截图和前端联调证据。默认不启用，需任务或 profile 显式授权。",
+      "category": "实时查询",
+      "operation_ids": [
+        "op.browser_control"
+      ],
+      "risk_level": "高",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "browser",
+        "web_automation",
+        "interactive"
+      ],
+      "metadata": {}
+    },
+    {
       "package_id": "pkg.memory",
       "title": "记忆读取",
       "description": "读取会话、状态或正式记忆视图。",
@@ -2907,6 +3539,24 @@
       "tags": [
         "agent",
         "state"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.analysis.text_metric",
+      "title": "文本计量",
+      "description": "计算文本长度、字数和预算指标。默认不启用，由需要长度预算的任务或 profile 显式授权。",
+      "category": "分析工具",
+      "operation_ids": [
+        "op.text_metric"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "text_metric",
+        "analysis",
+        "length_budget"
       ],
       "metadata": {}
     },
@@ -2989,14 +3639,5 @@
       "metadata": {}
     }
   ],
-  "default_library": [
-    {
-      "tool_name": "text_metric",
-      "operation_id": "op.text_metric"
-    },
-    {
-      "tool_name": "browser_control",
-      "operation_id": "op.browser_control"
-    }
-  ]
+  "default_library": []
 }

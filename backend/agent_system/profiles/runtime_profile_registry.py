@@ -79,11 +79,65 @@ def _runtime_profile(**payload: Any) -> AgentRuntimeProfile:
     )
 
 
-def _main_agent_runtime_policy(environment_id: str) -> dict[str, Any]:
-    return {
+def _main_agent_runtime_policy(environment_id: str, *, ast_mode: str = "disabled") -> dict[str, Any]:
+    policy = {
         "default_task_environment_id": environment_id,
         "task_lifecycle_policy": {"request_task_run": False},
         "prompt_policy": {},
+    }
+    code_intelligence = _code_intelligence_context_policy(ast_mode)
+    if code_intelligence:
+        policy["context_policy"] = {"code_intelligence": code_intelligence}
+    return policy
+
+
+def _worker_agent_runtime_policy(environment_id: str, *, ast_mode: str = "disabled") -> dict[str, Any]:
+    policy: dict[str, Any] = {"default_task_environment_id": environment_id}
+    code_intelligence = _code_intelligence_context_policy(ast_mode)
+    if code_intelligence:
+        policy["context_policy"] = {"code_intelligence": code_intelligence}
+    return policy
+
+
+def _code_intelligence_context_policy(ast_mode: str) -> dict[str, Any]:
+    mode = str(ast_mode or "disabled").strip()
+    if mode in {"", "disabled", "none", "off"}:
+        return {}
+    base = {
+        "mode": mode,
+        "enabled": True,
+        "language_profiles": ("python",),
+        "freshness_policy": "file_hash_bound",
+        "authority": "agent_runtime_profile.context_policy.code_intelligence",
+    }
+    if mode == "basic_ast":
+        return {
+            "ast": {
+                **base,
+                "refresh_policy": "manual_or_file_hash_change",
+                "projection_policy": "outline_only",
+                "read_units": ("file_outline", "import_outline", "symbol_outline"),
+                "index_store_policy": "agent_scoped_ast_index",
+            }
+        }
+    if mode == "deep_ast":
+        return {
+            "ast": {
+                **base,
+                "refresh_policy": "on_file_hash_change",
+                "projection_policy": "file_module_index",
+                "read_units": ("file_module", "function_endpoint", "class_endpoint", "call_site", "import_edge", "relation_candidate"),
+                "index_store_policy": "agent_scoped_deep_ast_index",
+            }
+        }
+    return {
+        "ast": {
+            **base,
+            "refresh_policy": "manual",
+            "projection_policy": "custom",
+            "read_units": (),
+            "index_store_policy": "agent_scoped_ast_index",
+        }
     }
 
 
@@ -192,7 +246,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             extra_allowed_operations=("op.model_response", "op.shell"),
             blocked_operations=("op.python_repl", "op.memory_write_candidate", "op.git_push"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
-            allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
+            allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts", "code_intelligence"),
             model_profile=parse_agent_model_profile(
                 {
                     "profile_id": "model.profile.main_coding.action_control",
@@ -209,7 +263,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "runtime_template_id": "builtin.main.coding",
                 "main_agent_kind": "coding",
                 "default_task_environment_id": "env.coding.vibe_workspace",
-                "runtime_policy": _main_agent_runtime_policy("env.coding.vibe_workspace"),
+                "runtime_policy": _main_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="deep_ast"),
             },
         ),
         _runtime_profile(
@@ -572,7 +626,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.memory_write_candidate",
             ),
             allowed_memory_scopes=(),
-            allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
+            allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs", "code_intelligence"),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             prompt_set_refs=_worker_prompt_set_refs("codebase_search"),
@@ -595,6 +649,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "context_policy": "fresh_specialist_summary_and_refs_only",
                 "runtime_template_id": "runtime.template.codebase_search",
                 "worker_prompt_ref": "worker.prompt.codebase_search",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="deep_ast"),
                 "runtime_config": {
                     "template_id": "runtime.template.codebase_search",
                     "runtime_kind": "codebase_search_agent",
@@ -684,6 +740,195 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                     "forbidden_actions": ("file_write", "edit", "fix_implementation"),
                 },
                 "child_execution_mode": "bounded_verification",
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="project_network_coordinator_agent",
+            agent_id="agent:project_network_coordinator",
+            extra_allowed_operations=(
+                "op.model_response",
+                "op.codebase_search",
+                "op.search_files",
+                "op.search_text",
+                "op.python_symbol_search",
+                "op.read_file",
+                "op.glob_paths",
+                "op.list_dir",
+                "op.stat_path",
+                "op.path_exists",
+                "op.git_status",
+                "op.project_structure_build_skeleton",
+                "op.project_structure_read_node",
+                "op.project_structure_read_edge",
+                "op.project_structure_expand",
+                "op.project_structure_directory_relations",
+                "op.project_structure_collect_git_changes",
+                "op.project_structure_create_repair_work_items",
+            ),
+            blocked_operations=(
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+            ),
+            allowed_memory_scopes=("graph_task_readonly", "layer_summary_readonly"),
+            allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "upstream_outputs", "artifact_refs", "code_intelligence"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("project_network_build"),
+            metadata={
+                "worker_kind": "project_network_build",
+                "subagent_task_kind": "project_network_coordination",
+                "runtime_template_id": "builtin.specialist.project_network_coordinator",
+                "worker_prompt_ref": "worker.prompt.project_network_build",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="basic_ast"),
+                "output_contract": {
+                    "required_fields": ("next_graph_plan", "materialization_package_ref", "coverage", "limitations"),
+                    "forbidden_actions": ("file_write", "source_edit", "generation_publish"),
+                },
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="project_network_builder_agent",
+            agent_id="agent:project_network_builder",
+            extra_allowed_operations=(
+                "op.model_response",
+                "op.codebase_search",
+                "op.search_files",
+                "op.search_text",
+                "op.python_symbol_search",
+                "op.read_file",
+                "op.glob_paths",
+                "op.list_dir",
+                "op.stat_path",
+                "op.path_exists",
+                "op.git_status",
+                "op.git_show",
+                "op.project_structure_read_node",
+                "op.project_structure_read_edge",
+                "op.project_structure_expand",
+                "op.project_structure_directory_relations",
+            ),
+            blocked_operations=(
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+            ),
+            allowed_memory_scopes=("graph_task_readonly", "layer_summary_readonly"),
+            allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "upstream_outputs", "artifact_refs", "code_intelligence"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("project_network_build"),
+            metadata={
+                "worker_kind": "project_network_build",
+                "subagent_task_kind": "project_network_build",
+                "runtime_template_id": "builtin.specialist.project_network_builder",
+                "worker_prompt_ref": "worker.prompt.project_network_build",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="deep_ast"),
+                "output_contract": {
+                    "required_fields": ("graph_build_work_products", "coverage", "limitations"),
+                    "forbidden_actions": ("file_write", "source_edit", "generation_publish"),
+                },
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="project_network_aggregator_agent",
+            agent_id="agent:project_network_aggregator",
+            extra_allowed_operations=(
+                "op.model_response",
+                "op.read_file",
+                "op.search_files",
+                "op.search_text",
+                "op.git_status",
+                "op.project_structure_read_node",
+                "op.project_structure_read_edge",
+                "op.project_structure_expand",
+                "op.project_structure_directory_relations",
+            ),
+            blocked_operations=(
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+            ),
+            allowed_memory_scopes=("graph_task_readonly", "layer_summary_readonly"),
+            allowed_context_sections=("task", "projection", "runtime_contracts", "upstream_outputs", "artifact_refs"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("project_network_build"),
+            metadata={
+                "worker_kind": "project_network_build",
+                "subagent_task_kind": "project_network_aggregation",
+                "runtime_template_id": "builtin.specialist.project_network_aggregator",
+                "worker_prompt_ref": "worker.prompt.project_network_build",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace"),
+                "output_contract": {
+                    "required_fields": ("layer_summary", "accepted_refs", "rejected_refs", "conflicts", "coverage"),
+                    "forbidden_actions": ("file_write", "source_edit", "generation_publish"),
+                },
+            },
+        ),
+        _runtime_profile(
+            agent_profile_id="project_network_curator_agent",
+            agent_id="agent:project_network_curator",
+            extra_allowed_operations=(
+                "op.model_response",
+                "op.read_file",
+                "op.search_files",
+                "op.search_text",
+                "op.python_symbol_search",
+                "op.git_status",
+                "op.git_show",
+                "op.project_structure_read_node",
+                "op.project_structure_read_edge",
+                "op.project_structure_expand",
+                "op.project_structure_directory_relations",
+                "op.project_structure_collect_git_changes",
+                "op.project_structure_create_repair_work_items",
+                "op.project_structure_submit_semantic_overlay",
+            ),
+            blocked_operations=(
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+            ),
+            allowed_memory_scopes=("graph_task_readonly", "layer_summary_readonly"),
+            allowed_context_sections=("task", "projection", "runtime_contracts", "upstream_outputs", "artifact_refs", "code_intelligence"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            prompt_set_refs=_worker_prompt_set_refs("project_network_build"),
+            metadata={
+                "worker_kind": "project_network_build",
+                "subagent_task_kind": "project_network_curation",
+                "runtime_template_id": "builtin.specialist.project_network_curator",
+                "worker_prompt_ref": "worker.prompt.project_network_build",
+                "default_task_environment_id": "env.coding.vibe_workspace",
+                "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="deep_ast"),
+                "output_contract": {
+                    "required_fields": ("validation_report", "conflicts", "publish_candidate", "limitations"),
+                    "forbidden_actions": ("file_write", "source_edit"),
+                },
             },
         ),
     )

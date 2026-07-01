@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Type
 
+from capability_system.capabilities.code_intelligence import FileModuleAstIndex, build_python_file_module_ast_index
 from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -66,16 +67,19 @@ class PythonCodeOutlineTool(BaseTool):
         file_path, error = _resolve_python_file(self._files, path)
         if error:
             return _tool_result(error, ok=False, kind="python_code_outline")
-        tree, parse_error = _parse_python(self._files, file_path)
+        index, parse_error = _build_python_index(self._files, file_path)
         if parse_error:
             return _tool_result(parse_error, ok=False, kind="python_code_outline", path=self._files.relative_path(file_path))
-        symbols = _collect_symbols(tree, path=self._files.relative_path(file_path))
+        assert index is not None
+        symbols = _symbols_from_index(index, include_local_assignments=False)
         limit = max(1, min(int(max_symbols or 80), 300))
         payload = {
             "kind": "python_code_outline",
             "path": self._files.relative_path(file_path),
+            "source_authority": "capability_system.capabilities.code_intelligence.python_ast_indexer",
             "symbol_count": len(symbols),
             "symbols": [asdict(symbol) | {"qualname": symbol.qualname} for symbol in symbols[:limit]],
+            "file_module_ast_index": index.to_dict(),
             "truncated": len(symbols) > limit,
         }
         return _tool_result(_format_outline(payload), ok=True, kind="python_code_outline", path=payload["path"], payload=payload)
@@ -139,16 +143,15 @@ class PythonSymbolSearchTool(BaseTool):
         limit = max(1, min(int(max_results or 40), 200))
         matches: list[PythonSymbol] = []
         for file_path in _iter_python_files(self._files, roots):
-            tree, parse_error = _parse_python(self._files, file_path)
+            index, parse_error = _build_python_index(self._files, file_path)
             if parse_error:
                 continue
-            for symbol in _collect_symbols(tree, path=self._files.relative_path(file_path)):
-                haystack = f"{symbol.name} {symbol.qualname} {symbol.kind}".lower()
-                if normalized in haystack:
+            assert index is not None
+            for symbol in _symbols_from_index(index, include_local_assignments=False):
+                if _symbol_matches(normalized, symbol):
                     matches.append(symbol)
-                    if len(matches) >= limit:
-                        return _symbol_search_result(query, matches, truncated=True)
-        return _symbol_search_result(query, matches, truncated=False)
+        ranked = sorted(matches, key=lambda symbol: _symbol_match_key(normalized, symbol))
+        return _symbol_search_result(query, ranked[:limit], truncated=len(ranked) > limit)
 
     async def _arun(
         self,
@@ -185,63 +188,93 @@ def _parse_python(files: WorkspaceFileService, file_path: Path) -> tuple[ast.AST
         return None, f"Python AST failed: {exc}"
 
 
-def _collect_symbols(tree: ast.AST | None, *, path: str) -> list[PythonSymbol]:
-    if tree is None:
-        return []
+def _build_python_index(files: WorkspaceFileService, file_path: Path) -> tuple[FileModuleAstIndex | None, str]:
+    rel = files.relative_path(file_path)
+    try:
+        source = files.read_text(file_path)
+        return build_python_file_module_ast_index(file_ref=rel, source=source), ""
+    except SyntaxError as exc:
+        location = f"{exc.filename}:{exc.lineno}:{exc.offset}" if exc.lineno else str(exc.filename or rel)
+        return None, f"Python syntax error at {location}: {exc.msg}"
+    except Exception as exc:
+        return None, f"Python AST failed: {exc}"
+
+
+def _symbols_from_index(index: FileModuleAstIndex, *, include_local_assignments: bool) -> list[PythonSymbol]:
+    path = str(index.file_ref or "")
     symbols: list[PythonSymbol] = []
-    for node in getattr(tree, "body", []):
-        _collect_node(node, path=path, parent="", symbols=symbols, top_level=True)
-    return symbols
+    for item in index.classes:
+        symbols.append(_symbol_from_anchor(item.anchor.name, "class", path=path, anchor=item.anchor))
+    for item in index.functions:
+        symbols.append(_symbol_from_anchor(item.anchor.name, item.kind, path=path, anchor=item.anchor))
+    for item in index.imports:
+        symbols.append(_symbol_from_anchor(_import_symbol_name(item), "import", path=path, anchor=item.anchor))
+    for item in index.assignments:
+        if not include_local_assignments and item.scope_anchor_id:
+            continue
+        for target in item.target_texts:
+            symbols.append(_symbol_from_anchor(target, "variable", path=path, anchor=item.anchor))
+    return sorted(symbols, key=lambda item: (item.path, item.lineno, item.col_offset, item.kind, item.qualname))
 
 
-def _collect_node(node: ast.AST, *, path: str, parent: str, symbols: list[PythonSymbol], top_level: bool) -> None:
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        if isinstance(node, ast.AsyncFunctionDef):
-            kind = "async_method" if parent else "async_function"
-        else:
-            kind = "method" if parent else "function"
-        symbols.append(_symbol(node.name, kind, path=path, parent=parent, node=node))
-        return
-    if isinstance(node, ast.ClassDef):
-        symbols.append(_symbol(node.name, "class", path=path, parent=parent, node=node))
-        class_parent = f"{parent}.{node.name}" if parent else node.name
-        for child in node.body:
-            _collect_node(child, path=path, parent=class_parent, symbols=symbols, top_level=False)
-        return
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        module = getattr(node, "module", "") or ""
-        for alias in node.names:
-            imported = f"{module}.{alias.name}" if module and isinstance(node, ast.ImportFrom) else alias.name
-            symbols.append(_symbol(alias.asname or imported, "import", path=path, parent=parent, node=node))
-        return
-    if top_level and isinstance(node, (ast.Assign, ast.AnnAssign)):
-        targets = list(getattr(node, "targets", [])) if isinstance(node, ast.Assign) else [node.target]
-        for target in targets:
-            for name in _target_names(target):
-                symbols.append(_symbol(name, "variable", path=path, parent=parent, node=node))
-
-
-def _symbol(name: str, kind: str, *, path: str, parent: str, node: ast.AST) -> PythonSymbol:
+def _symbol_from_anchor(name: str, kind: str, *, path: str, anchor: Any) -> PythonSymbol:
+    qualname = str(getattr(anchor, "qualname", "") or name or "")
+    parent = qualname.rsplit(".", 1)[0] if "." in qualname else ""
     return PythonSymbol(
         name=str(name or ""),
-        kind=kind,
+        kind=str(kind or "symbol"),
         path=path,
-        lineno=int(getattr(node, "lineno", 0) or 0),
-        col_offset=int(getattr(node, "col_offset", 0) or 0),
-        end_lineno=int(getattr(node, "end_lineno", getattr(node, "lineno", 0)) or 0),
+        lineno=int(getattr(anchor, "start_line", 0) or 0),
+        col_offset=int(getattr(anchor, "start_col", 0) or 0),
+        end_lineno=int(getattr(anchor, "end_line", getattr(anchor, "start_line", 0)) or 0),
         parent=parent,
     )
 
 
-def _target_names(target: ast.AST) -> list[str]:
-    if isinstance(target, ast.Name):
-        return [target.id]
-    if isinstance(target, (ast.Tuple, ast.List)):
-        names: list[str] = []
-        for item in target.elts:
-            names.extend(_target_names(item))
-        return names
-    return []
+def _import_symbol_name(item: Any) -> str:
+    imported_name = str(getattr(item, "imported_name", "") or "")
+    local_name = str(getattr(item, "local_name", "") or "")
+    module = str(getattr(item, "module", "") or "")
+    if module:
+        imported_leaf = imported_name.rsplit(".", 1)[-1]
+        return imported_name if local_name == imported_leaf else local_name or imported_name
+    imported_root = imported_name.split(".", 1)[0]
+    return imported_name if local_name == imported_root else local_name or imported_name
+
+
+def _symbol_matches(normalized_query: str, symbol: PythonSymbol) -> bool:
+    haystack = f"{symbol.name} {symbol.qualname} {symbol.kind}".lower()
+    return bool(normalized_query and normalized_query in haystack)
+
+
+def _symbol_match_key(normalized_query: str, symbol: PythonSymbol) -> tuple[int, str, int, int, str]:
+    compact_query = _compact_identifier(normalized_query)
+    compact_name = _compact_identifier(symbol.name)
+    compact_qualname = _compact_identifier(symbol.qualname)
+    rank = 8
+    if compact_query and compact_query == compact_name:
+        rank = 0
+    elif compact_query and compact_query == compact_qualname:
+        rank = 1
+    elif normalized_query and normalized_query == symbol.name.lower():
+        rank = 2
+    elif normalized_query and normalized_query == symbol.qualname.lower():
+        rank = 3
+    elif compact_query and compact_name.startswith(compact_query):
+        rank = 4
+    elif compact_query and compact_qualname.endswith(compact_query):
+        rank = 5
+    elif compact_query and compact_query in compact_name:
+        rank = 6
+    elif compact_query and compact_query in compact_qualname:
+        rank = 7
+    return (rank, symbol.path, symbol.lineno, symbol.col_offset, symbol.qualname)
+
+
+def _compact_identifier(value: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value or "").lower())
 
 
 def _iter_python_files(files: WorkspaceFileService, roots: list[str] | None) -> list[Path]:
@@ -278,6 +311,7 @@ def _symbol_search_result(query: str, matches: list[PythonSymbol], *, truncated:
     payload = {
         "kind": "python_symbol_search",
         "query": query,
+        "source_authority": "capability_system.capabilities.code_intelligence.python_ast_indexer",
         "result_count": len(matches),
         "symbols": [asdict(symbol) | {"qualname": symbol.qualname} for symbol in matches],
         "truncated": truncated,

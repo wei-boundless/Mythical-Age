@@ -89,7 +89,7 @@ class CodebaseSearchProviders:
                     "truncated": bool(tool_result.get("truncated")),
                     "has_more": bool(tool_result.get("truncated")),
                     "searched_roots": list(roots),
-                    "authority": "capability_system.tools.python_ast_tools.PythonSymbolSearchTool",
+                    "authority": "capability_system.capabilities.code_intelligence.python_ast_indexer",
                 }
             )
             hits.extend(_symbol_hits_from_payload(symbols, query=query))
@@ -218,7 +218,7 @@ def _symbol_hits_from_payload(symbols: list[dict[str, object]], *, query: str) -
                     "line_count": max(1, int(symbol.get("end_lineno") or line) - line + 1),
                     "match_line": line,
                     "read_intent": "symbol_search_candidate",
-                    "authority": "capability_system.tools.python_ast_tools.PythonSymbolSearchTool",
+                    "authority": "capability_system.capabilities.code_intelligence.python_ast_indexer",
                 },
             )
         )
