@@ -105,16 +105,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     publish_frame_parser.add_argument("--frame-id", required=True)
     publish_frame_parser.add_argument("--backend-dir", default="")
+    publish_frame_parser.add_argument("--runtime-backend-dir", default="")
     publish_frame_parser.add_argument("--publish-version", default="runtime")
     publish_frame_parser.add_argument("--source-work-product-ref", action="append", default=[])
     publish_frame_parser.add_argument("--max-active-nodes", type=int, default=0)
     publish_frame_parser.add_argument("--full", action="store_true", help="Print the full materialization payload")
+    materialize_tree_parser = graph_subparsers.add_parser(
+        "materialize-directory-tree",
+        help="Materialize deterministic project-network directory frames without starting semantic graph runs",
+    )
+    materialize_tree_parser.add_argument("--frame-id", required=True)
+    materialize_tree_parser.add_argument("--backend-dir", default="")
+    materialize_tree_parser.add_argument("--runtime-backend-dir", default="")
+    materialize_tree_parser.add_argument("--max-total-frames", type=int, default=0)
+    materialize_tree_parser.add_argument("--full", action="store_true", help="Print all materialized frame cards")
     start_frame_parser = graph_subparsers.add_parser(
         "start-directory-frame",
         help="Publish a directory frame and start it through the backend graph starter",
     )
     start_frame_parser.add_argument("--frame-id", required=True)
     start_frame_parser.add_argument("--backend-dir", default="")
+    start_frame_parser.add_argument("--runtime-backend-dir", default="")
     start_frame_parser.add_argument("--publish-version", default="runtime")
     start_frame_parser.add_argument("--source-work-product-ref", action="append", default=[])
     start_frame_parser.add_argument("--max-active-nodes", type=int, default=0)
@@ -127,6 +138,39 @@ def build_parser() -> argparse.ArgumentParser:
     start_frame_parser.add_argument("--include-trace", action="store_true")
     start_frame_parser.add_argument("--no-watch", action="store_true")
     start_frame_parser.add_argument("--full", action="store_true", help="Print the full publish/start payload")
+    publish_repair_parser = graph_subparsers.add_parser(
+        "publish-project-network-repairs",
+        help="Publish queued or selected project-network repair items as a targeted repair graph",
+    )
+    publish_repair_parser.add_argument("--build-id", default="")
+    publish_repair_parser.add_argument("--repair-item-id", action="append", default=[])
+    publish_repair_parser.add_argument("--backend-dir", default="")
+    publish_repair_parser.add_argument("--runtime-backend-dir", default="")
+    publish_repair_parser.add_argument("--publish-version", default="runtime")
+    publish_repair_parser.add_argument("--repair-status", default="queued")
+    publish_repair_parser.add_argument("--limit", type=int, default=4)
+    publish_repair_parser.add_argument("--max-active-nodes", type=int, default=0)
+    publish_repair_parser.add_argument("--full", action="store_true", help="Print the full repair publish payload")
+    start_repair_parser = graph_subparsers.add_parser(
+        "start-project-network-repairs",
+        help="Publish a project-network repair graph and start it through the backend graph starter",
+    )
+    start_repair_parser.add_argument("--build-id", default="")
+    start_repair_parser.add_argument("--repair-item-id", action="append", default=[])
+    start_repair_parser.add_argument("--backend-dir", default="")
+    start_repair_parser.add_argument("--runtime-backend-dir", default="")
+    start_repair_parser.add_argument("--publish-version", default="runtime")
+    start_repair_parser.add_argument("--repair-status", default="queued")
+    start_repair_parser.add_argument("--limit", type=int, default=4)
+    start_repair_parser.add_argument("--max-active-nodes", type=int, default=0)
+    start_repair_parser.add_argument("--session", default="")
+    start_repair_parser.add_argument("--session-title", default="Project network repair graph CLI")
+    start_repair_parser.add_argument("--run-mode", choices=["dispatch_only", "auto_run"], default="dispatch_only")
+    start_repair_parser.add_argument("--wait-for-completion", action="store_true")
+    start_repair_parser.add_argument("--no-dispatch-ready", action="store_true")
+    start_repair_parser.add_argument("--include-trace", action="store_true")
+    start_repair_parser.add_argument("--no-watch", action="store_true")
+    start_repair_parser.add_argument("--full", action="store_true", help="Print the full repair publish/start payload")
     start_graph_parser = graph_subparsers.add_parser(
         "start-task-graph",
         help="Start an already-published TaskGraph through the backend graph starter",
@@ -488,6 +532,13 @@ def _run_graph_command(
         result = _publish_directory_frame_from_cli(args)
         _print_json(result.to_dict() if bool(getattr(args, "full", False)) else _directory_publish_summary(result), stdout)
         return 0
+    if args.graph_command == "materialize-directory-tree":
+        result = _directory_runtime_service_from_cli(args).materialize_frame_tree(
+            str(getattr(args, "frame_id", "") or ""),
+            max_total_frames=max(0, int(getattr(args, "max_total_frames", 0) or 0)),
+        )
+        _print_json(result.to_dict() if bool(getattr(args, "full", False)) else _directory_tree_materialization_summary(result), stdout)
+        return 0
     if args.graph_command == "start-directory-frame":
         publish_result = _publish_directory_frame_from_cli(args)
         session_id = _ensure_graph_launch_session(
@@ -519,6 +570,62 @@ def _run_graph_command(
         payload = {
             "authority": "backend.cli.graph.start_directory_frame",
             "publish": publish_result.to_dict() if bool(getattr(args, "full", False)) else _directory_publish_summary(publish_result),
+            "start": start if bool(getattr(args, "full", False)) else _graph_start_summary(start),
+        }
+        _print_json(payload, stdout)
+        if bool(getattr(args, "no_watch", False)):
+            return 0
+        return _watch_graph_run(
+            str(start.get("graph_run_id") or ""),
+            graph_config_id=str(start.get("graph_config_id") or ""),
+            client=client,
+            stdout=stdout,
+        )
+    if args.graph_command == "publish-project-network-repairs":
+        try:
+            result = _publish_project_network_repairs_from_cli(args)
+        except RuntimeError as exc:
+            _print_json(_repair_cli_error(str(exc), command=args.graph_command), stdout)
+            return 1
+        _print_json(result.to_dict() if bool(getattr(args, "full", False)) else _repair_publish_summary(result), stdout)
+        return 0
+    if args.graph_command == "start-project-network-repairs":
+        service = _repair_runtime_service_from_cli(args)
+        try:
+            publish_result = _publish_project_network_repairs_from_cli(args, service=service)
+        except RuntimeError as exc:
+            _print_json(_repair_cli_error(str(exc), command=args.graph_command), stdout)
+            return 1
+        graph_config = publish_result.graph_config
+        if graph_config is None:
+            _print_json({"ok": False, "error": "repair graph publish returned no graph_config"}, stdout)
+            return 1
+        session_id = _ensure_graph_launch_session(
+            client=client,
+            explicit_session_id=str(getattr(args, "session", "") or ""),
+            title=str(getattr(args, "session_title", "") or "Project network repair graph CLI"),
+        )
+        start = client.start_task_graph_run(
+            graph_config.graph_id,
+            session_id=session_id,
+            session_scope=_graph_task_scope(),
+            initial_inputs=dict(publish_result.start_initial_inputs or {}),
+            include_trace=bool(getattr(args, "include_trace", False)),
+            include_graph_config=False,
+            dispatch_ready=not bool(getattr(args, "no_dispatch_ready", False)),
+            run_mode=str(getattr(args, "run_mode", "") or "dispatch_only"),
+            wait_for_completion=bool(getattr(args, "wait_for_completion", False)),
+        )
+        service.record_repair_graph_start(
+            repair_item_ids=tuple(item.repair_item_id for item in publish_result.repair_items),
+            repair_batch_id=publish_result.repair_batch_id,
+            graph_run_id=str(start.get("graph_run_id") or ""),
+            graph_config_id=str(start.get("graph_config_id") or ""),
+            metadata={"start_source": "backend.cli.graph.start-project-network-repairs"},
+        )
+        payload = {
+            "authority": "backend.cli.graph.start_project_network_repairs",
+            "publish": publish_result.to_dict() if bool(getattr(args, "full", False)) else _repair_publish_summary(publish_result),
             "start": start if bool(getattr(args, "full", False)) else _graph_start_summary(start),
         }
         _print_json(payload, stdout)
@@ -578,6 +685,18 @@ def _publish_directory_frame_from_cli(args: argparse.Namespace):
     )
 
 
+def _publish_project_network_repairs_from_cli(args: argparse.Namespace, *, service: Any | None = None):
+    repair_service = service or _repair_runtime_service_from_cli(args)
+    return repair_service.publish_repair_graph(
+        build_id=str(getattr(args, "build_id", "") or ""),
+        repair_item_ids=tuple(str(item) for item in list(getattr(args, "repair_item_id", []) or []) if str(item)),
+        publish_version=str(getattr(args, "publish_version", "") or "runtime"),
+        status=str(getattr(args, "repair_status", "") or "queued"),
+        limit=max(1, int(getattr(args, "limit", 4) or 4)),
+        max_active_nodes=max(0, int(getattr(args, "max_active_nodes", 0) or 0)),
+    )
+
+
 def _directory_publish_summary(result: Any) -> dict[str, Any]:
     package = result.package
     frame = package.frame
@@ -602,6 +721,61 @@ def _directory_publish_summary(result: Any) -> dict[str, Any]:
         "start_node_count": len(list(dict(graph_config.control or {}).get("start_node_ids") or [])),
         "max_active_nodes": int(dict(graph_config.control or {}).get("max_active_nodes") or 0),
         "start_initial_input_keys": sorted(str(key) for key in dict(result.start_initial_inputs or {})),
+    }
+
+
+def _directory_tree_materialization_summary(result: Any) -> dict[str, Any]:
+    return {
+        "authority": "backend.cli.graph.directory_tree_materialization_summary",
+        "build_id": result.build_id,
+        "root_frame_id": result.root_frame_id,
+        "root_folder_path": result.root_folder_path,
+        "max_total_frames": result.max_total_frames,
+        "frame_count": result.frame_count,
+        "prepared_frame_count": result.prepared_frame_count,
+        "created_frame_count": result.created_frame_count,
+        "ready_frame_count": result.ready_frame_count,
+        "waiting_frame_count": result.waiting_frame_count,
+        "blocked_frame_count": result.blocked_frame_count,
+        "budget_stop_count": len(tuple(result.budget_stop_frames or ())),
+        "ready_frame_samples": list(tuple(result.ready_frames or ())[:12]),
+        "waiting_frame_samples": list(tuple(result.waiting_frames or ())[:12]),
+        "budget_stop_samples": list(tuple(result.budget_stop_frames or ())[:12]),
+        "metadata": dict(result.metadata or {}),
+    }
+
+
+def _repair_publish_summary(result: Any) -> dict[str, Any]:
+    package = result.package
+    graph_config = result.graph_config
+    task_graph = result.task_graph
+    manifest = package.manifest if package is not None else None
+    return {
+        "authority": "backend.cli.graph.repair_publish_summary",
+        "build_id": result.build_id,
+        "repair_batch_id": result.repair_batch_id,
+        "folder_stable_ref": result.folder_stable_ref,
+        "selected_file_refs": list(result.selected_file_refs),
+        "repair_item_count": len(tuple(result.repair_items or ())),
+        "deferred_repair_item_count": len(tuple(result.deferred_repair_item_ids or ())),
+        "graph_id": str(graph_config.graph_id if graph_config is not None else ""),
+        "graph_config_id": str(graph_config.config_id if graph_config is not None else ""),
+        "graph_config_hash": str(graph_config.content_hash if graph_config is not None else ""),
+        "node_count": len(tuple(task_graph.nodes if task_graph is not None else ())),
+        "edge_count": len(tuple(task_graph.edges if task_graph is not None else ())),
+        "direct_file_count": len(tuple(manifest.direct_file_refs if manifest is not None else ())),
+        "start_initial_input_keys": sorted(str(key) for key in dict(result.start_initial_inputs or {})),
+        "metadata": dict(result.metadata or {}),
+    }
+
+
+def _repair_cli_error(error: str, *, command: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "authority": "backend.cli.graph.project_network_repair_error",
+        "graph_command": command,
+        "error": error,
+        "recommended_next_action": "queue_project_network_repairs_or_change_repair_status",
     }
 
 
@@ -645,10 +819,29 @@ def _graph_monitor_summary(monitor: dict[str, Any]) -> dict[str, Any]:
 def _directory_runtime_service_from_cli(args: argparse.Namespace):
     from task_system.project_network import DirectoryRuntimeService
 
-    return DirectoryRuntimeService.from_backend_dir(_backend_dir_for_cli(str(getattr(args, "backend_dir", "") or "")))
+    return DirectoryRuntimeService.from_backend_dir(
+        _backend_dir_for_cli(str(getattr(args, "backend_dir", "") or "")),
+        flow_registry_base_dir=_runtime_backend_dir_for_cli(str(getattr(args, "runtime_backend_dir", "") or "")),
+    )
+
+
+def _repair_runtime_service_from_cli(args: argparse.Namespace):
+    from task_system.project_network import ProjectNetworkRepairRuntimeService
+
+    return ProjectNetworkRepairRuntimeService.from_backend_dir(
+        _backend_dir_for_cli(str(getattr(args, "backend_dir", "") or "")),
+        flow_registry_base_dir=_runtime_backend_dir_for_cli(str(getattr(args, "runtime_backend_dir", "") or "")),
+    )
 
 
 def _backend_dir_for_cli(value: str) -> Path:
+    raw = str(value or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+def _runtime_backend_dir_for_cli(value: str) -> Path:
     raw = str(value or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()

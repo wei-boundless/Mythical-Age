@@ -20,8 +20,11 @@ from .directory_render_service import DirectoryRenderService
 from .directory_run_models import (
     DirectoryFrameGraphPublishResult,
     DirectoryFrameSchedulerDecision,
+    DirectoryFrameTreeMaterializationResult,
 )
 from .directory_runtime_service import DirectoryRuntimeService
+from .repair_run_models import ProjectNetworkRepairGraphPublishResult
+from .repair_runtime_service import ProjectNetworkRepairRuntimeService
 from .graph_builder import ProjectNetworkGraphBuilder
 from .layer_plan_models import (
     GraphGenerationLineage,
@@ -61,6 +64,8 @@ from .store_models import (
     ProjectNetworkEvidenceRecord,
     ProjectNetworkGenerationRecord,
     ProjectNetworkLayerIndexRecord,
+    ProjectNetworkMaintenanceSignalRecord,
+    ProjectNetworkRepairWorkItemRecord,
     ProjectNetworkStoreSnapshot,
     ProjectNetworkTraceRecord,
 )
@@ -90,7 +95,10 @@ __all__ = [
     "DirectoryRenderService",
     "DirectoryFrameGraphPublishResult",
     "DirectoryFrameSchedulerDecision",
+    "DirectoryFrameTreeMaterializationResult",
     "DirectoryRuntimeService",
+    "ProjectNetworkRepairGraphPublishResult",
+    "ProjectNetworkRepairRuntimeService",
     "GraphGenerationLineage",
     "GraphMaterializationBudget",
     "GraphMaterializationModeDecision",
@@ -119,6 +127,8 @@ __all__ = [
     "ProjectNetworkEvidenceRecord",
     "ProjectNetworkGenerationRecord",
     "ProjectNetworkTraceRecord",
+    "ProjectNetworkMaintenanceSignalRecord",
+    "ProjectNetworkRepairWorkItemRecord",
     "ProjectNetworkWorkProductIngestResult",
     "SemanticShardSpec",
     "ShardAssignment",

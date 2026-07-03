@@ -48,6 +48,7 @@ class ProjectNetworkGraphBuilder:
     def build_directory_frame_graph(self, package: DirectoryFrameMaterializationPackage) -> TaskGraphDefinition:
         frame = package.frame
         manifest = package.manifest
+        target_metadata = _target_project_metadata(package)
         loop_frame_id = f"pn.dirframe.{_slug(frame.frame_id)}"
         layer_id = f"directory_frame:{frame.frame_id}"
         nodes: list[TaskGraphNodeDefinition] = []
@@ -109,6 +110,7 @@ class ProjectNetworkGraphBuilder:
                 "agent_group_id": "group.project_network_reviewers",
                 "start_node_ids": list(start_node_ids),
                 "max_active_nodes": _directory_max_active_nodes(package=package, file_node_count=len(file_node_ids)),
+                **target_metadata,
             },
             context_policy={
                 "state_projection": "directory_frame_typed_refs",
@@ -134,6 +136,7 @@ class ProjectNetworkGraphBuilder:
                 "materialization_mode": "directory_tree_reduce_frame",
                 "source_work_product_refs": list(package.source_work_product_refs),
                 "child_return_refs": [item.return_id for item in package.child_returns],
+                **target_metadata,
                 "authority_boundary": "project_network_review_graph_materializes_directory_frame_for_graph_loop",
             },
         )
@@ -295,6 +298,7 @@ class ProjectNetworkGraphBuilder:
         template = resolve_project_network_node_template("project_network.directory_aggregate", self.template_catalog)
         frame = package.frame
         manifest = package.manifest
+        target_metadata = _target_project_metadata(package)
         metadata = {
             **dict(template.metadata or {}),
             "prompt_contract": dict(template.prompt_contract or {}),
@@ -309,6 +313,7 @@ class ProjectNetworkGraphBuilder:
             "direct_file_refs": list(manifest.direct_file_refs),
             "child_return_refs": [item.return_id for item in package.child_returns],
             "child_summary_product_refs": [item.child_summary_product_ref for item in package.child_returns if item.child_summary_product_ref],
+            **target_metadata,
             "route_authority": "tree_reduce_static_frame_edges",
             "work_product_channel_policy": "consume_directory_typed_channels",
             "tree_reduce_scheduler_contract": {
@@ -472,6 +477,7 @@ def _with_directory_loop_contract(
     work_unit_kind: str,
 ) -> TaskGraphNodeDefinition:
     frame = frame_package.frame
+    target_metadata = _target_project_metadata(frame_package)
     metadata = {
         **dict(node.metadata or {}),
         "directory_frame_id": frame.frame_id,
@@ -481,6 +487,7 @@ def _with_directory_loop_contract(
         "work_unit_kind": work_unit_kind,
         "low_config_single_file_review": work_unit_kind == "direct_file_module_review",
         "loop_algorithm_kind": "tree_reduce",
+        **target_metadata,
     }
     runtime_policy = {
         **dict(node.runtime_policy or {}),
@@ -488,6 +495,7 @@ def _with_directory_loop_contract(
             "directory_frame_id": frame.frame_id,
             "manifest_ref": frame_package.manifest.manifest_id,
             "single_file_low_config": work_unit_kind == "direct_file_module_review",
+            **target_metadata,
             "authority": "task_system.project_network.directory_frame_node_runtime_policy",
         },
     }
@@ -528,6 +536,7 @@ def _directory_loop_frame(
             "directory_manifest_ref": manifest.manifest_id,
             "folder_stable_ref": frame.folder_stable_ref,
             "folder_path": frame.folder_path,
+            **_target_project_metadata(package),
         },
         "tree_reduce": {
             "physical_authority": "file_management.project_structure.skeleton",
@@ -631,6 +640,15 @@ def _directory_max_active_nodes(*, package: DirectoryFrameMaterializationPackage
     if explicit > 0:
         return max(1, explicit)
     return min(max(1, int(file_node_count or 0)), 8)
+
+
+def _target_project_metadata(package: DirectoryFrameMaterializationPackage) -> dict[str, str]:
+    metadata = dict(package.metadata or {})
+    return {
+        key: str(metadata.get(key) or "").strip()
+        for key in ("project_network_target_backend_dir", "project_network_target_project_root")
+        if str(metadata.get(key) or "").strip()
+    }
 
 
 def _slug(value: str) -> str:

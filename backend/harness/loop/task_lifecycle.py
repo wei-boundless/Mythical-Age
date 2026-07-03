@@ -1040,7 +1040,6 @@ def start_task_lifecycle(
                 "handoff_id": handoff_record.handoff_id,
                 "source_packet_ref": str(handoff_record.payload.get("source_packet_ref") or ""),
                 "inherited_observation_count": len(list(handoff_record.payload.get("inherited_observations") or [])),
-                "inherited_file_state_count": len(list(handoff_record.payload.get("inherited_file_state_snapshot") or [])),
                 "inherited_memory_context_refs": dict(handoff_record.payload.get("inherited_memory_context_refs") or {}),
                 "authority": "harness.loop.turn_to_task_context_handoff",
             },

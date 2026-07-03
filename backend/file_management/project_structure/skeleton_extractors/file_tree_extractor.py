@@ -23,6 +23,7 @@ def extract_file_tree_facts(
     scope_roots: Iterable[str] = (),
 ) -> tuple[SkeletonFactRecord, ...]:
     roots = file_service.safe_roots(tuple(scope_roots), fallback_to_workspace=True)
+    root_folder_ref = folder_ref("")
     facts: list[SkeletonFactRecord] = [
         _fact(
             build_id=build_id,
@@ -37,10 +38,35 @@ def extract_file_tree_facts(
                 "hierarchy_path": "repo",
                 "path": "",
             },
-        )
+        ),
+        _fact(
+            build_id=build_id,
+            generation=generation,
+            subject_ref=root_folder_ref,
+            predicate="declares_node",
+            object_literal="folder",
+            qualifiers={
+                "node_kind": "folder",
+                "display_name": ".",
+                "path": "",
+                "layer_kind": "folder",
+                "hierarchy_path": "repo/.",
+                "parent_ref": REPO_STABLE_REF,
+            },
+        ),
     ]
-    seen_nodes: set[str] = {REPO_STABLE_REF}
+    seen_nodes: set[str] = {REPO_STABLE_REF, root_folder_ref}
     seen_edges: set[tuple[str, str, str]] = set()
+    _record_edge(
+        build_id=build_id,
+        generation=generation,
+        facts=facts,
+        seen_edges=seen_edges,
+        subject_ref=REPO_STABLE_REF,
+        predicate="contains",
+        object_ref=root_folder_ref,
+        qualifiers={"edge_kind": "contains_folder"},
+    )
     for root in roots:
         _walk_root(
             file_service=file_service,
@@ -210,7 +236,7 @@ def _parent_ref(rel_path: str) -> str:
         return REPO_STABLE_REF
     parent = normalize_rel_path(Path(rel).parent.as_posix())
     if parent in {"", "."}:
-        return REPO_STABLE_REF
+        return folder_ref("")
     return folder_ref(parent)
 
 

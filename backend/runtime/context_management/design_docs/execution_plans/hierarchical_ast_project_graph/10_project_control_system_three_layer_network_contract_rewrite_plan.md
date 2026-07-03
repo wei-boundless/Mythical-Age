@@ -15,20 +15,20 @@
 快速归纳链路：知道多个节点如何形成调用、配置、注册、运行、提示词或工具链路。
 ```
 
-因此系统必须拆成三层网络：
+因此系统必须按三个维度建模，但对 agent 呈现为一张统一项目控制网络：
 
 ```text
-物理网络 Physical Network
-  系统确定性建立，提供真实落脚点。
+物理骨架 Physical Spine
+  系统确定性建立，提供真实落脚点与硬证据。
 
-语义网络 Semantic Network
-  agent 在物理网络上叠加理解，提供语义路标。
+语义切面 Semantic Facet
+  agent 在同一骨架节点和边上叠加职责、标签和控制意义。
 
-神经控制网络 Neural Control Network
-  agent 使用物理层和语义层进行定位、跳转、链路归纳和审计反馈。
+神经控制视图 Neural Control Surface
+  agent 使用这张统一网络进行定位、跳转、链路归纳和审计反馈。
 ```
 
-这三层必须叠加，但不能混成一个索引。物理层负责“能不能落地”，语义层负责“如何理解”，神经控制层负责“agent 如何用它控制项目”。
+也就是说，内部可以按职责分层生产，但外部不能裂成两张图。物理层负责“能不能落地”，语义层负责“如何理解”，神经控制层负责“agent 如何用它控制项目”，三者共同附着在同一图实体上。
 
 ## 2. 当前问题
 
@@ -87,27 +87,33 @@ agent prompt 必须是可执行任务契约，不是开发说明。
 
 ## 4. 核心裁决
 
-### 4.1 三层网络分工
+### 4.1 统一网络的三种职责
 
 ```text
-Physical Network
+Physical Spine
   owner: file_management.project_structure
   source: file tree, git facts, AST, imports, calls, registry/tool/prompt extractors
   answers: 真实节点在哪里，真实边是什么，哪个 ref 可落地
 ```
 
 ```text
-Semantic Network
+Semantic Facet
   owner: project_network review agents + project_network store
   source: file reviewer, directory reviewer, relation tracer, curator
   answers: 节点职责是什么，语义标签是什么，如何作为路标
 ```
 
 ```text
-Neural Control Network
+Neural Control Surface
   owner: project control surface / project network tools
-  source: physical route index + semantic coordinates + signal chain index + audit
+  source: unified graph entities + route index view + signal chain view + audit view
   answers: agent 如何定位、跳转、归纳链路、审计缺口
+```
+
+裁决：
+
+```text
+它们不是三张独立网络，而是一张统一网络上的三种职责与视图。
 ```
 
 ### 4.2 深度网络与信号链路必须分离
@@ -160,6 +166,31 @@ storage/tasks/project_network_artifacts/{build_id}/
   directories/
 ```
 
+### 4.4 本层窗口原则
+
+每个审查节点只应该看到和输出自己所在层级的层级信息。系统可以提供上级 ref 作为锚点、下级计数作为边界提示，但不能把整棵树、全部函数调用或跨层细节塞给当前节点。
+
+```text
+文件层 agent
+  显示：当前文件模块、模块根、直属顶层符号候选。
+  隐藏：方法级实现细节、调用点列表、跨文件链路展开。
+  允许：深层符号计数、被预算限制的高信号路标。
+
+目录层 agent
+  显示：当前目录、直接文件 module_index、直接子目录 directory_summary。
+  隐藏：孙目录、文件源码、函数级实现细节。
+  允许：子节点 route card、冲突/缺口/候选链路。
+
+信号链路 agent
+  显示：系统抽取的候选边、相关语义路标和证据链。
+  隐藏：与当前候选无关的全局节点 dump。
+  允许：沿候选路径追踪证据，不重新铺物理网。
+```
+
+这个原则的目的不是省 token，而是防止 agent 把“本层索引”误做成“全局审计”。本层节点只建立本层路标；更细的函数/方法输入输出应交给 endpoint 层或按需跳转的神经控制工具。
+
+实测结论：当前 `backend/agent_system/models` 范围内，AST 投影不是主要慢因。真正造成重跑的风险来自质量门把非核心格式字段当成核心缺失，例如 `limitations_missing`、`anchor_refs_missing`。AST 是物理骨架，应被预算窗口限制和分层展示，但不能在没有证据时被当成默认性能嫌疑。先检查模型执行排队、质量门重试、目录聚合是否重复让 agent 补子节点事实。
+
 ## 5. 目标产物模型
 
 ### 5.1 根目录人读报告
@@ -192,6 +223,8 @@ PROJECT_SEMANTIC_COORDINATES.md
 - 用简洁语义坐标说明项目主要系统、目录、文件、控制点。
 - 每个坐标是路标卡，不是长摘要。
 - 帮助人和 agent 快速理解项目语义空间。
+- `physical_ref` 是系统权威落点；同一个 `physical_ref` 只能物化为一个语义坐标。agent 自定义的 `coordinate://...`、`semcoord:...` 等 `coordinate_ref` 只能作为 alias 合并到该物理坐标，不能生成重复路标。
+- 如果 agent 声明的 `semantic_coordinate.physical_ref` 与系统分配的文件/目录 stable_ref 不一致，系统必须规范到 stable_ref，并保留 `declared_physical_ref` / `binding_warnings` 审计信号。
 
 坐标格式：
 
@@ -326,14 +359,17 @@ link_signal_audit.json
   file_text
   file_hash
   file_skeleton
-  ast_projection
-  upstream directory/system labels
+  ast_projection：文件模块层窗口，只含模块根和直属顶层符号候选
+  current_layer_context
+  review_budget
+  upstream directory/system refs as anchors
 
 禁止：
   不读取其它文件
   不搜索项目
   不读取记忆
   不扩展目录范围
+  不展开方法级、调用点级、跨文件级细节
 ```
 
 必须输出一个 typed submission：
@@ -358,10 +394,11 @@ uncovered_refs
 - `physical_binding` 说明文件 ref、hash、AST/skeleton 可用性。
 - `semantic_coordinate` 是总结性路标卡。
 - `module_review_report` 是可渲染为 md 的报告数据，不是 final_answer。
-- `control_nodes` 只收录对项目控制有意义的节点。
-- `io_surface` 必须说明输入、输出、读写、side effects。
-- `accepted_internal_edges` 只能来自当前文件可见证据。
+- `control_nodes` 只收录本文件模块层中对项目控制有意义的少量直属路标，并遵守 `review_budget.max_control_nodes`。
+- `io_surface` 只说明模块级输入、输出、读写、side effects；不逐函数重审。
+- `accepted_internal_edges` 只收高信号且来自当前文件可见证据的定义、注册、路由、配置等关系；普通调用点不默认成边。
 - 跨文件关系只能进入 `relation_candidates` 或 `external_stubs`。
+- 如果没有高信号边，提交空列表和限制说明，不为了连通网络造边。
 
 ### 6.2 目录汇总 agent 契约
 
@@ -381,11 +418,13 @@ uncovered_refs
   folder_stable_ref
   direct module_index products
   child directory_summary products
+  current_layer_context
   child report refs
 
 禁止：
   不读取文件
   不搜索代码
+  不展开孙目录、文件源码或函数级细节
   不把自然语言摘要直接提升为 accepted graph fact
   不静默覆盖冲突
 ```
@@ -410,8 +449,9 @@ parent_return_payload
 
 - `directory_review_report` 用于生成目录级 md。
 - `child_coordinate_summary` 是子文件/子目录的职责归纳。
-- `directory_control_routes` 只归纳目录内清晰链路。
+- `directory_control_routes` 只归纳当前目录层内、由直接子 work products 支撑的清晰链路。
 - `parent_return_payload` 必须压缩，只给父层继续归约所需内容。
+- 目录层只能给父层提交路标、覆盖率、候选关系、冲突和 blocker，不展开下层实现。
 
 ### 6.3 根级汇总 / 物化契约
 
@@ -879,11 +919,13 @@ backend/graph_system/runtime_algorithm_adapters.py
 - 接收新的 typed submission 字段。
 - 校验 `physical_binding`、`semantic_coordinate`、`module_review_report` / `directory_review_report`。
 - 对缺少物理绑定、缺少语义坐标、缺少报告数据的结果返回质量反馈。
+- 区分“核心语义缺失”和“非核心形状缺口”：物理绑定、语义坐标、报告数据、节点 stable_ref / evidence 这类核心事实缺失才触发同节点重试；edge limitations、可由 evidence/stable_ref/source/target 推导的 anchor_refs 这类非核心字段缺失应归一化为 `not_declared_by_agent`、`anchor_refs_derived_by_system` 等可审计缺口，不能为了格式字段重跑整个文件审查。
 
 完成标准：
 
 - agent 输出不符合新契约时不能假成功。
 - 失败反馈能返回同一节点重试。
+- 非核心归一化必须保留审计信号，不能把未声明限制伪装成无限制，也不能把系统推导的 anchor 伪装成 agent 明确声明。
 
 ### Phase 3：重构物化器
 
@@ -980,6 +1022,57 @@ deep_network_route_index 只承载定位
 signal_chain_index 只承载链路归纳
 unknown ref 不进入 reliable routes
 manifest 记录所有产物路径和 hash
+```
+
+### Phase 7：落地后的工程校验标准
+
+本方案落地时，物化器必须执行以下具体方法：
+
+```text
+1. 物理引用先由系统验证：
+   - file://backend/x.py 落到 workspace 文件。
+   - file://backend/x.py#class:A 落到 workspace 文件 + fragment 锚点。
+   - file://core/config.py 这类 backend import-root 引用可落到 backend/core/config.py，但必须保留原 ref 和解析 basis。
+   - 不存在的路径不能进入 reliable route。
+
+2. 语义坐标不能单独决定路线可靠性：
+   - semantic_coordinate 只说明含义、职责、标签、证据。
+   - physical_ref 由系统分配的 stable_ref 决定，agent 不得用语义坐标改写物理落点。
+   - materializer 按 physical_ref 归并坐标；coordinate_ref 只作为别名或报告入口。
+   - deep_network_route_index 只接收通过物理验证的 landing route。
+   - signal_chain_index 只归纳关系，不充当导航主索引。
+
+3. 链路审计必须降噪分级：
+   - 物理存在但不在本次审查范围内：out_of_scope_*_ref，severity=info。
+   - 物理不存在且不在语义路线中：unknown_*_ref，severity=warning。
+   - accepted edge 缺少 evidence：severity=error。
+   - candidate relation 保持 candidate，不能假装 accepted。
+
+4. agent 控制工具只做读取和投影：
+   - locate：从 semantic_coordinates 找语义落点。
+   - jump：从 deep_network_route_index 和 signal_chain_index 找邻近路线与关系。
+   - trace：按 stable_ref/topic 查 signal chain。
+   - summarize_chain：把链路折叠成可读摘要。
+   - read_audit：读取坏线、范围外线、候选线的审计信号。
+```
+
+真实验证的最低通过标准：
+
+```text
+materialize_build(build_id)
+  必须生成根目录 PROJECT_NETWORK_REVIEW.md、
+  PROJECT_SEMANTIC_COORDINATES.md、
+  PROJECT_SIGNAL_CHAIN_REVIEW.md，
+  并生成 PROJECT_NETWORK_REPORTS/files 与 directories。
+
+project_network 工具
+  必须通过统一工具注册层暴露 locate / jump / trace / summarize_chain / read_audit，
+  这些动作必须映射到 op.project_network_read，
+  不能绕过权限系统。
+
+审计结果
+  必须允许 unresolved_route_count > 0，
+  因为坏线应该被暴露，而不是被系统静默修正。
 ```
 
 ## 10. 文件级执行清单
@@ -1121,20 +1214,188 @@ project control network
 
 这套体系只有在 agent 真实使用它来减少盲搜、缩小上下文、判断影响面、选择验证路径时，才算成功。
 
-## 12. 禁止事项
+## 12. Graph Harness Tree-Reduce 算法结构
+
+项目级审查不是“两段式流程壳”，而是 graph harness 必须承载的一种运行算法：`tree_reduce`。
+
+正确结构是：
+
+```text
+Physical Skeleton
+-> DirectoryTreeMaterialization
+-> TaskGraphDefinition(loop_frames.kind=tree_reduce)
+-> ExecutableGraphConfig
+-> GraphLoop dispatch / edge readiness / max_active_nodes
+-> GraphNodeWorkOrder
+-> agent typed semantic submission
+-> runtime_algorithm_adapter contract gate
+-> required side-effect sink
+-> Project Network Store / DirectoryChildReturnEnvelope
+-> parent frame aggregate input
+-> root artifact materialization
+```
+
+这条链路只有一个运行权威：`GraphLoop`。项目网络可以提供物理帧、manifest、节点契约、上下文包和 side-effect sink，但不能再写一个平行的 directory tree 推进器来决定哪些节点或父层应该运行。
+
+### 12.1 算法权威边界
+
+```text
+file_management.project_structure
+  owner: 物理网络权威。
+  can: 建立 file tree / git / AST / deep AST skeleton node 和 skeleton edge。
+  cannot: 接受 agent 语义判断来改写物理拓扑。
+
+DirectoryTreeMaterialization
+  owner: task_system.project_network。
+  can: 根据已确定 skeleton 物化 DirectoryRenderFrame、DirectoryManifestProduct、
+       direct_file_refs、child_frame_ids、TaskGraphDefinition。
+  cannot: 执行节点、解释代码语义、替 GraphLoop 调度运行生命周期。
+
+GraphLoop / GraphRuntime
+  owner: graph_system。
+  can: 根据 ExecutableGraphConfig、edge readiness、wait_policy、join_policy、
+       max_active_nodes 派发 GraphNodeWorkOrder，接收 NodeResult，
+       执行 required runtime_algorithm_side_effect。
+  cannot: 判断项目网络业务语义，不能创建 semantic coordinate 或 signal chain。
+
+runtime_algorithm_adapter
+  owner: graph_system。
+  can: 校验 tree_reduce 节点是否提交合格 typed semantic submission，
+       失败时触发同节点质量反馈。
+  cannot: 生成语义事实，不能为了通过门禁补造节点或边。
+
+Project Network Store / side-effect sink
+  owner: task_system.project_network。
+  can: 摄取合格 work product，登记 DirectoryChildReturnEnvelope，
+       为父层 aggregate 提供 typed refs。
+  cannot: 把自然语言报告反解析为图事实。
+```
+
+### 12.2 Tree-Reduce 运行模型
+
+树状归约的算法单元不是“一个全局推进器”，而是一个个可发布的 directory frame graph。每个 graph 内部遵守普通 GraphLoop 语义：
+
+```text
+leaf file review nodes
+  输入：系统提供的单文件 packet。
+  输出：product_kind=module_index。
+  运行权威：GraphLoop 按 max_active_nodes 并发派发。
+
+directory aggregate node
+  输入：直接文件 module_index refs + 直接子目录 directory_summary refs。
+  输出：product_kind=directory_summary。
+  运行权威：GraphLoop 按 inbound edge readiness 和 join_policy 决定何时派发。
+
+required side effect
+  输入：合格 NodeResult。
+  输出：Project Network Store work product；若是 directory_summary，则登记 child return。
+  运行权威：GraphLoop.accept_node_result() 在推进边状态前执行。
+```
+
+跨目录的“父层能否聚合”不由 CLI 或外层 orchestrator 猜测，而由 frame materialization 输入决定：
+
+```text
+父 directory frame graph 发布前：
+  DirectoryRuntimeService.prepare_frame()
+  -> materialize_manifest()
+  -> create_child_frames()
+  -> scheduler_decision()
+  -> 只有 child returns 齐备时，父 frame 才允许 publish_frame_graph()
+
+父 directory frame graph 运行时：
+  GraphLoop 只看当前 graph config 内的 edge readiness。
+  directory_aggregate 只消费系统注入的 direct typed refs。
+```
+
+也就是说，跨 frame 的等待规则是 project_network materialization gate；单 graph 内的并发、等待、重试、质量反馈、side effect 是 GraphLoop 算法执行权威。两者不能互相越权。
+
+### 12.3 并发和回传
+
+并发不需要项目网络单独发明算法。当前系统已经具备：
+
+```text
+ExecutableGraphConfig.control.max_active_nodes
+  限制单个 graph run 内同时 active 的节点数。
+
+GraphStateMachine.ready_nodes()
+  根据 start node、edge readiness、wait_policy、join_policy 计算可派发节点。
+
+GraphLoop.dispatch_ready()
+  根据 max_active_nodes 取 ready 节点生成 GraphNodeWorkOrder。
+
+GraphLoop.accept_node_result()
+  接收节点结果，执行 required side effect，更新 node/edge/loop state，再派发下一批 ready 节点。
+```
+
+因此，文件夹内文件很多时，算法表现应是：
+
+```text
+ready file nodes > max_active_nodes
+  GraphLoop 先派发窗口内节点。
+  已运行节点完成并 accept_node_result 后释放 active capacity。
+  GraphLoop 继续派发剩余 ready 节点。
+  所有 required file results 完成后，aggregate node ready。
+```
+
+这才是成熟 graph harness 的并发结构；不需要外层 tree CLI 一批一批模拟。
+
+### 12.4 物理结构和语义网络的关系
+
+物理层不是一个阶段说明，而是算法输入的权威坐标系。
+
+```text
+物理层提供：
+  directory / file / symbol stable_ref
+  contains / defines / imports / calls / registers 等 skeleton edge
+  file_hash / AST anchor / git freshness
+
+算法层提供：
+  哪些物理节点被物化为 graph node
+  哪些 typed refs 进入 aggregate input
+  哪些 side effect 必须在状态推进前成功
+
+语义层提供：
+  semantic_coordinate
+  semantic_label
+  module_review_report / directory_review_report
+  accepted / candidate / conflict relation facts
+```
+
+agent 只能在系统分配的物理节点上铺语义，不能自己改物理树；GraphLoop 只能承载 tree_reduce 运行语义，不能替 agent 写语义。
+
+### 12.5 后端 CLI 的正确边界
+
+允许保留的 CLI 是单 graph harness 入口：
+
+```text
+graph publish-directory-frame
+  把一个已存在 directory frame 发布成 TaskGraphDefinition / ExecutableGraphConfig。
+
+graph start-directory-frame
+  把该 frame graph 交给后端 GraphRuntime / GraphLoop 启动。
+
+graph start-task-graph
+  启动任何已发布 graph config。
+```
+
+不应保留跨目录生命周期类 CLI。凡是替项目网络批量选择 ready frames、批量启动下一层、轮询终态并重新推进树的命令，都会诱导项目网络拥有第二套运行调度权威。
+
+需要观察全树状态时，应做只读 monitor / projection；需要启动下一层时，应通过正式图任务配置或图编辑器/后端启动器启动一个具体 frame graph，而不是让 CLI 自己充当 tree_reduce 生命周期控制器。
+
+## 13. 禁止事项
 
 - 禁止把 `deep_network_route_index` 做成大杂烩。
 - 禁止把 `signal_chain_index` 当导航主索引。
 - 禁止把 agent 自然语言报告反解析为结构化事实。
 - 禁止 unknown ref 进入可靠 route。
 - 禁止用兼容分支长期保留旧物化语义。
-- 禁止让 GraphLoop 承担项目网络业务判断。
+- 禁止让 GraphLoop 承担项目网络业务判断；也禁止让项目网络旁路 GraphLoop 自建跨 directory frame 运行调度器。
 - 禁止让文件审查 agent 读取额外文件或使用搜索工具。
 - 禁止用人工写入产物来冒充实测。
 - 禁止把项目控制系统当作 `rg + read_file` 的替代品。
 - 禁止在没有真实验证的情况下相信语义链路结论。
 
-## 13. 预期结果
+## 14. 预期结果
 
 完成后，项目控制系统应形成以下闭环：
 

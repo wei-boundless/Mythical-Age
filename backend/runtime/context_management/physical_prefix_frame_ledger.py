@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,11 @@ PHYSICAL_PREFIX_FRAME_LEDGER_AUTHORITY = "runtime.context_management.physical_pr
 PHYSICAL_PREFIX_FRAME_LEDGER_DIRNAME = "physical_prefix_frame_ledger"
 PHYSICAL_PREFIX_FRAME_REJECTED_STATUS = "rejected"
 PHYSICAL_PREFIX_FRAME_MAX_RETAINED = 64
+CONTEXT_MEMORY_PREFIX = "context_memory_prefix"
 PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
+PROVIDER_VISIBLE_CONTEXT_PREFIX_FAMILY = "provider_visible_context_prefix"
+PHYSICAL_PREFIX_FRAME_REPLAY_POLICY = "physical_prefix_frame_replay"
+PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY = "runtime.context_management.physical_prefix_frame.replay"
 
 
 def append_physical_prefix_frame_from_provider_success(
@@ -222,6 +227,10 @@ def build_physical_prefix_frame_from_provider_payload(
         )
         if original_lane and original_lane != promoted_lane:
             frame_metadata["physical_prefix_frame_original_lane"] = original_lane
+        frame_metadata = _confirmed_frame_replay_metadata(
+            frame_metadata,
+            promoted_lane=promoted_lane,
+        )
         frame_metadata["physical_prefix_frame_provider_message_source"] = provider_message_source
         segment_source_ref = str(full.get("source_ref") or spine_segment.get("source_ref") or "")
         segment_content_hash = str(full.get("content_hash") or spine_segment.get("content_hash") or "")
@@ -283,20 +292,28 @@ def build_physical_prefix_frame_from_provider_payload(
                 provider_serialized_hash=segment_provider_serialized_hash,
                 byte_length=_safe_int(full.get("byte_length") or spine_segment.get("byte_length")),
                 physical_prefix_lane=promoted_lane,
-                prefix_family=str(full.get("prefix_family") or spine_segment.get("prefix_family") or ""),
+                prefix_family=_frame_segment_prefix_family(
+                    promoted_lane=promoted_lane,
+                    full=full,
+                    spine_segment=spine_segment,
+                ),
                 logical_segment_ref=str(frame_prefix_identity.get("logical_segment_ref") or ""),
                 prefix_segment_ref=str(frame_prefix_identity.get("logical_segment_ref") or ""),
                 semantic_slot=segment_semantic_slot,
                 prefix_identity=frame_prefix_identity,
-                cache_scope=str(full.get("cache_scope") or "none"),
-                cache_role=str(full.get("cache_role") or "volatile"),
-                prefix_tier=str(full.get("prefix_tier") or "volatile"),
+                cache_scope=_frame_segment_cache_scope(promoted_lane=promoted_lane, full=full),
+                cache_role=_frame_segment_cache_role(promoted_lane=promoted_lane, full=full),
+                prefix_tier=_frame_segment_prefix_tier(promoted_lane=promoted_lane, full=full),
                 provider_visible_entry_index=provider_visible_entry_index,
                 provider_visible_hash=provider_visible_hash,
                 provider_visible_item_key=provider_visible_item_key,
                 provider_tool_round_id=round_id,
                 provider_tool_round_closed=bool(round_closed_by_id.get(round_id)) if round_id else False,
-                boundary_participation=str(full.get("boundary_participation") or spine_segment.get("boundary_participation") or ""),
+                boundary_participation=_frame_segment_boundary_participation(
+                    promoted_lane=promoted_lane,
+                    full=full,
+                    spine_segment=spine_segment,
+                ),
                 model_message_index=model_message_index,
                 provider_message=provider_message,
                 metadata=frame_metadata,
@@ -966,9 +983,30 @@ def _previous_confirmed_old_context_segments(
         if not dict(segment.provider_message or {}):
             continue
         # The previous frame is the byte authority. Copy the segment payload as-is;
-        # never rebuild old context from the current request manifest.
-        result.append(PhysicalPrefixFrameSegment.from_dict(segment.to_dict()))
+        # never rebuild old context from the current request manifest. Metadata is
+        # normalized only to preserve the confirmed replay lifecycle identity.
+        result.append(_confirmed_provider_visible_frame_segment(segment))
     return result
+
+
+def _confirmed_provider_visible_frame_segment(
+    segment: PhysicalPrefixFrameSegment,
+) -> PhysicalPrefixFrameSegment:
+    if str(segment.physical_prefix_lane or "") != PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return PhysicalPrefixFrameSegment.from_dict(segment.to_dict())
+    metadata = _confirmed_frame_replay_metadata(
+        dict(segment.metadata or {}),
+        promoted_lane=PROVIDER_VISIBLE_CONTEXT_PREFIX,
+    )
+    return replace(
+        segment,
+        prefix_family=PROVIDER_VISIBLE_CONTEXT_PREFIX_FAMILY,
+        cache_scope="session",
+        cache_role="session_stable",
+        prefix_tier="session",
+        boundary_participation="included",
+        metadata=metadata,
+    )
 
 
 def _physical_frame_segment_replay_sort_key(segment: PhysicalPrefixFrameSegment) -> tuple[int, int, str]:
@@ -1164,6 +1202,72 @@ def _segment_is_confirmed_current_append(segment: dict[str, Any]) -> bool:
     if str(metadata.get("context_cache_section") or "").strip() == "dynamic_tail":
         return False
     return True
+
+
+def _confirmed_frame_replay_metadata(
+    metadata: dict[str, Any],
+    *,
+    promoted_lane: str,
+) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    if str(promoted_lane or "").strip() != PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return payload
+    return {
+        **payload,
+        "context_cache_section": CONTEXT_MEMORY_PREFIX,
+        "fixed_context_package": "context_memory_prefix",
+        "physical_prefix_lane": PROVIDER_VISIBLE_CONTEXT_PREFIX,
+        "context_prefix_cache_scope": "session",
+        "context_prefix_cache_role": "session_stable",
+        "context_prefix_tier": "session",
+        "context_prefix_lifecycle_state": "confirmed_frame_replay",
+        "context_replay_policy": PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
+        "context_commit_policy": "replay_only_from_physical_prefix_frame",
+        "memory_commit_policy": "replay_only_from_physical_prefix_frame",
+        "provider_visible_payload_authority": PHYSICAL_PREFIX_FRAME_REPLAY_AUTHORITY,
+        "provider_visible_history_status": "physical_prefix_frame_replay",
+        "provider_visible_append_commit_stage": "physical_prefix_frame_replay",
+    }
+
+
+def _frame_segment_prefix_family(
+    *,
+    promoted_lane: str,
+    full: dict[str, Any],
+    spine_segment: dict[str, Any],
+) -> str:
+    if str(promoted_lane or "").strip() == PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return PROVIDER_VISIBLE_CONTEXT_PREFIX_FAMILY
+    return str(full.get("prefix_family") or spine_segment.get("prefix_family") or "")
+
+
+def _frame_segment_cache_scope(*, promoted_lane: str, full: dict[str, Any]) -> str:
+    if str(promoted_lane or "").strip() == PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return "session"
+    return str(full.get("cache_scope") or "none")
+
+
+def _frame_segment_cache_role(*, promoted_lane: str, full: dict[str, Any]) -> str:
+    if str(promoted_lane or "").strip() == PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return "session_stable"
+    return str(full.get("cache_role") or "volatile")
+
+
+def _frame_segment_prefix_tier(*, promoted_lane: str, full: dict[str, Any]) -> str:
+    if str(promoted_lane or "").strip() == PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return "session"
+    return str(full.get("prefix_tier") or "volatile")
+
+
+def _frame_segment_boundary_participation(
+    *,
+    promoted_lane: str,
+    full: dict[str, Any],
+    spine_segment: dict[str, Any],
+) -> str:
+    if str(promoted_lane or "").strip() == PROVIDER_VISIBLE_CONTEXT_PREFIX:
+        return "included"
+    return str(full.get("boundary_participation") or spine_segment.get("boundary_participation") or "")
 
 
 def _frame_segment_physical_lane(segment: dict[str, Any], *, metadata: dict[str, Any]) -> str:

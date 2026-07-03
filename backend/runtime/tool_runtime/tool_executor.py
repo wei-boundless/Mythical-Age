@@ -10,7 +10,6 @@ from capability_system.tools.contracts import ToolInvocationValidationDecision, 
 from core.project_layout import ProjectLayout
 from runtime.environment import RuntimeEnvironment
 from runtime.memory.file_evidence_scope import normalize_file_evidence_scope, task_run_file_evidence_scope
-from runtime.memory.tool_memory_events import commit_tool_memory_events_from_envelope
 from runtime.file_change_signals import publish_file_change_record
 from runtime.tool_runtime.tool_result_envelope import (
     ToolResultEnvelope,
@@ -856,26 +855,11 @@ class ToolRuntimeExecutor:
             result_ref=result_ref,
             result_envelope=envelope.to_dict(),
         )
-        tool_memory_commit = commit_tool_memory_events_from_envelope(
-            execution_store=execution_store,
-            runtime_host=getattr(self.tool_runtime, "runtime_host", None),
-            file_evidence_scope=file_evidence_scope,
-            observation_ref=observation.observation_id,
-            tool_call_id=tool_call_id,
-            envelope=envelope,
-            source_tool_name=tool_name,
-            task_run_id=task_run_id,
-            session_id=tool_context.session_id,
-            caller_kind="task_run",
-            authority="runtime.tool_runtime.tool_executor.tool_memory_commit",
-        )
         return {
             "observation": observation,
             "execution_record": current_record,
             "error": "",
             "sandbox": sandbox_context.to_dict() if sandbox_context else {},
-            "tool_memory_commit": tool_memory_commit,
-            "file_state_commit": dict(tool_memory_commit.get("file_state_commit") or tool_memory_commit or {}),
         }
 
     async def _run_core(

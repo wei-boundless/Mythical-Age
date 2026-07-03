@@ -225,17 +225,37 @@ class HarnessRuntimeFacade:
         }
 
     def _ingest_project_network_work_product_effect(self, *, request: dict[str, Any], node_result: Any) -> dict[str, Any]:
-        from task_system.project_network import DirectoryRuntimeService
+        from task_system.project_network import DirectoryRuntimeService, ProjectNetworkRepairRuntimeService
 
         context = dict(request.get("context") or {})
-        service = DirectoryRuntimeService.from_backend_dir(self.base_dir)
-        ingest = service.accept_directory_node_result(
-            node_result,
-            frame_id=str(context.get("directory_frame_id") or ""),
-            build_id=str(context.get("build_id") or ""),
-            default_shard_id=str(context.get("default_shard_id") or ""),
-            default_layer_id=str(context.get("default_layer_id") or ""),
-        )
+        target_base_dir = _project_network_target_base_dir(context, default_base_dir=self.base_dir)
+        repair_item_ids = [
+            str(item).strip()
+            for item in list(context.get("repair_item_ids") or ())
+            if str(item).strip()
+        ]
+        if repair_item_ids:
+            ingest = ProjectNetworkRepairRuntimeService.from_backend_dir(
+                target_base_dir,
+                flow_registry_base_dir=self.base_dir,
+            ).accept_repair_node_result(
+                node_result,
+                repair_item_ids=tuple(repair_item_ids),
+                repair_batch_id=str(context.get("repair_batch_id") or ""),
+                frame_id=str(context.get("directory_frame_id") or ""),
+                build_id=str(context.get("build_id") or ""),
+                default_shard_id=str(context.get("default_shard_id") or ""),
+                default_layer_id=str(context.get("default_layer_id") or ""),
+            )
+        else:
+            service = DirectoryRuntimeService.from_backend_dir(target_base_dir, flow_registry_base_dir=self.base_dir)
+            ingest = service.accept_directory_node_result(
+                node_result,
+                frame_id=str(context.get("directory_frame_id") or ""),
+                build_id=str(context.get("build_id") or ""),
+                default_shard_id=str(context.get("default_shard_id") or ""),
+                default_layer_id=str(context.get("default_layer_id") or ""),
+            )
         work_products = tuple(getattr(ingest, "work_products", ()) or ())
         metadata = dict(getattr(ingest, "metadata", {}) or {})
         semantic_artifact_set = dict(getattr(ingest, "semantic_artifact_set", {}) or metadata.get("semantic_artifact_set") or {})
@@ -251,6 +271,8 @@ class HarnessRuntimeFacade:
             "work_product_ids": [str(getattr(item, "work_product_id", "") or "") for item in work_products],
             "channel_count": len(tuple(getattr(ingest, "channel_states", ()) or ())),
             "directory_child_return_count": int(metadata.get("directory_child_return_count") or 0),
+            "repair_batch_id": str(metadata.get("repair_batch_id") or context.get("repair_batch_id") or ""),
+            "repair_item_count": int(metadata.get("repair_item_count") or len(repair_item_ids)),
             "semantic_artifact_set": semantic_artifact_set,
             "authority": "harness.entrypoint.project_network_work_product_effect",
         }
@@ -3725,6 +3747,18 @@ def _safe_compaction_boundary_timestamp(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _project_network_target_base_dir(context: dict[str, Any], *, default_base_dir: Path) -> Path:
+    for key in ("project_network_target_backend_dir", "project_network_target_project_root"):
+        raw = str(dict(context or {}).get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            return Path(raw).expanduser().resolve()
+        except OSError:
+            continue
+    return Path(default_base_dir).resolve()
 
 
 def _runtime_is_blocked(assembly_payload: dict[str, Any]) -> bool:

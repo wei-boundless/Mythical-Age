@@ -71,5 +71,47 @@ class DirectoryFrameSchedulerDecision:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DirectoryFrameTreeMaterializationResult:
+    build_id: str
+    root_frame_id: str
+    root_folder_path: str = ""
+    max_total_frames: int = 0
+    frame_count: int = 0
+    prepared_frame_count: int = 0
+    created_frame_count: int = 0
+    ready_frame_count: int = 0
+    waiting_frame_count: int = 0
+    blocked_frame_count: int = 0
+    ready_frames: tuple[dict[str, Any], ...] = ()
+    waiting_frames: tuple[dict[str, Any], ...] = ()
+    blocked_frames: tuple[dict[str, Any], ...] = ()
+    budget_stop_frames: tuple[dict[str, Any], ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.project_network.directory_frame_tree_materialization_result"
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(
+            {
+                "build_id": self.build_id,
+                "root_frame_id": self.root_frame_id,
+                "root_folder_path": self.root_folder_path,
+                "max_total_frames": self.max_total_frames,
+                "frame_count": self.frame_count,
+                "prepared_frame_count": self.prepared_frame_count,
+                "created_frame_count": self.created_frame_count,
+                "ready_frame_count": self.ready_frame_count,
+                "waiting_frame_count": self.waiting_frame_count,
+                "blocked_frame_count": self.blocked_frame_count,
+                "ready_frames": [dict(item) for item in self.ready_frames],
+                "waiting_frames": [dict(item) for item in self.waiting_frames],
+                "blocked_frames": [dict(item) for item in self.blocked_frames],
+                "budget_stop_frames": [dict(item) for item in self.budget_stop_frames],
+                "metadata": dict(self.metadata or {}),
+                "authority": self.authority,
+            }
+        )
+
+
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {}, ())}

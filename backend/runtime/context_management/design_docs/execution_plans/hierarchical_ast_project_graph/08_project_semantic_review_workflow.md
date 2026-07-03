@@ -1184,6 +1184,29 @@ git maintenance stale propagation
 
 这里“渲染”不是让 agent 规划目录树，而是系统根据 Skeleton Graph 的 `folder contains folder/file` 关系生成下一层 graph materialization package。agent 只审语义，不决定物理树有几层。
 
+物理树下探不能等待语义回传。正确运行顺序是：
+
+```text
+DirectoryRuntimeService.materialize_frame_tree(root_frame_id)
+-> 只根据物理骨架铺开 frame / manifest / child_frame
+-> 输出 ready_frames / waiting_frames / blocked_frames / budget_stop_frames
+-> leaf 或 budget boundary frame 进入 graph publish/start 队列
+-> parent frame 只在直接子目录 directory_summary 和直接文件 module_index 都回传后进入聚合队列
+```
+
+这意味着第一段是确定性物理 materialization，第二段才是 tree_reduce 语义回传。上层目录显示 `waiting_child_returns` 时，不允许阻塞系统继续向下准备子目录 frame；否则大项目会退化成“一层语义执行完才知道下一层物理结构”的慢路径。
+
+预算停止必须显式化：
+
+```text
+max_depth 命中：
+  当前 frame 作为 boundary leaf，可运行目录聚合，但 skipped child folder refs 必须进入 coverage / limitations。
+
+max_total_frames 命中：
+  不允许静默丢弃未铺开的 child folders。
+  frame 必须暴露 blocked_materialization_budget_exhausted / budget_stop_frames，等待扩大预算或人工裁决。
+```
+
 ### 16.1 与现有图任务结构的对齐
 
 现有结构可复用：
@@ -1319,7 +1342,7 @@ coverage requirements
 conflict refs
 ```
 
-这避免改 `GraphLoop`。等待逻辑由 project_network 的 render coordinator 管理。
+这避免把系统状态伪装成不可执行节点。project_network 的 materialization gate 只负责在父 frame 发布前确认直接子目录 summary refs 是否齐备；一旦 frame graph 发布，节点等待仍由 GraphLoop 的 edge readiness、wait_policy 和 join_policy 承担。
 
 ### 16.3 目录渲染帧状态机
 

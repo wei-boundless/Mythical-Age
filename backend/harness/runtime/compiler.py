@@ -5884,11 +5884,13 @@ def _normalize_prompt_contract(payload: dict[str, Any], *, contract_id: str) -> 
         "role_prompt": _first_runtime_text(payload.get("role_prompt")),
         "task_instruction": _first_runtime_text(payload.get("task_instruction")),
         "output_instruction": _first_runtime_text(payload.get("output_instruction")),
+        "language_policy": payload.get("language_policy") if isinstance(payload.get("language_policy"), dict) else {},
         "forbidden_behavior": _string_list(payload.get("forbidden_behavior")),
         "definition_of_done": _string_list(payload.get("definition_of_done")),
     }
     for key in (
         "input_boundary_contract",
+        "language_policy",
         "typed_submission_contract",
         "review_judgment_contract",
         "semantic_network_contract",

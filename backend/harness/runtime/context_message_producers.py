@@ -203,12 +203,7 @@ def _normalize_context_message_payloads(
     if invocation == "single_agent_turn":
         evidence_index_cursor_payload, dynamic_payload = _extract_evidence_index_cursor_payload(dynamic_payload)
         evidence_acquisition_horizon_payload, dynamic_payload = _extract_evidence_acquisition_horizon_payload(dynamic_payload)
-        file_evidence_scope_payload = dynamic_payload.pop("file_evidence_scope", None)
-        if evidence_index_cursor_payload and isinstance(file_evidence_scope_payload, dict):
-            evidence_index_cursor_payload = {
-                **evidence_index_cursor_payload,
-                "file_evidence_scope": dict(file_evidence_scope_payload),
-            }
+        dynamic_payload.pop("file_evidence_scope", None)
         for derived_evidence_key in ("file_evidence_decisions", "read_resource_state", "evidence_confidence"):
             dynamic_payload.pop(derived_evidence_key, None)
         session_history_payload, current_request_payload = _split_volatile_request_payload(volatile_payload)
@@ -346,7 +341,6 @@ class _EvidenceIndexCursorProducer:
                 title="Evidence index cursor",
                 payload=_drop_empty_payload(
                     {
-                        "file_evidence_scope": payload.get("file_evidence_scope"),
                         "evidence_index_cursor": evidence_index_cursor,
                     }
                 ),

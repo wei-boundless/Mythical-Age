@@ -10,6 +10,33 @@ _AGENT_VISIBLE_DROP_KEYS = {
     "prompt_authority",
     "control_schema_authority",
     "context_origin_authority",
+    "cache_impact",
+    "cache_policy",
+    "cache_read_expectation",
+    "cache_role",
+    "cache_scope",
+    "context_cache_section",
+    "context_commit_policy",
+    "context_identity_policy",
+    "context_policy_section",
+    "context_prefix_cache_role",
+    "context_prefix_cache_scope",
+    "context_prefix_lifecycle_state",
+    "context_prefix_tier",
+    "context_provider_visible_boundary",
+    "context_provider_visible_state",
+    "context_replay_policy",
+    "fixed_context_package",
+    "lifecycle_state",
+    "memory_commit_policy",
+    "physical_lane",
+    "physical_prefix_lane",
+    "prefix_family",
+    "prefix_identity",
+    "prefix_policy",
+    "prefix_tier",
+    "stability_rule",
+    "volatility_reason",
     "runtime_fragment_role",
     "runtime_envelope",
     "invocation_kind",
@@ -38,6 +65,33 @@ _AGENT_VISIBLE_KEY_REPLACEMENTS = {
     "single_lifecycle": "current_request_lifecycle",
     "single_turn_tool_call_boundary": "current_request_tool_call_boundary",
     "single_model_lifecycle": "model_work_lifecycle",
+}
+
+_INTERNAL_CONTEXT_LABEL_MARKERS = (
+    "context_append",
+    "context_memory_prefix",
+    "current_dynamic_tail",
+    "current_turn_tail",
+    "dynamic_tail",
+    "global_static_prefix",
+    "never_replay_tail",
+    "physical_prefix_lane",
+    "provider_global_static_prefix",
+    "provider_visible_context_prefix",
+    "static_prefix",
+)
+
+_USER_AUTHORED_TEXT_KEYS = {
+    "body",
+    "content",
+    "description",
+    "final_answer",
+    "message",
+    "query",
+    "summary",
+    "text",
+    "title",
+    "user_message",
 }
 
 
@@ -111,6 +165,8 @@ def _agent_visible_key(value: Any) -> str:
     raw = str(value or "").strip()
     if not raw or raw in _AGENT_VISIBLE_DROP_KEYS:
         return ""
+    if _looks_like_internal_context_metadata_key(raw):
+        return ""
     if raw in _AGENT_VISIBLE_KEY_REPLACEMENTS:
         return _AGENT_VISIBLE_KEY_REPLACEMENTS[raw]
     parts = raw.split("_")
@@ -128,7 +184,44 @@ def _agent_visible_value_for_key(key: str, value: Any) -> Any:
         return value
     if _ref_or_source_key(key) and _looks_like_internal_runtime_ref(value):
         return ""
+    if not _user_authored_text_key(key) and _contains_internal_context_label(value):
+        return ""
     return value
+
+
+def _looks_like_internal_context_metadata_key(value: str) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    if normalized.startswith(("cache_", "context_prefix_", "provider_cache_", "prefix_")):
+        return True
+    if normalized.endswith(("_cache_role", "_cache_scope", "_prefix_tier", "_prefix_family")):
+        return True
+    if normalized in {
+        "cache",
+        "cache_status",
+        "context_section",
+        "history_policy",
+        "lane",
+        "memory_source",
+        "physical_order",
+        "prefix",
+        "section",
+    }:
+        return True
+    return False
+
+
+def _user_authored_text_key(key: str) -> bool:
+    normalized = str(key or "").strip()
+    return normalized in _USER_AUTHORED_TEXT_KEYS or normalized.endswith(("_text", "_message", "_summary"))
+
+
+def _contains_internal_context_label(value: str) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    return any(marker in text for marker in _INTERNAL_CONTEXT_LABEL_MARKERS)
 
 
 def _ref_or_source_key(key: str) -> bool:

@@ -142,7 +142,6 @@ def _compact_handoff(value: Any) -> dict[str, Any]:
             "source_packet_ref": compact_text(value.get("source_packet_ref") or "", limit=260),
             "inherited_observation_refs": [compact_text(item, limit=220) for item in list(value.get("inherited_observation_refs") or [])[:12]],
             "inherited_observation_count": value.get("inherited_observation_count"),
-            "inherited_file_state_count": value.get("inherited_file_state_count"),
             "inherited_memory_context_refs": {
                 str(key): compact_text(item, limit=220)
                 for key, item in dict(value.get("inherited_memory_context_refs") or {}).items()

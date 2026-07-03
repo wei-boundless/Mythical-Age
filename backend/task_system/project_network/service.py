@@ -18,6 +18,8 @@ from .store_models import (
     ProjectNetworkEvidenceRecord,
     ProjectNetworkGenerationRecord,
     ProjectNetworkLayerIndexRecord,
+    ProjectNetworkMaintenanceSignalRecord,
+    ProjectNetworkRepairWorkItemRecord,
     ProjectNetworkStoreSnapshot,
     ProjectNetworkTraceRecord,
 )
@@ -58,6 +60,24 @@ class ProjectNetworkWorkProductIngestResult:
                 "projection": self.projection.to_dict() if self.projection is not None else {},
                 "semantic_artifact_set": self.semantic_artifact_set,
                 "metadata": self.metadata,
+                "authority": self.authority,
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectNetworkRepairQueueResult:
+    build_id: str
+    signal: ProjectNetworkMaintenanceSignalRecord
+    repair_items: tuple[ProjectNetworkRepairWorkItemRecord, ...] = ()
+    authority: str = "task_system.project_network.repair_queue_result"
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(
+            {
+                "build_id": self.build_id,
+                "signal": self.signal.to_dict(),
+                "repair_items": [item.to_dict() for item in self.repair_items],
                 "authority": self.authority,
             }
         )
@@ -251,6 +271,140 @@ class ProjectNetworkBuildService:
             lineages=lineages,
         )
 
+    def queue_maintenance_signal(
+        self,
+        *,
+        build_id: str,
+        signal_source: str,
+        signal_code: str,
+        severity: str = "info",
+        subject_ref: str = "",
+        stable_ref: str = "",
+        edge_id: str = "",
+        anchor_ref: str = "",
+        scope_refs: tuple[str, ...] | list[str] = (),
+        evidence_refs: tuple[str, ...] | list[str] = (),
+        requested_layers: tuple[str, ...] | list[str] = (),
+        payload: dict[str, Any] | None = None,
+        status: str = "queued",
+        metadata: dict[str, Any] | None = None,
+    ) -> ProjectNetworkMaintenanceSignalRecord:
+        resolved_build_id = str(build_id or "").strip()
+        if not resolved_build_id:
+            raise ValueError("queue_maintenance_signal requires build_id")
+        resolved_subject_ref = str(subject_ref or stable_ref or "").strip()
+        resolved_stable_ref = str(stable_ref or subject_ref or "").strip()
+        signal = ProjectNetworkMaintenanceSignalRecord(
+            signal_id=stable_project_network_id(
+                "pnsignal",
+                resolved_build_id,
+                signal_source,
+                signal_code,
+                severity,
+                resolved_subject_ref,
+                resolved_stable_ref,
+                edge_id,
+                anchor_ref,
+                content_hash(
+                    {
+                        "scope_refs": list(scope_refs or ()),
+                        "evidence_refs": list(evidence_refs or ()),
+                        "requested_layers": list(requested_layers or ()),
+                        "payload": dict(payload or {}),
+                    }
+                ),
+            ),
+            build_id=resolved_build_id,
+            signal_source=str(signal_source or "").strip(),
+            signal_code=str(signal_code or "").strip(),
+            severity=str(severity or "info").strip() or "info",
+            subject_ref=resolved_subject_ref,
+            stable_ref=resolved_stable_ref,
+            edge_id=str(edge_id or "").strip(),
+            anchor_ref=str(anchor_ref or "").strip(),
+            scope_refs=_normalize_strings(scope_refs, fallback=(resolved_subject_ref, resolved_stable_ref)),
+            evidence_refs=_normalize_strings(evidence_refs),
+            requested_layers=_normalize_requested_layers(requested_layers, subject_ref=resolved_subject_ref, signal_code=signal_code),
+            payload=dict(payload or {}),
+            status=str(status or "queued").strip() or "queued",
+            metadata=dict(metadata or {}),
+        )
+        return self.repository.upsert_maintenance_signal(signal)
+
+    def queue_repair(
+        self,
+        *,
+        build_id: str,
+        signal_source: str,
+        signal_code: str,
+        severity: str = "info",
+        subject_ref: str = "",
+        stable_ref: str = "",
+        edge_id: str = "",
+        anchor_ref: str = "",
+        scope_refs: tuple[str, ...] | list[str] = (),
+        evidence_refs: tuple[str, ...] | list[str] = (),
+        requested_layers: tuple[str, ...] | list[str] = (),
+        payload: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ProjectNetworkRepairQueueResult:
+        signal = self.queue_maintenance_signal(
+            build_id=build_id,
+            signal_source=signal_source,
+            signal_code=signal_code,
+            severity=severity,
+            subject_ref=subject_ref,
+            stable_ref=stable_ref,
+            edge_id=edge_id,
+            anchor_ref=anchor_ref,
+            scope_refs=scope_refs,
+            evidence_refs=evidence_refs,
+            requested_layers=requested_layers,
+            payload=payload,
+            metadata=metadata,
+        )
+        items = self._plan_repair_items(signal)
+        stored = tuple(self.repository.upsert_repair_item(item) for item in items)
+        return ProjectNetworkRepairQueueResult(build_id=signal.build_id, signal=signal, repair_items=stored)
+
+    def read_repairs(
+        self,
+        *,
+        build_id: str,
+        stable_ref: str = "",
+        subject_ref: str = "",
+        trigger_signal_id: str = "",
+        status: str = "",
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        signals = self.repository.list_maintenance_signals(
+            build_id=build_id,
+            stable_ref=stable_ref,
+            subject_ref=subject_ref,
+            status=status,
+            limit=limit,
+        )
+        items = self.repository.list_repair_items(
+            build_id=build_id,
+            stable_ref=stable_ref,
+            subject_ref=subject_ref,
+            trigger_signal_id=trigger_signal_id,
+            status=status,
+            limit=limit,
+        )
+        return {
+            "build_id": build_id,
+            "signals": [item.to_dict() for item in signals],
+            "repair_items": [item.to_dict() for item in items],
+            "summary": {
+                "signal_count": len(signals),
+                "repair_item_count": len(items),
+                "queued_signal_count": sum(1 for item in signals if item.status == "queued"),
+                "queued_repair_count": sum(1 for item in items if item.status == "queued"),
+            },
+            "authority": "task_system.project_network.repair_read_projection",
+        }
+
     def _generation_record(self, product: GraphBuildWorkProductEnvelope) -> ProjectNetworkGenerationRecord:
         generation = int(product.generation or 0) or self.repository.next_generation_number(product.build_id)
         generation_id = (
@@ -258,6 +412,116 @@ class ProjectNetworkBuildService:
             or stable_project_network_id("pngen", product.build_id, product.work_product_id, str(generation), product.payload_ref)
         )
         return ProjectNetworkGenerationRecord.from_work_product(product, generation_id=generation_id, generation=generation)
+
+    def _plan_repair_items(self, signal: ProjectNetworkMaintenanceSignalRecord) -> tuple[ProjectNetworkRepairWorkItemRecord, ...]:
+        scope_refs = signal.scope_refs or _normalize_strings((signal.subject_ref, signal.stable_ref))
+        requested_layers = signal.requested_layers or _normalize_requested_layers((), subject_ref=signal.subject_ref or signal.stable_ref, signal_code=signal.signal_code)
+        repair_scope_kind = _repair_scope_kind(signal)
+        repair_kind = _repair_kind(signal)
+        priority = _repair_priority(signal)
+        reason_codes = (signal.signal_code,) if signal.signal_code else ()
+        evidence_refs = signal.evidence_refs
+        item = ProjectNetworkRepairWorkItemRecord(
+            repair_item_id=stable_project_network_id(
+                "pnrepair",
+                signal.build_id,
+                signal.signal_id,
+                repair_kind,
+                repair_scope_kind,
+                content_hash({"scope_refs": list(scope_refs), "requested_layers": list(requested_layers)}),
+            ),
+            build_id=signal.build_id,
+            trigger_kind="maintenance_signal",
+            trigger_ref=signal.signal_id,
+            trigger_signal_id=signal.signal_id,
+            repair_kind=repair_kind,
+            repair_scope_kind=repair_scope_kind,
+            subject_ref=signal.subject_ref,
+            stable_ref=signal.stable_ref,
+            scope_refs=scope_refs,
+            requested_layers=requested_layers,
+            reason_codes=reason_codes,
+            evidence_refs=evidence_refs,
+            payload={
+                "signal_source": signal.signal_source,
+                "signal_code": signal.signal_code,
+                "severity": signal.severity,
+                "edge_id": signal.edge_id,
+                "anchor_ref": signal.anchor_ref,
+                "signal_payload": signal.payload,
+            },
+            priority=priority,
+            status="queued",
+            metadata={
+                "signal_id": signal.signal_id,
+                "repair_contract": "localized_project_network_repair",
+            },
+        )
+        return (item,)
+
+
+def _normalize_strings(
+    value: tuple[str, ...] | list[str] | set[str] | None,
+    *,
+    fallback: tuple[str, ...] | list[str] = (),
+) -> tuple[str, ...]:
+    items = [str(item).strip() for item in list(value or fallback or ()) if str(item).strip()]
+    return tuple(dict.fromkeys(items))
+
+
+def _normalize_requested_layers(
+    requested_layers: tuple[str, ...] | list[str] | None,
+    *,
+    subject_ref: str,
+    signal_code: str,
+) -> tuple[str, ...]:
+    layers = _normalize_strings(requested_layers)
+    if layers:
+        return layers
+    code = str(signal_code or "").strip().lower()
+    ref = str(subject_ref or "").strip()
+    if code in {"unresolved_route_ref", "candidate_relation_needs_resolution", "accepted_edge_missing_evidence", "accepted_edge_missing_anchor", "conflict_signal_present", "bridge_gap"}:
+        return ("relation_route",)
+    if ref.startswith("folder://"):
+        return ("folder", "relation_route")
+    if ref.startswith("file://"):
+        return ("semantic_file_module", "relation_route")
+    if any(ref.startswith(prefix) for prefix in ("handler://", "fn://", "function://", "func://", "pyast://", "symbol://", "type://")):
+        return ("semantic_file_module", "relation_route")
+    return ("relation_route",)
+
+
+def _repair_scope_kind(signal: ProjectNetworkMaintenanceSignalRecord) -> str:
+    ref = str(signal.subject_ref or signal.stable_ref or "").strip()
+    code = str(signal.signal_code or "").strip().lower()
+    if code in {"unresolved_route_ref", "candidate_relation_needs_resolution", "accepted_edge_missing_evidence", "accepted_edge_missing_anchor", "conflict_signal_present", "bridge_gap"}:
+        return "relation_slice"
+    if ref.startswith("folder://"):
+        return "directory"
+    if ref.startswith("file://"):
+        return "file_module"
+    if any(ref.startswith(prefix) for prefix in ("handler://", "fn://", "function://", "func://", "pyast://", "symbol://", "type://")):
+        return "route_bridge"
+    return "audit_slice"
+
+
+def _repair_kind(signal: ProjectNetworkMaintenanceSignalRecord) -> str:
+    code = str(signal.signal_code or "").strip().lower()
+    if code in {"accepted_edge_missing_evidence", "accepted_edge_missing_anchor", "candidate_relation_needs_resolution", "conflict_signal_present", "bridge_gap"}:
+        return "refresh_relation_route_for_signal_gap"
+    if code == "unresolved_route_ref":
+        return "refresh_route_landing_for_unresolved_ref"
+    if code.startswith("locate_"):
+        return "refresh_navigation_landings_for_locate_failure"
+    return "refresh_semantic_control_slice"
+
+
+def _repair_priority(signal: ProjectNetworkMaintenanceSignalRecord) -> int:
+    severity = str(signal.severity or "info").strip().lower()
+    base = {"error": 90, "warning": 75, "info": 55}.get(severity, 50)
+    if str(signal.signal_code or "").strip().lower().startswith("locate_"):
+        base = max(base, 70)
+    return base
 
 
 def _node_result_envelope(node_result: NodeResultEnvelope | dict[str, Any]) -> NodeResultEnvelope:

@@ -648,6 +648,11 @@ class GraphLoop:
             node_states=node_states,
             edge_states=edge_states,
             active_work_orders=active_work_orders,
+            loop_state=_loop_state_with_target_frames_active(
+                loop_state=dict(state.loop_state or {}),
+                target_node_ids=targets,
+                initial_inputs=dict(state.initial_inputs or {}),
+            ),
             ready_node_ids=tuple(dict.fromkeys([*state.ready_node_ids, *targets])),
             running_node_ids=(),
             blocked_node_ids=tuple(
@@ -715,6 +720,11 @@ class GraphLoop:
             edge_states=edge_states,
             result_index=result_index,
             active_work_orders=active_work_orders,
+            loop_state=_loop_state_with_target_frames_active(
+                loop_state=dict(state.loop_state or {}),
+                target_node_ids=targets,
+                initial_inputs=dict(state.initial_inputs or {}),
+            ),
             ready_node_ids=tuple(dict.fromkeys([*state.ready_node_ids, *targets])),
             running_node_ids=(),
             failed_node_ids=tuple(item for item in state.failed_node_ids if item not in target_set),
@@ -2667,6 +2677,19 @@ def _loop_state_with_revision_frames_active(
     target_node_ids: tuple[str, ...],
     initial_inputs: dict[str, Any],
 ) -> dict[str, Any]:
+    return _loop_state_with_target_frames_active(
+        loop_state=loop_state,
+        target_node_ids=target_node_ids,
+        initial_inputs=initial_inputs,
+    )
+
+
+def _loop_state_with_target_frames_active(
+    *,
+    loop_state: dict[str, Any],
+    target_node_ids: tuple[str, ...],
+    initial_inputs: dict[str, Any],
+) -> dict[str, Any]:
     target_set = {str(item) for item in target_node_ids if str(item)}
     if not target_set:
         return loop_state
@@ -2696,34 +2719,6 @@ def _loop_state_with_revision_frames_active(
             frame=frame,
             values={**initial_inputs, **frame, "cursor": cursor_value, "iteration_index": iteration_index},
         )
-        frame["updated_at"] = now
-        frames[frame_id] = frame
-        changed = True
-    if not changed:
-        return loop_state
-    return {**loop_state, "frames": frames}
-
-
-def _loop_state_with_requeue_exit_frames(
-    *,
-    loop_state: dict[str, Any],
-    target_node_ids: tuple[str, ...],
-) -> dict[str, Any]:
-    target_set = {str(item) for item in target_node_ids if str(item)}
-    if not target_set:
-        return loop_state
-    frames = {
-        str(frame_id): dict(frame)
-        for frame_id, frame in dict(loop_state.get("frames") or {}).items()
-        if isinstance(frame, dict)
-    }
-    changed = False
-    now = time.time()
-    for frame_id, frame in list(frames.items()):
-        exit_node_id = str(frame.get("exit_node_id") or "").strip()
-        if not exit_node_id or exit_node_id not in target_set:
-            continue
-        frame["status"] = "exited"
         frame["updated_at"] = now
         frames[frame_id] = frame
         changed = True
@@ -3771,10 +3766,6 @@ def _state_after_revision_requeue(
         loop_state=loop_state,
         target_node_ids=targets,
         initial_inputs=initial_inputs,
-    )
-    loop_state = _loop_state_with_requeue_exit_frames(
-        loop_state=loop_state,
-        target_node_ids=targets,
     )
     preserved_revision_edges = {
         edge_id: dict(edge_state)

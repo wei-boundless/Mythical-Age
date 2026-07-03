@@ -1032,6 +1032,7 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
             "role_prompt": str(prompt_contract.get("role_prompt") or metadata.get("role_prompt") or ""),
             "task_instruction": str(prompt_contract.get("task_instruction") or metadata.get("task_instruction") or ""),
             "output_instruction": str(prompt_contract.get("output_instruction") or metadata.get("output_instruction") or ""),
+            "language_policy": dict(prompt_contract.get("language_policy") or metadata.get("language_policy") or {}),
             "forbidden_behavior": list(prompt_contract.get("forbidden_behavior") or metadata.get("forbidden_behavior") or []),
             "definition_of_done": list(prompt_contract.get("definition_of_done") or metadata.get("definition_of_done") or []),
         },

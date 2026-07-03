@@ -25,6 +25,8 @@ from .store_models import (
     ProjectNetworkEvidenceRecord,
     ProjectNetworkGenerationRecord,
     ProjectNetworkLayerIndexRecord,
+    ProjectNetworkMaintenanceSignalRecord,
+    ProjectNetworkRepairWorkItemRecord,
     ProjectNetworkStoreSnapshot,
     ProjectNetworkTraceRecord,
 )
@@ -767,6 +769,197 @@ class ProjectNetworkRepository:
             rows = conn.execute(sql, tuple(params)).fetchall()
         return tuple(_trace_from_row(row) for row in rows)
 
+    def upsert_maintenance_signal(self, record: ProjectNetworkMaintenanceSignalRecord) -> ProjectNetworkMaintenanceSignalRecord:
+        now = utc_now_iso()
+        stored = replace(record, created_at=record.created_at or now, updated_at=now)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO project_network_maintenance_signals (
+                    signal_id, build_id, signal_source, signal_code, severity, subject_ref,
+                    stable_ref, edge_id, anchor_ref, scope_refs_json, evidence_refs_json,
+                    requested_layers_json, payload_json, status, metadata_json,
+                    created_at, updated_at, authority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(signal_id) DO UPDATE SET
+                    signal_source = excluded.signal_source,
+                    signal_code = excluded.signal_code,
+                    severity = excluded.severity,
+                    subject_ref = excluded.subject_ref,
+                    stable_ref = excluded.stable_ref,
+                    edge_id = excluded.edge_id,
+                    anchor_ref = excluded.anchor_ref,
+                    scope_refs_json = excluded.scope_refs_json,
+                    evidence_refs_json = excluded.evidence_refs_json,
+                    requested_layers_json = excluded.requested_layers_json,
+                    payload_json = excluded.payload_json,
+                    status = excluded.status,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at,
+                    authority = excluded.authority
+                """,
+                (
+                    stored.signal_id,
+                    stored.build_id,
+                    stored.signal_source,
+                    stored.signal_code,
+                    stored.severity,
+                    stored.subject_ref,
+                    stored.stable_ref,
+                    stored.edge_id,
+                    stored.anchor_ref,
+                    _json(list(stored.scope_refs)),
+                    _json(list(stored.evidence_refs)),
+                    _json(list(stored.requested_layers)),
+                    _json(stored.payload),
+                    stored.status,
+                    _json(stored.metadata),
+                    stored.created_at,
+                    stored.updated_at,
+                    stored.authority,
+                ),
+            )
+        return stored
+
+    def get_maintenance_signal(self, signal_id: str) -> ProjectNetworkMaintenanceSignalRecord | None:
+        target = str(signal_id or "").strip()
+        if not target:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM project_network_maintenance_signals WHERE signal_id = ?",
+                (target,),
+            ).fetchone()
+        return _maintenance_signal_from_row(row) if row is not None else None
+
+    def list_maintenance_signals(
+        self,
+        *,
+        build_id: str = "",
+        stable_ref: str = "",
+        subject_ref: str = "",
+        signal_source: str = "",
+        status: str = "",
+        limit: int = 2000,
+    ) -> tuple[ProjectNetworkMaintenanceSignalRecord, ...]:
+        filters: list[str] = []
+        params: list[Any] = []
+        if build_id:
+            filters.append("build_id = ?")
+            params.append(build_id)
+        if stable_ref:
+            filters.append("stable_ref = ?")
+            params.append(stable_ref)
+        if subject_ref:
+            filters.append("subject_ref = ?")
+            params.append(subject_ref)
+        if signal_source:
+            filters.append("signal_source = ?")
+            params.append(signal_source)
+        if status:
+            filters.append("status = ?")
+            params.append(status)
+        sql = "SELECT * FROM project_network_maintenance_signals"
+        if filters:
+            sql += " WHERE " + " AND ".join(filters)
+        sql += " ORDER BY updated_at DESC, signal_id ASC LIMIT ?"
+        params.append(_limit(limit))
+        with self._connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_maintenance_signal_from_row(row) for row in rows)
+
+    def upsert_repair_item(self, record: ProjectNetworkRepairWorkItemRecord) -> ProjectNetworkRepairWorkItemRecord:
+        now = utc_now_iso()
+        stored = replace(record, created_at=record.created_at or now, updated_at=now)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO project_network_repair_work_items (
+                    repair_item_id, build_id, trigger_kind, trigger_ref, trigger_signal_id,
+                    repair_kind, repair_scope_kind, subject_ref, stable_ref, scope_refs_json,
+                    requested_layers_json, reason_codes_json, evidence_refs_json, payload_json,
+                    priority, status, metadata_json, created_at, updated_at, authority
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(repair_item_id) DO UPDATE SET
+                    trigger_kind = excluded.trigger_kind,
+                    trigger_ref = excluded.trigger_ref,
+                    trigger_signal_id = excluded.trigger_signal_id,
+                    repair_kind = excluded.repair_kind,
+                    repair_scope_kind = excluded.repair_scope_kind,
+                    subject_ref = excluded.subject_ref,
+                    stable_ref = excluded.stable_ref,
+                    scope_refs_json = excluded.scope_refs_json,
+                    requested_layers_json = excluded.requested_layers_json,
+                    reason_codes_json = excluded.reason_codes_json,
+                    evidence_refs_json = excluded.evidence_refs_json,
+                    payload_json = excluded.payload_json,
+                    priority = excluded.priority,
+                    status = excluded.status,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at,
+                    authority = excluded.authority
+                """,
+                (
+                    stored.repair_item_id,
+                    stored.build_id,
+                    stored.trigger_kind,
+                    stored.trigger_ref,
+                    stored.trigger_signal_id,
+                    stored.repair_kind,
+                    stored.repair_scope_kind,
+                    stored.subject_ref,
+                    stored.stable_ref,
+                    _json(list(stored.scope_refs)),
+                    _json(list(stored.requested_layers)),
+                    _json(list(stored.reason_codes)),
+                    _json(list(stored.evidence_refs)),
+                    _json(stored.payload),
+                    int(stored.priority or 0),
+                    stored.status,
+                    _json(stored.metadata),
+                    stored.created_at,
+                    stored.updated_at,
+                    stored.authority,
+                ),
+            )
+        return stored
+
+    def list_repair_items(
+        self,
+        *,
+        build_id: str = "",
+        stable_ref: str = "",
+        subject_ref: str = "",
+        trigger_signal_id: str = "",
+        status: str = "",
+        limit: int = 2000,
+    ) -> tuple[ProjectNetworkRepairWorkItemRecord, ...]:
+        filters: list[str] = []
+        params: list[Any] = []
+        if build_id:
+            filters.append("build_id = ?")
+            params.append(build_id)
+        if stable_ref:
+            filters.append("stable_ref = ?")
+            params.append(stable_ref)
+        if subject_ref:
+            filters.append("subject_ref = ?")
+            params.append(subject_ref)
+        if trigger_signal_id:
+            filters.append("trigger_signal_id = ?")
+            params.append(trigger_signal_id)
+        if status:
+            filters.append("status = ?")
+            params.append(status)
+        sql = "SELECT * FROM project_network_repair_work_items"
+        if filters:
+            sql += " WHERE " + " AND ".join(filters)
+        sql += " ORDER BY priority DESC, updated_at DESC, repair_item_id ASC LIMIT ?"
+        params.append(_limit(limit))
+        with self._connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_repair_item_from_row(row) for row in rows)
+
     def upsert_directory_frame(self, frame: DirectoryRenderFrame) -> DirectoryRenderFrame:
         now = utc_now_iso()
         with self._connect() as conn:
@@ -1036,6 +1229,8 @@ class ProjectNetworkRepository:
             layer_indexes=self.list_layer_indexes(build_id=target, limit=limit),
             generations=self.list_generations(build_id=target, limit=limit),
             traces=self.list_traces(build_id=target, limit=limit),
+            maintenance_signals=self.list_maintenance_signals(build_id=target, limit=limit),
+            repair_items=self.list_repair_items(build_id=target, limit=limit),
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -1195,6 +1390,50 @@ class ProjectNetworkRepository:
                     authority TEXT NOT NULL DEFAULT 'task_system.project_network.trace_record'
                 );
 
+                CREATE TABLE IF NOT EXISTS project_network_maintenance_signals (
+                    signal_id TEXT PRIMARY KEY,
+                    build_id TEXT NOT NULL,
+                    signal_source TEXT NOT NULL DEFAULT '',
+                    signal_code TEXT NOT NULL DEFAULT '',
+                    severity TEXT NOT NULL DEFAULT 'info',
+                    subject_ref TEXT NOT NULL DEFAULT '',
+                    stable_ref TEXT NOT NULL DEFAULT '',
+                    edge_id TEXT NOT NULL DEFAULT '',
+                    anchor_ref TEXT NOT NULL DEFAULT '',
+                    scope_refs_json TEXT NOT NULL DEFAULT '[]',
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    requested_layers_json TEXT NOT NULL DEFAULT '[]',
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    authority TEXT NOT NULL DEFAULT 'task_system.project_network.maintenance_signal_record'
+                );
+
+                CREATE TABLE IF NOT EXISTS project_network_repair_work_items (
+                    repair_item_id TEXT PRIMARY KEY,
+                    build_id TEXT NOT NULL,
+                    trigger_kind TEXT NOT NULL DEFAULT '',
+                    trigger_ref TEXT NOT NULL DEFAULT '',
+                    trigger_signal_id TEXT NOT NULL DEFAULT '',
+                    repair_kind TEXT NOT NULL DEFAULT '',
+                    repair_scope_kind TEXT NOT NULL DEFAULT '',
+                    subject_ref TEXT NOT NULL DEFAULT '',
+                    stable_ref TEXT NOT NULL DEFAULT '',
+                    scope_refs_json TEXT NOT NULL DEFAULT '[]',
+                    requested_layers_json TEXT NOT NULL DEFAULT '[]',
+                    reason_codes_json TEXT NOT NULL DEFAULT '[]',
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    priority INTEGER NOT NULL DEFAULT 50,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    authority TEXT NOT NULL DEFAULT 'task_system.project_network.repair_work_item_record'
+                );
+
                 CREATE TABLE IF NOT EXISTS project_network_directory_frames (
                     frame_id TEXT PRIMARY KEY,
                     build_id TEXT NOT NULL,
@@ -1277,6 +1516,14 @@ class ProjectNetworkRepository:
                     ON project_network_generations(build_id, status, generation);
                 CREATE INDEX IF NOT EXISTS idx_project_network_traces_build_graph
                     ON project_network_traces(build_id, graph_run_id, node_id);
+                CREATE INDEX IF NOT EXISTS idx_project_network_maintenance_signals_build_status
+                    ON project_network_maintenance_signals(build_id, status, signal_source, signal_code);
+                CREATE INDEX IF NOT EXISTS idx_project_network_maintenance_signals_subject
+                    ON project_network_maintenance_signals(build_id, stable_ref, subject_ref);
+                CREATE INDEX IF NOT EXISTS idx_project_network_repair_items_build_status
+                    ON project_network_repair_work_items(build_id, status, priority);
+                CREATE INDEX IF NOT EXISTS idx_project_network_repair_items_subject
+                    ON project_network_repair_work_items(build_id, stable_ref, subject_ref, trigger_signal_id);
                 CREATE INDEX IF NOT EXISTS idx_project_network_directory_frames_build_parent
                     ON project_network_directory_frames(build_id, root_frame_id, parent_frame_id, status);
                 CREATE INDEX IF NOT EXISTS idx_project_network_directory_frames_folder
@@ -1457,6 +1704,54 @@ def _trace_from_row(row: sqlite3.Row) -> ProjectNetworkTraceRecord:
         payload=_loads(row["payload_json"], {}),
         created_at=str(row["created_at"] or ""),
         authority=str(row["authority"] or "task_system.project_network.trace_record"),
+    )
+
+
+def _maintenance_signal_from_row(row: sqlite3.Row) -> ProjectNetworkMaintenanceSignalRecord:
+    return ProjectNetworkMaintenanceSignalRecord(
+        signal_id=str(row["signal_id"]),
+        build_id=str(row["build_id"]),
+        signal_source=str(row["signal_source"] or ""),
+        signal_code=str(row["signal_code"] or ""),
+        severity=str(row["severity"] or "info"),
+        subject_ref=str(row["subject_ref"] or ""),
+        stable_ref=str(row["stable_ref"] or ""),
+        edge_id=str(row["edge_id"] or ""),
+        anchor_ref=str(row["anchor_ref"] or ""),
+        scope_refs=tuple(_strings(_loads(row["scope_refs_json"], []))),
+        evidence_refs=tuple(_strings(_loads(row["evidence_refs_json"], []))),
+        requested_layers=tuple(_strings(_loads(row["requested_layers_json"], []))),
+        payload=_loads(row["payload_json"], {}),
+        status=str(row["status"] or "queued"),
+        created_at=str(row["created_at"] or ""),
+        updated_at=str(row["updated_at"] or ""),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.project_network.maintenance_signal_record"),
+    )
+
+
+def _repair_item_from_row(row: sqlite3.Row) -> ProjectNetworkRepairWorkItemRecord:
+    return ProjectNetworkRepairWorkItemRecord(
+        repair_item_id=str(row["repair_item_id"]),
+        build_id=str(row["build_id"]),
+        trigger_kind=str(row["trigger_kind"] or ""),
+        trigger_ref=str(row["trigger_ref"] or ""),
+        trigger_signal_id=str(row["trigger_signal_id"] or ""),
+        repair_kind=str(row["repair_kind"] or ""),
+        repair_scope_kind=str(row["repair_scope_kind"] or ""),
+        subject_ref=str(row["subject_ref"] or ""),
+        stable_ref=str(row["stable_ref"] or ""),
+        scope_refs=tuple(_strings(_loads(row["scope_refs_json"], []))),
+        requested_layers=tuple(_strings(_loads(row["requested_layers_json"], []))),
+        reason_codes=tuple(_strings(_loads(row["reason_codes_json"], []))),
+        evidence_refs=tuple(_strings(_loads(row["evidence_refs_json"], []))),
+        payload=_loads(row["payload_json"], {}),
+        priority=int(row["priority"] or 0),
+        status=str(row["status"] or "queued"),
+        created_at=str(row["created_at"] or ""),
+        updated_at=str(row["updated_at"] or ""),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.project_network.repair_work_item_record"),
     )
 
 

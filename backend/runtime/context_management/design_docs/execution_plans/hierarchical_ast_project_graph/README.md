@@ -17,6 +17,7 @@
 -> 08 项目级语义审查工作流设计
 -> 09 图任务算法适配器与 Tree Reduce 架构裁决
 -> 10 项目控制系统三层网络与契约重写计划
+-> 11 深度索引修复与同源维护统一计划
 -> 06 项目网络级索引与爬行审查计划
 -> 04 图任务审查网络建立方案
 ```
@@ -31,6 +32,7 @@
 | `08_project_semantic_review_workflow.md` | 固定项目级语义审查工作流、共享状态、单层审查微流程、单文件模块审查模板和自下而上汇总规则 | 不定义新的 graph core，不替代 05 的承载能力和 07 的物理/语义分层 |
 | `09_graph_algorithm_adapter_tree_reduce_architecture.md` | 固定图任务算法适配器架构：写作图是循环迭代，审查图是 tree_reduce；旧 render 收缩为 tree materialization | 不把项目网络业务逻辑塞进 GraphLoop，不保留独立渲染调度路径 |
 | `10_project_control_system_three_layer_network_contract_rewrite_plan.md` | 固定项目控制系统三层网络、契约重写、根目录报告、语义坐标、深度定位索引、信号链路索引和神经控制工具边界 | 不替代物理骨架抽取，不把信号链路和定位网络混成一个产物 |
+| `11_deep_index_repair_and_maintenance_unification_plan.md` | 固定深度索引修复、断点检测、repair 发起、同源维护闭环和控制桥补网方案 | 不另起平行补网系统，不让 repair 绕开现有 maintenance / generation / curator 主链 |
 | `06_network_crawler_index_and_review_plan.md` | 设计可爬行 Project Network Index、frontier、crawler session、edge review 和 agent 网络操作接口 | 不替代 Deep AST，不直接发布最终 generation |
 | `04_graph_task_review_network.md` | 设计 graph task / TaskRun / 多 coding agent 审查建网流程 | 不直接定义 AST 抽取细节，不绕过 05 的通用承载能力 |
 
@@ -101,5 +103,6 @@ Deep AST Spine
 - [08_project_semantic_review_workflow.md](08_project_semantic_review_workflow.md)
 - [09_graph_algorithm_adapter_tree_reduce_architecture.md](09_graph_algorithm_adapter_tree_reduce_architecture.md)
 - [10_project_control_system_three_layer_network_contract_rewrite_plan.md](10_project_control_system_three_layer_network_contract_rewrite_plan.md)
+- [11_deep_index_repair_and_maintenance_unification_plan.md](11_deep_index_repair_and_maintenance_unification_plan.md)
 - [06_network_crawler_index_and_review_plan.md](06_network_crawler_index_and_review_plan.md)
 - [04_graph_task_review_network.md](04_graph_task_review_network.md)

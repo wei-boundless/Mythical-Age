@@ -183,36 +183,47 @@ def build_project_network_template_catalog() -> dict[str, ProjectNetworkNodeTemp
             output_contract_id="project_network.module_index.v1",
             executor_policy=_model_response_only_executor_policy("single_file_module_index"),
             prompt_contract=_project_network_prompt_contract(
-                role="你是一名单文件项目语义网络审查员。",
+                role="你是一名单文件项目控制语义审查员。",
                 task=(
-                    "你只审查 assigned_scope 指定的一个文件。系统已经把当前文件文本、file_hash、file_stable_ref、文件骨架卡片和可用 AST 投影送到你的输入包中；"
-                    "你不需要也不允许自行读取文件、搜索代码、读取记忆或扩大目录范围。你的任务是把这个物理文件转换成后续 agent 能顺着项目网络使用的语义路标。"
-                    "先确认文件稳定引用、文件哈希、AST/骨架输入是否存在；输入不足时 block，不猜测。"
-                    "然后给当前文件本身产出一个 file_module semantic_label，说明它的职责、可控入口、领域标签、证据和可信度。"
-                    "再审查文件内部对项目控制有意义的 class/function/method/config/registry/tool/prompt/data model 等节点，为每个节点给出 semantic_label、stable_ref、证据锚点和关系候选。"
-                    "最后只接受当前文件内可见证据支撑的关系边；跨文件关系只能作为 relation_candidate 或 external_stub，不能凭语义相似度补线。"
+                    "你只审查 assigned_scope 指定的一个物理文件。系统已经把当前文件文本、file_hash、file_stable_ref、文件骨架卡片和可用 AST 投影送到你的输入包中；"
+                    "你不需要也不允许自行读取文件、搜索代码、读取记忆或扩大目录范围。你的任务不是做全量代码审计，而是在当前文件模块这一层建立后续 agent 能快速定位的语义坐标、少量控制路标和文件级审查报告。"
+                    "你只能显示和判断自己这一层的层级信息：文件模块根路标、直属顶层符号路标和系统给出的深层计数；不要展开方法级、调用点级、跨文件级细节。"
+                    "先确认 physical_binding：文件稳定引用、文件哈希、AST/骨架输入是否存在；输入不足时 block，不猜测。"
+                    "然后产出 semantic_coordinate：用短标签、职责摘要、控制角色、领域标签、证据和置信度说明这个文件在项目控制空间里的坐标。"
+                    "再按 review_budget 只选择对项目控制有意义的直属 class/function/config/registry/tool/prompt/data model 等 control_nodes；方法、私有 helper 和调用细节只在确实控制路由、权限、状态、工具、prompt 或 runtime 时才提升为路标。"
+                    "每一个语义路标都必须写成对象：顶层 semantic_label 描述文件根路标，control_nodes[*].semantic_label 描述符号路标；不要把 semantic_label 写成字符串。"
+                    "accepted_internal_edges 只收高信号且有直接证据的定义、注册、路由、配置等关系；普通函数调用不要展开成边，跨文件关系只能作为 relation_candidates 或 external_stubs，不能凭语义相似度补线。"
                 ),
                 output=(
                     "完成时选择 respond，并在 respond 动作的 diagnostics.project_network_semantic_submissions 提交且只提交一个 module_index 审查事实。"
                     "该提交不是自然语言报告，也不是系统内部 work product envelope；你只提交语义审查事实，系统会把它装配为 work product。"
-                    "提交必须包含 submission_kind=module_index、semantic_label、module_summary、public_surface、semantic_nodes、semantic_edges、relation_candidates、coverage、limitations、uncovered_refs。"
-                    "semantic_label 至少包含 stable_ref、label、summary、tags、evidence_refs、anchor_refs、confidence。"
-                    "每个 semantic_nodes 项必须包含 stable_ref、node_kind、name、semantic_label、evidence_refs、anchor_refs、confidence；每个节点的 semantic_label 是后续网络导航路标。"
-                    "每个 semantic_edges 项必须包含 source_ref、target_ref、edge_kind、direction、status、evidence_refs、anchor_refs、confidence、limitations。"
+                    "提交必须包含 submission_kind=module_index、physical_binding、semantic_coordinate、semantic_label、module_summary、module_review_report、control_nodes、io_surface、accepted_internal_edges、relation_candidates、external_stubs、coverage、limitations、uncovered_refs。"
+                    "physical_binding 必须说明 file_ref、file_path、file_hash、skeleton/AST 可用性和证据来源。"
+                    "semantic_coordinate 必须包含 coordinate_ref、physical_ref、layer=file、label、summary、tags、control_role、entry_refs、downstream_refs、evidence_refs、anchor_refs、confidence。"
+                    "顶层 semantic_label 必须是对象，并且至少包含 stable_ref、node_kind=file_module、label、summary、tags、evidence_refs、anchor_refs、confidence；它是文件根路标，不能省略，也不能只写字符串。"
+                    "module_review_report 必须是可渲染成人读 md 的结构化报告数据，覆盖文件职责、关键控制点、模块级输入输出、高信号链路、候选链路和限制；不要逐函数复述实现。"
+                    "每个 control_nodes 项必须包含 stable_ref、node_kind、name、semantic_label、evidence_refs、anchor_refs、confidence；每个节点的 semantic_label 必须是对象，含 stable_ref、node_kind、label、summary、tags、evidence_refs、anchor_refs、confidence，是后续网络导航路标。"
+                    "每个 accepted_internal_edges 项必须包含 source_ref、target_ref、edge_kind、direction、status、evidence_refs、anchor_refs、confidence、limitations。"
                     "edge_kind 只能表达真实工程关系，例如 defines、imports、calls、registers、routes_to、reads、writes、emits、consumes、configures、depends_on、owns。"
+                    "如果没有高信号内部边，accepted_internal_edges 必须提交空列表并在 limitations 说明原因；不要为了连通网络而造边。"
                     "final_answer 只写极短收口，说明已提交当前文件语义索引；不要把完整审查结果写进最终文本。"
                 ),
                 work_product_contract={
                     "product_kind": "module_index",
                     "stable_ref_source": "assigned_scope.file_stable_ref",
                     "required_payload_fields": (
+                        "physical_binding",
+                        "semantic_coordinate",
                         "file_ref",
                         "file_path",
                         "file_hash",
                         "semantic_label",
                         "module_summary",
-                        "public_surface",
+                        "module_review_report",
+                        "control_nodes",
+                        "io_surface",
                         "semantic_network_index",
+                        "accepted_internal_edges",
                         "relation_candidates",
                         "coverage",
                         "limitations",
@@ -303,21 +314,23 @@ def build_project_network_template_catalog() -> dict[str, ProjectNetworkNodeTemp
             join_policy="all_success",
             executor_policy=_model_response_only_executor_policy("directory_tree_reduce_aggregate"),
             prompt_contract=_project_network_prompt_contract(
-                role="你是一名项目目录语义网络汇总审查员。",
+                role="你是一名目录级项目控制语义汇总员。",
                 task=(
                     "你只负责当前 directory_frame 的直接文件 module_index 审查事实和已回传的子目录 directory_summary refs。"
                     "系统会向你提供上游 typed work products；你不重新扫描物理树、不读取文件、不搜索代码，也不把自然语言摘要当作图事实。"
-                    "你的任务是为当前目录生成一个可提取 semantic_label，说明这个目录在项目物理层中的语义职责，并把子文件、子目录的语义路标合并成目录级网络。"
-                    "你必须先确认 child work products 的来源和覆盖范围，再按 stable_ref 去重，保留 source_work_product_refs，标出冲突边、未覆盖范围、外部桩和需要父目录继续判断的关系候选。"
-                    "只有带 evidence_refs 或 anchor_refs 的节点和边可以进入 accepted_relation_candidates；证据不足的跨目录关系只能上交为候选或 blocker。"
+                    "你只能显示和判断当前目录这一层的层级信息：当前目录路标、直接文件模块路标、直接子目录路标和它们返回给父层的 route cards；不要展开孙目录、文件源码或函数级细节。"
+                    "你的任务不是重新审查代码，而是在目录物理层上汇总语义坐标、职责边界、文件/子目录控制路标和链路信号。"
+                    "你必须先确认 physical_binding 和 child work products 的来源、覆盖范围，再按 stable_ref 去重，保留 source_work_product_refs，标出冲突边、未覆盖范围、外部桩和需要父目录继续判断的关系候选。"
+                    "只有带 evidence_refs 或 anchor_refs 的节点和边可以进入 directory_control_routes 或 accepted_relation_candidates；证据不足的跨目录关系只能上交为候选或 blocker。"
                 ),
                 output=(
                     "完成时选择 respond，并在 respond 动作的 diagnostics.project_network_semantic_submissions 提交且只提交一个 directory_summary 审查事实。"
                     "该提交不是自然语言报告，也不是系统内部 work product envelope；你只提交目录级语义审查事实，系统会把它装配为 work product。"
-                    "提交必须包含 submission_kind=directory_summary、semantic_label、directory_summary、directory_nodes、module_nodes、semantic_edges、external_stubs、source_work_product_refs、direct_module_refs、child_summary_refs、accepted_relation_candidates、conflicts、coverage、uncovered_refs、parent_return_payload。"
-                    "semantic_label 至少包含 stable_ref、label、summary、tags、evidence_refs、anchor_refs、confidence。"
+                    "提交必须包含 submission_kind=directory_summary、physical_binding、semantic_coordinate、semantic_label、directory_summary、directory_review_report、child_coordinate_summary、directory_nodes、module_nodes、directory_control_routes、external_stubs、source_work_product_refs、direct_module_refs、child_summary_refs、accepted_relation_candidates、conflicts、coverage、uncovered_refs、parent_return_payload。"
+                    "semantic_coordinate 必须包含 coordinate_ref、physical_ref、layer=directory、label、summary、tags、control_role、entry_refs、downstream_refs、evidence_refs、anchor_refs、confidence。"
+                    "directory_review_report 必须是可渲染成人读 md 的结构化目录报告数据，至少覆盖目录职责、子文件/子目录职责、主控制链路、冲突、缺口和父层建议。"
                     "directory_nodes 和 module_nodes 中每个节点都必须包含 stable_ref、node_kind、name、semantic_label、evidence_refs、anchor_refs、confidence；这些 semantic_label 是上层目录和后续 agent 的路标。"
-                    "semantic_edges 中每条边必须包含 source_ref、target_ref、edge_kind、direction、status、evidence_refs、anchor_refs、confidence、limitations。"
+                    "directory_control_routes 中每条边必须包含 source_ref、target_ref、edge_kind、direction、status、evidence_refs、anchor_refs、confidence、limitations。"
                     "parent_return_payload 只能包含父目录继续汇总所需的 stable_ref、semantic_label、summary、coverage、accepted_relation_candidates、conflicts 和 blockers。"
                     "final_answer 只写极短收口，说明已提交当前目录语义汇总；不要把完整汇总结果写进最终文本。"
                 ),
@@ -325,11 +338,16 @@ def build_project_network_template_catalog() -> dict[str, ProjectNetworkNodeTemp
                     "product_kind": "directory_summary",
                     "stable_ref_source": "folder_stable_ref",
                     "required_payload_fields": (
+                        "physical_binding",
+                        "semantic_coordinate",
                         "directory_frame_id",
                         "folder_stable_ref",
                         "semantic_label",
                         "directory_summary",
+                        "directory_review_report",
+                        "child_coordinate_summary",
                         "semantic_network_index",
+                        "directory_control_routes",
                         "direct_module_refs",
                         "child_summary_refs",
                         "accepted_relation_candidates",
@@ -446,17 +464,21 @@ def _module_review_input_boundary_contract() -> dict[str, Any]:
             "project_network_file_review.file_hash",
             "project_network_file_review.ast_projection",
             "project_network_file_review.file_skeleton",
+            "project_network_file_review.current_layer_context",
+            "project_network_file_review.review_budget",
         ),
         "allowed_context": (
             "current file text",
-            "current file AST projection",
+            "current file-module layer AST projection",
             "current file skeleton and stable refs",
-            "upstream directory/system labels already included in the input packet",
+            "direct top-level symbol candidates supplied by the system",
+            "upstream directory/system refs already included in the input packet as anchors",
         ),
         "forbidden_context_requests": (
             "do not call file read",
             "do not call workspace search",
             "do not read memory",
+            "do not expand method/call-site/function-level details unless they are direct control road signs",
             "do not infer outside files beyond visible import/call/registry evidence",
         ),
         "missing_required_input_behavior": "choose block and explain which system-supplied input is missing; do not fabricate a semantic index",
@@ -472,16 +494,19 @@ def _directory_review_input_boundary_contract() -> dict[str, Any]:
             "direct module_index work products",
             "child directory_summary work products",
             "parent/system scope labels when available",
+            "project_network_directory_aggregate.current_layer_context",
         ),
         "allowed_context": (
             "typed child work products",
             "stable refs and evidence refs inside child payloads",
             "directory frame metadata",
+            "direct child module and direct child directory route cards",
         ),
         "forbidden_context_requests": (
             "do not rescan the directory",
             "do not read files",
             "do not call workspace search",
+            "do not expand grandchildren, file source text, or symbol-level implementation details",
             "do not turn natural-language summaries into accepted graph facts",
         ),
         "missing_required_input_behavior": "choose block if required typed child inputs are absent; otherwise submit coverage gaps and blockers",
@@ -493,7 +518,7 @@ def _module_typed_submission_contract() -> dict[str, Any]:
         "channel": "respond.diagnostics.project_network_semantic_submissions",
         "cardinality": "exactly_one",
         "submission_kind": "module_index",
-        "agent_owns": "semantic judgment facts for the current file: labels, accepted nodes, accepted edges, candidates, conflicts, coverage, limitations",
+        "agent_owns": "bounded semantic overlay for one physical file layer: physical binding confirmation, semantic coordinate, high-signal control nodes, module-level IO surface, accepted internal edges, candidates, file report, coverage, limitations",
         "system_owns": "work_product_id, build_id, graph_run_id, node_id, shard_id, storage envelope, ingestion side effect",
         "submission_rule": (
             "choose respond, put exactly one module_index fact object in diagnostics.project_network_semantic_submissions, "
@@ -507,15 +532,41 @@ def _module_typed_submission_contract() -> dict[str, Any]:
         ),
         "required_submission_fields": (
             "submission_kind",
+            "physical_binding",
+            "semantic_coordinate",
             "semantic_label",
             "module_summary",
-            "public_surface",
-            "semantic_nodes",
-            "semantic_edges",
+            "module_review_report",
+            "control_nodes",
+            "io_surface",
+            "accepted_internal_edges",
             "relation_candidates",
+            "external_stubs",
             "coverage",
             "limitations",
             "uncovered_refs",
+        ),
+        "physical_binding_fields": (
+            "file_ref",
+            "file_path",
+            "file_hash",
+            "skeleton_available",
+            "ast_available",
+            "evidence_refs",
+        ),
+        "semantic_coordinate_fields": (
+            "coordinate_ref",
+            "physical_ref",
+            "layer",
+            "label",
+            "summary",
+            "tags",
+            "control_role",
+            "entry_refs",
+            "downstream_refs",
+            "evidence_refs",
+            "anchor_refs",
+            "confidence",
         ),
         "semantic_label_fields": (
             "stable_ref",
@@ -527,6 +578,7 @@ def _module_typed_submission_contract() -> dict[str, Any]:
             "confidence",
         ),
         "semantic_label_meaning": (
+            "there is one top-level file semantic_label and one semantic_label object inside every accepted control_node",
             "stable_ref points to the physical file or symbol",
             "label is the short road-sign name",
             "summary states responsibility and control meaning",
@@ -534,8 +586,9 @@ def _module_typed_submission_contract() -> dict[str, Any]:
             "evidence_refs cite visible file/hash/import/call/registry/router facts",
             "anchor_refs cite AST or skeleton anchors when available",
             "confidence reflects evidence strength, not optimism",
+            "semantic_label must be an object; a plain string label is invalid because later agents cannot route from it",
         ),
-        "node_fact_fields": (
+        "control_node_fields": (
             "stable_ref",
             "node_kind",
             "name",
@@ -544,7 +597,7 @@ def _module_typed_submission_contract() -> dict[str, Any]:
             "anchor_refs",
             "confidence",
         ),
-        "edge_fact_fields": (
+        "accepted_internal_edge_fields": (
             "source_ref",
             "target_ref",
             "edge_kind",
@@ -553,6 +606,15 @@ def _module_typed_submission_contract() -> dict[str, Any]:
             "evidence_refs",
             "anchor_refs",
             "confidence",
+            "limitations",
+        ),
+        "module_review_report_fields": (
+            "responsibility",
+            "key_control_points",
+            "io_summary",
+            "accepted_links",
+            "candidate_links",
+            "risks",
             "limitations",
         ),
         "final_answer_policy": "final_answer is only a short receipt; the semantic network must be in the typed diagnostics channel",
@@ -564,7 +626,7 @@ def _directory_typed_submission_contract() -> dict[str, Any]:
         "channel": "respond.diagnostics.project_network_semantic_submissions",
         "cardinality": "exactly_one",
         "submission_kind": "directory_summary",
-        "agent_owns": "directory-level semantic merge, conflict preservation, parent return payload, and coverage judgment",
+        "agent_owns": "directory-level semantic coordinate, child coordinate summary, control-route merge, conflict preservation, parent return payload, and coverage judgment",
         "system_owns": "work_product_id, build_id, graph_run_id, node_id, shard_id, storage envelope, ingestion side effect",
         "submission_rule": (
             "choose respond, put exactly one directory_summary fact object in diagnostics.project_network_semantic_submissions, "
@@ -578,11 +640,15 @@ def _directory_typed_submission_contract() -> dict[str, Any]:
         ),
         "required_submission_fields": (
             "submission_kind",
+            "physical_binding",
+            "semantic_coordinate",
             "semantic_label",
             "directory_summary",
+            "directory_review_report",
+            "child_coordinate_summary",
             "directory_nodes",
             "module_nodes",
-            "semantic_edges",
+            "directory_control_routes",
             "external_stubs",
             "source_work_product_refs",
             "direct_module_refs",
@@ -592,6 +658,27 @@ def _directory_typed_submission_contract() -> dict[str, Any]:
             "coverage",
             "uncovered_refs",
             "parent_return_payload",
+        ),
+        "physical_binding_fields": (
+            "folder_stable_ref",
+            "directory_frame_id",
+            "direct_module_refs",
+            "child_summary_refs",
+            "source_work_product_refs",
+        ),
+        "semantic_coordinate_fields": (
+            "coordinate_ref",
+            "physical_ref",
+            "layer",
+            "label",
+            "summary",
+            "tags",
+            "control_role",
+            "entry_refs",
+            "downstream_refs",
+            "evidence_refs",
+            "anchor_refs",
+            "confidence",
         ),
         "semantic_label_fields": (
             "stable_ref",
@@ -611,6 +698,15 @@ def _directory_typed_submission_contract() -> dict[str, Any]:
             "anchor_refs cite folder/frame refs when AST anchors are not available",
             "confidence reflects child evidence coverage and conflicts",
         ),
+        "directory_review_report_fields": (
+            "responsibility",
+            "child_module_summary",
+            "child_directory_summary",
+            "main_control_routes",
+            "conflicts",
+            "coverage_gaps",
+            "parent_recommendations",
+        ),
         "parent_return_payload_fields": (
             "stable_ref",
             "semantic_label",
@@ -627,13 +723,20 @@ def _directory_typed_submission_contract() -> dict[str, Any]:
 def _module_review_judgment_contract() -> dict[str, Any]:
     return {
         "review_sequence": (
-            "1. confirm the file stable ref, file hash, file text, skeleton, and AST projection supplied by the system",
-            "2. identify the file's project responsibility before listing symbols; the file label is the root road sign for this module",
-            "3. enumerate only symbols and control points that matter for later navigation or control, not every trivial local helper",
-            "4. give each accepted symbol a semantic_label tied to stable_ref, evidence_refs, anchor_refs, tags, and confidence",
-            "5. record only evidence-backed intra-file edges as accepted semantic_edges",
-            "6. send cross-file, uncertain, or unresolved links to relation_candidates or external_stubs",
-            "7. declare coverage gaps and limitations instead of filling missing evidence",
+            "1. confirm physical_binding: file stable ref, file hash, file text, skeleton, and AST projection supplied by the system",
+            "2. write one semantic_coordinate for the file before listing symbols; this is the root road sign for later agents",
+            "3. enumerate only control_nodes that matter for navigation, debug, modification, permissions, state, tools, prompts, graph flow, runtime, or public API",
+            "4. describe io_surface: inputs, outputs, state reads/writes, external dependencies, and side effects visible in the file",
+            "5. give each accepted control node a semantic_label tied to stable_ref, evidence_refs, anchor_refs, tags, and confidence",
+            "6. record only high-signal evidence-backed intra-file edges as accepted_internal_edges and stay within review_budget.max_accepted_internal_edges",
+            "7. send cross-file, uncertain, or unresolved links to relation_candidates or external_stubs",
+            "8. produce module_review_report and declare coverage gaps instead of filling missing evidence",
+        ),
+        "layer_window_rule": (
+            "the file reviewer sees the file-module layer only",
+            "show the file root and direct top-level symbol road signs",
+            "nested method/function details remain counts or limitations unless they are promoted by clear control evidence",
+            "do not turn the AST projection into a mandate to enumerate every symbol",
         ),
         "semantic_label_standard": (
             "label is a short road-sign name, not a paragraph",
@@ -645,13 +748,15 @@ def _module_review_judgment_contract() -> dict[str, Any]:
             "confidence must reflect evidence strength",
         ),
         "node_acceptance": (
+            "stay within review_budget.max_control_nodes when it is supplied",
             "accept public surfaces, exported functions/classes, registry entries, routes, config definitions, tool/prompt entries, data models, and important orchestration helpers",
             "skip tiny private helpers unless they control routing, IO, state, permissions, prompt assembly, task flow, tool dispatch, or semantic network behavior",
             "a node without stable_ref or evidence_refs cannot be accepted",
         ),
         "edge_acceptance": (
             "accepted edges require source_ref, target_ref, edge_kind, direction, status, evidence_refs, anchor_refs, confidence, and limitations",
-            "call/import/register/router/tool/prompt evidence can support edges",
+            "register/router/tool/prompt/config/ownership evidence can support high-signal edges",
+            "ordinary call-site edges should be summarized as counts or candidates, not accepted by default",
             "semantic similarity alone cannot support an accepted edge",
             "cross-file targets without a resolvable stable_ref must become external_stub plus relation_candidate",
         ),
@@ -661,12 +766,19 @@ def _module_review_judgment_contract() -> dict[str, Any]:
 def _directory_review_judgment_contract() -> dict[str, Any]:
     return {
         "review_sequence": (
-            "1. confirm the directory frame, folder stable ref, direct module refs, child summary refs, and source child work products",
-            "2. assign one directory semantic_label that describes the folder's project responsibility and coordination role",
-            "3. merge child module and directory labels by stable_ref without rewriting their evidence",
-            "4. accept only relations that are backed by child evidence refs or source work product refs",
-            "5. preserve conflicting or incomplete relations as conflicts, blockers, or parent candidates",
-            "6. produce a compact parent_return_payload for the next reduce layer",
+            "1. confirm physical_binding: directory frame, folder stable ref, direct module refs, child summary refs, and source child work products",
+            "2. assign one semantic_coordinate that describes the folder's project responsibility and coordination role",
+            "3. summarize child coordinates without rewriting their evidence or silently changing their labels",
+            "4. merge child module and directory labels by stable_ref while preserving source_work_product_refs",
+            "5. accept only directory_control_routes that are backed by child evidence refs or source work product refs",
+            "6. preserve conflicting or incomplete relations as conflicts, blockers, or parent candidates",
+            "7. produce directory_review_report and a compact parent_return_payload for the next reduce layer",
+        ),
+        "layer_window_rule": (
+            "the directory reviewer sees the directory-frame layer only",
+            "show the directory root, direct module road signs, and direct child directory road signs",
+            "grandchildren and file internals stay behind child work product refs",
+            "do not reopen lower layers while summarizing the current layer",
         ),
         "merge_standard": (
             "same stable_ref means same node unless evidence says otherwise",
@@ -688,8 +800,11 @@ def _project_network_review_quality_gate_contract() -> dict[str, Any]:
     return {
         "required_for_acceptance": (
             "exactly one typed semantic submission",
+            "physical_binding is present and names the physical ref being reviewed",
+            "semantic_coordinate is present and binds to the physical ref",
+            "review report data is present for human-readable materialization",
             "top-level semantic_label has stable_ref, label, summary, tags, evidence_refs, anchor_refs, and confidence",
-            "semantic network node lists are present",
+            "semantic network node lists are present after control_nodes/directory nodes are normalized",
             "every accepted node has stable_ref, node_kind, name, semantic_label, evidence_refs, anchor_refs, and confidence",
             "every accepted edge has source_ref, target_ref, edge_kind, direction, status, evidence_refs, anchor_refs, confidence, and limitations",
             "coverage and limitations are explicit",
@@ -903,10 +1018,12 @@ def _project_network_prompt_contract(
     quality_gate_contract: dict[str, Any] | None = None,
     failure_handling_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    language_policy = _project_network_language_policy()
     return {
         "role_prompt": role,
         "task_instruction": task,
-        "output_instruction": output,
+        "output_instruction": _append_project_network_language_instruction(output),
+        "language_policy": language_policy,
         "input_boundary_contract": dict(input_boundary_contract or {}),
         "typed_submission_contract": dict(typed_submission_contract or {}),
         "review_judgment_contract": dict(review_judgment_contract or {}),
@@ -922,11 +1039,62 @@ def _project_network_prompt_contract(
         ],
         "definition_of_done": [
             "输出符合当前节点 output_contract。",
+            "所有面向人的语义说明、报告正文、summary、label、final_answer 均使用中文；schema 字段名、stable_ref、代码符号和路径保持原样。",
             "accepted candidate 均带可追踪 evidence_ref 或 anchor_ref。",
             "coverage、limitations 和冲突/拒绝项已明确列出。",
             "下游需要继续处理的 refs 或 blockers 已结构化呈现。",
         ],
     }
+
+
+def _project_network_language_policy() -> dict[str, Any]:
+    return {
+        "primary_human_language": "zh-CN",
+        "human_readable_fields_must_use_chinese": (
+            "semantic_coordinate.label",
+            "semantic_coordinate.summary",
+            "semantic_label.label",
+            "semantic_label.summary",
+            "module_summary",
+            "directory_summary",
+            "module_review_report",
+            "directory_review_report",
+            "child_coordinate_summary",
+            "coverage.notes",
+            "limitations",
+            "uncovered_refs explanations",
+            "final_answer",
+        ),
+        "preserve_verbatim_fields": (
+            "schema keys",
+            "submission_kind",
+            "stable_ref",
+            "physical_ref",
+            "file_ref",
+            "folder_stable_ref",
+            "anchor_refs",
+            "evidence_refs",
+            "source_ref",
+            "target_ref",
+            "edge_kind",
+            "node_kind",
+            "file_path",
+            "module path",
+            "class/function/method/config names",
+            "import paths",
+        ),
+        "tag_policy": "tags should prefer stable routing terms; use Chinese when the tag is semantic, preserve existing code/domain terms when they are route keys",
+        "authority": "task_system.project_network.prompt_contract.language_policy",
+    }
+
+
+def _append_project_network_language_instruction(output: str) -> str:
+    base = str(output or "").strip()
+    language_instruction = (
+        "语言要求：所有面向人的语义说明、报告正文、label、summary、coverage/limitations 说明和 final_answer 使用中文；"
+        "schema 字段名、stable_ref、physical_ref、代码路径、类名、函数名、方法名、import 路径、edge_kind、node_kind 保持原样，不能翻译或改写。"
+    )
+    return (base + language_instruction) if base else language_instruction
 
 
 def _project_network_ast_runtime_policy(ast_mode: str, *, required: bool = False) -> dict[str, Any]:

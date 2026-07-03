@@ -286,8 +286,9 @@ def infer_file_state_events(
     args = dict(tool_args or {})
     structured = dict(structured_payload or {})
     tool_result = dict(structured.get("tool_result") or {})
+    file_state_tool = _file_state_tool_name(name, args=args, tool_result=tool_result)
     events: list[dict[str, Any]] = []
-    if name == "read_file":
+    if file_state_tool == "read_file":
         path = _first_path(tool_result.get("path"), observed_paths, args.get("path"))
         if path:
             events.append(
@@ -314,13 +315,13 @@ def infer_file_state_events(
                     }
                 )
             )
-    elif name in {"write_file", "edit_file", "batch_edit_file"}:
+    elif file_state_tool in {"write_file", "edit_file", "batch_edit_file"}:
         paths = written_paths or observed_paths or _string_tuple([tool_result.get("path") or args.get("path")])
         for path in paths:
             events.append(
                 _drop_empty(
                     {
-                        "event_type": "write" if name == "write_file" else "edit",
+                        "event_type": "write" if file_state_tool == "write_file" else "edit",
                         "path": path,
                         "content_sha256": str(tool_result.get("sha256") or tool_result.get("content_sha256") or "").strip(),
                         "mtime_ns": _int_or_none(tool_result.get("mtime_ns")),
@@ -329,7 +330,7 @@ def infer_file_state_events(
                     }
                 )
             )
-    elif name == "search_text":
+    elif file_state_tool == "search_text":
         matches = [dict(item) for item in list(tool_result.get("matches") or []) if isinstance(item, dict)]
         recommended_windows = [
             dict(item)
@@ -369,13 +370,13 @@ def infer_file_state_events(
                     }
                 )
             )
-    elif name in {"stat_path", "path_exists"}:
+    elif file_state_tool in {"stat_path", "path_exists"}:
         path = _first_path(tool_result.get("path"), observed_paths, args.get("path"))
         if path:
             events.append(
                 _drop_empty(
                     {
-                        "event_type": "stat" if name == "stat_path" else "exists",
+                        "event_type": "stat" if file_state_tool == "stat_path" else "exists",
                         "path": path,
                         "exists": tool_result.get("exists") if isinstance(tool_result.get("exists"), bool) else None,
                         "is_dir": tool_result.get("is_dir") if isinstance(tool_result.get("is_dir"), bool) else None,
@@ -385,6 +386,48 @@ def infer_file_state_events(
                 )
             )
     return tuple(event for event in events if event)
+
+
+def _file_state_tool_name(name: str, *, args: dict[str, Any], tool_result: dict[str, Any]) -> str:
+    normalized = str(name or "").strip()
+    if normalized in {
+        "read_file",
+        "write_file",
+        "edit_file",
+        "batch_edit_file",
+        "search_text",
+        "stat_path",
+        "path_exists",
+    }:
+        return normalized
+    result_kind = str(tool_result.get("kind") or "").strip()
+    action = str(args.get("action") or "").strip()
+    if normalized == "workspace_read":
+        if result_kind in {"read_file", "read_file_reuse", "text_file"} or action == "file":
+            return "read_file"
+        if result_kind in {"path_stat", "stat_path"} or action == "stat":
+            return "stat_path"
+        if result_kind in {"path_exists", "exists"} or action == "exists":
+            return "path_exists"
+        return ""
+    if normalized == "workspace_edit":
+        if result_kind == "file_write" or action == "write":
+            return "write_file"
+        if result_kind == "file_batch_edit" or action == "batch_edit":
+            return "batch_edit_file"
+        if result_kind == "file_edit" or action == "edit":
+            return "edit_file"
+        return ""
+    if normalized == "workspace_search":
+        if (
+            result_kind in {"search_text", "text_search"}
+            or bool(tool_result.get("matches"))
+            or bool(tool_result.get("recommended_read_windows"))
+            or action == "text"
+        ):
+            return "search_text"
+        return ""
+    return ""
 
 
 def _looks_failed(text: str) -> bool:

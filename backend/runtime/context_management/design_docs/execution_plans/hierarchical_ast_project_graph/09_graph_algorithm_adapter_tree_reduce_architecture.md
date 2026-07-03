@@ -1,6 +1,6 @@
 # 图任务算法适配器与 Tree Reduce 架构裁决
 
-状态：MVP 接线实施中  
+状态：MVP 接线与物理下探优化已实施
 日期：2026-07-02
 
 ## 1. 核心裁决
@@ -24,6 +24,23 @@ future deep search -> network_frontier / graph_walk algorithm
 ```
 
 这意味着旧的“目录渲染”概念必须收缩为 `tree materialization`：它只把物理骨架物化成下一层 `TaskGraphDefinition`，不拥有第二套调度权威。
+
+物理下探和语义回传必须拆开：
+
+```text
+physical materialization pass
+  从 root directory frame 出发，按 Skeleton Graph BFS/DFS 铺开 frame / manifest / child_frame。
+  不等待任何 agent 输出，不等待 child directory_summary，不启动模型。
+  只受 max_depth、max_child_folders_per_frame、max_direct_files_per_frame、max_total_frames 预算约束。
+
+semantic reduce pass
+  leaf / boundary frame 发布并运行 graph。
+  直接文件输出 module_index。
+  当前目录 aggregate 等待直接文件 module_index 和直接子目录 directory_summary。
+  子目录回传完成后，父 frame 才允许发布聚合图。
+```
+
+因此“下探不等待”不是调度优化，而是算法结构要求。等待只属于语义归约边，不属于物理树建立边。
 
 ## 2. 权威链路
 
@@ -120,6 +137,15 @@ backend/harness/entrypoint/runtime_facade.py
 backend/task_system/project_network/template_catalog.py
   module_index / directory_aggregate 节点声明 runtime_algorithm=tree_reduce。
   失败策略为 retry_same_node。
+
+backend/task_system/project_network/directory_runtime_service.py
+  materialize_frame_tree() 负责确定性物理下探。
+  它从 root frame 一次性准备子树 frame，返回 ready / waiting / blocked / budget_stop frame 摘要。
+  它不调用模型、不启动 GraphRun、不写语义事实。
+
+backend/cli/main.py
+  graph materialize-directory-tree 暴露物理下探 CLI。
+  用于在启动语义图前确认物理树是否已经铺开、哪些 leaf/boundary frame 可发布。
 ```
 
 ## 5. 术语收缩

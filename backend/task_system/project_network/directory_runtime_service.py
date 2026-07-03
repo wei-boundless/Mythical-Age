@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from core.project_layout import ProjectLayout
 from graph_system.models import NodeResultEnvelope
 from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -14,6 +16,7 @@ from .directory_render_service import DirectoryRenderService
 from .directory_run_models import (
     DirectoryFrameGraphPublishResult,
     DirectoryFrameSchedulerDecision,
+    DirectoryFrameTreeMaterializationResult,
 )
 from .graph_builder import ProjectNetworkGraphBuilder
 from .repository import ProjectNetworkRepository
@@ -52,12 +55,15 @@ class DirectoryRuntimeService:
     def from_backend_dir(
         cls,
         base_dir: str | Path,
+        *,
+        flow_registry_base_dir: str | Path | None = None,
     ) -> "DirectoryRuntimeService":
         root = Path(base_dir)
+        registry_root = Path(flow_registry_base_dir) if flow_registry_base_dir is not None else root
         return cls(
             directory_render_service=DirectoryRenderService.from_backend_dir(root),
             build_service=ProjectNetworkBuildService.from_backend_dir(root),
-            flow_registry=TaskFlowRegistry(root),
+            flow_registry=TaskFlowRegistry(registry_root),
         )
 
     def prepare_frame(self, frame_id: str) -> DirectoryFrameSchedulerDecision:
@@ -73,6 +79,112 @@ class DirectoryRuntimeService:
             frame = self._require_frame(frame.frame_id)
         self._sync_frame_wait_status(frame)
         return self.scheduler_decision(frame.frame_id)
+
+    def materialize_frame_tree(
+        self,
+        root_frame_id: str,
+        *,
+        max_total_frames: int = 0,
+    ) -> DirectoryFrameTreeMaterializationResult:
+        """Materialize the deterministic physical frame tree below root_frame_id.
+
+        This pass deliberately does not wait for semantic child returns. It walks
+        the physical skeleton, creates frame manifests and child frames, and then
+        reports which frames are ready for graph publication versus waiting for
+        semantic reduce inputs.
+        """
+
+        root = self._require_frame(root_frame_id)
+        frame_limit = max(1, int(max_total_frames or root.budget.max_total_frames or 1))
+        root_tree_id = root.root_frame_id or root.frame_id
+        existing_frames = self.repository.list_directory_frames(
+            build_id=root.build_id,
+            root_frame_id=root_tree_id,
+            limit=max(frame_limit + 1, 2),
+        )
+        known_frame_ids = {item.frame_id for item in existing_frames}
+        known_frame_ids.add(root.frame_id)
+        visited_frame_ids: set[str] = set()
+        queue: deque[str] = deque([root.frame_id])
+        prepared_count = 0
+        created_frame_ids: set[str] = set()
+
+        while queue:
+            frame_id = queue.popleft()
+            if frame_id in visited_frame_ids:
+                continue
+            visited_frame_ids.add(frame_id)
+            frame = self._require_frame(frame_id)
+            manifest = self.repository.get_directory_manifest(frame.manifest_ref) if frame.manifest_ref else None
+            if manifest is None:
+                manifest = self.directory_render_service.materialize_manifest(frame)
+                frame = self._require_frame(frame.frame_id)
+
+            needs_child_frames = bool(manifest.child_folder_refs and frame.depth < frame.budget.max_depth)
+            missing_child_refs = _missing_child_folder_refs(frame, tuple(manifest.child_folder_refs), repository=self.repository)
+            if needs_child_frames and missing_child_refs:
+                remaining_frame_slots = frame_limit - len(known_frame_ids)
+                created_children = self.directory_render_service.create_child_frames(
+                    frame,
+                    manifest,
+                    max_new_frames=max(0, remaining_frame_slots),
+                )
+                for child in created_children:
+                    if child.frame_id not in known_frame_ids:
+                        created_frame_ids.add(child.frame_id)
+                    known_frame_ids.add(child.frame_id)
+                frame = self._require_frame(frame.frame_id)
+
+            frame = self._sync_frame_wait_status(frame)
+            prepared_count += 1
+            for child_frame_id in frame.child_frame_ids:
+                if child_frame_id not in visited_frame_ids:
+                    queue.append(child_frame_id)
+
+        materialized_frames = tuple(
+            sorted(
+                (self._require_frame(frame_id) for frame_id in visited_frame_ids),
+                key=lambda item: (item.depth, item.folder_path.lower(), item.frame_id),
+            )
+        )
+        ready_frames: list[dict[str, Any]] = []
+        waiting_frames: list[dict[str, Any]] = []
+        blocked_frames: list[dict[str, Any]] = []
+        budget_stop_frames: list[dict[str, Any]] = []
+        for frame in materialized_frames:
+            decision = self.scheduler_decision(frame.frame_id)
+            card = _frame_tree_status_card(frame, decision=decision)
+            if decision.ready_to_publish_graph:
+                ready_frames.append(card)
+            elif "waiting_child_returns" in decision.blockers or decision.next_action == "wait_child_returns":
+                waiting_frames.append(card)
+            if _has_blocker_other_than_waiting(decision.blockers):
+                blocked_frames.append(card)
+            if "blocked_materialization_budget_exhausted" in decision.blockers:
+                budget_stop_frames.append(card)
+
+        return DirectoryFrameTreeMaterializationResult(
+            build_id=root.build_id,
+            root_frame_id=root.frame_id,
+            root_folder_path=root.folder_path,
+            max_total_frames=frame_limit,
+            frame_count=len(materialized_frames),
+            prepared_frame_count=prepared_count,
+            created_frame_count=len(created_frame_ids),
+            ready_frame_count=len(ready_frames),
+            waiting_frame_count=len(waiting_frames),
+            blocked_frame_count=len(blocked_frames),
+            ready_frames=tuple(ready_frames),
+            waiting_frames=tuple(waiting_frames),
+            blocked_frames=tuple(blocked_frames),
+            budget_stop_frames=tuple(budget_stop_frames),
+            metadata={
+                "algorithm": "deterministic_physical_bfs_materialization",
+                "physical_descent_waits_for_semantic_returns": False,
+                "semantic_reduce_waits_for_child_returns": True,
+                "authority": self.authority,
+            },
+        )
 
     def scheduler_decision(self, frame_id: str) -> DirectoryFrameSchedulerDecision:
         projection = self.directory_render_service.projection(frame_id)
@@ -145,6 +257,7 @@ class DirectoryRuntimeService:
             source_work_product_refs=source_refs,
             metadata={
                 "publish_version": publish_version,
+                **_target_project_metadata(self.directory_render_service.project_network_repository.db_path),
                 **({"max_active_nodes": int(max_active_nodes)} if int(max_active_nodes or 0) > 0 else {}),
             },
         )
@@ -203,7 +316,10 @@ class DirectoryRuntimeService:
         package = self.directory_render_service.build_materialization_package(
             frame_id,
             source_work_product_refs=source_refs,
-            metadata={"start_payload_mode": "published_directory_frame_graph"},
+            metadata={
+                "start_payload_mode": "published_directory_frame_graph",
+                **_target_project_metadata(self.directory_render_service.project_network_repository.db_path),
+            },
         )
         return {
             "project_network_build_id": package.build_id,
@@ -358,9 +474,12 @@ class DirectoryRuntimeService:
     def _sync_frame_wait_status(self, frame: DirectoryRenderFrame) -> DirectoryRenderFrame:
         projection = self.directory_render_service.projection(frame.frame_id)
         if projection.blockers and "waiting_child_returns" in projection.blockers:
-            return self.repository.upsert_directory_frame(replace(projection.frame, status="waiting_child_returns"))
+            if projection.frame.status != "waiting_child_returns":
+                return self.repository.upsert_directory_frame(replace(projection.frame, status="waiting_child_returns"))
+            return projection.frame
         if projection.ready_to_materialize and projection.frame.status in {"planned", "manifest_ready", "child_frames_created", "waiting_child_returns"}:
-            return self.repository.upsert_directory_frame(replace(projection.frame, status="ready_to_aggregate"))
+            if projection.frame.status != "ready_to_aggregate":
+                return self.repository.upsert_directory_frame(replace(projection.frame, status="ready_to_aggregate"))
         return projection.frame
 
     def _publish_task_graph(self, task_graph: Any) -> Any:
@@ -424,6 +543,42 @@ def _summary_blockers(product: GraphBuildWorkProductEnvelope) -> tuple[str, ...]
     return tuple(str(item).strip() for item in blockers if str(item).strip())
 
 
+def _missing_child_folder_refs(
+    frame: DirectoryRenderFrame,
+    child_folder_refs: tuple[str, ...],
+    *,
+    repository: ProjectNetworkRepository,
+) -> tuple[str, ...]:
+    existing_refs = {
+        child.folder_stable_ref
+        for child_id in frame.child_frame_ids
+        for child in (repository.get_directory_frame(child_id),)
+        if child is not None and child.folder_stable_ref
+    }
+    return tuple(str(item) for item in child_folder_refs if str(item) and str(item) not in existing_refs)
+
+
+def _frame_tree_status_card(frame: DirectoryRenderFrame, *, decision: DirectoryFrameSchedulerDecision) -> dict[str, Any]:
+    projection = decision.projection
+    manifest = projection.manifest if projection is not None else None
+    return {
+        "frame_id": frame.frame_id,
+        "folder_path": frame.folder_path,
+        "folder_stable_ref": frame.folder_stable_ref,
+        "depth": frame.depth,
+        "status": frame.status,
+        "next_action": decision.next_action,
+        "direct_file_count": len(tuple(manifest.direct_file_refs if manifest is not None else frame.direct_file_refs)),
+        "child_frame_count": len(frame.child_frame_ids),
+        "child_return_count": len(frame.child_return_refs),
+        "blockers": list(decision.blockers),
+    }
+
+
+def _has_blocker_other_than_waiting(blockers: tuple[str, ...]) -> bool:
+    return any(str(item) and str(item) != "waiting_child_returns" for item in blockers)
+
+
 def _runtime_scope_for_frame(frame: DirectoryRenderFrame, runtime_scope: dict[str, Any]) -> dict[str, Any]:
     project_id = str(runtime_scope.get("project_id") or frame.build_id or "").strip()
     return {
@@ -436,4 +591,15 @@ def _runtime_scope_for_frame(frame: DirectoryRenderFrame, runtime_scope: dict[st
         "directory_root_frame_id": frame.root_frame_id,
         "directory_parent_frame_id": frame.parent_frame_id,
         "scope_source": "task_system.project_network.directory_runtime_service",
+    }
+
+
+def _target_project_metadata(repository_db_path: Path) -> dict[str, str]:
+    db_path = Path(repository_db_path).resolve()
+    storage_root = db_path.parent.parent
+    project_root = storage_root.parent
+    layout = ProjectLayout.from_backend_dir(project_root)
+    return {
+        "project_network_target_backend_dir": str(project_root),
+        "project_network_target_project_root": str(layout.project_root),
     }

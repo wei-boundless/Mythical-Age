@@ -253,6 +253,67 @@ class ProjectNetworkTraceRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectNetworkMaintenanceSignalRecord:
+    signal_id: str
+    build_id: str
+    signal_source: str
+    signal_code: str
+    severity: str = "info"
+    subject_ref: str = ""
+    stable_ref: str = ""
+    edge_id: str = ""
+    anchor_ref: str = ""
+    scope_refs: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
+    requested_layers: tuple[str, ...] = ()
+    payload: dict[str, Any] = field(default_factory=dict)
+    status: str = "queued"
+    created_at: str = ""
+    updated_at: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.project_network.maintenance_signal_record"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["scope_refs"] = list(self.scope_refs)
+        payload["evidence_refs"] = list(self.evidence_refs)
+        payload["requested_layers"] = list(self.requested_layers)
+        return _drop_empty(payload)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectNetworkRepairWorkItemRecord:
+    repair_item_id: str
+    build_id: str
+    trigger_kind: str
+    trigger_ref: str
+    trigger_signal_id: str = ""
+    repair_kind: str = ""
+    repair_scope_kind: str = ""
+    subject_ref: str = ""
+    stable_ref: str = ""
+    scope_refs: tuple[str, ...] = ()
+    requested_layers: tuple[str, ...] = ()
+    reason_codes: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
+    payload: dict[str, Any] = field(default_factory=dict)
+    priority: int = 50
+    status: str = "queued"
+    created_at: str = ""
+    updated_at: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.project_network.repair_work_item_record"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["scope_refs"] = list(self.scope_refs)
+        payload["requested_layers"] = list(self.requested_layers)
+        payload["reason_codes"] = list(self.reason_codes)
+        payload["evidence_refs"] = list(self.evidence_refs)
+        return _drop_empty(payload)
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectNetworkChannelState:
     channel_id: str
     build_id: str
@@ -283,6 +344,8 @@ class ProjectNetworkStoreSnapshot:
     layer_indexes: tuple[ProjectNetworkLayerIndexRecord, ...] = ()
     generations: tuple[ProjectNetworkGenerationRecord, ...] = ()
     traces: tuple[ProjectNetworkTraceRecord, ...] = ()
+    maintenance_signals: tuple[ProjectNetworkMaintenanceSignalRecord, ...] = ()
+    repair_items: tuple[ProjectNetworkRepairWorkItemRecord, ...] = ()
     authority: str = "task_system.project_network.store_snapshot"
 
     def to_dict(self) -> dict[str, Any]:
@@ -296,6 +359,8 @@ class ProjectNetworkStoreSnapshot:
                 "layer_indexes": [item.to_dict() for item in self.layer_indexes],
                 "generations": [item.to_dict() for item in self.generations],
                 "traces": [item.to_dict() for item in self.traces],
+                "maintenance_signals": [item.to_dict() for item in self.maintenance_signals],
+                "repair_items": [item.to_dict() for item in self.repair_items],
                 "authority": self.authority,
             }
         )

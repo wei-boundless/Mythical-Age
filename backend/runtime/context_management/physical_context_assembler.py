@@ -552,6 +552,9 @@ def _spec_from_frame_segment(
         "context_replay_policy": PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
         "context_commit_policy": "replay_only_from_physical_prefix_frame",
         "memory_commit_policy": "replay_only_from_physical_prefix_frame",
+        "context_prefix_cache_scope": "session",
+        "context_prefix_cache_role": "session_stable",
+        "context_prefix_tier": "session",
         "content_source": "runtime.context_management.physical_prefix_frame.replay",
     }
     spec = {
@@ -559,9 +562,9 @@ def _spec_from_frame_segment(
         "content": str(message.get("content") if message.get("content") is not None else ""),
         "kind": _frame_replay_kind(segment),
         "source_ref": segment.source_ref or segment.segment_id,
-        "cache_scope": segment.cache_scope or "session",
-        "cache_role": segment.cache_role or "session_stable",
-        "prefix_tier": segment.prefix_tier or "session",
+        "cache_scope": "session",
+        "cache_role": "session_stable",
+        "prefix_tier": "session",
         "compression_role": "preserve",
         "metadata": metadata,
         "model_message": dict(message),
@@ -578,6 +581,9 @@ def _spec_from_frame_segment(
         "context_replay_policy": PHYSICAL_PREFIX_FRAME_REPLAY_POLICY,
         "context_commit_policy": "replay_only_from_physical_prefix_frame",
         "memory_commit_policy": "replay_only_from_physical_prefix_frame",
+        "context_prefix_cache_scope": "session",
+        "context_prefix_cache_role": "session_stable",
+        "context_prefix_tier": "session",
     }
     spec["cache_scope"] = policy.prefix_cache_scope
     spec["cache_role"] = policy.prefix_cache_role

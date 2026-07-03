@@ -135,7 +135,11 @@ class DirectoryRenderService:
             raise KeyError(f"folder skeleton node not found for frame {blocked.frame_id}: {target.folder_node_id}")
         child_folders = self._direct_child_nodes(frame=target, edge_kind="contains_folder")
         direct_files = self._direct_child_nodes(frame=target, edge_kind="contains_file")
-        child_folders, skipped_folder_refs = _filter_child_folders(child_folders, budget=target.budget)
+        if target.depth >= target.budget.max_depth:
+            skipped_folder_refs = tuple(item.stable_ref for item in child_folders)
+            child_folders = ()
+        else:
+            child_folders, skipped_folder_refs = _filter_child_folders(child_folders, budget=target.budget)
         direct_files, skipped_file_refs = _filter_direct_files(direct_files, budget=target.budget)
         manifest_id = stable_project_network_id("pndirmft", target.build_id, target.frame_id, target.folder_stable_ref, target.skeleton_generation)
         manifest_seed = {
@@ -178,15 +182,60 @@ class DirectoryRenderService:
         self.project_network_repository.upsert_directory_frame(next_frame)
         return stored_manifest
 
-    def create_child_frames(self, frame: DirectoryRenderFrame | str, manifest: DirectoryManifestProduct | None = None) -> tuple[DirectoryRenderFrame, ...]:
+    def create_child_frames(
+        self,
+        frame: DirectoryRenderFrame | str,
+        manifest: DirectoryManifestProduct | None = None,
+        *,
+        max_new_frames: int | None = None,
+    ) -> tuple[DirectoryRenderFrame, ...]:
         target = self._frame(frame)
         resolved_manifest = manifest or self.project_network_repository.get_directory_manifest(target.manifest_ref)
         if resolved_manifest is None:
             resolved_manifest = self.materialize_manifest(target)
         if target.depth >= target.budget.max_depth:
             return ()
+        child_cards = tuple(resolved_manifest.child_folder_nodes[: target.budget.max_child_folders_per_frame])
+        existing_child_refs = {
+            child.folder_stable_ref
+            for child_id in target.child_frame_ids
+            for child in (self.project_network_repository.get_directory_frame(child_id),)
+            if child is not None and child.folder_stable_ref
+        }
+        missing_child_cards = tuple(
+            child
+            for child in child_cards
+            if str(child.get("stable_ref") or "") and str(child.get("stable_ref") or "") not in existing_child_refs
+        )
+        child_limit = len(missing_child_cards)
+        if max_new_frames is not None:
+            child_limit = min(child_limit, max(0, int(max_new_frames)))
+        selected_child_cards = missing_child_cards[:child_limit]
+        unmaterialized_child_refs = tuple(
+            str(child.get("stable_ref") or "")
+            for child in missing_child_cards[child_limit:]
+            if str(child.get("stable_ref") or "")
+        )
+        if not selected_child_cards:
+            if unmaterialized_child_refs or _unmaterialized_child_refs(target):
+                self.project_network_repository.upsert_directory_frame(
+                    replace(
+                        target,
+                        metadata={
+                            **dict(target.metadata or {}),
+                            "child_frame_materialization": {
+                                "expected_child_folder_refs": list(resolved_manifest.child_folder_refs),
+                                "created_child_frame_ids": list(target.child_frame_ids),
+                                "unmaterialized_child_folder_refs": list(unmaterialized_child_refs),
+                                "reason": "tree_frame_budget_exhausted",
+                                "authority": self.authority,
+                            },
+                        },
+                    )
+                )
+            return ()
         child_frames: list[DirectoryRenderFrame] = []
-        for child in resolved_manifest.child_folder_nodes[: target.budget.max_child_folders_per_frame]:
+        for child in selected_child_cards:
             child_node_id = str(child.get("node_id") or "")
             child_stable_ref = str(child.get("stable_ref") or "")
             if not child_node_id or not child_stable_ref:
@@ -212,11 +261,22 @@ class DirectoryRenderService:
             )
             child_frames.append(self.project_network_repository.upsert_directory_frame(child_frame))
         if child_frames:
+            child_frame_ids = tuple(dict.fromkeys((*target.child_frame_ids, *(item.frame_id for item in child_frames))))
             self.project_network_repository.upsert_directory_frame(
                 replace(
                     target,
-                    child_frame_ids=tuple(item.frame_id for item in child_frames),
+                    child_frame_ids=child_frame_ids,
                     status="child_frames_created",
+                    metadata={
+                        **dict(target.metadata or {}),
+                        "child_frame_materialization": {
+                            "expected_child_folder_refs": list(resolved_manifest.child_folder_refs),
+                            "created_child_frame_ids": list(child_frame_ids),
+                            "unmaterialized_child_folder_refs": list(unmaterialized_child_refs),
+                            "reason": "tree_frame_budget_exhausted" if unmaterialized_child_refs else "",
+                            "authority": self.authority,
+                        },
+                    },
                 )
             )
         return tuple(child_frames)
@@ -355,13 +415,16 @@ class DirectoryRenderService:
         )
         expected_child_returns = len(child_frames)
         blockers: list[str] = []
+        unmaterialized_child_refs = _unmaterialized_child_refs(target)
         if target.status == "blocked_missing_skeleton":
             blockers.append("blocked_missing_skeleton")
+        if unmaterialized_child_refs:
+            blockers.append("blocked_materialization_budget_exhausted")
         if expected_child_returns and len(child_returns) < expected_child_returns:
             blockers.append("waiting_child_returns")
         if manifest is None:
             next_action = "materialize_manifest"
-        elif not child_frames and manifest.child_folder_refs:
+        elif not child_frames and manifest.child_folder_refs and target.depth < target.budget.max_depth and not unmaterialized_child_refs:
             next_action = "create_child_frames"
         elif blockers:
             next_action = "wait"
@@ -466,6 +529,16 @@ def _node_card(node: SkeletonNodeRecord) -> dict[str, Any]:
         },
         "authority": "task_system.project_network.directory_render_service.skeleton_node_card",
     }
+
+
+def _unmaterialized_child_refs(frame: DirectoryRenderFrame) -> tuple[str, ...]:
+    metadata = dict(frame.metadata or {})
+    materialization = dict(metadata.get("child_frame_materialization") or {})
+    return tuple(
+        str(item).strip()
+        for item in list(materialization.get("unmaterialized_child_folder_refs") or [])
+        if str(item).strip()
+    )
 
 
 def _stable_frame_for_materialization(frame: DirectoryRenderFrame) -> DirectoryRenderFrame:

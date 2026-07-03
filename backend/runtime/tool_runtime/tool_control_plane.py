@@ -437,6 +437,7 @@ class RuntimeToolControlPlane:
                 "supervision": supervision.to_dict(),
             },
         )
+        observation = _with_tool_memory_commit_diagnostics(request, observation)
         completed_event = _publish_tool_execution_completed(
             request,
             tool_plan=tool_plan,

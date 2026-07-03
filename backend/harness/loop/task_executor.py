@@ -5758,7 +5758,7 @@ def _finish_specialist_runtime_execution(
     )
     output_commit: dict[str, Any] = {}
     if completed:
-        if str(getattr(task_candidate, "execution_runtime_kind", "") or "") == "subagent_task":
+        if _should_skip_session_output_commit(task_candidate):
             output_commit = _record_session_output_commit_skipped(
                 runtime_host,
                 task_run=task_candidate,
@@ -5873,20 +5873,28 @@ def _finish_executor_success(
             "execution_result_status": "completed",
         },
     )
-    commit_receipt = _commit_task_run_final_message(
-        services,
-        task_run=success_task,
-        final_answer=final_answer,
-    )
-    if not _commit_receipt_committed(commit_receipt):
-        return _finish_executor_output_commit_failure(
+    if _should_skip_session_output_commit(success_task):
+        commit_receipt = _record_session_output_commit_skipped(
             runtime_host,
             task_run=success_task,
-            observations=observations,
             final_answer=final_answer,
-            artifact_refs=artifact_refs,
-            commit_receipt=commit_receipt,
+            reason="not_main_session_visible",
         )
+    else:
+        commit_receipt = _commit_task_run_final_message(
+            services,
+            task_run=success_task,
+            final_answer=final_answer,
+        )
+        if not _commit_receipt_committed(commit_receipt):
+            return _finish_executor_output_commit_failure(
+                runtime_host,
+                task_run=success_task,
+                observations=observations,
+                final_answer=final_answer,
+                artifact_refs=artifact_refs,
+                commit_receipt=commit_receipt,
+            )
     lifecycle = _load_lifecycle(runtime_host, task_run)
     finished_task, finished_lifecycle, event = finish_task_lifecycle(
         runtime_host,
@@ -5894,7 +5902,7 @@ def _finish_executor_success(
             success_task,
             diagnostics={
                 **dict(success_task.diagnostics or {}),
-                "output_commit_status": "committed",
+                "output_commit_status": _commit_receipt_status(commit_receipt),
             },
         ),
         lifecycle=lifecycle,
@@ -6064,7 +6072,7 @@ def _finish_executor_agent_controlled_runtime_boundary(
     )
     task_candidate = replace(task_run, diagnostics=diagnostics)
     output_commit: dict[str, Any] = {}
-    if str(getattr(task_candidate, "execution_runtime_kind", "") or "") != "subagent_task":
+    if not _should_skip_session_output_commit(task_candidate):
         output_commit = _commit_task_run_final_message(
             services,
             task_run=task_candidate,
@@ -6073,6 +6081,18 @@ def _finish_executor_agent_controlled_runtime_boundary(
             terminal_reason=terminal_reason,
             answer_source="harness.loop.task_executor.agent_controlled_runtime_boundary",
             execution_posture="task_run_agent_controlled_runtime_boundary",
+        )
+        diagnostics = {
+            **dict(diagnostics),
+            "output_commit_status": _commit_receipt_status(output_commit),
+        }
+        task_candidate = replace(task_candidate, diagnostics=diagnostics)
+    else:
+        output_commit = _record_session_output_commit_skipped(
+            runtime_host,
+            task_run=task_candidate,
+            final_answer=final_answer,
+            reason="not_main_session_visible",
         )
         diagnostics = {
             **dict(diagnostics),
@@ -6378,6 +6398,12 @@ def _commit_receipt_status(receipt: dict[str, Any]) -> str:
 
 def _commit_receipt_committed(receipt: dict[str, Any]) -> bool:
     return _commit_receipt_status(receipt) == "committed"
+
+
+def _should_skip_session_output_commit(task_run: Any) -> bool:
+    if str(getattr(task_run, "execution_runtime_kind", "") or "") == "subagent_task":
+        return True
+    return _origin_kind(task_run) == "graph_node_assigned"
 
 
 def _finish_executor_output_commit_failure(

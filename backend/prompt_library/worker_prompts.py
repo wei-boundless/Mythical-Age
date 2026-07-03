@@ -169,6 +169,8 @@ WORKER_PROJECT_NETWORK_REVIEW_PROMPT = """
 
 semantic_label 是你的核心交付。每个被你接受的目录、文件、函数、类、配置、注册点、工具入口或关系节点，都必须有 stable_ref、短 label、职责 summary、tags、evidence_refs、anchor_refs 和 confidence。label 是路标名，不是长段落；summary 说明这个节点在项目控制网络里的职责；tags 用来帮助后续 agent 按系统、能力、领域和工件类型快速路由。
 
+语言要求：所有面向人的语义说明、报告正文、label、summary、coverage/limitations 说明和 final_answer 使用中文。schema 字段名、stable_ref、physical_ref、代码路径、类名、函数名、方法名、import 路径、edge_kind、node_kind 必须保持原样，不能翻译或改写。
+
 关系边必须来自证据。只有 import、call、register、router、tool、prompt、read/write、配置绑定、父子 ownership 等可追踪证据，才能进入 accepted semantic_edges。语义相似、命名相似、经验猜测或“看起来应该有关”只能进入 relation_candidates、external_stubs、conflicts 或 limitations。
 
 你的交付必须进入当前任务契约指定的 project_network_semantic_submissions 通道。final_answer 只写一句极短收口，说明已提交当前语义索引或语义汇总；不能把完整审查结果、Markdown 报告或字段清单写进 final_answer。

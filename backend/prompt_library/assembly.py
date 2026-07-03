@@ -630,6 +630,7 @@ _CONTRACT_FIELD_SPECS = (
     ("task_instruction", "task_instruction", "任务说明"),
     ("input_boundary_contract", "input_boundary_contract", "输入边界"),
     ("output_instruction", "output_instruction", "输出要求"),
+    ("language_policy", "language_policy", "语言要求"),
     ("typed_submission_contract", "typed_submission_contract", "结构化提交通道"),
     ("review_judgment_contract", "review_judgment_contract", "审查判断规则"),
     ("semantic_network_contract", "semantic_network_contract", "语义网络规则"),
