@@ -126,29 +126,3 @@ def _default_environment_services(host: Any) -> tuple[Any | None, Any | None]:
         return artifact_repository, memory_services.formal_memory
     except Exception:
         return None, None
-
-
-@dataclass(frozen=True, slots=True)
-class TaskExecutorServices:
-    """Narrow service table for a TaskRun executor invocation.
-
-    The task executor is part of the harness, not the API adapter. It receives
-    the exact runtime services it needs instead of reaching back into
-    HarnessRuntimeFacade.
-    """
-
-    runtime_host: Any
-    backend_dir: Path
-    model_runtime: Any
-    tool_control_plane: Any | None
-    tool_runtime_executor: Any | None
-    tool_instances: tuple[Any, ...]
-    agent_runtime_profile: Any | None
-    backend_config: dict[str, Any]
-    assistant_message_committer: Any | None = None
-    execute_task_run_callback: Any | None = None
-    schedule_task_run_executor_callback: Any | None = None
-    memory_context_provider: Any | None = None
-
-    def all_tool_instances(self) -> list[Any]:
-        return list(self.tool_instances)

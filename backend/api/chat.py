@@ -16,7 +16,6 @@ from api.deps import require_runtime
 from harness.continuation import select_session_continuation
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.control_events import RuntimeSignalScope
-from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 from harness.task_run_status import is_stopped_or_terminal_task_run
 from runtime.model_gateway.assistant_stream_frame import (
     assistant_message_ref,
@@ -67,7 +66,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 TERMINAL_STREAM_EVENTS = {TURN_COMPLETED_EVENT}
 TERMINAL_RUN_STATUSES = TERMINAL_RUNTIME_RUN_STATUSES
-TASK_EXECUTOR_HANDOFF_REASONS = {"task_executor_controller_scheduled"}
 TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -357,13 +355,15 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
     )
     task_control: dict[str, Any] = {}
     if root_task_run_id:
-        gateway = TaskRunControlGateway(runtime_host=host, schedule_task_run_executor=None)
-        task_control = await asyncio.to_thread(
-            gateway.stop_task_run if mode == "hard_stop" else gateway.pause_task_run,
-            root_task_run_id,
-            reason=reason,
-            requested_by="user",
-        )
+        task_control = {
+            "ok": True,
+            "applied": False,
+            "task_run_id": root_task_run_id,
+            "mode": mode,
+            "reason": "legacy_task_run_control_removed",
+            "detail": "runtime interruption only cancels active runtime cells; legacy TaskRun pause/stop control is no longer an execution authority.",
+            "authority": "api.chat.runtime_interruption.legacy_task_run_control_removed",
+        }
     interruption_record: dict[str, Any] = {}
     if mode == "interrupt_for_resume":
         interruption_record = await asyncio.to_thread(
@@ -955,7 +955,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     terminal_event = ""
     bridge_context: ChatTaskBridgeContext | None = None
     turn_context: PublicTurnOutputContext | None = None
-    task_handoff_observed = False
     projection_lifecycle = ProjectionLifecycleState()
     current = _safe_mark_run_running(registry, run)
     try:
@@ -1105,57 +1104,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                             },
                         )
                     continue
-                if _is_task_executor_handoff_terminal(public_event_type, data):
-                    bridged_task_run_id = _task_run_id_from_public_data(data) or event_task_run_id
-                    if turn_context is None:
-                        host.record_chat_turn_run_runtime_interruption_best_effort(
-                            current,
-                            code="task_bridge_context_missing",
-                            reason="Task bridge handoff arrived before a public turn context was available.",
-                            orphaned_by="api.chat.run_chat_to_event_log.task_bridge_context_missing",
-                        )
-                        return
-                    if bridge_context is None:
-                        bridge_context = _chat_task_bridge_context_from_handoff(
-                            run=run,
-                            request=request,
-                            turn_context=turn_context,
-                            public_data=data,
-                            source_event=event,
-                            task_run_id=bridged_task_run_id,
-                            public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
-                        )
-                        previous_offset = _latest_public_event_offset(current)
-                        current = _append_chat_public_event(
-                            registry=registry,
-                            replay=replay,
-                            current=current,
-                            public_event_type=TASK_BRIDGE_STARTED_EVENT,
-                            data=_task_bridge_started_event_data(bridge_context),
-                            session_id=request.session_id,
-                            projection_lifecycle=projection_lifecycle,
-                            runtime_task_run_id=bridge_context.task_run_id,
-                            runtime_turn_run_id=bridge_context.turn_run_id,
-                            runtime_active_turn_id=bridge_context.turn_id,
-                            public_anchor=bridge_context.anchor(),
-                        )
-                        await _allow_public_stream_flush(previous_offset, current)
-                        current = _safe_update_run(
-                            registry,
-                            run.stream_run_id,
-                            fallback=current,
-                            status="running",
-                            terminal_event="",
-                            diagnostics={
-                                "runtime_task_run_id": bridge_context.task_run_id,
-                                "runtime_turn_run_id": bridge_context.turn_run_id,
-                                "active_turn_id": bridge_context.turn_id,
-                                "task_bridge_id": bridge_context.bridge_id,
-                                "chat_stream_bridge": "task_run",
-                            },
-                        )
-                    task_handoff_observed = True
-                    break
                 previous_offset = _latest_public_event_offset(current)
                 public_anchor = (
                     bridge_context.anchor()
@@ -1179,7 +1127,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
                 if public_event_type in TERMINAL_STREAM_EVENTS:
                     break
-            if terminal_event or task_handoff_observed:
+            if terminal_event:
                 break
         if bridge_context is not None and not terminal_event:
             current = await _bridge_task_run_to_chat_stream(
@@ -1899,17 +1847,6 @@ def _public_turn_status_for_task_status(value: Any) -> str:
     return "failed" if status else "failed"
 
 
-def _is_task_executor_handoff_terminal(public_event_type: str, data: dict[str, Any]) -> bool:
-    if public_event_type != TURN_COMPLETED_EVENT:
-        return False
-    candidates = (
-        data.get("completion_state"),
-        data.get("terminal_reason"),
-        data.get("status"),
-    )
-    return any(str(candidate or "").strip().lower() in TASK_EXECUTOR_HANDOFF_REASONS for candidate in candidates) and bool(_task_run_id_from_public_data(data))
-
-
 def _is_task_origin_bound_public_event(public_event_type: str, data: dict[str, Any]) -> bool:
     if public_event_type != TASK_ORIGIN_BOUND_EVENT:
         return False
@@ -2069,22 +2006,24 @@ def _cascade_interrupted_subagents(
     root_id = str(root_task_run_id or "").strip()
     if not root_id or cascade_policy == "leave_running":
         return []
-    gateway = TaskRunControlGateway(runtime_host=host, schedule_task_run_executor=None)
     controls: list[dict[str, Any]] = []
     for child in _subagent_task_runs_for_parent(host, root_task_run_id=root_id, session_id=session_id):
         child_id = str(getattr(child, "task_run_id", "") or "").strip()
         if not child_id or child_id == root_id:
             continue
-        if cascade_policy == "hard_stop" or mode == "hard_stop":
-            result = gateway.stop_task_run(child_id, reason=reason, requested_by="parent_agent")
-        else:
-            result = gateway.pause_task_run(child_id, reason=reason, requested_by="parent_agent")
         controls.append(
             {
                 "task_run_id": child_id,
                 "parent_task_run_id": root_id,
-                "control": result,
-                "authority": "api.chat.runtime_interruption.subagent_cascade",
+                "control": {
+                    "ok": True,
+                    "applied": False,
+                    "mode": mode,
+                    "cascade_policy": cascade_policy,
+                    "reason": "legacy_task_run_control_removed",
+                    "detail": "subagent legacy TaskRun pause/stop cascade is no longer an execution authority.",
+                },
+                "authority": "api.chat.runtime_interruption.subagent_cascade_removed",
             }
         )
     return controls

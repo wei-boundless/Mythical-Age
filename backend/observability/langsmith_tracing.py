@@ -89,7 +89,6 @@ def _is_stream_close_exception(exc: BaseException | None) -> bool:
 
 _NON_ERROR_TERMINAL_STATUSES = {
     "completed",
-    "task_executor_scheduled",
     "waiting_approval",
     "blocked",
     "clarification_required",

@@ -8,9 +8,7 @@ from typing import Any
 
 from artifact_system.artifact_authority import dedupe_artifact_refs, normalize_artifact_ref
 from agent_system.identity import normalize_agent_id
-from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from runtime.shared.models import AgentRun
-from runtime.shared.models import TaskRun
 
 from .models import SubagentMessage
 
@@ -94,86 +92,13 @@ class SubagentControl:
             return {"ok": False, "status": "blocked", "error": reason, "target_agent_id": target_agent_id}
         if not goal.strip() and not instructions.strip():
             return {"ok": False, "status": "blocked", "error": "subagent_goal_required", "target_agent_id": target_agent_id}
-        target_profile = AgentRuntimeRegistry(self.runtime_host.backend_dir).get_profile(target_agent_id)
-        if target_profile is None:
-            return {"ok": False, "status": "blocked", "error": "target_agent_profile_not_found", "target_agent_id": target_agent_id}
-        now = time.time()
-        normalized_target = normalize_agent_id(target_agent_id)
-        suffix = uuid.uuid4().hex[:10]
-        child_task_run_id = f"{task_run.task_run_id}:subagent:{suffix}"
-        child_run = AgentRun(
-            agent_run_id=f"agrun:{child_task_run_id}:main",
-            task_run_id=child_task_run_id,
-            agent_id=normalized_target,
-            agent_profile_id=target_profile.agent_profile_id,
-            role="subagent_worker",
-            spawn_mode="subagent",
-            context_scope="subagent_scoped",
-            execution_runtime_kind="subagent_task",
-            parent_agent_run_ref=parent_agent_run.agent_run_id,
-            status="pending",
-            created_at=now,
-            updated_at=now,
-            diagnostics={
-                "subagent_control": {
-                    "parent_task_run_id": str(task_run.task_run_id),
-                    "goal": goal.strip(),
-                    "instructions": instructions.strip(),
-                    "context_refs": list(context_refs),
-                    "expected_outputs": list(expected_outputs),
-                    "result_policy": str(policy.get("result_policy") or "observation_refs_only"),
-                    "scheduler_status": "waiting_for_subagent_executor",
-                }
-            },
-        )
-        self.runtime_host.state_index.upsert_agent_run(child_run)
-        message = self._append_message(
-            task_run_id=child_task_run_id,
-            parent_agent_run_ref=parent_agent_run.agent_run_id,
-            subagent_run_ref=child_run.agent_run_id,
-            direction="parent_to_child",
-            message_type="spawn",
-            content=instructions.strip() or goal.strip(),
-            refs={
-                "target_agent_id": normalized_target,
-                "context_refs": list(context_refs),
-                "expected_outputs": list(expected_outputs),
-            },
-        )
-        self._append_event(task_run.task_run_id, "subagent_spawned", child_run=child_run, message=message)
-        schedule_result = self._append_child_task_run(
-            parent_task_run=task_run,
-            child_task_run_id=child_task_run_id,
-            child_agent_run=child_run,
-            target_profile=target_profile,
-            goal=goal.strip(),
-            instructions=instructions.strip(),
-            context_refs=context_refs,
-            expected_outputs=expected_outputs,
-            runtime_assembly=runtime_assembly,
-        )
-        if not bool(schedule_result.get("ok")):
-            return {
-                "ok": False,
-                "status": "blocked",
-                "error": str(schedule_result.get("error") or schedule_result.get("reason") or "subagent_schedule_failed"),
-                "subagent_run_ref": child_run.agent_run_id,
-                "subtask_run_ref": child_task_run_id,
-                "target_agent_id": normalized_target,
-                "message_ref": message.message_id,
-                "scheduler_status": str(schedule_result.get("scheduler_status") or "schedule_failed"),
-                "schedule": schedule_result,
-            }
         return {
-            "ok": True,
-            "status": child_run.status,
-            "subagent_run_ref": child_run.agent_run_id,
-            "subtask_run_ref": child_task_run_id,
-            "target_agent_id": normalized_target,
-            "message_ref": message.message_id,
-            "scheduler_status": str(schedule_result.get("scheduler_status") or "scheduled"),
-            "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
-            "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
+            "ok": False,
+            "status": "blocked",
+            "error": "legacy_subagent_task_runner_removed",
+            "target_agent_id": normalize_agent_id(target_agent_id),
+            "authority": "harness.agent_control.legacy_subagent_task_runner_removed",
+            "replacement": "Use TaskWorkEnvironment / AgentExecutionEpisode or GraphSystem node execution for multi-agent work.",
         }
 
     async def send_message(
@@ -392,214 +317,6 @@ class SubagentControl:
             },
         )
 
-    def _append_child_task_run(
-        self,
-        *,
-        parent_task_run: Any,
-        child_task_run_id: str,
-        child_agent_run: AgentRun,
-        target_profile: Any,
-        goal: str,
-        instructions: str,
-        context_refs: list[str],
-        expected_outputs: list[str],
-        runtime_assembly: dict[str, Any],
-    ) -> dict[str, Any]:
-        base_runtime_contract = dict(dict(parent_task_run.diagnostics or {}).get("runtime_contract") or {})
-        runtime_profile = dict(base_runtime_contract.get("runtime_profile") or {})
-        contract = _subagent_task_run_contract(
-            parent_task_run=parent_task_run,
-            child_task_run_id=child_task_run_id,
-            child_agent_run=child_agent_run,
-            runtime_assembly=runtime_assembly,
-            runtime_profile=runtime_profile,
-            goal=goal,
-            instructions=instructions,
-            context_refs=context_refs,
-            expected_outputs=expected_outputs,
-        )
-        from harness.loop.task_lifecycle import TaskLifecycleRecord, runtime_contract_from_task_run_contract
-
-        contract_payload = contract.to_dict()
-        runtime_objects = getattr(self.runtime_host, "runtime_objects", None)
-        put_object = getattr(runtime_objects, "put_object", None)
-        if not callable(put_object):
-            return self._mark_child_schedule_failed(
-                child_task_run_id=child_task_run_id,
-                child_agent_run=child_agent_run,
-                error="task_run_contract_store_unavailable",
-                schedule_result={},
-            )
-        contract_ref = str(put_object("task_run_contract", contract.contract_id, contract_payload))
-        runtime_contract = {
-            **base_runtime_contract,
-            **runtime_contract_from_task_run_contract(contract),
-        }
-        runtime_contract["runtime_profile"] = runtime_profile
-        if base_runtime_contract.get("skill_activation"):
-            runtime_contract["skill_activation"] = dict(base_runtime_contract.get("skill_activation") or {})
-        lifecycle = TaskLifecycleRecord(
-            task_run_id=child_task_run_id,
-            contract_ref=contract_ref,
-            status="waiting_executor",
-            created_at=time.time(),
-            updated_at=time.time(),
-        )
-        put_object("task_lifecycle", child_task_run_id, lifecycle.to_dict())
-        child_task_run = TaskRun(
-            task_run_id=child_task_run_id,
-            session_id=str(parent_task_run.session_id),
-            task_id=f"{parent_task_run.task_id}:subagent:{child_task_run_id.rsplit(':', 1)[-1]}",
-            task_run_contract_ref=contract_ref,
-            owner_agent_seat_id=str(getattr(parent_task_run, "owner_agent_seat_id", "main") or "main"),
-            agent_id=str(child_agent_run.agent_id),
-            agent_profile_id=str(target_profile.agent_profile_id),
-            execution_runtime_kind="subagent_task",
-            status="waiting_executor",
-            created_at=time.time(),
-            updated_at=time.time(),
-            diagnostics={
-                "contract": contract_payload,
-                "task_run_contract": contract_payload,
-                "task_run_contract_ref": contract_ref,
-                "task_lifecycle": lifecycle.to_dict(),
-                "runtime_contract": runtime_contract,
-                "model_selection": dict(dict(parent_task_run.diagnostics or {}).get("model_selection") or {}),
-                "origin": dict(contract.origin or {}),
-                "subagent_control": {
-                    "parent_task_run_id": str(parent_task_run.task_run_id),
-                    "parent_agent_run_ref": str(child_agent_run.parent_agent_run_ref),
-                    "subagent_run_ref": str(child_agent_run.agent_run_id),
-                    "task_run_contract_ref": contract_ref,
-                    "goal": goal,
-                    "instructions": instructions,
-                    "context_refs": list(context_refs),
-                    "expected_outputs": list(expected_outputs),
-                },
-                "executor_status": "waiting_executor",
-            },
-        )
-        self.runtime_host.state_index.upsert_task_run(child_task_run)
-        schedule = _raw_service_callback(self.services, "schedule_task_run_executor_callback")
-        if not callable(schedule):
-            return self._mark_child_schedule_failed(
-                child_task_run_id=child_task_run_id,
-                child_agent_run=child_agent_run,
-                error="subagent_scheduler_unavailable",
-                schedule_result={},
-            )
-        try:
-            result = schedule(child_task_run_id, scheduler="subagent_control", max_steps=6)
-        except Exception as exc:
-            return self._mark_child_schedule_failed(
-                child_task_run_id=child_task_run_id,
-                child_agent_run=child_agent_run,
-                error=str(exc) or exc.__class__.__name__,
-                schedule_result={},
-            )
-        schedule_result = dict(result or {}) if isinstance(result, dict) else {}
-        if not bool(schedule_result.get("ok")):
-            return self._mark_child_schedule_failed(
-                child_task_run_id=child_task_run_id,
-                child_agent_run=child_agent_run,
-                error=str(schedule_result.get("reason") or schedule_result.get("error") or "subagent_schedule_failed"),
-                schedule_result=schedule_result,
-            )
-        self._append_message(
-            task_run_id=child_task_run_id,
-            parent_agent_run_ref=str(child_agent_run.parent_agent_run_ref),
-            subagent_run_ref=str(child_agent_run.agent_run_id),
-            direction="system",
-            message_type="status",
-            content="subagent task scheduled in isolated agent runtime cell",
-            refs={
-                "task_run_status": "waiting_executor",
-                "scheduler": "subagent_control",
-                "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
-                "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
-                "worker_backend": str(schedule_result.get("worker_backend") or ""),
-                "task_run_contract_ref": contract_ref,
-            },
-        )
-        return {
-            "ok": True,
-            "scheduler_status": str(schedule_result.get("reason") or "scheduled"),
-            "run_cell_id": str(schedule_result.get("run_cell_id") or ""),
-            "agent_run_id": str(schedule_result.get("agent_run_id") or ""),
-            "worker_backend": str(schedule_result.get("worker_backend") or ""),
-            "task_run_contract_ref": contract_ref,
-        }
-
-    def _mark_child_schedule_failed(
-        self,
-        *,
-        child_task_run_id: str,
-        child_agent_run: AgentRun,
-        error: str,
-        schedule_result: dict[str, Any],
-    ) -> dict[str, Any]:
-        now = time.time()
-        normalized_error = str(error or "subagent_schedule_failed").strip()
-        current_task = self.runtime_host.state_index.get_task_run(child_task_run_id)
-        if current_task is not None:
-            self.runtime_host.state_index.upsert_task_run(
-                replace(
-                    current_task,
-                    status="blocked",
-                    updated_at=now,
-                    terminal_reason="subagent_schedule_failed",
-                    diagnostics={
-                        **dict(getattr(current_task, "diagnostics", {}) or {}),
-                        "executor_status": "blocked",
-                        "executor_lease_state": "blocked",
-                        "latest_step": "subagent_schedule_failed",
-                        "latest_step_status": "blocked",
-                        "latest_step_summary": f"子 Agent 调度失败：{normalized_error}",
-                        "recoverable_error": {
-                            "error_code": "subagent_schedule_failed",
-                            "retryable": True,
-                            "detail": normalized_error,
-                        },
-                        "recovery_action": "rerun_task_executor",
-                    },
-                )
-            )
-        self.runtime_host.state_index.upsert_agent_run(
-            replace(
-                child_agent_run,
-                status="failed",
-                updated_at=now,
-                diagnostics={
-                    **dict(child_agent_run.diagnostics or {}),
-                    "terminal_reason": "subagent_schedule_failed",
-                    "schedule_error": normalized_error,
-                    "schedule_result": dict(schedule_result or {}),
-                },
-            )
-        )
-        self._append_message(
-            task_run_id=child_task_run_id,
-            parent_agent_run_ref=str(child_agent_run.parent_agent_run_ref),
-            subagent_run_ref=str(child_agent_run.agent_run_id),
-            direction="system",
-            message_type="error",
-            content=normalized_error,
-            refs={"error": normalized_error, "scheduler": "subagent_control"},
-        )
-        self.runtime_host.event_log.append(
-            child_task_run_id,
-            "subagent_schedule_failed",
-            payload={"task_run_id": child_task_run_id, "error": normalized_error, "schedule": dict(schedule_result or {})},
-            refs={"task_run_ref": child_task_run_id, "subagent_run_ref": child_agent_run.agent_run_id},
-        )
-        return {
-            "ok": False,
-            "scheduler_status": "schedule_failed",
-            "error": normalized_error,
-            "schedule": dict(schedule_result or {}),
-        }
-
-
 def _child_status_summary(task_run: Any) -> str:
     status = str(getattr(task_run, "status", "") or "")
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or "")
@@ -615,97 +332,6 @@ def _canonical_agent_run_status(value: Any) -> str:
     return status
 
 
-def _subagent_task_run_contract(
-    *,
-    parent_task_run: Any,
-    child_task_run_id: str,
-    child_agent_run: AgentRun,
-    runtime_assembly: dict[str, Any],
-    runtime_profile: dict[str, Any],
-    goal: str,
-    instructions: str,
-    context_refs: list[str],
-    expected_outputs: list[str],
-) -> Any:
-    from harness.loop.task_lifecycle import TaskRunContract
-
-    task_environment_id = str(dict(runtime_assembly.get("task_environment") or {}).get("environment_id") or "")
-    parent_task_run_id = str(getattr(parent_task_run, "task_run_id", "") or "")
-    parent_agent_run_ref = str(child_agent_run.parent_agent_run_ref or "")
-    goal_text = str(goal or "").strip()
-    instruction_text = str(instructions or "").strip()
-    criteria = tuple(str(item).strip() for item in list(expected_outputs or []) if str(item).strip()) or (
-        goal_text or instruction_text,
-    )
-    primary_ref = "work-mode:goal:primary"
-    working_scope = {
-        "target_objects": [],
-        "workspace_refs": [],
-        "source_refs": list(context_refs),
-        "excluded_scope": [],
-        "known_constraints": [
-            f"parent_task_run_id:{parent_task_run_id}",
-            f"parent_agent_run_ref:{parent_agent_run_ref}",
-        ],
-    }
-    origin = {
-        "origin_kind": "subagent_spawned",
-        "origin_authority": "harness.subagent_control",
-        "parent_task_run_id": parent_task_run_id,
-        "parent_agent_run_ref": parent_agent_run_ref,
-    }
-    return TaskRunContract(
-        contract_id=f"subagent-contract:{child_task_run_id}",
-        contract_source="subagent_control",
-        user_visible_goal=goal_text,
-        task_run_goal=goal_text or instruction_text,
-        container_contract={
-            "entry_reason": f"父任务请求子 Agent 执行：{goal_text or instruction_text}",
-            "continuity_required": True,
-            "control_required": True,
-            "projection_required": True,
-            "checkpoint_required": True,
-            "minimum_viable_next_step": instruction_text or goal_text,
-            "primary_work_mode_ref": primary_ref,
-            "supporting_mode_refs": [],
-            "mode_transition_policy": {
-                "agent_may_propose_transition": False,
-                "system_may_infer_transition": False,
-                "requires_accepted_event": True,
-            },
-        },
-        work_modes=(
-            {
-                "mode_instance_id": primary_ref,
-                "mode_kind": "goal",
-                "mode_role": "primary",
-                "status": "draft",
-                "depends_on_mode_refs": [],
-                "contract": {
-                    "user_visible_goal": goal_text,
-                    "task_run_goal": goal_text or instruction_text,
-                    "success_definition": "; ".join(criteria),
-                    "working_scope": working_scope,
-                },
-            },
-        ),
-        primary_work_mode_instance_id=primary_ref,
-        active_work_mode_refs=(primary_ref,),
-        completion_criteria=criteria,
-        working_scope=working_scope,
-        acceptance_policy={
-            "result_kind": "subagent_result",
-            "expected_outputs": list(expected_outputs),
-            "parent_task_run_id": parent_task_run_id,
-        },
-        recovery_policy={"on_failure": "向父 Agent 返回失败原因、已完成范围和可恢复状态。"},
-        created_from_packet_ref=child_task_run_id,
-        task_environment_id=task_environment_id,
-        runtime_profile=dict(runtime_profile or {}),
-        origin=origin,
-    )
-
-
 def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, reason: str) -> dict[str, Any]:
     task_run_id = str(child_task_run_id or "").strip()
     if not task_run_id:
@@ -716,17 +342,15 @@ def _request_child_task_run_stop(runtime_host: Any, *, child_task_run_id: str, r
     status = str(getattr(child_task, "status", "") or "").strip()
     if status in {"completed", "failed", "aborted"}:
         return {"ok": True, "accepted": False, "task_run_id": task_run_id, "status": status}
-    from harness.loop.task_executor import stop_task_run
-
-    return dict(
-        stop_task_run(
-            runtime_host,
-            task_run_id,
-            reason=reason,
-            requested_by="parent_agent",
-        )
-        or {}
-    )
+    return {
+        "ok": False,
+        "accepted": False,
+        "error": "legacy_subagent_task_runner_removed",
+        "task_run_id": task_run_id,
+        "status": status,
+        "reason": str(reason or ""),
+        "authority": "harness.agent_control.legacy_subagent_task_runner_removed",
+    }
 
 
 def _child_summary(child: AgentRun) -> dict[str, Any]:

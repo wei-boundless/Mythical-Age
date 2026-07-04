@@ -64,7 +64,7 @@ def build_active_execution_lease_context(
             },
             "authority_order": {
                 "higher_than": ["task_plan_context", "task_todo_context", "runtime_memory_context"],
-                "lower_than": ["current_user_instruction", "task_run_contract_stable", "action_authorization"],
+                "lower_than": ["current_user_instruction", "task_prompt_contract", "action_authorization"],
             },
             "agent_use_contract": (
                 "Treat this as the current execution lease. Continue executing only while lease_state is active, "

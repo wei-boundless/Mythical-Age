@@ -71,6 +71,7 @@ def work_order_summary(order: GraphNodeWorkOrder, *, work_order_ref: str = "") -
         "agent_profile_id": order.agent_profile_id,
         "idempotency_key": order.idempotency_key,
         "input_package_ref": str(dict(order.input_package or {}).get("package_id") or ""),
+        "graph_node_task_binding_hint": dict(dict(order.dispatch_context or {}).get("graph_node_task_binding_hint") or {}),
         "inbound_context_count": len(list(dict(order.input_package or {}).get("inbound_context") or [])),
         "artifact_space_ref": order.artifact_space_ref,
         "memory_space_ref": order.memory_space_ref,

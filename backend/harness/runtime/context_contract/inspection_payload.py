@@ -10,7 +10,6 @@ from runtime.context_management.system_asset_lines import (
 from runtime.context_management.system_line_controller import build_context_line_state_inventory
 from runtime.prompt_accounting import build_provider_cache_log_view
 
-from ..harness_spine_contract import task_executor_runner_contract_inventory
 from ..control_action_schema import control_output_line_declarations, control_output_line_id
 from .diagnostics import diagnose_runtime_topology_projection
 from .nodes import ContextContractManifest
@@ -136,7 +135,6 @@ def _runtime_line_governance_projection() -> dict[str, Any]:
     line_state_inventory = build_context_line_state_inventory()
     control_output_lines = tuple(control_output_line_declarations())
     harness_spine_lines = _harness_control_spine_lines()
-    harness_spine_contracts = tuple(task_executor_runner_contract_inventory())
     asset_diagnostics = dict(asset_inventory.get("diagnostics") or {})
     line_state_summary = dict(line_state_inventory.get("summary") or {})
     return {
@@ -147,14 +145,12 @@ def _runtime_line_governance_projection() -> dict[str, Any]:
             "context_line_state_count": int(line_state_summary.get("line_state_count") or 0),
             "control_output_line_count": len(control_output_lines),
             "harness_control_spine_line_count": len(harness_spine_lines),
-            "harness_runtime_spine_contract_count": len(harness_spine_contracts),
             "system_asset_issue_count": int(asset_diagnostics.get("issue_count") or 0),
         },
         "system_asset_lines": asset_inventory,
         "context_line_states": line_state_inventory,
         "control_output_lines": [line.to_dict() for line in control_output_lines],
         "harness_control_spine_lines": [line.to_dict() for line in harness_spine_lines],
-        "harness_runtime_spine_contracts": [dict(item) for item in harness_spine_contracts],
     }
 
 

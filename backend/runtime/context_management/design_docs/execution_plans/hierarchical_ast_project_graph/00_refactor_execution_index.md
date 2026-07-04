@@ -26,6 +26,7 @@
 Harness = 单 agent 执行权威
 TaskSystem = 持久任务环境与 episode 推进权威
 GraphSystem = 图结构、图时空、算法调度和 work order 权威
+RuntimeEffectRegistry = 图算法副作用请求到领域 handler 的薄路由
 ProjectNetworkSystem = 项目控制网络资产、语义产物、generation 与维护信号权威
 ProjectNetworkTasks = 依托图任务建立/修复项目网络的任务适配层
 FileManagement = 文件树、AST、物理事实和资源引用权威
@@ -36,10 +37,12 @@ PromptLibrary = agent 可执行契约权威
 核心不变量：
 
 - `GraphSystem` 不执行模型，不保存项目语义资产。
+- `RuntimeEffectRegistry` 只按 `effect_kind` 路由副作用，不做领域语义判断。
 - `ProjectNetworkSystem` 不调度 agent，不拥有图运行循环。
 - `TaskSystem` 不保存项目网络领域资产，不成为旧 `project_network` 仓库。
 - `ProjectNetworkTasks` 只承载项目网络建立/修复的图任务适配、模板、上下文 provider。
 - `Harness` 仍是唯一单 agent runtime，不新增第二套模型 loop。
+- `Harness` 不直接 import `project_network_tasks` 或 `project_network_system`，领域副作用通过 runtime effect handler 注册。
 - `FileManagement` 只给物理事实、AST、资源 ref，不做语义判断。
 - `Agent` 给出判断、意图、证据和产物候选；`System` 做持久化、调度、校验、归并和发布。
 
@@ -141,11 +144,13 @@ task_system.project_network -> project_network_system + project_network_tasks
 - `GraphSystem` 只负责图结构、状态、checkpoint、work order、algorithm adapter。
 - 项目网络 tree reduce 作为 graph algorithm adapter，不塞进 GraphLoop 内部。
 - context provider 通过 registry 接入，不在 GraphLoop 中硬编码领域上下文。
+- runtime effect handler 通过 registry 接入，不在 HarnessRuntimeFacade 中硬编码领域副作用。
 
 完成标准：
 
 - `GraphLoop` 不出现项目网络领域判断。
 - runtime adapter 和 context provider 可以按任务类型注册。
+- harness effect sink 只调用 `graph_system.runtime_effect_registry`，项目网络 ingest handler 位于 `project_network_tasks.runtime_effects`。
 - ready work order 的并发和恢复仍由 graph / task runtime 控制，不由领域代码私自开线程。
 
 ### Phase 3：任务环境底座实施准备
@@ -201,6 +206,7 @@ task_system.project_network -> project_network_system + project_network_tasks
 | 谁推进任务状态？ | `TaskReducer` |
 | 谁决定图节点 ready？ | `GraphSystem / GraphLoop / algorithm adapter` |
 | 谁保存项目网络资产？ | `ProjectNetworkSystem` |
+| 谁处理图算法领域副作用？ | `RuntimeEffectRegistry` 路由，领域 handler 在对应 task adapter 包 |
 | 谁提供文件和 AST 物理事实？ | `FileManagement` |
 | 谁把能力暴露给 agent？ | `CapabilitySystem/Tools` |
 | 谁写 agent 契约？ | `PromptLibrary / task contract template` |

@@ -227,12 +227,12 @@ def _running_graph_recovery_signal(monitor: dict[str, Any], *, now: float) -> di
         if executor_presence == "stale":
             return {
                 "reason": "active_node_executor_stale",
-                "terminal_reason": "task_executor_interrupted_by_runtime_restart",
+                "terminal_reason": "active_work_order_executor_stale_after_restart",
                 "blocked_reason": "active_node_executor_stale",
-                "error_code": "task_executor_interrupted_by_runtime_restart",
+                "error_code": "active_work_order_executor_stale_after_restart",
                 "node_id": node_id,
                 "work_order_id": work_order_id,
-                "user_message": "图节点执行器已经停滞，健康管家可以恢复并继续推进图任务。",
+                "user_message": "图节点 work order 已经停滞，健康管家可以通过图循环重排继续推进图任务。",
             }
         if executor_presence != "missing":
             continue

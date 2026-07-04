@@ -20,12 +20,10 @@ from .execution_kernel import (
 from .model_action_protocol import (
     AnyModelActionRequest,
     ModelActionRequest,
-    TaskExecutionModelActionRequest,
     model_action_request_from_payload,
-    task_execution_action_request_from_payload,
 )
 from .observations import ObservationRecord
-from .task_lifecycle import TaskLifecycleRecord, TaskRunContract
+from .task_lifecycle import TaskRunContract
 
 __all__ = [
     "AdmissionDecision",
@@ -38,8 +36,6 @@ __all__ = [
     "AnyModelActionRequest",
     "ModelActionRequest",
     "ObservationRecord",
-    "TaskExecutionModelActionRequest",
-    "TaskLifecycleRecord",
     "TaskRunContract",
     "append_action_lifecycle_event",
     "action_admission_denial_fingerprint",
@@ -50,5 +46,4 @@ __all__ = [
     "build_tool_lifecycle_started_event_record",
     "decide_model_action_lifecycle",
     "model_action_request_from_payload",
-    "task_execution_action_request_from_payload",
 ]

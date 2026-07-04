@@ -12,7 +12,7 @@ from harness.task_run_status import (
 )
 
 WAITING_APPROVAL_STATUSES = {"waiting_approval"}
-RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
+RECOVERY_ACTIONS: set[str] = set()
 PAUSED_CONTROL_STATES = {"pause_requested", "paused"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 
@@ -226,12 +226,6 @@ def _recovery_cause(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str
     recoverable_error = _record(diagnostics.get("recoverable_error") or monitor.get("recoverable_error"))
     error_code = _text(recoverable_error.get("error_code") or recoverable_error.get("code"))
     latest_step = _text(diagnostics.get("latest_step") or monitor.get("latest_step"))
-    if (
-        wait_reason == "task_executor_interrupted_by_runtime_restart"
-        or error_code == "task_executor_interrupted_by_runtime_restart"
-        or latest_step == "task_executor_recovered_after_runtime_start"
-    ):
-        return "runtime_restart"
     return ""
 
 

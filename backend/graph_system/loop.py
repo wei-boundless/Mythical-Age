@@ -4,18 +4,9 @@ import time
 import re
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from runtime.shared.models import TaskRun
-from task_system.runtime_semantics.chapter_progress import (
-    ChapterProgressReceiptError,
-    first_chapter_progress_receipt,
-)
-from task_system.runtime_semantics.review_gate_verdict import (
-    extract_review_verdict,
-    review_verdict_is_rejected,
-)
 
 from .checkpoint_store import checkpoint_store_from_services
 from .context_materializer import GraphContextMaterializer
@@ -35,6 +26,7 @@ from .models import (
     safe_id,
     stable_hash,
 )
+from .revision_signal_registry import build_revision_requeue_patch, source_result_requests_revision
 from .runtime_objects import (
     load_node_result,
     node_result_summary,
@@ -363,7 +355,7 @@ class GraphLoop:
         initial_inputs = dict(next_state.initial_inputs or {})
         revision_targets = (
             ()
-            if bool(initial_inputs.get("revision_active")) and initial_inputs.get("revision_queue_chapter_indexes")
+            if bool(initial_inputs.get("revision_active")) and initial_inputs.get("revision_cursor_values")
             else _ready_rejected_revision_targets(
                 graph_config=graph_config,
                 state=next_state,
@@ -1354,24 +1346,22 @@ def _evaluate_loop_route(
             graph_config=graph_config,
             state=state,
             result=result,
-            node=node,
             node_loop=node_loop,
             route_policy=route_policy,
             services=services,
         )
     if mode != "metric_target":
         raise ValueError(f"unsupported graph loop route mode: {mode}")
-    hybrid = _evaluate_metric_target_route_from_progress_receipt(
+    receipt_route = _evaluate_metric_target_route_from_progress_receipt(
         graph_config=graph_config,
         state=state,
         result=result,
-        node=node,
         node_loop=node_loop,
         route_policy=route_policy,
         services=services,
     )
-    if hybrid is not None:
-        return hybrid
+    if receipt_route is not None:
+        return receipt_route
     return _evaluate_metric_target_route(
         graph_config=graph_config,
         state=state,
@@ -1458,17 +1448,17 @@ def _evaluate_metric_target_route_from_progress_receipt(
     graph_config: ExecutableGraphConfig,
     state: GraphLoopState,
     result: NodeResultEnvelope,
-    node: dict[str, Any],
     node_loop: dict[str, Any],
     route_policy: dict[str, Any],
     services: Any | None,
 ) -> dict[str, Any] | None:
-    if not _route_uses_chapter_progress_receipt(state=state, route_policy=route_policy):
+    if not _route_has_progress_receipt_policy(route_policy):
         return None
     scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
     frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
+    receipt_key = str(route_policy.get("progress_receipt_key") or frame.get("progress_receipt_key") or "progress_receipt").strip()
     try:
-        receipt = first_chapter_progress_receipt(
+        receipt = _first_progress_receipt(
             _progress_receipt_sources(
                 graph_config=graph_config,
                 state=state,
@@ -1476,39 +1466,102 @@ def _evaluate_metric_target_route_from_progress_receipt(
                 route_policy=route_policy,
                 services=services,
             ),
-            key="chapter_progress_receipt",
-            initial_inputs=dict(state.initial_inputs or {}),
+            key=receipt_key,
         )
-    except ChapterProgressReceiptError:
+    except ValueError:
         return None
-
-    metric = _chapter_progress_receipt_metric(
-        receipt=receipt,
-        route_policy=route_policy,
+    return _evaluate_receipt_route_decision(
+        graph_config=graph_config,
         state=state,
         result=result,
+        route_policy=route_policy,
+        frame=frame,
+        receipt=receipt,
+        scope_id=scope_id,
+        missing_reason="loop_route_progress_receipt_missing",
     )
+
+
+def _evaluate_progress_receipt_route(
+    *,
+    graph_config: ExecutableGraphConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    node_loop: dict[str, Any],
+    route_policy: dict[str, Any],
+    services: Any | None,
+) -> dict[str, Any]:
+    scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
+    frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
+    receipt_key = str(route_policy.get("progress_receipt_key") or frame.get("progress_receipt_key") or "progress_receipt").strip()
+    try:
+        receipt = _first_progress_receipt(
+            _progress_receipt_sources(
+                graph_config=graph_config,
+                state=state,
+                result=result,
+                route_policy=route_policy,
+                services=services,
+            ),
+            key=receipt_key,
+        )
+    except ValueError as exc:
+        return {
+            "authority": "graph_system.loop_route_decision.progress_receipt",
+            "action": "blocked",
+            "reason": "loop_route_progress_receipt_missing",
+            "detail": str(exc),
+            "node_id": result.node_id,
+            "scope_id": scope_id,
+            "route_policy": route_policy,
+        }
+    return _evaluate_receipt_route_decision(
+        graph_config=graph_config,
+        state=state,
+        result=result,
+        route_policy=route_policy,
+        frame=frame,
+        receipt=receipt,
+        scope_id=scope_id,
+        missing_reason="loop_route_progress_receipt_missing",
+    )
+
+
+def _evaluate_receipt_route_decision(
+    *,
+    graph_config: ExecutableGraphConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+    route_policy: dict[str, Any],
+    frame: dict[str, Any],
+    receipt: dict[str, Any],
+    scope_id: str,
+    missing_reason: str,
+) -> dict[str, Any]:
+    del missing_reason
+    metric = _progress_receipt_metric(receipt=receipt, route_policy=route_policy, state=state, result=result)
     patched_inputs = _apply_route_metric_counters(
         initial_inputs=dict(state.initial_inputs or {}),
         route_policy=route_policy,
         metric=metric,
     )
-    patched_inputs = _apply_chapter_progress_receipt_inputs(
+    receipt_complete, complete_key = _progress_receipt_complete(receipt=receipt, route_policy=route_policy)
+    patched_inputs, cursor_set_by_receipt = _apply_progress_receipt_input_mappings(
         initial_inputs=patched_inputs,
         receipt=receipt,
+        route_policy=route_policy,
+        frame=frame,
+        receipt_complete=receipt_complete,
     )
     patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-
-    current_key = str(route_policy.get("current_key") or "group_current_measure").strip()
-    target_key = str(route_policy.get("target_key") or "group_target_measure").strip()
+    current_key = str(route_policy.get("current_key") or "").strip()
+    target_key = str(route_policy.get("target_key") or "").strip()
     current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
     target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
-    receipt_complete = bool(receipt.get("volume_complete"))
-    action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
-    if action == "continue" and _chapter_batch_cursor_advanced(
-        previous_inputs=dict(state.initial_inputs or {}),
-        next_inputs=patched_inputs,
-    ):
+    action = "exit" if receipt_complete or (not complete_key and target_key and current_value >= target_value) else "continue"
+    if not cursor_set_by_receipt:
+        patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
+    if action == "continue":
         patched_inputs = _apply_child_loop_input_resets(
             graph_config=graph_config,
             inputs=patched_inputs,
@@ -1518,9 +1571,9 @@ def _evaluate_metric_target_route_from_progress_receipt(
     continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
     exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
     return {
-        "authority": "graph_system.loop_route_decision",
+        "authority": "graph_system.loop_route_decision.progress_receipt",
         "action": action,
-        "reason": "volume_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached"),
+        "reason": "receipt_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached"),
         "node_id": result.node_id,
         "result_id": result.result_id,
         "scope_id": scope_id,
@@ -1540,136 +1593,97 @@ def _evaluate_metric_target_route_from_progress_receipt(
     }
 
 
-def _evaluate_progress_receipt_route(
-    *,
-    graph_config: ExecutableGraphConfig,
-    state: GraphLoopState,
-    result: NodeResultEnvelope,
-    node: dict[str, Any],
-    node_loop: dict[str, Any],
-    route_policy: dict[str, Any],
-    services: Any | None,
-) -> dict[str, Any]:
-    scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
-    frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
-    receipt_key = str(route_policy.get("progress_receipt_key") or "chapter_progress_receipt").strip()
-    try:
-        receipt = first_chapter_progress_receipt(
-            _progress_receipt_sources(
-                graph_config=graph_config,
-                state=state,
-                result=result,
-                route_policy=route_policy,
-                services=services,
-            ),
-            key=receipt_key,
-            initial_inputs=dict(state.initial_inputs or {}),
-        )
-    except ChapterProgressReceiptError as exc:
-        return {
-            "authority": "graph_system.loop_route_decision",
-            "action": "blocked",
-            "reason": "loop_route_progress_receipt_missing",
-            "detail": str(exc),
-            "node_id": result.node_id,
-            "scope_id": scope_id,
-            "route_policy": route_policy,
-        }
-    if route_policy.get("receipt_to_input_mappings") or route_policy.get("receipt_complete_key") or route_policy.get("receipt_metric_key"):
-        return _evaluate_generic_progress_receipt_route(
-            graph_config=graph_config,
-            state=state,
-            result=result,
-            route_policy=route_policy,
-            frame=frame,
-            receipt=receipt,
-            scope_id=scope_id,
-        )
-
-    committed_words = _chapter_progress_receipt_metric(
-        receipt=receipt,
-        route_policy=route_policy,
-        state=state,
-        result=result,
-    )
-    patched_inputs = _apply_route_metric_counters(
-        initial_inputs=dict(state.initial_inputs or {}),
-        route_policy=route_policy,
-        metric=committed_words,
-    )
-    patched_inputs = _apply_chapter_progress_receipt_inputs(
-        initial_inputs=patched_inputs,
-        receipt=receipt,
-    )
-    patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    patched_inputs.setdefault(
-        "active_chapter_range",
-        f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), _numeric_value(receipt.get('next_chapter_index'), 1))):03d}-{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), _numeric_value(receipt.get('next_chapter_index'), 1))):03d}",
-    )
-
-    current_key = str(route_policy.get("current_key") or "group_current_measure").strip()
-    target_key = str(route_policy.get("target_key") or "group_target_measure").strip()
-    current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
-    target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
-    receipt_complete = bool(receipt.get("volume_complete"))
-    action = "exit" if receipt_complete or (target_key and current_value >= target_value) else "continue"
-    if action == "continue" and _chapter_batch_cursor_advanced(
-        previous_inputs=dict(state.initial_inputs or {}),
-        next_inputs=patched_inputs,
-    ):
-        patched_inputs = _apply_child_loop_input_resets(
-            graph_config=graph_config,
-            inputs=patched_inputs,
-            parent_frame=frame,
-        )
-    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
-    continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
-    exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
-    return {
-        "authority": "graph_system.loop_route_decision",
-        "action": action,
-        "reason": "volume_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached"),
-        "node_id": result.node_id,
-        "result_id": result.result_id,
-        "scope_id": scope_id,
-        "frame_id": str(frame.get("frame_id") or scope_id),
-        "continue_node_id": continue_node_id,
-        "exit_node_id": exit_node_id,
-        "metric": committed_words,
-        "current_key": current_key,
-        "current_value": current_value,
-        "target_key": target_key,
-        "target_value": target_value,
-        "progress_receipt": receipt,
-        "initial_inputs_patch": patched_inputs,
-        "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
-        "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
-        "preserve_iteration_results": frame.get("preserve_iteration_results"),
-    }
-
-
-def _route_uses_chapter_progress_receipt(*, state: GraphLoopState, route_policy: dict[str, Any]) -> bool:
+def _route_has_progress_receipt_policy(route_policy: dict[str, Any]) -> bool:
     return bool(
-        any(
-            key in dict(state.initial_inputs or {})
-            for key in ("batch_start_index", "batch_end_index", "chapter_index", "units_per_batch")
-        )
-        and str(route_policy.get("current_key") or "").strip() in {"", "group_current_measure"}
+        str(route_policy.get("progress_receipt_key") or "").strip()
+        or str(route_policy.get("receipt_metric_key") or "").strip()
+        or str(route_policy.get("receipt_complete_key") or "").strip()
+        or list(route_policy.get("receipt_to_input_mappings") or [])
     )
 
 
-def _chapter_progress_receipt_metric(
+def _first_progress_receipt(sources: list[dict[str, Any]], *, key: str) -> dict[str, Any]:
+    errors: list[str] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        candidates: list[Any] = []
+        if key and isinstance(source.get(key), dict):
+            candidates.append(source.get(key))
+        for alternate_key in ("progress_receipt", "receipt"):
+            if isinstance(source.get(alternate_key), dict):
+                candidates.append(source.get(alternate_key))
+        authority = str(source.get("authority") or "").strip()
+        if "progress_receipt" in authority and source:
+            candidates.append(source)
+        for candidate in candidates:
+            if isinstance(candidate, dict) and candidate:
+                return dict(candidate)
+            errors.append("progress_receipt_candidate_not_object")
+    detail = ",".join(dict.fromkeys(errors)) if errors else "progress_receipt_missing"
+    raise ValueError(detail)
+
+
+def _progress_receipt_metric(
     *,
     receipt: dict[str, Any],
     route_policy: dict[str, Any],
     state: GraphLoopState,
     result: NodeResultEnvelope,
 ) -> float | int:
-    metric = _numeric_value(receipt.get("committed_words"), None)
-    if metric is not None:
-        return metric
+    for key in (
+        str(route_policy.get("receipt_metric_key") or "").strip(),
+        str(route_policy.get("current_metric_key") or "").strip(),
+        "metric",
+        "committed_count",
+    ):
+        if key and key in receipt:
+            return _numeric_value(receipt.get(key), 0)
     fallback = _route_metric(route_policy=route_policy, state=state, result=result)
     return _numeric_value(fallback, 0)
+
+
+def _progress_receipt_complete(*, receipt: dict[str, Any], route_policy: dict[str, Any]) -> tuple[bool, str]:
+    for key in (
+        str(route_policy.get("receipt_complete_key") or "").strip(),
+        str(route_policy.get("complete_key") or "").strip(),
+        "complete",
+    ):
+        if key and key in receipt:
+            return bool(receipt.get(key)), key
+    return False, ""
+
+
+def _apply_progress_receipt_input_mappings(
+    *,
+    initial_inputs: dict[str, Any],
+    receipt: dict[str, Any],
+    route_policy: dict[str, Any],
+    frame: dict[str, Any],
+    receipt_complete: bool,
+) -> tuple[dict[str, Any], bool]:
+    patched_inputs = dict(initial_inputs or {})
+    cursor_key = str(frame.get("cursor_key") or "").strip()
+    cursor_set_by_receipt = False
+    receipt_action = "exit" if receipt_complete else "continue"
+    for mapping in list(route_policy.get("receipt_to_input_mappings") or []):
+        if not isinstance(mapping, dict):
+            continue
+        apply_on = [
+            str(item).strip()
+            for item in list(mapping.get("apply_on") or mapping.get("actions") or [])
+            if str(item).strip()
+        ]
+        if apply_on and receipt_action not in set(apply_on):
+            continue
+        source_key = str(mapping.get("source_key") or mapping.get("from_key") or "").strip()
+        target_key = str(mapping.get("target_key") or mapping.get("key") or "").strip()
+        if not source_key or not target_key or source_key not in receipt:
+            continue
+        patched_inputs[target_key] = receipt.get(source_key)
+        if cursor_key and target_key == cursor_key:
+            cursor_set_by_receipt = True
+    return patched_inputs, cursor_set_by_receipt
 
 
 def _apply_route_metric_counters(
@@ -1692,152 +1706,6 @@ def _apply_route_metric_counters(
         if secondary_key:
             patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + metric
     return patched_inputs
-
-
-def _apply_chapter_progress_receipt_inputs(
-    *,
-    initial_inputs: dict[str, Any],
-    receipt: dict[str, Any],
-) -> dict[str, Any]:
-    patched_inputs = dict(initial_inputs or {})
-    next_chapter_index = int(_numeric_value(receipt.get("next_chapter_index"), _numeric_value(patched_inputs.get("chapter_index"), 1)))
-    batch_complete = bool(receipt.get("batch_complete"))
-    patched_inputs["chapter_index"] = next_chapter_index
-    patched_inputs["active_chapter_start_index"] = next_chapter_index
-    patched_inputs["active_chapter_end_index"] = int(
-        _numeric_value(receipt.get("batch_end_index"), _numeric_value(patched_inputs.get("batch_end_index"), next_chapter_index))
-    )
-    if batch_complete:
-        patched_inputs["batch_start_index"] = next_chapter_index
-        patched_inputs["batch_end_index"] = next_chapter_index + max(1, int(_numeric_value(patched_inputs.get("units_per_batch"), 1))) - 1
-        patched_inputs["active_chapter_end_index"] = patched_inputs["batch_end_index"]
-    else:
-        patched_inputs["batch_start_index"] = int(
-            _numeric_value(receipt.get("batch_start_index"), _numeric_value(patched_inputs.get("batch_start_index"), next_chapter_index))
-        )
-        patched_inputs["batch_end_index"] = int(
-            _numeric_value(
-                receipt.get("batch_end_index"),
-                _numeric_value(patched_inputs.get("batch_end_index"), patched_inputs["active_chapter_end_index"]),
-            )
-        )
-    patched_inputs["active_chapter_count"] = max(
-        0,
-        int(_numeric_value(patched_inputs.get("active_chapter_end_index"), next_chapter_index))
-        - int(_numeric_value(patched_inputs.get("active_chapter_start_index"), next_chapter_index))
-        + 1,
-    )
-    patched_inputs["active_chapter_range"] = (
-        f"{int(_numeric_value(patched_inputs.get('active_chapter_start_index'), next_chapter_index)):03d}-"
-        f"{int(_numeric_value(patched_inputs.get('active_chapter_end_index'), next_chapter_index)):03d}"
-    )
-    return patched_inputs
-
-
-def _chapter_batch_cursor_advanced(*, previous_inputs: dict[str, Any], next_inputs: dict[str, Any]) -> bool:
-    previous = _numeric_value(previous_inputs.get("batch_start_index"), None)
-    current = _numeric_value(next_inputs.get("batch_start_index"), None)
-    if previous is None or current is None:
-        return False
-    return int(current) != int(previous)
-
-
-def _evaluate_generic_progress_receipt_route(
-    *,
-    graph_config: ExecutableGraphConfig,
-    state: GraphLoopState,
-    result: NodeResultEnvelope,
-    route_policy: dict[str, Any],
-    frame: dict[str, Any],
-    receipt: dict[str, Any],
-    scope_id: str,
-) -> dict[str, Any]:
-    patched_inputs = dict(state.initial_inputs or {})
-    metric_key = str(route_policy.get("receipt_metric_key") or "").strip()
-    metric = _numeric_value(receipt.get(metric_key), 0) if metric_key else 0
-    current_key = str(route_policy.get("current_key") or "").strip()
-    if current_key and metric_key:
-        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + metric
-    last_metric_key = str(route_policy.get("last_metric_key") or "").strip()
-    if last_metric_key and metric_key:
-        patched_inputs[last_metric_key] = metric
-    complete_key = str(route_policy.get("receipt_complete_key") or route_policy.get("complete_key") or "").strip()
-    receipt_complete = bool(receipt.get(complete_key)) if complete_key else False
-    cursor_key = str(frame.get("cursor_key") or "").strip()
-    cursor_set_by_receipt = False
-    for mapping in list(route_policy.get("receipt_to_input_mappings") or []):
-        if not isinstance(mapping, dict):
-            continue
-        apply_on = [
-            str(item).strip()
-            for item in list(mapping.get("apply_on") or mapping.get("actions") or [])
-            if str(item).strip()
-        ]
-        receipt_action = "exit" if receipt_complete else "continue"
-        if apply_on and receipt_action not in set(apply_on):
-            continue
-        source_key = str(mapping.get("source_key") or mapping.get("from_key") or "").strip()
-        target_key = str(mapping.get("target_key") or mapping.get("key") or "").strip()
-        if not source_key or not target_key:
-            continue
-        if source_key in receipt:
-            patched_inputs[target_key] = receipt.get(source_key)
-            if cursor_key and target_key == cursor_key:
-                cursor_set_by_receipt = True
-    patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
-    revision_route = _revision_queue_route_patch_after_unit_acceptance(
-        initial_inputs=dict(state.initial_inputs or {}),
-        receipt=receipt,
-    )
-    if revision_route:
-        patched_inputs.update(dict(revision_route.get("initial_inputs_patch") or {}))
-    target_key = str(route_policy.get("target_key") or "").strip()
-    current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
-    target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
-    action = str(revision_route.get("action") or "") if revision_route else ""
-    if not action:
-        action = "exit" if receipt_complete or (not complete_key and target_key and current_value >= target_value) else "continue"
-    if not cursor_set_by_receipt:
-        patched_inputs = _apply_frame_cursor_patch(inputs=patched_inputs, frame=frame, action=action)
-    if action == "continue":
-        patched_inputs = _apply_child_loop_input_resets(
-            graph_config=graph_config,
-            inputs=patched_inputs,
-            parent_frame=frame,
-        )
-    patched_inputs = _patch_chapter_active_range_for_cursor(
-        patched_inputs,
-        cursor_key=cursor_key,
-        start_value=_numeric_value(patched_inputs.get(cursor_key), None) if cursor_key else None,
-        end_value=_numeric_value(patched_inputs.get("batch_end_index"), None),
-    )
-    if revision_route:
-        patched_inputs.update(dict(revision_route.get("initial_inputs_patch") or {}))
-    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
-    continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
-    exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
-    return {
-        "authority": "graph_system.loop_route_decision",
-        "action": action,
-        "reason": str(revision_route.get("reason") or "") if revision_route else ("receipt_complete" if receipt_complete else ("target_reached" if action == "exit" else "target_not_reached")),
-        "node_id": result.node_id,
-        "result_id": result.result_id,
-        "scope_id": scope_id,
-        "frame_id": str(frame.get("frame_id") or scope_id),
-        "continue_node_id": continue_node_id,
-        "exit_node_id": exit_node_id,
-        "metric": metric,
-        "current_key": current_key,
-        "current_value": current_value,
-        "target_key": target_key,
-        "target_value": target_value,
-        "progress_receipt": receipt,
-        "revision_route": revision_route,
-        "initial_inputs_patch": patched_inputs,
-        "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
-        "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
-        "preserve_iteration_results": frame.get("preserve_iteration_results"),
-    }
 
 
 def _state_after_loop_route(
@@ -2207,13 +2075,6 @@ def _apply_child_loop_input_resets(
         if start_value is None:
             continue
         patched[cursor_key] = start_value
-        end_key = str(child.get("end_key") or "").strip()
-        patched = _patch_chapter_active_range_for_cursor(
-            patched,
-            cursor_key=cursor_key,
-            start_value=start_value,
-            end_value=_numeric_value(patched.get(end_key), None) if end_key else None,
-        )
         patched = _apply_child_loop_input_resets(graph_config=graph_config, inputs=patched, parent_frame=child)
     return patched
 
@@ -2370,14 +2231,6 @@ def _reset_child_loop_frames_for_parent_continue(
         child["end"] = end_value
         if cursor_key and cursor_value is not None:
             inputs[cursor_key] = cursor_value
-        inputs.update(
-            _patch_chapter_active_range_for_cursor(
-                inputs,
-                cursor_key=cursor_key,
-                start_value=cursor_value,
-                end_value=end_value,
-            )
-        )
         child["active_iteration_id"] = _loop_iteration_id(
             frame=child,
             values={**inputs, **child, "cursor": cursor_value, "iteration_index": 0},
@@ -2391,110 +2244,17 @@ def _reset_child_loop_frames_for_parent_continue(
     return patched_frames
 
 
-def _patch_chapter_active_range_for_cursor(
-    inputs: dict[str, Any],
-    *,
-    cursor_key: str,
-    start_value: Any,
-    end_value: Any,
-) -> dict[str, Any]:
-    if str(cursor_key or "").strip() != "chapter_index" or start_value is None:
-        return inputs
-    patched = dict(inputs)
-    start = int(_numeric_value(start_value, 0))
-    end = int(_numeric_value(end_value, start))
-    if end < start:
-        end = start
-    patched["active_chapter_start_index"] = start
-    patched["active_chapter_end_index"] = end
-    patched["active_chapter_count"] = max(0, end - start + 1)
-    patched["active_chapter_range"] = f"{start:03d}-{end:03d}"
-    return patched
-
-
-def _revision_queue_route_patch_after_unit_acceptance(
-    *,
-    initial_inputs: dict[str, Any],
-    receipt: dict[str, Any],
-) -> dict[str, Any]:
-    queue = _revision_queue_chapter_indexes(initial_inputs.get("revision_queue_chapter_indexes"))
-    if not queue:
-        return {}
-    current = int(_numeric_value(initial_inputs.get("chapter_index"), queue[0]) or queue[0])
-    if current not in queue:
-        return {}
-    committed = [int(item) for item in list(receipt.get("committed_chapter_indexes") or []) if _numeric_value(item, None) is not None]
-    if committed and current not in committed:
-        return {}
-    position = queue.index(current)
-    next_position = position + 1
-    patch = dict(initial_inputs)
-    patch["revision_queue_chapter_indexes"] = queue
-    patch["revision_queue_position"] = next_position
-    patch["revision_active"] = next_position < len(queue)
-    if next_position < len(queue):
-        next_chapter = queue[next_position]
-        patch.update(_single_chapter_cursor_patch(next_chapter))
-        patch["revision_current_chapter_index"] = next_chapter
-        patch.pop("quality_gate_feedback", None)
-        patch.pop("previous_chapter_draft_ref", None)
-        plan_text = str(patch.get("revision_plan_text") or "").strip()
-        if plan_text:
-            patch["chapter_revision_requirements"] = _revision_requirements_for_chapter(plan_text, next_chapter)
-        action = "continue"
-        reason = "revision_queue_next_chapter"
-    else:
-        patch["revision_current_chapter_index"] = current
-        patch["revision_active"] = False
-        for key in (
-            "revision_queue_chapter_indexes",
-            "revision_queue_position",
-            "revision_current_chapter_index",
-            "revision_execution_range",
-            "revision_plan_text",
-            "chapter_revision_requirements",
-            "quality_gate_feedback",
-            "previous_chapter_draft_ref",
-            "previous_chapter_review_ref",
-        ):
-            patch.pop(key, None)
-        action = "exit"
-        reason = "revision_queue_complete"
-    return {
-        "authority": "graph_system.revision_queue_route",
-        "action": action,
-        "reason": reason,
-        "current_chapter_index": current,
-        "next_chapter_index": patch.get("chapter_index"),
-        "revision_queue_chapter_indexes": queue,
-        "revision_queue_position": next_position,
-        "initial_inputs_patch": patch,
-    }
-
-
-def _revision_queue_chapter_indexes(value: Any) -> list[int]:
+def _revision_cursor_values(value: Any) -> list[int]:
     raw_items = value if isinstance(value, list) else []
-    indexes: list[int] = []
+    values: list[int] = []
     for item in raw_items:
         number = _numeric_value(item, None)
         if number is None:
             continue
-        chapter = int(number)
-        if chapter > 0 and chapter not in indexes:
-            indexes.append(chapter)
-    return indexes
-
-
-def _single_chapter_cursor_patch(chapter: int) -> dict[str, Any]:
-    return {
-        "chapter_index": chapter,
-        "chapter_index_padded": f"{chapter:03d}",
-        "chapter_file_prefix": f"chapter_{chapter:03d}",
-        "active_chapter_start_index": chapter,
-        "active_chapter_end_index": chapter,
-        "active_chapter_count": 1,
-        "active_chapter_range": f"{chapter:03d}-{chapter:03d}",
-    }
+        cursor_value = int(number)
+        if cursor_value > 0 and cursor_value not in values:
+            values.append(cursor_value)
+    return values
 
 
 def _loop_state_with_iteration_result(
@@ -2605,23 +2365,21 @@ def _loop_state_without_revision_iteration_results(
     }
     if not frames:
         return loop_state
-    queue_indexes = _revision_queue_chapter_indexes(initial_inputs.get("revision_queue_chapter_indexes"))
-    start = min(queue_indexes) if queue_indexes else _numeric_value(initial_inputs.get("active_chapter_start_index"), None)
-    if start is None:
-        start = _numeric_value(initial_inputs.get("chapter_index"), None)
-    end = max(queue_indexes) if queue_indexes else _numeric_value(initial_inputs.get("active_chapter_end_index"), start)
+    cursor_values = _revision_cursor_values(initial_inputs.get("revision_cursor_values"))
+    start = min(cursor_values) if cursor_values else _numeric_value(initial_inputs.get("revision_cursor_start"), None)
+    end = max(cursor_values) if cursor_values else _numeric_value(initial_inputs.get("revision_cursor_end"), start)
     if start is None:
         return loop_state
     start_int = int(start)
     end_int = int(end if end is not None else start)
     if end_int < start_int:
         start_int, end_int = end_int, start_int
-    batch_start = _numeric_value(initial_inputs.get("batch_start_index"), None)
-    batch_end = _numeric_value(initial_inputs.get("batch_end_index"), batch_start)
-    batch_start_int = int(batch_start) if batch_start is not None else None
-    batch_end_int = int(batch_end) if batch_end is not None else batch_start_int
-    if batch_start_int is not None and batch_end_int is not None and batch_end_int < batch_start_int:
-        batch_start_int, batch_end_int = batch_end_int, batch_start_int
+    parent_start = _numeric_value(initial_inputs.get("revision_parent_start"), None)
+    parent_end = _numeric_value(initial_inputs.get("revision_parent_end"), parent_start)
+    parent_start_int = int(parent_start) if parent_start is not None else None
+    parent_end_int = int(parent_end) if parent_end is not None else parent_start_int
+    if parent_start_int is not None and parent_end_int is not None and parent_end_int < parent_start_int:
+        parent_start_int, parent_end_int = parent_end_int, parent_start_int
     iteration_results = {
         str(raw_frame_id): {
             str(raw_iteration_id): dict(raw_results)
@@ -2640,19 +2398,20 @@ def _loop_state_without_revision_iteration_results(
         if not frame_results:
             continue
         template = str(frame.get("iteration_identity_template") or "").strip()
-        removal_ids = _revision_iteration_ids_for_range(template=template, start=start_int, end=end_int)
+        cursor_key = str(initial_inputs.get("revision_cursor_key") or frame.get("cursor_key") or "").strip()
+        removal_ids = _revision_iteration_ids_for_range(template=template, cursor_key=cursor_key, start=start_int, end=end_int)
         if _revision_overlaps_frame_range(
             frame=frame,
             initial_inputs=initial_inputs,
             affected_start=start_int,
             affected_end=end_int,
-            batch_start=batch_start_int,
-            batch_end=batch_end_int,
+            parent_start=parent_start_int,
+            parent_end=parent_end_int,
         ):
             active_iteration_id = str(frame.get("active_iteration_id") or "").strip()
             if active_iteration_id:
                 removal_ids.add(active_iteration_id)
-            removal_ids.update(_revision_iteration_ids_for_frame_values(template=template, values=initial_inputs))
+            removal_ids.update(_revision_iteration_ids_for_frame_values(template=template, frame=frame, values=initial_inputs))
         next_frame_results = {
             iteration_id: results
             for iteration_id, results in frame_results.items()
@@ -2727,27 +2486,31 @@ def _loop_state_with_target_frames_active(
     return {**loop_state, "frames": frames}
 
 
-def _revision_iteration_ids_for_range(*, template: str, start: int, end: int) -> set[str]:
+def _revision_iteration_ids_for_range(*, template: str, cursor_key: str, start: int, end: int) -> set[str]:
     if not template:
         return set()
     values: set[str] = set()
     for index in range(start, end + 1):
+        template_values = {"cursor": index, "iteration_index": index}
+        if cursor_key:
+            template_values[cursor_key] = index
         try:
-            values.add(str(template.format_map(_SafeFormatDict({"chapter_index": index, "cursor": index, "iteration_index": index}))))
+            values.add(str(template.format_map(_SafeFormatDict(template_values))))
         except Exception:
             continue
     return values
 
 
-def _revision_iteration_ids_for_frame_values(*, template: str, values: dict[str, Any]) -> set[str]:
+def _revision_iteration_ids_for_frame_values(*, template: str, frame: dict[str, Any], values: dict[str, Any]) -> set[str]:
     if not template:
         return set()
     candidates: set[str] = set()
     base_values = dict(values or {})
-    for cursor_key in ("chapter_index", "batch_start_index", "volume_index"):
-        if cursor_key in base_values:
-            base_values.setdefault("cursor", base_values.get(cursor_key))
-            break
+    cursor_key = str(base_values.get("revision_cursor_key") or frame.get("cursor_key") or "").strip()
+    if cursor_key and cursor_key in base_values:
+        base_values.setdefault("cursor", base_values.get(cursor_key))
+    elif frame.get("cursor") not in ("", None):
+        base_values.setdefault("cursor", frame.get("cursor"))
     try:
         candidates.add(str(template.format_map(_SafeFormatDict(base_values))))
     except Exception:
@@ -2761,13 +2524,13 @@ def _revision_overlaps_frame_range(
     initial_inputs: dict[str, Any],
     affected_start: int,
     affected_end: int,
-    batch_start: int | None,
-    batch_end: int | None,
+    parent_start: int | None,
+    parent_end: int | None,
 ) -> bool:
     start_key = str(frame.get("start_key") or "").strip()
     end_key = str(frame.get("end_key") or "").strip()
-    if start_key == "batch_start_index" and end_key == "batch_end_index" and batch_start is not None and batch_end is not None:
-        return affected_start <= batch_end and affected_end >= batch_start
+    if parent_start is not None and parent_end is not None and initial_inputs.get(start_key) in ("", None) and initial_inputs.get(end_key) in ("", None):
+        return affected_start <= parent_end and affected_end >= parent_start
     frame_start = _numeric_value(initial_inputs.get(start_key), None) if start_key else None
     frame_end = _numeric_value(initial_inputs.get(end_key), frame_start) if end_key else frame_start
     if frame_start is None or frame_end is None:
@@ -3188,8 +2951,7 @@ def _ready_rejected_revision_targets(
         if not source or not target:
             continue
         source_result = _latest_result_summary(state=state, node_id=source)
-        verdict = extract_review_verdict(str(source_result.get("handoff_summary") or ""))
-        if review_verdict_is_rejected(verdict) and target not in targets:
+        if source_result_requests_revision(source_result=source_result) and target not in targets:
             targets.append(target)
     return tuple(targets)
 
@@ -3231,16 +2993,12 @@ def _revision_clear_input_keys(
 ) -> tuple[str, ...]:
     target_set = {str(item) for item in target_node_ids if str(item)}
     keys: list[str] = [
-        "chapter_revision_requirements",
         "quality_gate_feedback",
-        "previous_chapter_review_ref",
-        "previous_chapter_draft_ref",
         "revision_required",
         "revision_active",
-        "revision_queue_chapter_indexes",
         "revision_queue_position",
-        "revision_current_chapter_index",
         "revision_execution_range",
+        "revision_plan_text",
     ]
     for node_id in target_set:
         node = _node_by_id(graph_config, node_id) or {}
@@ -3273,234 +3031,30 @@ def _revision_cursor_input_patch(
     target_set = {str(item) for item in target_node_ids if str(item)}
     if not target_set:
         return {}
-    affected_indexes: list[int] = []
-    revision_plan_text = ""
+    revision_sources: list[dict[str, Any]] = []
     for edge in graph_config.edges:
         target = str(edge.get("target_node_id") or "").strip()
         if target not in target_set or not _edge_is_revision(dict(edge)):
             continue
         source = str(edge.get("source_node_id") or "").strip()
         summary = _latest_result_summary(state=state, node_id=source)
-        text = _revision_source_text(summary)
-        route = _revision_route_from_result_summary(summary)
-        indexes = _revision_route_chapter_indexes(route, state=state) if route else _revision_affected_chapter_indexes(text)
-        indexes = _revision_indexes_within_current_batch(indexes, state=state)
-        if not indexes:
-            continue
-        if not revision_plan_text:
-            revision_plan_text = _revision_route_plan_text(route=route, review_text=text) if route else _revision_plan_excerpt(text)
-        for index in indexes:
-            if index not in affected_indexes:
-                affected_indexes.append(index)
-    queue = sorted(affected_indexes)
-    if not queue:
-        return {}
-    affected_start = int(queue[0])
-    affected_end = int(queue[-1])
-    patch: dict[str, Any] = {
-        **_single_chapter_cursor_patch(affected_start),
-        "revision_active": True,
-        "revision_queue_chapter_indexes": queue,
-        "revision_queue_position": 0,
-        "revision_current_chapter_index": affected_start,
-        "revision_execution_range": _revision_execution_range_label(queue),
-    }
-    if revision_plan_text:
-        patch["revision_plan_text"] = revision_plan_text
-        patch["chapter_revision_requirements"] = _revision_requirements_for_chapter(
-            revision_plan_text,
-            affected_start,
-        )
-    return patch
-
-
-def _revision_indexes_within_current_batch(indexes: list[int], *, state: GraphLoopState) -> list[int]:
-    if not indexes:
-        return []
-    initial_inputs = dict(state.initial_inputs or {})
-    start = _numeric_value(
-        initial_inputs.get("batch_start_index")
-        or initial_inputs.get("active_chapter_start_index"),
-        None,
-    )
-    end = _numeric_value(
-        initial_inputs.get("batch_end_index")
-        or initial_inputs.get("active_chapter_end_index"),
-        None,
-    )
-    if start is None or end is None:
-        return sorted(dict.fromkeys(index for index in indexes if int(index) > 0))
-    start_index = int(start)
-    end_index = int(end)
-    if start_index > end_index:
-        start_index, end_index = end_index, start_index
-    return sorted(
-        dict.fromkeys(
-            int(index)
-            for index in indexes
-            if int(index) >= start_index and int(index) <= end_index
-        )
-    )
-
-
-def _revision_route_from_result_summary(summary: dict[str, Any]) -> dict[str, Any]:
-    outputs = dict(dict(summary or {}).get("outputs") or {})
-    candidates: list[Any] = [
-        dict(summary or {}).get("revision_route"),
-        outputs.get("revision_route"),
-    ]
-    for key in ("structured_output", "node_output"):
-        payload = outputs.get(key)
-        if isinstance(payload, dict):
-            candidates.extend(
-                [
-                    payload.get("revision_route"),
-                    payload.get("review_revision_route"),
-                    payload.get("revision"),
-                ]
+        revision_sources.append(
+            _drop_empty(
+                {
+                    "edge_id": str(edge.get("edge_id") or "").strip(),
+                    "source_node_id": source,
+                    "target_node_id": target,
+                    "source_result": summary,
+                    "authority": "graph_system.revision_source_observation",
+                }
             )
-    for candidate in candidates:
-        route = _normalize_revision_route(candidate)
-        if route:
-            return route
-    return {}
-
-
-def _normalize_revision_route(candidate: Any) -> dict[str, Any]:
-    if not isinstance(candidate, dict):
-        return {}
-    route = dict(candidate or {})
-    action = str(route.get("action") or route.get("decision") or route.get("route") or "").strip().lower()
-    if action and action not in {
-        "revise",
-        "revision",
-        "request_revision",
-        "rewrite",
-        "return_to_writer",
-        "reject",
-        "rejected",
-        "返修",
-        "拒绝",
-    }:
-        return {}
-    if not action and not any(
-        key in route
-        for key in (
-            "chapter_indexes",
-            "affected_chapter_indexes",
-            "revision_chapter_indexes",
-            "rewrite_chapter_indexes",
-            "scope",
-            "full_batch",
         )
-    ):
-        return {}
-    route["action"] = action or "revise"
-    route["authority"] = str(route.get("authority") or "chapter_review.revision_route")
-    return route
-
-
-def _revision_route_chapter_indexes(route: dict[str, Any], *, state: GraphLoopState) -> list[int]:
-    if not route:
-        return []
-    scope = str(route.get("scope") or route.get("revision_scope") or "").strip().lower()
-    full_batch = bool(route.get("full_batch") is True) or scope in {
-        "full_batch",
-        "batch",
-        "all_batch",
-        "entire_batch",
-        "all",
-        "整批",
-        "全批",
-    }
-    if full_batch:
-        initial_inputs = dict(state.initial_inputs or {})
-        start = _numeric_value(route.get("batch_start_index"), None)
-        end = _numeric_value(route.get("batch_end_index"), None)
-        if start is None:
-            start = _numeric_value(initial_inputs.get("batch_start_index"), None)
-        if end is None:
-            end = _numeric_value(initial_inputs.get("batch_end_index"), start)
-        return _revision_indexes_from_range_values(start, end)
-    indexes: list[int] = []
-    for key in (
-        "chapter_indexes",
-        "affected_chapter_indexes",
-        "revision_chapter_indexes",
-        "rewrite_chapter_indexes",
-        "chapters",
-        "affected_chapters",
-    ):
-        indexes.extend(_revision_route_indexes_from_value(route.get(key)))
-    if indexes:
-        return sorted(dict.fromkeys(indexes))
-    start = _numeric_value(
-        route.get("revision_start_index")
-        or route.get("start_chapter_index")
-        or route.get("chapter_start_index"),
-        None,
+    return build_revision_requeue_patch(
+        graph_config=graph_config,
+        state=state,
+        target_node_ids=target_node_ids,
+        revision_sources=tuple(revision_sources),
     )
-    end = _numeric_value(
-        route.get("revision_end_index")
-        or route.get("end_chapter_index")
-        or route.get("chapter_end_index"),
-        start,
-    )
-    return _revision_indexes_from_range_values(start, end)
-
-
-def _revision_route_indexes_from_value(value: Any) -> list[int]:
-    raw_items = value if isinstance(value, list) else ([value] if value is not None else [])
-    indexes: list[int] = []
-    for item in raw_items:
-        if isinstance(item, dict):
-            number = _numeric_value(item.get("chapter_index") or item.get("index") or item.get("chapter"), None)
-        else:
-            number = _numeric_value(item, None)
-        if number is None:
-            continue
-        chapter = int(number)
-        if chapter > 0 and chapter not in indexes:
-            indexes.append(chapter)
-    return indexes
-
-
-def _revision_indexes_from_range_values(start_value: Any, end_value: Any) -> list[int]:
-    start = _numeric_value(start_value, None)
-    end = _numeric_value(end_value, start)
-    if start is None or end is None:
-        return []
-    start_index = int(start)
-    end_index = int(end)
-    if start_index > end_index:
-        start_index, end_index = end_index, start_index
-    if start_index <= 0 or end_index - start_index > 100:
-        return []
-    return list(range(start_index, end_index + 1))
-
-
-def _revision_route_plan_text(*, route: dict[str, Any], review_text: str) -> str:
-    route_text = json.dumps(route, ensure_ascii=False, indent=2) if route else ""
-    requirements = (
-        route.get("requirements")
-        or route.get("revision_requirements")
-        or route.get("instructions")
-        or route.get("reason")
-        or route.get("issue_summary")
-    )
-    if isinstance(requirements, (dict, list)):
-        requirements_text = json.dumps(requirements, ensure_ascii=False, indent=2)
-    else:
-        requirements_text = str(requirements or "").strip()
-    sections = []
-    if route_text:
-        sections.append(f"## 返修路由\n\n```json\n{route_text}\n```")
-    if requirements_text:
-        sections.append(f"## 返修要求\n\n{requirements_text}")
-    excerpt = _revision_plan_excerpt(review_text)
-    if excerpt:
-        sections.append(excerpt)
-    return "\n\n".join(sections).strip()[:16000]
 
 
 def _has_ready_revision_target(
@@ -3529,201 +3083,6 @@ def _latest_result_summary(*, state: GraphLoopState, node_id: str) -> dict[str, 
         if isinstance(raw_summary, dict):
             return dict(raw_summary)
     return dict(dict(state.result_index or {}).get(node_id) or {})
-
-
-def _revision_source_text(summary: dict[str, Any]) -> str:
-    for ref in list(dict(summary or {}).get("artifact_refs") or []):
-        path = _artifact_ref_path(ref)
-        if not path:
-            continue
-        try:
-            candidate = Path(path)
-            if not candidate.is_absolute():
-                candidate = Path.cwd() / candidate
-            if candidate.exists() and candidate.is_file():
-                text = candidate.read_text(encoding="utf-8")
-                if text.strip():
-                    return text
-        except Exception:
-            continue
-    return str(dict(summary or {}).get("handoff_summary") or "")
-
-
-def _revision_plan_excerpt(text: str) -> str:
-    normalized = str(text or "").strip()
-    if not normalized:
-        return ""
-    sections: list[str] = []
-    for heading in ("返修要求", "必须修改项", "阻塞问题", "阻塞性问题", "问题清单", "语义连续性与矛盾点检查", "层级一致性检查"):
-        match = re.search(rf"(?m)^(#{{1,4}})\s*{heading}\b.*$", normalized)
-        if not match:
-            continue
-        section = _markdown_heading_section(normalized, start=match.start(), level=len(match.group(1)))
-        if section.strip():
-            sections.append(section.strip())
-    return "\n\n".join(dict.fromkeys(sections)).strip()[:16000] or normalized[:16000]
-
-
-def _markdown_heading_section(text: str, *, start: int, level: int) -> str:
-    tail = str(text or "")[start:]
-    first_newline = tail.find("\n")
-    if first_newline < 0:
-        return tail
-    search_tail = tail[first_newline + 1 :]
-    next_heading = re.search(rf"(?m)^#{{1,{max(1, int(level))}}}\s+", search_tail)
-    if not next_heading:
-        return tail
-    return tail[: first_newline + 1 + next_heading.start()]
-
-
-def _revision_requirements_for_chapter(plan_text: str, chapter: int) -> str:
-    normalized = str(plan_text or "").strip()
-    if not normalized:
-        return ""
-    lines = normalized.splitlines()
-    selected: list[str] = []
-    chapter_pattern = re.compile(rf"第\s*0*{chapter}\s*章")
-    any_chapter_pattern = re.compile(r"第\s*0*\d{1,4}\s*章")
-    capture = False
-    for line in lines:
-        if chapter_pattern.search(line):
-            capture = True
-            selected.append(line)
-            continue
-        if capture and any_chapter_pattern.search(line) and not chapter_pattern.search(line):
-            break
-        if capture:
-            selected.append(line)
-    body = "\n".join(selected).strip() if selected else normalized[:6000]
-    if len(body) < 200:
-        body = normalized[:6000]
-    return (
-        f"当前返修章：第{chapter}章。以下要求只用于当前章重写；"
-        "返修队列中的其他章节由图循环逐章调度。\n\n"
-        f"{body}"
-    ).strip()[:8000]
-
-
-def _artifact_ref_path(ref: Any) -> str:
-    if isinstance(ref, str):
-        return ref
-    if isinstance(ref, dict):
-        for key in ("path", "artifact_path", "ref", "artifact_ref"):
-            value = str(ref.get(key) or "").strip()
-            if value:
-                return value
-    return ""
-
-
-def _revision_affected_chapter_indexes(text: str) -> list[int]:
-    normalized = str(text or "")
-    if not normalized:
-        return []
-    explicit_patterns = (
-        r"(?:重写|返修|修改|修正)[^。\n]{0,30}?第\s*0*(\d{1,4})\s*[-至到~—－]\s*0*(\d{1,4})\s*章",
-        r"(?:重写|返修|修改|修正)[^。\n]{0,30}?第\s*0*(\d{1,4})\s*章",
-    )
-    requirement_section = _revision_requirement_section(normalized)
-    if requirement_section:
-        requirement_indexes = _revision_chapter_indexes_from_section(requirement_section, explicit_patterns)
-        if requirement_indexes:
-            return requirement_indexes
-    blocking_section = _revision_blocking_section(normalized)
-    if blocking_section:
-        blocking_indexes = _revision_chapter_indexes_from_section(blocking_section, explicit_patterns)
-        if blocking_indexes:
-            return blocking_indexes
-    explicit_candidates = _revision_range_candidates(normalized, explicit_patterns)
-    if explicit_candidates:
-        return _revision_indexes_from_ranges(explicit_candidates)
-    return []
-
-
-def _revision_chapter_indexes_from_section(text: str, patterns: tuple[str, ...]) -> list[int]:
-    indexes = _revision_indexes_from_ranges(_revision_range_candidates(text, patterns))
-    for line in str(text or "").splitlines():
-        if not re.search(r"第\s*0*\d{1,4}\s*章", line):
-            continue
-        if _revision_line_is_scope_description(line):
-            continue
-        if not _revision_line_is_issue(line):
-            continue
-        for match in re.finditer(r"第\s*0*(\d{1,4})\s*章", line):
-            chapter = int(match.group(1))
-            if chapter > 0 and chapter not in indexes:
-                indexes.append(chapter)
-    return sorted(indexes)
-
-
-def _revision_line_is_scope_description(line: str) -> bool:
-    text = str(line or "")
-    if re.search(r"(?:返修|重写|修改|修正|阻塞|问题|矛盾|缺失|不达标|偏离|必须|需要|不足)", text):
-        return False
-    return bool(re.search(r"(?:汇总范围|审核范围|当前批次|允许范围|章节引用索引)", text))
-
-
-def _revision_line_is_issue(line: str) -> bool:
-    text = str(line or "").strip()
-    if not text:
-        return False
-    if re.search(r"(?:返修|重写|修改|修正|阻塞|问题|矛盾|缺失|不达标|偏离|必须|需要|不足|不允许|不能通过)", text):
-        return True
-    return bool(re.match(r"^(?:[-*+]\s*)?(?:B-\d+|R-\d+|问题\s*\d+|第\s*0*\d{1,4}\s*章)[：:、.\s]", text))
-
-
-def _revision_range_candidates(text: str, patterns: tuple[str, ...]) -> list[tuple[int, int]]:
-    candidates: list[tuple[int, int]] = []
-    for pattern in patterns:
-        for match in re.finditer(pattern, text):
-            start = int(match.group(1))
-            end = int(match.group(2)) if len(match.groups()) >= 2 and match.group(2) else start
-            if start > end:
-                start, end = end, start
-            candidates.append((start, end))
-    return candidates
-
-
-def _revision_indexes_from_ranges(candidates: list[tuple[int, int]]) -> list[int]:
-    indexes: list[int] = []
-    for start, end in candidates:
-        if start > end:
-            start, end = end, start
-        if end - start > 100:
-            continue
-        for chapter in range(start, end + 1):
-            if chapter > 0 and chapter not in indexes:
-                indexes.append(chapter)
-    return sorted(indexes)
-
-
-def _revision_execution_range_label(indexes: list[int]) -> str:
-    ordered = sorted({int(item) for item in indexes if int(item) > 0})
-    if not ordered:
-        return ""
-    if ordered == list(range(ordered[0], ordered[-1] + 1)):
-        return f"{ordered[0]:03d}-{ordered[-1]:03d}"
-    return ",".join(f"{item:03d}" for item in ordered)
-
-
-def _revision_requirement_section(text: str) -> str:
-    match = re.search(r"(?m)^#{1,4}\s*返修要求\s*$", text)
-    if not match:
-        return ""
-    tail = text[match.end() :]
-    next_heading = re.search(r"(?m)^#{1,4}\s+", tail)
-    return tail[: next_heading.start()] if next_heading else tail
-
-
-def _revision_blocking_section(text: str) -> str:
-    match = re.search(r"(?m)^#{1,4}\s*(?:必须修改项|阻塞问题|阻塞性问题|问题清单)\b.*$", text)
-    if not match:
-        return ""
-    tail = text[match.end() :]
-    next_nonblocking = re.search(r"(?m)^#{1,4}\s*(?:非阻塞|备注)", tail)
-    if next_nonblocking:
-        tail = tail[: next_nonblocking.start()]
-    next_major = re.search(r"(?m)^##\s+(?:是否允许|下游|输入继承|当前节点|禁止)", tail)
-    return tail[: next_major.start()] if next_major else tail
 
 
 def _state_after_revision_requeue(
@@ -3848,11 +3207,10 @@ def _revision_targets_require_execution_range(
 ) -> bool:
     for node_id in target_node_ids:
         node = _node_by_id(graph_config, str(node_id)) or {}
-        node_tail = str(node.get("node_id") or "").split("::")[-1]
-        if node_tail == "chapter_draft":
-            return True
         retry_policy = dict(node.get("retry") or {})
-        if str(retry_policy.get("requirements_input_key") or "").strip() == "chapter_revision_requirements":
+        if bool(retry_policy.get("revision_requires_cursor_patch") is True):
+            return True
+        if bool(retry_policy.get("requires_revision_execution_range") is True):
             return True
     return False
 

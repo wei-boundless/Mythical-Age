@@ -178,7 +178,7 @@ def recovery_boundary_receipt_from_decision(decision: RecoveryBoundaryDecision) 
         operation_availability={
             "resume_task_recovery": can_resume,
         },
-        resume_execution_route="task_executor_controller.schedule" if can_resume else "",
+        resume_execution_route="harness.entrypoint.legacy_task_recovery_removed" if can_resume else "",
         expected_continuation_id=decision.expected_continuation_id,
         expected_task_run_id=decision.expected_task_run_id,
         state_reason=decision.reason,

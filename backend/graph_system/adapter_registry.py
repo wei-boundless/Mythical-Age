@@ -27,6 +27,7 @@ class RuntimeAlgorithmPostprocessAdapter:
 _ADAPTERS: dict[str, RuntimeAlgorithmPostprocessAdapter] = {}
 _DEFAULT_MODULES_LOADED = False
 _DEFAULT_MODULES = (
+    'task_system.writing_graphs.runtime_adapters',
     'project_network_tasks.runtime_adapters',
 )
 

@@ -519,6 +519,7 @@ def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
     return {
         "quality_failure_mode": "retry_same_node",
         "max_quality_retries": 1,
+        "revision_requires_cursor_patch": True,
         "carry_current_output_as": "previous_chapter_draft_ref",
         "requirements_input_key": "chapter_revision_requirements",
         "requirements_template": (

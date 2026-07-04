@@ -314,7 +314,6 @@ def _float_value(value: Any) -> float:
 def _recovery_cause_from_recovery_state(recovery_state: Any) -> str:
     reason = str(getattr(recovery_state, "reason", "") or "").strip()
     if reason in {
-        "task_executor_interrupted_by_runtime_restart",
         "runtime_cell_missing_after_restart",
         "runtime_process_restarted",
     }:

@@ -18,10 +18,9 @@ from .task_tool_approval import matching_approval_grant_for_pending
 
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 PAUSE_CONTROL_STATES = {"pause_requested", "paused"}
-RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
+RECOVERY_ACTIONS: set[str] = set()
 RECOVERY_WAIT_REASONS = {
     "resume_requested",
-    "task_executor_interrupted_by_runtime_restart",
     "model_call_recovery_required",
     "user_interrupt_replan_required",
     "task_execution_step_budget_exhausted",

@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_parser = subparsers.add_parser("monitor", help="Show session live monitor")
     monitor_parser.add_argument("--session", default="")
 
-    task_run_parser = subparsers.add_parser("task-run", help="Execute or inspect TaskRuns")
+    task_run_parser = subparsers.add_parser("task-run", help="Create or inspect task records")
     task_run_subparsers = task_run_parser.add_subparsers(dest="task_run_command", required=True)
     start_parser = task_run_subparsers.add_parser("start", help="Start a new TaskRun from an explicit contract file")
     start_parser.add_argument("--contract-file", required=True, help="JSON file containing a runtime_contract or task_run_contract")
@@ -71,26 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
         mode_parser.add_argument("--session", default="")
         mode_parser.add_argument("--task-environment-id", default="")
         mode_parser.add_argument("--no-watch", action="store_true", help="Only start the TaskRun and print its id")
-    execute_parser = task_run_subparsers.add_parser("execute", help="Execute a waiting single-agent TaskRun")
-    execute_parser.add_argument("task_run_id")
-    execute_parser.add_argument("--max-steps", type=int, default=12)
-    execute_parser.add_argument("--no-watch", action="store_true", help="Only schedule execution and print the accepted payload")
-    pause_parser = task_run_subparsers.add_parser("pause", help="Pause a running TaskRun")
-    pause_parser.add_argument("task_run_id")
-    pause_parser.add_argument("--reason", default="cli_pause")
-    pause_parser.add_argument("--no-watch", action="store_true", help="Only request pause and print the accepted payload")
-    resume_parser = task_run_subparsers.add_parser("resume", help="Resume a paused or waiting TaskRun")
-    resume_parser.add_argument("task_run_id")
-    resume_parser.add_argument("--max-steps", type=int, default=12)
-    resume_parser.add_argument("--no-watch", action="store_true", help="Only schedule resume and print the accepted payload")
-    approve_launch_parser = task_run_subparsers.add_parser("approve-launch", help="Approve a TaskRun launch supervision gate and resume")
-    approve_launch_parser.add_argument("task_run_id")
-    approve_launch_parser.add_argument("--reason", default="cli_approve_launch")
-    approve_launch_parser.add_argument("--max-steps", type=int, default=12)
-    approve_launch_parser.add_argument("--no-watch", action="store_true", help="Only approve launch and print the accepted payload")
-    stop_parser = task_run_subparsers.add_parser("stop", help="Stop a running TaskRun")
-    stop_parser.add_argument("task_run_id")
-    stop_parser.add_argument("--reason", default="cli_stop")
     watch_parser = task_run_subparsers.add_parser("watch", help="Watch a TaskRun until it reaches a terminal state")
     watch_parser.add_argument("task_run_id")
     trace_parser = task_run_subparsers.add_parser("trace", help="Print a TaskRun trace")
@@ -465,48 +445,6 @@ def _run_task_run_command(
         return _run_task_run_start(args, client=client, store=store, stdout=stdout, stderr=stderr)
     if args.task_run_command in {"goal", "plan", "todo"}:
         return _run_task_mode_slash_start(args, client=client, store=store, stdout=stdout, stderr=stderr)
-    if args.task_run_command == "execute":
-        result = client.execute_task_run(
-            args.task_run_id,
-            max_steps=max(1, int(args.max_steps or 12)),
-        )
-        if bool(getattr(args, "no_watch", False)):
-            _print_json(result, stdout)
-            return 0 if result.get("ok") else 1
-        print(f"scheduled {args.task_run_id}", file=stdout)
-        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
-    if args.task_run_command == "pause":
-        result = client.pause_task_run(args.task_run_id, reason=str(args.reason or "cli_pause"))
-        if bool(getattr(args, "no_watch", False)):
-            _print_json(result, stdout)
-            return 0 if result.get("ok") else 1
-        if not result.get("ok"):
-            _print_json(result, stdout)
-            return 1
-        print(f"pause requested {args.task_run_id}", file=stdout)
-        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
-    if args.task_run_command == "resume":
-        result = client.resume_task_run(args.task_run_id, max_steps=max(1, int(args.max_steps or 12)))
-        if bool(getattr(args, "no_watch", False)):
-            _print_json(result, stdout)
-            return 0 if result.get("ok") else 1
-        print(f"resumed {args.task_run_id}", file=stdout)
-        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
-    if args.task_run_command == "approve-launch":
-        result = client.approve_launch_task_run(
-            args.task_run_id,
-            reason=str(args.reason or "cli_approve_launch"),
-            max_steps=max(1, int(args.max_steps or 12)),
-        )
-        if bool(getattr(args, "no_watch", False)):
-            _print_json(result, stdout)
-            return 0 if result.get("ok") else 1
-        print(f"launch approved {args.task_run_id}", file=stdout)
-        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
-    if args.task_run_command == "stop":
-        result = client.stop_task_run(args.task_run_id, reason=str(args.reason or "cli_stop"))
-        _print_json(result, stdout)
-        return 0 if result.get("ok") else 1
     if args.task_run_command == "watch":
         return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
     if args.task_run_command == "trace":

@@ -23,7 +23,6 @@ CACHE_READ_REQUIRED_SEGMENT_KINDS = {
     "global_static",
     "action_schema_static",
     "tool_index_stable",
-    "task_run_contract_stable",
 }
 APPEND_ONLY_REPLAY_SEGMENT_KINDS = {
     "read_evidence_context",

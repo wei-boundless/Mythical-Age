@@ -1663,7 +1663,6 @@ def _public_runtime_reason_label(reason: str) -> str:
         "waiting_executor": "等待继续",
         "waiting_user": "等待你的确认",
         "waiting_approval": "等待权限确认",
-        "task_executor_scheduled": "任务已进入执行流程",
         "runtime_cell_missing_after_restart": "连接恢复后需要重新接续运行",
         "runtime_cell_cancelled": "输出流已取消",
         "missing_terminal_event": "输出流没有正常收口",

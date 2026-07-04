@@ -36,6 +36,7 @@ _PROVIDERS: dict[str, GraphContextProvider] = {}
 _DEFAULT_MODULES_LOADED = False
 _DEFAULT_MODULES = (
     'project_network_tasks.context_providers',
+    'task_system.writing_graphs.context_providers',
 )
 
 

@@ -1073,7 +1073,7 @@ def _build_system_wiring_manifest(
                 "runtime.rule.turn_decision_alignment",
                 *_environment_guidance_prompt_refs(prompt_mount_payload, "task_run_handoff"),
             ),
-            context_segments=("task_run_contract_stable", "task_prompt_contract"),
+            context_segments=("task_prompt_contract",),
             feedback_channels=("contract_gap_repair", "task_run_handoff_repair"),
         ),
         "react_loop": _system_group_manifest(

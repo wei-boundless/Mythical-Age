@@ -8,11 +8,8 @@ from harness.runtime.prompt_segment_plan import stable_model_message_hash, stabl
 
 
 _FRAME_SOURCE_REF = "single_agent_turn_incremental_context_frame"
-TASK_EXECUTION_INCREMENTAL_CONTEXT_FRAME_SOURCE_REF = "task_execution_incremental_context_frame"
-TASK_EXECUTION_INCREMENTAL_CONTEXT_CURSOR_SOURCE_REF = "task_execution_incremental_context_cursor"
 _FRAME_TITLE = "Single agent turn incremental context frame"
 _UNCHANGED_REF_LIMIT = 4
-_TASK_EVENT_LIMIT = 8
 
 
 def build_prefix_lock_report(
@@ -200,59 +197,6 @@ def incremental_context_frame_segment_spec(message: dict[str, Any], *, tool_iter
     }
 
 
-def build_task_execution_incremental_context_frame_payload(
-    *,
-    task_run_id: str,
-    invocation_index: int,
-    dynamic_context_report: dict[str, Any] | None = None,
-    task_state_replay_entries: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
-    current_observations: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
-    execution_projection: dict[str, Any] | None = None,
-    turn_state_attention_context_payload: dict[str, Any] | None = None,
-    evidence_index_cursor_payload: dict[str, Any] | None = None,
-    editor_context_payload: dict[str, Any] | None = None,
-    read_evidence_payload: dict[str, Any] | None = None,
-    volatile_payload: dict[str, Any] | None = None,
-    runtime_memory_context_payload: dict[str, Any] | None = None,
-    user_steering_payload: dict[str, Any] | None = None,
-    runtime_control_signals: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
-) -> dict[str, Any]:
-    replay_entries = [dict(item) for item in list(task_state_replay_entries or []) if isinstance(item, dict)]
-    current_events = _task_current_events(
-        current_observations=current_observations,
-        execution_projection=execution_projection,
-        user_steering_payload=user_steering_payload,
-        runtime_control_signals=runtime_control_signals,
-        read_evidence_payload=read_evidence_payload,
-    )
-    return _drop_empty(
-        {
-            "frame_type": "dynamic_execution_tail",
-            "frame_scope": "task_execution",
-            "context_memory_cursor": _drop_empty(
-                {
-                    "status": "preserved",
-                    "append_context_status": "facts_before_tail",
-                    "task_state_replay_entry_count": len(replay_entries),
-                    "latest_task_state_replay_ref": _latest_task_replay_ref(replay_entries),
-                }
-            ),
-            "current_invocation": _drop_empty(
-                {
-                    "new_event_refs": current_events,
-                    "runtime_control_refs": _runtime_control_signal_refs(runtime_control_signals),
-                }
-            ),
-            "execution_contract": {
-                "memory_source": "static_prefix+context_memory",
-                "action_contract_ref": "action_schema_static",
-                "tail_scope": "current_invocation_control_only",
-            },
-            "authority": "harness.runtime.incremental_context_frame.task_execution",
-        }
-    )
-
-
 def _base_segments_by_message_index(base_segment_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
     for segment in list(dict(base_segment_plan or {}).get("segments") or []):
@@ -397,108 +341,6 @@ def _tool_context_changed_state(delta_payload: dict[str, Any]) -> list[dict[str,
     return changes
 
 
-def _latest_task_replay_ref(entries: list[dict[str, Any]]) -> str:
-    if not entries:
-        return ""
-    return _task_replay_ref(dict(entries[-1]), fallback_index=len(entries))
-
-
-def _task_replay_ref(entry: dict[str, Any], *, fallback_index: int) -> str:
-    for key in ("observation_ref", "entry_ref", "summary_ref", "tool_call_id"):
-        value = str(entry.get(key) or "").strip()
-        if value:
-            return value
-    return f"entry:{_payload_hash(entry).removeprefix('sha256:')[:12] or fallback_index}"
-
-
-def _task_current_events(
-    *,
-    current_observations: tuple[dict[str, Any], ...] | list[dict[str, Any]],
-    execution_projection: dict[str, Any] | None,
-    user_steering_payload: dict[str, Any] | None,
-    runtime_control_signals: tuple[dict[str, Any], ...] | list[dict[str, Any]],
-    read_evidence_payload: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for observation in [dict(item) for item in list(current_observations or []) if isinstance(item, dict)]:
-        source = _observation_source(observation)
-        ref = _first_text(
-            source.get("observation_ref"),
-            source.get("observation_id"),
-            observation.get("observation_ref"),
-            observation.get("observation_id"),
-        )
-        events.append(
-            _drop_empty(
-                {
-                    "event_kind": "current_observation",
-                    "event_ref": ref,
-                    "tool_name": _first_text(source.get("tool_name"), source.get("name"), source.get("source")),
-                    "status": str(source.get("status") or ""),
-                    "exact_content_visible_elsewhere": bool(_read_evidence_has_current_exact(read_evidence_payload)),
-                }
-            )
-        )
-    observed_refs = {str(event.get("event_ref") or "") for event in events if str(event.get("event_ref") or "")}
-    execution_payload = dict(execution_projection or {})
-    for receipt in _bounded_dicts(execution_payload.get("last_action_receipts"), limit=2):
-        ref = _first_text(receipt.get("observation_ref"), receipt.get("observation_id"), receipt.get("tool_call_id"))
-        if ref and ref in observed_refs:
-            continue
-        events.append(
-            _drop_empty(
-                {
-                    "event_kind": "latest_action_receipt",
-                    "event_ref": ref,
-                    "tool_name": str(receipt.get("tool_name") or receipt.get("source") or ""),
-                    "status": str(receipt.get("status") or ""),
-                    "visibility": "latest_runtime_cursor",
-                }
-            )
-        )
-    for steer in _bounded_dicts(dict(user_steering_payload or {}).get("pending_user_steers"), limit=3):
-        events.append(
-            _drop_empty(
-                {
-                    "event_kind": "pending_user_steer",
-                    "event_ref": str(steer.get("steer_id") or ""),
-                    "content_visible_in": "user_steering_context_append",
-                }
-            )
-        )
-    return _dedupe_events(events)[-_TASK_EVENT_LIMIT:]
-
-
-def _runtime_control_signal_refs(
-    runtime_control_signals: tuple[dict[str, Any], ...] | list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    refs: list[dict[str, Any]] = []
-    for signal in _bounded_dicts(runtime_control_signals, limit=3):
-        refs.append(
-            _drop_empty(
-                {
-                    "event_ref": _first_text(signal.get("runtime_control_signal_ref"), signal.get("signal_ref")),
-                    "signal_kind": str(signal.get("signal_kind") or signal.get("kind") or ""),
-                }
-            )
-        )
-    return [item for item in refs if item]
-
-
-def _observation_source(observation: dict[str, Any]) -> dict[str, Any]:
-    wrapped = observation.get("observation")
-    if isinstance(wrapped, dict) and wrapped:
-        return dict(wrapped)
-    payload = observation.get("payload")
-    if isinstance(payload, dict) and payload:
-        return {**dict(observation), **payload}
-    return dict(observation)
-
-
-def _read_evidence_has_current_exact(payload: dict[str, Any] | None) -> bool:
-    return bool(dict(payload or {}).get("visible_exact_in_packet"))
-
-
 def _bounded_dicts(value: Any, *, limit: int) -> list[dict[str, Any]]:
     return [dict(item) for item in list(value or [])[: max(0, int(limit or 0))] if isinstance(item, dict)]
 
@@ -519,14 +361,6 @@ def _dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         result.append(event)
     return result
-
-
-def _first_text(*values: Any) -> str:
-    for value in values:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

@@ -172,18 +172,6 @@ class AppSettingsService:
             "authority": "runtime.context_budget_presets",
         }
 
-    def task_executor_backend_config(self) -> dict[str, Any]:
-        image_payload = ImageAssetService(self.base_dir).config_summary()
-        return {
-            "image_assets": {
-                "base_url": str(image_payload.get("base_url") or ""),
-                "model": str(image_payload.get("model") or ""),
-                "api_key_present": bool(image_payload.get("api_key_present")),
-            },
-            "attachments": runtime_config.get_attachments_config(),
-            "image_ocr": runtime_config.get_image_ocr_config(),
-        }
-
     def model_provider_payload(self) -> dict[str, Any]:
         from agent_system.models.model_profile_resolver import build_provider_catalog
 
@@ -776,6 +764,5 @@ class AppSettingsService:
         for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
             normalized.pop(alias, None)
         return normalized
-
 
 

@@ -34,6 +34,7 @@ FileManagement = 文件树、AST、物理事实和资源引用权威
 -> 17 任务环境与图任务运行接口细节对接方案
 -> 13 图任务 / 任务系统 / 文件系统边界优化方案
 -> 14 图任务时空运行体系架构计划
+-> 20 重构进度日志
 -> 10 项目控制系统三层网络与契约重写计划
 -> 11 深度索引修复与同源维护统一计划
 -> 12 Apix 项目网络实测状态与优化技术报告
@@ -69,6 +70,7 @@ FileManagement = 文件树、AST、物理事实和资源引用权威
 | `17_task_graph_runtime_interface_detail_alignment.md` | 把 16 号总体架构下压到接口细节，固定 TaskExecutionRequest、TaskEnvironmentLease、TaskContextPackage、AgentExecutionEpisode、WorkProduct、GraphNodeTaskBinding、NodeResultEnvelope 的身份、生命周期、字段边界和迁移切口 | 不新增抽象原则，不把旧 TaskRun/AgentRun/GraphNodeWorkOrder 直接解释成新的任务真相，不让旧 task_executor 回流 |
 | `18_task_environment_runtime_mechanics_plan.md` | 把任务环境落到可实现的运行机制，固定 SQLite canonical store、事件账本、snapshot、query index、lease/heartbeat、pause/stop/resume、checkpoint、reducer、graph binding、dead letter/repair 和验证矩阵 | 不停留在概念解释，不用单 JSON 或 session transcript 承担任务真相，不跳过幂等、并发和恢复边界 |
 | `19_task_framework_canonical_definition_and_agent_system_contract.md` | 固定任务框架的稳定定义，明确 Task 的核心要素、Plan/Todo 的任务内归属、agent 与 system 推动任务的工程协议、session/task/graph/project network 的关系、状态机、调度、reducer 和最小接口 | 不重复运行机制细节，不把 plan/todo 等同 task，不让 agent 直接改 task state，不让系统替 agent 做语义判断 |
+| `20_refactor_progress_log.md` | 记录每个重构阶段点的目标、权威链检查、逻辑检查、验证结果和是否可以继续 | 不替代设计文档，不引入新架构决策，不记录未验证的主观判断 |
 | `agent_source_audits/` | 记录 Codex、Claude Code、OpenCode、OpenClaw、Dify、Hermes、Pi 等成熟 agent 源码审查，沉淀 turn/session/task/run/work product 的工程边界，并由目录 README 维护调研索引 | 不直接替代本项目设计文档，不把参考系统照搬成本项目架构 |
 | `06_network_crawler_index_and_review_plan.md` | 设计可爬行 Project Network Index、frontier、crawler session、edge review 和 agent 网络操作接口 | 不替代 Deep AST，不直接发布最终 generation |
 | `04_graph_task_review_network.md` | 设计 graph task / TaskRun / 多 coding agent 审查建网流程 | 不直接定义 AST 抽取细节，不绕过 05 的通用承载能力 |
@@ -150,6 +152,7 @@ Deep AST Spine
 - [17_task_graph_runtime_interface_detail_alignment.md](17_task_graph_runtime_interface_detail_alignment.md)
 - [18_task_environment_runtime_mechanics_plan.md](18_task_environment_runtime_mechanics_plan.md)
 - [19_task_framework_canonical_definition_and_agent_system_contract.md](19_task_framework_canonical_definition_and_agent_system_contract.md)
+- [20_refactor_progress_log.md](20_refactor_progress_log.md)
 - [agent_source_audits/README.md](agent_source_audits/README.md)
 - [agent_source_audits/00_turn_session_task_reference_synthesis.md](agent_source_audits/00_turn_session_task_reference_synthesis.md)
 - [06_network_crawler_index_and_review_plan.md](06_network_crawler_index_and_review_plan.md)

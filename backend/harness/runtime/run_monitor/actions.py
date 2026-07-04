@@ -10,7 +10,6 @@ from harness.runtime.task_record_lifecycle import (
     TaskRecordLifecycleManager,
     TaskRecordLifecycleNotFound,
 )
-from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 
 
 class RunMonitorActionService:
@@ -106,6 +105,8 @@ class RunMonitorActionService:
         }
 
     def _action_check(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        if action in {"close_runtime", "pause_task", "stop_task"}:
+            return {"enabled": False, "disabled_reason": "legacy_task_run_control_removed"}
         if action in {"clear_from_monitor", "restore_to_monitor"} and not _signal_id(payload=payload, signal=signal):
             return {"enabled": False, "disabled_reason": "signal_id_required"}
         if action == "preview_delete_graph_run":
@@ -131,6 +132,8 @@ class RunMonitorActionService:
         return {"enabled": False, "disabled_reason": "action_not_available"}
 
     def _execution_check(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+        if action in {"close_runtime", "pause_task", "stop_task"}:
+            return {"enabled": False, "disabled_reason": "legacy_task_run_control_removed"}
         if action in {"clear_from_monitor", "restore_to_monitor"}:
             if not _signal_id(payload=payload, signal=signal):
                 return {"enabled": False, "disabled_reason": "signal_id_required"}
@@ -296,25 +299,21 @@ class RunMonitorActionService:
 
     def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)
-        return dict(
-            TaskRunControlGateway(runtime_host=self.host, schedule_task_run_executor=None).pause_task_run(
-                task_run_id,
-                reason=str(payload.get("reason") or ""),
-                requested_by="user",
-            )
-            or {}
-        )
+        return {
+            "ok": False,
+            "error": "legacy_task_run_control_removed",
+            "task_run_id": task_run_id,
+            "authority": "harness.run_monitor.actions.legacy_task_run_control_removed",
+        }
 
     def _stop_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)
-        return dict(
-            TaskRunControlGateway(runtime_host=self.host, schedule_task_run_executor=None).stop_task_run(
-                task_run_id,
-                reason=str(payload.get("reason") or ""),
-                requested_by="user",
-            )
-            or {}
-        )
+        return {
+            "ok": False,
+            "error": "legacy_task_run_control_removed",
+            "task_run_id": task_run_id,
+            "authority": "harness.run_monitor.actions.legacy_task_run_control_removed",
+        }
 
 
 def _action_name(payload: dict[str, Any]) -> str:
@@ -410,5 +409,4 @@ def _background_task_running(host: Any, name: str) -> bool:
     if not callable(checker):
         raise RuntimeError("runtime monitor cleanup requires host.background_task_running")
     return bool(checker(name))
-
 

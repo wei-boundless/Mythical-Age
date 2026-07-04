@@ -6,20 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from harness.current_work_receipt import current_work_control_availability_from_receipt
-from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
+from runtime.memory.file_evidence_scope import session_file_evidence_scope
 from runtime.memory.file_state_store import FileStateAuthorityStore
 
 from .context_budget_policy import build_model_aware_context_budget_policy
 from .dynamic_context import dynamic_context_storage_root
-from .dynamic_context.evidence_index_cursor import file_state_from_evidence_index_cursor
 from .dynamic_context.read_evidence_projector import build_read_evidence_projection_payload
-from .harness_spine_contract import (
-    HARNESS_SPINE_CONTRACT_AUTHORITY,
-    TASK_EXECUTOR_BASE_ACTION_TYPES,
-    TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES,
-    TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES,
-    TASK_EXECUTOR_RUNNER_CONTRACT_ID,
-)
 from .packet_context import RuntimePacketContext, RuntimePacketModelActionSurface
 from .tool_plan import RuntimeToolPlan, build_runtime_tool_plan
 
@@ -128,124 +120,6 @@ def build_single_agent_turn_packet_context(
             turn_id=str(turn_id or ""),
             agent_invocation_id=str(agent_invocation_id or ""),
         ),
-        agent_profile_ref=resolved_agent_profile_ref,
-        task_environment_ref=task_environment_ref,
-        permission_mode=permission_mode,
-        prompt_pack_refs=tuple(str(item) for item in tuple(prompt_pack_refs or ()) if str(item)),
-        model_action_surface=surface,
-        tool_plan=tool_plan,
-        model_visible_tools=model_visible_tools,
-        packet_id=packet_id,
-    )
-
-
-def build_task_execution_packet_context(
-    *,
-    session_id: str,
-    task_run: dict[str, Any],
-    runtime_assembly: Any | None = None,
-    available_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
-    agent_profile_ref: str = "main_interactive_agent",
-    model_selection: dict[str, Any] | None = None,
-    prompt_pack_refs: tuple[str, ...] = (),
-    invocation_index: int = 1,
-    base_dir: Path | str | None = None,
-    agent_visible_runtime_projection: dict[str, Any] | None = None,
-    operation_authorization: dict[str, Any] | None = None,
-    prompt_policy: dict[str, Any] | None = None,
-    include_task_run_context: bool = True,
-    task_state_payload: dict[str, Any] | None = None,
-    evidence_index_cursor_payload: dict[str, Any] | None = None,
-    current_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
-    user_steering_payload: dict[str, Any] | None = None,
-) -> RuntimePacketContext:
-    runtime_base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
-    task_run_payload = dict(task_run or {})
-    assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
-    profile_payload = dict(assembly_payload.get("profile") or {})
-    environment_payload = dict(assembly_payload.get("task_environment") or {})
-    permission_mode = str(assembly_payload.get("permission_mode") or "default")
-    resolved_agent_profile_ref = str(assembly_payload.get("agent_profile_ref") or agent_profile_ref or "main_interactive_agent")
-    task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
-    task_run_id = str(task_run_payload.get("task_run_id") or "")
-    task_run_diagnostics = dict(task_run_payload.get("diagnostics") or {})
-    agent_scope = _task_execution_agent_scope(
-        session_id=str(session_id or ""),
-        task_run_id=task_run_id,
-        diagnostics=task_run_diagnostics,
-    )
-    executor_epoch = int(task_run_diagnostics.get("executor_epoch") or 0)
-    normalized_invocation_index = max(1, int(invocation_index or 1))
-    packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{normalized_invocation_index}"
-    tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
-    tool_plan = _task_execution_tool_plan(
-        session_id=str(session_id or ""),
-        task_run_id=task_run_id,
-        assembly_payload=assembly_payload,
-        available_tools=tool_payloads,
-    )
-    model_visible_tools = tuple(dict(item) for item in tool_plan.model_visible_tools)
-    surface = _task_execution_model_action_surface(
-        model_visible_tools=model_visible_tools,
-        task_run_id=task_run_id,
-        user_steering_payload=dict(user_steering_payload or {}),
-    )
-    effective_capabilities = _task_execution_effective_control_capabilities(
-        allowed_actions=surface.allowed_action_types,
-        visible_tool_count=len(model_visible_tools),
-    )
-    projection_policy = build_dynamic_context_projection_policy(
-        invocation_kind="task_execution",
-        model_selection=dict(model_selection or {}),
-        assembly_payload=assembly_payload,
-        overrides={
-            "agent_visible_runtime_projection": dict(agent_visible_runtime_projection or {}),
-            "operation_authorization": dict(operation_authorization or assembly_payload.get("operation_authorization") or {}),
-            "prompt_policy": dict(prompt_policy or {}),
-            "include_task_run_context": bool(include_task_run_context),
-        },
-    )
-    file_evidence_scope = task_run_file_evidence_scope(task_run_id, session_id=str(session_id or ""))
-    file_state = _task_execution_file_state(
-        task_state_payload=dict(task_state_payload or {}),
-        evidence_index_cursor_payload=dict(evidence_index_cursor_payload or {}),
-    )
-    read_evidence_payload = build_read_evidence_injection_payload(
-        base_dir=runtime_base_dir,
-        runtime_assembly=assembly_payload,
-        file_state=list(file_state),
-        file_evidence_scope=file_evidence_scope,
-        packet_id=packet_id,
-        budget_policy=projection_policy,
-        current_observations=current_observations,
-        include_historical_refs=False,
-    )
-    evidence_projection = _runtime_packet_evidence_projection(
-        file_evidence_scope=file_evidence_scope,
-        file_state=file_state,
-        read_evidence_payload=read_evidence_payload,
-    )
-    return RuntimePacketContext(
-        invocation_kind="task_execution",
-        session_id=str(session_id or ""),
-        task_run_id=task_run_id,
-        model_selection=dict(model_selection or {}),
-        runtime_assembly=assembly_payload,
-        profile_payload=profile_payload,
-        environment_payload=environment_payload,
-        effective_control_capabilities=effective_capabilities,
-        operation_availability={
-            "tool_call": bool(model_visible_tools),
-            "pause_for_user_steer": "pause_for_user_steer" in surface.allowed_action_types,
-            "source_authority": "harness.runtime.packet_assembler.operation_availability",
-            "source_ref": task_run_id,
-        },
-        file_evidence_scope=file_evidence_scope,
-        file_state=file_state,
-        projection_policy=projection_policy,
-        read_evidence_payload=read_evidence_payload,
-        evidence_projection=evidence_projection,
-        agent_scope=agent_scope,
         agent_profile_ref=resolved_agent_profile_ref,
         task_environment_ref=task_environment_ref,
         permission_mode=permission_mode,
@@ -391,21 +265,6 @@ def _runtime_packet_evidence_projection(
     }
 
 
-def _task_execution_file_state(
-    *,
-    task_state_payload: dict[str, Any],
-    evidence_index_cursor_payload: dict[str, Any],
-) -> tuple[dict[str, Any], ...]:
-    evidence_file_state = file_state_from_evidence_index_cursor(dict(evidence_index_cursor_payload or {}))
-    if evidence_file_state:
-        return tuple(dict(item) for item in evidence_file_state if isinstance(item, dict))
-    return tuple(
-        dict(item)
-        for item in list(dict(task_state_payload or {}).get("file_state") or [])
-        if isinstance(item, dict)
-    )
-
-
 def _single_agent_turn_agent_scope(
     *,
     session_id: str,
@@ -419,141 +278,6 @@ def _single_agent_turn_agent_scope(
         "invocation_kind": "single_turn",
         "authority": "harness.runtime.packet_context.agent_scope_projection",
     }
-
-
-def _task_execution_agent_scope(
-    *,
-    session_id: str,
-    task_run_id: str,
-    diagnostics: dict[str, Any],
-) -> dict[str, Any]:
-    scope = dict(dict(diagnostics or {}).get("agent_run_scope") or {})
-    return {
-        "session_id": str(scope.get("session_id") or session_id or ""),
-        "agent_run_id": str(scope.get("agent_run_id") or ""),
-        "run_cell_id": str(scope.get("run_cell_id") or ""),
-        "turn_id": str(scope.get("turn_id") or diagnostics.get("latest_interaction_turn_id") or ""),
-        "turn_run_id": str(scope.get("turn_run_id") or ""),
-        "task_run_id": str(scope.get("task_run_id") or task_run_id or ""),
-        "invocation_kind": "task_run",
-        "authority": "harness.runtime.packet_context.agent_scope_projection",
-    }
-
-
-def _task_execution_model_action_surface(
-    *,
-    model_visible_tools: tuple[dict[str, Any], ...],
-    task_run_id: str,
-    user_steering_payload: dict[str, Any],
-) -> RuntimePacketModelActionSurface:
-    steer_refs = _pause_for_user_steer_refs(
-        user_steering_payload,
-        task_run_id=task_run_id,
-    )
-    actions = [
-        action
-        for action in TASK_EXECUTOR_BASE_ACTION_TYPES
-        if action != "tool_call" or bool(model_visible_tools)
-    ]
-    if steer_refs:
-        actions.extend(TASK_EXECUTOR_CONDITIONAL_ACTION_TYPES)
-    return RuntimePacketModelActionSurface(
-        allowed_action_types=tuple(actions),
-        contract_ref=f"{TASK_EXECUTOR_RUNNER_CONTRACT_ID}.action_surface",
-        source_authority=HARNESS_SPINE_CONTRACT_AUTHORITY,
-        diagnostics={
-            "source": "task_execution_runtime_contract",
-            "contract_id": TASK_EXECUTOR_RUNNER_CONTRACT_ID,
-            "visible_tool_count": len(model_visible_tools),
-            "pause_for_user_steer_available": bool(steer_refs),
-            "pause_for_user_steer_refs": list(steer_refs),
-            "forbidden_action_types": list(TASK_EXECUTOR_FORBIDDEN_ORDINARY_ACTION_TYPES),
-        },
-    )
-
-
-def _task_execution_effective_control_capabilities(
-    *,
-    allowed_actions: tuple[str, ...],
-    visible_tool_count: int,
-) -> dict[str, Any]:
-    allowed = {str(item) for item in allowed_actions if str(item)}
-    return {
-        "authority": "harness.runtime.task_execution_control_capabilities",
-        "may_call_tools": "tool_call" in allowed,
-        "may_pause_for_user_steer": "pause_for_user_steer" in allowed,
-        "visible_tool_count": visible_tool_count,
-        "supports_json_action_protocol": True,
-        "requires_json_action_protocol": True,
-        "may_emit_assistant_message": "respond" in allowed,
-    }
-
-
-def _pause_for_user_steer_refs(
-    user_steering_payload: dict[str, Any] | None,
-    *,
-    task_run_id: str,
-) -> tuple[str, ...]:
-    payload = dict(user_steering_payload or {})
-    result: list[str] = []
-    for item in list(payload.get("pending_user_steers") or []):
-        if not isinstance(item, dict):
-            continue
-        steer_id = str(item.get("steer_id") or "").strip()
-        steer_task_run_id = str(item.get("task_run_id") or "").strip()
-        state = str(item.get("consumption_state") or "pending").strip()
-        if not steer_id or steer_id in result:
-            continue
-        if steer_task_run_id and steer_task_run_id != str(task_run_id or "").strip():
-            continue
-        if state not in {"pending", "included_in_packet"}:
-            continue
-        result.append(steer_id)
-    return tuple(result)
-
-
-def _task_execution_tool_plan(
-    *,
-    session_id: str,
-    task_run_id: str,
-    assembly_payload: dict[str, Any],
-    available_tools: tuple[dict[str, Any], ...],
-) -> RuntimeToolPlan:
-    visible_tools = tuple(dict(item) for item in available_tools if isinstance(item, dict))
-    tool_names = tuple(
-        sorted(
-            {
-                str(item.get("tool_name") or item.get("name") or "").strip()
-                for item in visible_tools
-                if str(item.get("tool_name") or item.get("name") or "").strip()
-            }
-        )
-    )
-    schema_hash = _stable_hash(visible_tools)
-    registry_hash = _stable_hash(
-        {
-            "tool_names": tool_names,
-            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-        }
-    )
-    return RuntimeToolPlan(
-        plan_id=f"rttoolplan:{task_run_id or 'task'}:task_execution:{schema_hash[:12]}",
-        session_id=str(session_id or ""),
-        turn_id=str(task_run_id or ""),
-        agent_invocation_id="",
-        invocation_kind="task_execution",
-        model_visible_tools=visible_tools,
-        dispatchable_tool_names=tool_names,
-        operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
-        schema_hash=schema_hash,
-        registry_hash=registry_hash,
-        diagnostics={
-            "visible_tool_count": len(visible_tools),
-            "dispatchable_tool_count": len(tool_names),
-            "source": "task_execution.available_tools",
-            "filtering_boundary": "upstream_runtime_assembly_or_action_permit",
-        },
-    )
 
 
 def _stable_hash(payload: Any) -> str:

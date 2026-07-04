@@ -79,7 +79,6 @@ _KIND_TIER_LAYER = {
         "session": "session_stable_protocol",
         "default": "task_scope_context",
     },
-    "task_run_contract_stable": {"default": "task_run_contract_context"},
     "task_prompt_contract": {"default": "task_run_contract_context"},
     "tool_index_stable": {
         "session": "session_stable_capability",

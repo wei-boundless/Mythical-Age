@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 from dataclasses import dataclass
@@ -13,18 +12,16 @@ from artifact_system.artifact_authority import (
     dedupe_artifact_refs,
     normalize_artifact_ref,
 )
-from task_system.runtime_semantics.quality_gates import stage_business_acceptance
-from task_system.runtime_semantics.chapter_progress import (
-    ChapterProgressReceiptError,
-    build_chapter_progress_receipt,
-)
 
 from .models import ExecutableGraphConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id, stable_safe_id
 from .model_overrides import sanitize_runtime_overrides, work_order_with_model_overrides
 from .output_policy import resolve_output_policy
+from .quality_gate_registry import evaluate_node_quality_acceptance
 from .adapter_registry import runtime_algorithm_structured_output_keys
+from .memory_candidate_registry import augment_candidate_source_payload
 from .runtime_algorithm_adapters import postprocess_runtime_algorithm_outputs
 from .runtime_objects import node_result_summary, work_order_summary
+from .work_order_handler_registry import handle_deterministic_work_order
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,13 +59,13 @@ class GraphNodeWorkOrderExecutor:
         if not _graph_node_by_id(graph_config, order.node_id):
             raise ValueError("GraphNodeWorkOrder node_id not found in ExecutableGraphConfig")
         if order.work_kind == "agent":
-            deterministic_progress = self._execute_deterministic_progress_receipt_node(
+            deterministic_result = self._execute_deterministic_work_order_handler(
                 graph_config=graph_config,
                 work_order=order,
                 model_override_diagnostics=model_override_diagnostics,
             )
-            if deterministic_progress is not None:
-                return deterministic_progress
+            if deterministic_result is not None:
+                return deterministic_result
             return await self._execute_agent_node(
                 graph_config=graph_config,
                 work_order=order,
@@ -129,44 +126,20 @@ class GraphNodeWorkOrderExecutor:
             executor_result=dict(executor_result or {}),
         )
 
-    def _execute_deterministic_progress_receipt_node(
+    def _execute_deterministic_work_order_handler(
         self,
         *,
         graph_config: ExecutableGraphConfig,
         work_order: GraphNodeWorkOrder,
         model_override_diagnostics: dict[str, Any] | None = None,
     ) -> GraphWorkOrderExecution | None:
-        if not _is_deterministic_progress_receipt_router_node(graph_config=graph_config, work_order=work_order):
+        deterministic = handle_deterministic_work_order(graph_config=graph_config, work_order=work_order)
+        if deterministic is None:
             return None
-        task_run_id = f"system:{stable_safe_id(work_order.work_order_id)}"
-        initial_inputs = _work_order_initial_inputs(work_order)
-        try:
-            if not _has_inbound_artifact_evidence(work_order):
-                raise ChapterProgressReceiptError("chapter_progress_receipt_upstream_artifact_missing")
-            receipt = build_chapter_progress_receipt(
-                initial_inputs=initial_inputs,
-                committed_words=_int_template_value(initial_inputs.get("committed_words"), 0),
-            )
-            final_answer = _deterministic_progress_receipt_final_answer(work_order=work_order, receipt=receipt)
-            executor_result = {
-                "ok": True,
-                "final_answer": final_answer,
-                "task_run": {
-                    "task_run_id": task_run_id,
-                    "status": "completed",
-                    "diagnostics": {
-                        "final_answer": final_answer,
-                        "final_action_diagnostics": {
-                            "structured_output": {"chapter_progress_receipt": receipt},
-                            "node_output": {"chapter_progress_receipt": receipt},
-                        },
-                        "deterministic_executor": {
-                            "authority": "graph_system.work_order_executor.deterministic_progress_receipt",
-                            "reason": "self_sourced_progress_receipt_router",
-                        },
-                    },
-                },
-            }
+        executor_result = dict(deterministic.executor_result or {})
+        task_run_payload = dict(dict(executor_result or {}).get("task_run") or {})
+        task_run_id = str(task_run_payload.get("task_run_id") or f"system:{stable_safe_id(work_order.work_order_id)}")
+        if bool(executor_result.get("ok") is True):
             result = self._node_result_from_agent_execution(
                 graph_config=graph_config,
                 work_order=work_order,
@@ -174,34 +147,17 @@ class GraphNodeWorkOrderExecutor:
                 executor_result=executor_result,
                 model_override_diagnostics={
                     **dict(model_override_diagnostics or {}),
-                    "deterministic_progress_receipt": True,
+                    **dict(deterministic.diagnostics or {}),
                 },
             )
-        except ChapterProgressReceiptError as exc:
-            executor_result = {
-                "ok": False,
-                "error": "deterministic_progress_receipt_invalid",
-                "task_run": {
-                    "task_run_id": task_run_id,
-                    "status": "failed",
-                    "terminal_reason": "deterministic_progress_receipt_invalid",
-                    "diagnostics": {
-                        "recoverable_error": {
-                            "error_code": str(exc),
-                            "retryable": False,
-                            "user_message": "章节进度路由输入不合法，系统没有生成可推进回执。",
-                        },
-                    },
-                },
-            }
+        else:
             result = _agent_execution_not_ok_result(
                 graph_config=graph_config,
                 work_order=work_order,
                 task_run_id=task_run_id,
                 executor_result=executor_result,
-                task_run_payload=dict(executor_result["task_run"]),
+                task_run_payload=task_run_payload,
             )
-        task_run_payload = dict(dict(executor_result or {}).get("task_run") or {})
         return self._execution_with_event(
             graph_config=graph_config,
             work_order=work_order,
@@ -313,7 +269,7 @@ class GraphNodeWorkOrderExecutor:
             *memory_commit_guard_errors,
         ]
         result_status = "completed" if ok and not postprocess_errors else "failed"
-        node_quality_acceptance = _node_quality_acceptance(
+        node_quality_acceptance = evaluate_node_quality_acceptance(
             graph_config=graph_config,
             work_order=work_order,
             final_answer=final_answer,
@@ -663,92 +619,6 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
             if value is not None:
                 outputs[key] = value
     return outputs
-
-
-def _progress_receipt_policy(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-    node = next((dict(item) for item in graph_config.nodes if str(item.get("node_id") or "") == work_order.node_id), {})
-    metadata = dict(node.get("metadata") or {})
-    policy = dict(node.get("progress_receipt_policy") or metadata.get("progress_receipt_policy") or {})
-    if policy:
-        return policy
-    bindings = dict(dict(node.get("contracts") or {}).get("contract_bindings") or {})
-    progress = dict(bindings.get("progress") or {})
-    if progress:
-        return progress
-    return {}
-
-
-def _is_deterministic_progress_receipt_router_node(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> bool:
-    node = _graph_node_by_id(graph_config, work_order.node_id)
-    if not node:
-        return False
-    if not _progress_receipt_policy(graph_config=graph_config, work_order=work_order):
-        return False
-    route_policy = dict(dict(node.get("loop") or {}).get("route_policy") or {})
-    if str(route_policy.get("mode") or "").strip() != "progress_receipt":
-        return False
-    sources = [
-        str(item or "").strip()
-        for item in list(route_policy.get("receipt_source_node_ids") or route_policy.get("progress_receipt_source_node_ids") or [])
-        if str(item or "").strip()
-    ]
-    return sources == [work_order.node_id]
-
-
-def _work_order_initial_inputs(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-    return {
-        **dict(dict(work_order.input_package or {}).get("initial_inputs") or {}),
-        **dict(work_order.explicit_inputs or {}),
-    }
-
-
-def _has_inbound_artifact_evidence(work_order: GraphNodeWorkOrder) -> bool:
-    for item in list(dict(work_order.input_package or {}).get("inbound_context") or []):
-        context = dict(item or {}) if isinstance(item, dict) else {}
-        if _has_artifact_refs(context.get("artifact_refs")):
-            return True
-        payload = dict(context.get("payload") or {})
-        if _has_artifact_refs(payload.get("artifact_refs")):
-            return True
-        for artifact_payload in list(payload.get("artifact_payloads") or []):
-            if not isinstance(artifact_payload, dict):
-                continue
-            if str(artifact_payload.get("artifact_ref") or artifact_payload.get("path") or artifact_payload.get("absolute_path") or "").strip():
-                return True
-    return False
-
-
-def _has_artifact_refs(value: Any) -> bool:
-    for item in list(value or []):
-        if isinstance(item, dict):
-            if str(item.get("artifact_ref") or item.get("path") or item.get("absolute_path") or "").strip():
-                return True
-        elif str(item or "").strip():
-            return True
-    return False
-
-
-def _deterministic_progress_receipt_final_answer(*, work_order: GraphNodeWorkOrder, receipt: dict[str, Any]) -> str:
-    committed = list(receipt.get("committed_chapter_indexes") or [])
-    chapter = _int_template_value(committed[-1] if committed else receipt.get("batch_start_index"), 1)
-    next_chapter = _int_template_value(receipt.get("next_chapter_index"), chapter + 1)
-    batch_start = _int_template_value(receipt.get("batch_start_index"), chapter)
-    batch_end = _int_template_value(receipt.get("batch_end_index"), chapter)
-    state = "当前批次已完成" if bool(receipt.get("batch_complete")) else f"继续到第{next_chapter:03d}章"
-    payload = {"chapter_progress_receipt": dict(receipt)}
-    return "\n".join(
-        [
-            "# 【节点交付内容】",
-            "",
-            f"第{chapter:03d}章正文候选已由上游节点完成并进入单章路由验收。",
-            f"当前批次范围：第{batch_start:03d}章至第{batch_end:03d}章；路由裁决：{state}。",
-            f"节点：{work_order.node_id}",
-            "",
-            "```json",
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            "```",
-        ]
-    )
 
 
 def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
@@ -1201,8 +1071,10 @@ def _artifact_template_values(*, graph_config: ExecutableGraphConfig, work_order
         values.get("round_index") or dispatch_context.get("round_index") or graph_state.get("round_index"),
         node_dispatch_seq,
     )
-    for key in ("volume_index", "chapter_index", "unit_index", "group_index", "batch_index"):
-        values[key] = _int_template_value(values.get(key), 1)
+    for key, value in list(values.items()):
+        if not str(key).endswith(("_index", "_count", "_seq")) or value in ("", None):
+            continue
+        values[key] = _int_template_value(value, value)
     project_id = str(values.get("project_id") or values.get("scope_id") or "").strip()
     if project_id:
         values.setdefault("project_slug", _safe_path_component(project_id))
@@ -1703,26 +1575,16 @@ def _memory_source_context_score(context: dict[str, Any]) -> int:
             "packet_contract_id",
         )
     ).lower()
-    if any(marker in haystack for marker in ("review", "audit", "审核", "裁决报告")):
-        return -10
-    if any(marker in haystack for marker in ("commit_receipt", "world_commit_round", "提交回执")):
-        return -10
     score = 0
     if any(marker in haystack for marker in ("candidate", "候选", "正文")):
         score += 6
-    if "world_design" in haystack or "world.commit_candidate" in haystack:
-        score += 4
-    if "world_candidate" in haystack:
-        score += 4
     return score
 
 
 def _memory_source_artifact_payload_score(payload: dict[str, Any]) -> int:
     refs = " ".join(_artifact_ref_values_for_memory([payload])).lower()
-    if any(marker in refs for marker in ("world_review", "review_round", "commit_receipt", "world_commit_round", "/memory/world/")):
-        return -10
     score = 0
-    if "world_candidate" in refs or "candidate_round" in refs:
+    if "candidate" in refs:
         score += 6
     if str(payload.get("content") or payload.get("text") or "").strip():
         score += 2
@@ -1829,12 +1691,14 @@ def _memory_candidate_summary(text: str) -> str:
 def _candidate_source_payload(task_run_payload: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(task_run_payload.get("diagnostics") or {})
     final_answer = str(diagnostics.get("final_answer") or "")
-    return {
+    base_payload = {
         **diagnostics,
         **dict(diagnostics.get("final_action_diagnostics") or {}),
         "final_answer": final_answer,
-        "review_advisories": _review_advisory_candidates(final_answer),
-        "review_blocking_issues": _review_blocking_issue_candidates(final_answer),
+    }
+    return {
+        **base_payload,
+        **augment_candidate_source_payload(task_run_payload=task_run_payload, base_payload=base_payload),
     }
 
 
@@ -1851,148 +1715,6 @@ def _candidate_from_value(value: Any, *, edge: dict[str, Any]) -> dict[str, Any]
         return _candidate_for_edge(dict(value), edge=edge)
     text = str(value or "").strip()
     return _candidate_for_edge({"canonical_text": text, "summary": text[:240], "payload": {"value": value}}, edge=edge)
-
-
-def _review_advisory_candidates(final_answer: str) -> list[dict[str, Any]]:
-    text = str(final_answer or "").strip()
-    if not text:
-        return []
-    if _review_verdict(text) not in {"通过", "带备注通过"}:
-        return []
-    section = _review_advisory_section(text)
-    if not section:
-        return []
-    items = _numbered_review_items(section)
-    if not items:
-        items = [section] if _looks_like_non_blocking_advisory(section) else []
-    candidates: list[dict[str, Any]] = []
-    for index, item in enumerate(items, start=1):
-        canonical = item.strip()
-        if not canonical or not _looks_like_non_blocking_advisory(canonical):
-            continue
-        key = f"planning_advisory_{index:03d}_{safe_id(canonical[:48])}"
-        candidates.append(
-            {
-                "record_key": key,
-                "record_kind": "planning_advisory",
-                "canonical_text": canonical,
-                "summary": canonical[:240],
-                "payload": {
-                    "advisory_index": index,
-                    "severity": "non_blocking",
-                    "source": "review_report",
-                    "content": canonical,
-                    "authority": "graph_system.review_advisory_extractor",
-                },
-                "metadata": {
-                    "advisory_kind": "planning_advisory",
-                    "blocking": False,
-                    "authority": "graph_system.review_advisory_extractor",
-                },
-            }
-        )
-    return candidates
-
-
-def _review_blocking_issue_candidates(final_answer: str) -> list[dict[str, Any]]:
-    text = str(final_answer or "").strip()
-    if not text:
-        return []
-    verdict = _review_verdict(text)
-    if verdict not in {"返修", "拒绝"} and not _contains_blocking_review_marker(text):
-        return []
-    return [
-        {
-            "record_key": "blocking_review_issue",
-            "record_kind": "review_issue",
-            "canonical_text": text,
-            "summary": text[:240],
-            "payload": {
-                "severity": "blocking",
-                "source": "review_report",
-                "content": text,
-                "authority": "graph_system.review_issue_extractor",
-            },
-            "metadata": {
-                "issue_kind": "review_issue",
-                "blocking": True,
-                "authority": "graph_system.review_issue_extractor",
-            },
-        }
-    ]
-
-
-def _review_verdict(text: str) -> str:
-    for raw_line in str(text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("审核裁决："):
-            return line.split("：", 1)[1].strip()
-        break
-    return ""
-
-
-def _review_advisory_section(text: str) -> str:
-    lines = str(text or "").splitlines()
-    start = -1
-    for index, raw_line in enumerate(lines):
-        line = raw_line.strip().lstrip("#").strip()
-        if any(marker in line for marker in ("潜在风险与建议", "非阻塞性", "审核备注", "可选轻微建议")):
-            start = index + 1
-            break
-    if start < 0:
-        return ""
-    collected: list[str] = []
-    for raw_line in lines[start:]:
-        line = raw_line.strip()
-        heading = line.lstrip("#").strip()
-        if heading.startswith("是否允许进入下一阶段"):
-            break
-        if line.startswith("##") and collected:
-            break
-        collected.append(raw_line)
-    return "\n".join(collected).strip()
-
-
-def _numbered_review_items(section: str) -> list[str]:
-    items: list[str] = []
-    current: list[str] = []
-    for raw_line in str(section or "").splitlines():
-        line = raw_line.strip()
-        if _starts_numbered_item(line) or line.startswith("- "):
-            if current:
-                items.append("\n".join(current).strip())
-            current = [line]
-            continue
-        if current and line:
-            current.append(line)
-    if current:
-        items.append("\n".join(current).strip())
-    return items
-
-
-def _starts_numbered_item(line: str) -> bool:
-    head = line.split(" ", 1)[0].strip()
-    if not head.endswith((".", "、")):
-        return False
-    return head[:-1].isdigit()
-
-
-def _looks_like_non_blocking_advisory(text: str) -> bool:
-    value = str(text or "").strip()
-    if not value:
-        return False
-    blocking_markers = ("阻塞", "必须修改", "返修", "拒绝", "不允许进入下一阶段", "冻结前必须处理")
-    if any(marker in value for marker in blocking_markers):
-        return False
-    advisory_markers = ("建议", "可在", "可进一步", "增加", "明确", "细化", "铺垫", "避免")
-    return any(marker in value for marker in advisory_markers)
-
-
-def _contains_blocking_review_marker(text: str) -> bool:
-    markers = ("必须修改", "不允许进入下一阶段", "冻结前必须处理", "阻塞问题", "硬设定冲突")
-    return any(marker in str(text or "") for marker in markers)
 
 
 def _candidate_for_edge(candidate: dict[str, Any], *, edge: dict[str, Any]) -> dict[str, Any]:
@@ -2167,73 +1889,6 @@ def _dedupe_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]
     return result
 
 
-def _node_quality_acceptance(
-    *,
-    graph_config: ExecutableGraphConfig,
-    work_order: GraphNodeWorkOrder,
-    final_answer: str,
-    artifact_refs: list[dict[str, Any]],
-    result_status: str,
-) -> dict[str, Any]:
-    node = _graph_node_by_id(graph_config, work_order.node_id)
-    if not node:
-        return {}
-    if str(node.get("node_type") or "").strip() == "review_gate":
-        return {}
-    retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
-    accepted_policies = [
-        str(item).strip()
-        for item in list(retry_policy.get("acceptance_policies") or [])
-        if str(item).strip()
-    ]
-    runtime_contract = dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("runtime") or {}
-    length_budget = dict(runtime_contract.get("length_budget") or {})
-    has_length_budget = bool(length_budget.get("enabled") is True or length_budget.get("configured") is True)
-    if not has_length_budget and not accepted_policies:
-        return {}
-    if not str(final_answer or "").strip():
-        return {}
-    if has_length_budget:
-        length_budget = {**length_budget, "configured": True}
-    explicit_inputs = {
-        **dict(dict(work_order.input_package or {}).get("initial_inputs") or {}),
-        **dict(work_order.explicit_inputs or {}),
-    }
-    acceptance = stage_business_acceptance(
-        stage_id=work_order.node_id,
-        contract={
-            "node_type": str(node.get("node_type") or ""),
-            "length_budget": length_budget,
-            "quality_retry_policy": retry_policy,
-        },
-        explicit_inputs=explicit_inputs,
-        final_content=final_answer,
-        output_refs=[
-            str(item.get("path") or item.get("src") or item.get("absolute_path") or "")
-            for item in list(artifact_refs or [])
-            if isinstance(item, dict)
-        ],
-        terminal_status=result_status,
-        requires_file_artifact_refs=False,
-    )
-    chapter_issues = _chapter_heading_quality_issues(explicit_inputs=explicit_inputs, final_answer=final_answer)
-    if not chapter_issues:
-        return acceptance
-    issues = [str(item) for item in list(acceptance.get("issues") or []) if str(item)]
-    return {
-        **acceptance,
-        "accepted": False,
-        "business_accepted": False,
-        "policy": str(acceptance.get("policy") or "chapter_contract"),
-        "issues": [*issues, *chapter_issues],
-        "quality_issue_summary": _join_quality_summary(
-            str(acceptance.get("quality_issue_summary") or ""),
-            "当前章号与正文标题不匹配，必须完整重交当前章。",
-        ),
-        "authority": "graph_system.work_order_executor.chapter_quality_gate",
-    }
-
-
 def _merge_quality_acceptance(*items: dict[str, Any]) -> dict[str, Any]:
     accepted_items = [dict(item) for item in items if item]
     if not accepted_items:
@@ -2259,33 +1914,6 @@ def _merge_quality_acceptance(*items: dict[str, Any]) -> dict[str, Any]:
         "merged_quality_acceptance_count": len(accepted_items),
         "authority": "graph_system.work_order_executor.merged_quality_acceptance",
     }
-
-
-def _chapter_heading_quality_issues(*, explicit_inputs: dict[str, Any], final_answer: str) -> list[str]:
-    expected = _int_template_value(explicit_inputs.get("current_chapter_index") or explicit_inputs.get("chapter_index"), 0)
-    if expected <= 0:
-        return []
-    actual = _chapter_heading_index(final_answer)
-    if actual is None or actual == expected:
-        return []
-    return [f"chapter_mismatch:{actual}!={expected}"]
-
-
-def _chapter_heading_index(final_answer: str) -> int | None:
-    text = str(final_answer or "")
-    body = text
-    marker = re.search(r"(?m)^#{1,4}\s*章节正文候选\s*$", text)
-    if marker:
-        body = text[marker.end() :]
-    for match in re.finditer(r"(?m)^#{1,4}\s*第\s*0*(\d{1,4})\s*章\b", body):
-        return int(match.group(1))
-    for match in re.finditer(r"(?m)^第\s*0*(\d{1,4})\s*章\b", body):
-        return int(match.group(1))
-    return None
-
-
-def _join_quality_summary(*parts: str) -> str:
-    return "；".join(part for part in (str(item or "").strip() for item in parts) if part)
 
 
 def _node_result_error(
