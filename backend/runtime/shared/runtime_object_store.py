@@ -143,7 +143,7 @@ def _safe_segment(value: str) -> str:
 def _runtime_object_matches(payload: dict[str, Any], *, graph_run_id: str, task_run_ids: set[str]) -> bool:
     if graph_run_id and str(payload.get("graph_run_id") or "") == graph_run_id:
         return True
-    for key in ("task_run_id", "bound_task_run_id", "current_task_run_id", "root_task_run_id"):
+    for key in ("task_run_id", "current_task_run_id", "root_task_run_id"):
         if str(payload.get(key) or "") in task_run_ids:
             return True
     diagnostics = dict(payload.get("diagnostics") or {})
@@ -151,9 +151,4 @@ def _runtime_object_matches(payload: dict[str, Any], *, graph_run_id: str, task_
         return True
     if str(diagnostics.get("task_run_id") or "") in task_run_ids:
         return True
-    outputs = dict(payload.get("outputs") or {})
-    if str(outputs.get("node_executor_task_run_id") or "") in task_run_ids:
-        return True
     return False
-
-

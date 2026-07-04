@@ -248,7 +248,7 @@ def _state_environment_guidance_reasons(
         reasons.append(("user_steer_contract_revision", "state: active work or pending user steer is present"))
     if _has_plan_boundary(execution_state, session_context):
         reasons.append(("plan_gate", "state: plan or high-risk execution boundary is present"))
-    if invocation_kind == "tool_observation_followup" and _observations_include_recovery_boundary(observations):
+    if invocation_kind == "tool_observation_followup" and _observations_include_boundary_observation(observations):
         reasons.append(("environment_capability_alignment", "state: observation shows capability, permission, or environment boundary"))
     if _observations_include_subagent_result(observations):
         reasons.append(("subagent_result_integration", "state: subagent result observation is present"))
@@ -388,14 +388,14 @@ def _observations_include_subagent_result(observations: tuple[dict[str, Any], ..
     return False
 
 
-def _observations_include_recovery_boundary(observations: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> bool:
+def _observations_include_boundary_observation(observations: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> bool:
     for observation in list(observations or []):
         if not isinstance(observation, dict):
             continue
         status = str(observation.get("status") or "").strip().lower()
         if status in {"error", "failed", "failure", "blocked", "denied", "timeout", "rejected"}:
             return True
-        if _nested_payload_present(observation, _RECOVERY_BOUNDARY_KEYS):
+        if _nested_payload_present(observation, _BOUNDARY_OBSERVATION_KEYS):
             return True
     return False
 
@@ -464,7 +464,6 @@ _COMPACTION_BOUNDARY_KEYS = {
     "semantic_compaction",
     "context_compaction",
     "context_compression",
-    "recovery_boundary",
     "rehydration_plan",
 }
 _MEMORY_WRITE_KEYS = {
@@ -487,7 +486,7 @@ _SUBAGENT_RESULT_KEYS = {
     "subagent_control",
     "result_available",
 }
-_RECOVERY_BOUNDARY_KEYS = {
+_BOUNDARY_OBSERVATION_KEYS = {
     "error",
     "error_code",
     "permission_denied",

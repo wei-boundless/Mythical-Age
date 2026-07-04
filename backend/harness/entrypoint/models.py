@@ -28,7 +28,6 @@ class HarnessRuntimeRequest:
     permission_mode: str = ""
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
-    expected_task_run_id: str = ""
     expected_continuation_id: str = ""
     recovery_input_policy: str = "auto"
     editor_context: dict[str, Any] = field(default_factory=dict)

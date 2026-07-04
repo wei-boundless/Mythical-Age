@@ -193,12 +193,26 @@ class GraphSystem:
             graph_run_id=order.graph_run_id,
             runtime_overrides=runtime_overrides,
         )
-        execution = await self._work_order_executor.execute(
-            graph_config=graph_config,
-            work_order=order,
-            max_steps=max_steps,
-            runtime_overrides=effective_runtime_overrides,
-        )
+        graph_node_task_lease = self._begin_graph_node_task_execution(order)
+        graph_node_task_lease_release: dict[str, Any] = {}
+        execution = None
+        try:
+            execution = await self._work_order_executor.execute(
+                graph_config=graph_config,
+                work_order=order,
+                max_steps=max_steps,
+                runtime_overrides=effective_runtime_overrides,
+            )
+            graph_node_task_result_projection = self._record_graph_node_task_result(
+                work_order=execution.work_order,
+                node_result=execution.node_result,
+                executor_result=dict(execution.executor_result or {}),
+            )
+        finally:
+            graph_node_task_lease_release = self._release_graph_node_task_execution(
+                execution.work_order if execution is not None else order,
+                reason="graph_node_work_order_finished" if execution is not None else "graph_node_work_order_interrupted",
+            )
         advance = None
         if accept_result and _result_should_advance_loop(execution.node_result):
             advance = self.accept_node_result(
@@ -212,8 +226,11 @@ class GraphSystem:
             "graph_config_id": graph_config.config_id,
             "work_order": execution.work_order.to_dict(),
             "node_result": execution.node_result.to_dict(),
-            "node_executor_task_run": _task_run_summary(execution.task_run),
+            "node_executor_task_execution": _task_execution_summary(execution.task_execution),
             "executor_result": _executor_result_summary(execution.executor_result),
+            "graph_node_task_lease": graph_node_task_lease,
+            "graph_node_task_lease_release": graph_node_task_lease_release,
+            "graph_node_task_result_projection": graph_node_task_result_projection,
             "accepted_result": advance.accepted_result.to_dict() if advance is not None and advance.accepted_result is not None else None,
             "graph_result": advance.graph_result.to_dict() if advance is not None and advance.graph_result is not None else None,
             "graph_loop_state": _loop_state_public_view(advance.loop_state) if advance is not None else {},
@@ -221,6 +238,43 @@ class GraphSystem:
             "node_work_orders": [_work_order_public_view(item) for item in advance.node_work_orders] if advance is not None else [],
             "events": [*list(execution.events), *([dict(item) for item in advance.events] if advance is not None else [])],
         }
+
+    def _begin_graph_node_task_execution(self, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+        sink = getattr(self._services, "graph_node_task_preparation_sink", None)
+        acquire = getattr(sink, "begin_work_order_execution", None)
+        if not callable(acquire):
+            raise RuntimeError("GraphSystem requires graph_node_task_preparation_sink to acquire graph node task lease")
+        projection = acquire(work_order)
+        payload = projection.to_dict() if hasattr(projection, "to_dict") else dict(projection or {})
+        return _graph_node_task_lease_projection_summary(payload)
+
+    def _release_graph_node_task_execution(self, work_order: GraphNodeWorkOrder, *, reason: str) -> dict[str, Any]:
+        sink = getattr(self._services, "graph_node_task_preparation_sink", None)
+        release = getattr(sink, "release_work_order_execution_lease", None)
+        if not callable(release):
+            raise RuntimeError("GraphSystem requires graph_node_task_preparation_sink to release graph node task lease")
+        projection = release(work_order, release_reason=reason)
+        payload = projection.to_dict() if hasattr(projection, "to_dict") else dict(projection or {})
+        return _graph_node_task_lease_projection_summary(payload)
+
+    def _record_graph_node_task_result(
+        self,
+        *,
+        work_order: GraphNodeWorkOrder,
+        node_result: NodeResultEnvelope,
+        executor_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        sink = getattr(self._services, "graph_node_task_preparation_sink", None)
+        recorder = getattr(sink, "record_work_order_result", None)
+        if not callable(recorder):
+            raise RuntimeError("GraphSystem requires graph_node_task_preparation_sink to record graph node task result")
+        projection = recorder(
+            work_order=work_order,
+            node_result=node_result,
+            executor_result=dict(executor_result or {}),
+        )
+        payload = projection.to_dict() if hasattr(projection, "to_dict") else dict(projection or {})
+        return _graph_node_task_result_projection_summary(payload)
 
     async def run_until_idle(
         self,
@@ -832,7 +886,7 @@ def _active_node_runtime_views(*, state: Any | None, events: list[Any], task_run
     if state is None:
         return []
     node_states = {key: dict(value) for key, value in dict(getattr(state, "node_states", {}) or {}).items()}
-    task_run_refs = _node_executor_refs_by_node(events)
+    task_executions = _node_executor_task_executions_by_node(events)
     active_work_orders = {
         str(key): str(value)
         for key, value in dict(getattr(state, "active_work_orders", {}) or {}).items()
@@ -851,13 +905,9 @@ def _active_node_runtime_views(*, state: Any | None, events: list[Any], task_run
         if node_id not in active_node_ids:
             continue
         work_order_id = str(active_work_orders.get(node_id) or node_state.get("work_order_id") or "")
-        task_run_id = str(
-            task_run_refs.get(node_id)
-            or ""
-        )
-        task_run = task_run_lookup(task_run_id) if task_run_id else None
-        task_payload = _task_run_summary(task_run)
-        task_monitor = task_run_monitor_lookup(task_run_id) if callable(task_run_monitor_lookup) and task_run_id else {}
+        task_execution_payload = dict(task_executions.get(node_id) or {})
+        task_execution_id = str(task_execution_payload.get("execution_id") or "")
+        task_execution_diagnostics = dict(task_execution_payload.get("diagnostics") or {})
         work_order_summary = dict(getattr(state, "work_order_index", {}).get(work_order_id) or {}) if work_order_id else {}
         views.append(
             {
@@ -867,17 +917,16 @@ def _active_node_runtime_views(*, state: Any | None, events: list[Any], task_run
                 "work_order_id": work_order_id,
                 "work_order": {},
                 "work_order_summary": work_order_summary,
-                "node_executor_task_run_id": task_run_id,
-                "node_executor_task_run": task_payload or None,
-                "node_executor_task_run_monitor": task_monitor or None,
-                "latest_step": task_payload.get("latest_step") or {},
+                "node_executor_execution_id": task_execution_id,
+                "node_executor_task_execution": _task_execution_summary(task_execution_payload) or None,
+                "latest_step": task_execution_diagnostics.get("latest_step") or {},
             }
         )
     return views
 
 
-def _node_executor_refs_by_node(events: list[Any]) -> dict[str, str]:
-    refs: dict[str, str] = {}
+def _node_executor_task_executions_by_node(events: list[Any]) -> dict[str, dict[str, Any]]:
+    refs: dict[str, dict[str, Any]] = {}
     for event in events:
         payload = dict(getattr(event, "payload", {}) or {})
         node_id = str(payload.get("node_id") or "")
@@ -886,12 +935,13 @@ def _node_executor_refs_by_node(events: list[Any]) -> dict[str, str]:
             node_id = str(work_order.get("node_id") or "")
         if not node_id:
             continue
-        task_run_id = str(payload.get("node_executor_task_run_id") or "")
-        if not task_run_id:
-            task_run = dict(payload.get("node_executor_task_run") or {})
-            task_run_id = str(task_run.get("task_run_id") or "")
-        if task_run_id:
-            refs[node_id] = task_run_id
+        task_execution = dict(payload.get("node_executor_task_execution") or {})
+        execution_id = str(payload.get("node_executor_execution_id") or task_execution.get("execution_id") or "")
+        if execution_id or task_execution:
+            refs[node_id] = {
+                **task_execution,
+                **({"execution_id": execution_id} if execution_id else {}),
+            }
     return refs
 
 
@@ -988,16 +1038,87 @@ def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
     }
 
 
+def _task_execution_summary(task_execution: Any | None) -> dict[str, Any]:
+    if task_execution is None:
+        return {}
+    payload = task_execution.to_dict() if hasattr(task_execution, "to_dict") else (dict(task_execution) if isinstance(task_execution, dict) else {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    origin = dict(diagnostics.get("origin") or {})
+    return {
+        "execution_id": str(payload.get("execution_id") or ""),
+        "episode_id": str(payload.get("episode_id") or ""),
+        "task_environment_id": str(payload.get("task_environment_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "task_ref": str(payload.get("task_ref") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": payload.get("created_at", 0.0),
+        "updated_at": payload.get("updated_at", 0.0),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "latest_step": diagnostics.get("latest_step") or diagnostics.get("step_summary") or {},
+        "latest_step_status": diagnostics.get("latest_step_status") or "",
+        "latest_step_summary": diagnostics.get("latest_step_summary") or "",
+        "origin_kind": diagnostics.get("origin_kind") or origin.get("origin_kind") or "",
+        "graph_run_id": diagnostics.get("graph_run_id") or origin.get("graph_run_id") or "",
+        "graph_work_order_id": diagnostics.get("graph_work_order_id") or origin.get("origin_ref") or "",
+        "project_id": diagnostics.get("project_id") or "",
+        "runtime_scope": dict(diagnostics.get("runtime_scope") or {}),
+    }
+
+
 def _executor_result_summary(result: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(result or {})
-    task_run = payload.get("task_run")
+    task_execution = payload.get("task_execution")
     return {
         "ok": bool(payload.get("ok") is True),
         "error": str(payload.get("error") or ""),
         "artifact_refs": dedupe_artifact_refs([normalize_artifact_ref(item) for item in list(payload.get("artifact_refs") or [])]),
-        "task_run": _task_run_summary(task_run),
+        "task_execution": _task_execution_summary(task_execution),
         "event": _event_summary(payload.get("event")),
         "lifecycle": _lifecycle_summary(payload.get("lifecycle")),
+    }
+
+
+def _graph_node_task_result_projection_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    binding = dict(payload.get("binding") or {})
+    episode = dict(payload.get("episode") or {})
+    episode_result = dict(payload.get("episode_result") or {})
+    event = dict(payload.get("event") or {})
+    products = [dict(item) for item in list(payload.get("work_products") or []) if isinstance(item, dict)]
+    return {
+        "authority": "graph_system.graph_node_task_result_projection_summary",
+        "binding_id": str(binding.get("binding_id") or ""),
+        "binding_status": str(binding.get("status") or ""),
+        "task_environment_id": str(binding.get("node_task_environment_id") or episode_result.get("task_environment_id") or ""),
+        "task_instance_id": str(binding.get("task_instance_id") or ""),
+        "episode_id": str(episode.get("episode_id") or ""),
+        "episode_status": str(episode.get("status") or ""),
+        "episode_result_id": str(episode_result.get("result_id") or ""),
+        "episode_result_status": str(episode_result.get("status") or ""),
+        "work_product_ids": [str(item.get("work_product_id") or "") for item in products if str(item.get("work_product_id") or "")],
+        "event_id": str(event.get("event_id") or ""),
+    }
+
+
+def _graph_node_task_lease_projection_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    binding = dict(payload.get("binding") or {})
+    environment = dict(payload.get("task_environment") or {})
+    episode = dict(payload.get("episode") or {})
+    lease = dict(payload.get("lease") or {})
+    event = dict(payload.get("event") or {})
+    return {
+        "authority": "graph_system.graph_node_task_lease_projection_summary",
+        "binding_id": str(binding.get("binding_id") or ""),
+        "task_environment_id": str(environment.get("task_environment_id") or binding.get("node_task_environment_id") or ""),
+        "task_environment_status": str(environment.get("status") or ""),
+        "task_instance_id": str(binding.get("task_instance_id") or environment.get("task_instance_id") or ""),
+        "episode_id": str(episode.get("episode_id") or ""),
+        "episode_status": str(episode.get("status") or ""),
+        "lease_id": str(lease.get("lease_id") or ""),
+        "lease_status": str(lease.get("status") or ""),
+        "lease_kind": str(lease.get("lease_kind") or ""),
+        "holder_kind": str(lease.get("holder_kind") or ""),
+        "holder_id": str(lease.get("holder_id") or ""),
+        "event_id": str(event.get("event_id") or ""),
     }
 
 
@@ -1050,8 +1171,6 @@ def _work_order_public_view(order: GraphNodeWorkOrder) -> dict[str, Any]:
         "memory_view_request": dict(order.memory_view_request or {}),
         "artifact_view_request": dict(order.artifact_view_request or {}),
         "file_view_request": dict(order.file_view_request or {}),
-        "permission_scope": dict(order.permission_scope or {}),
-        "tool_scope": dict(order.tool_scope or {}),
         "expected_result_contract": dict(order.expected_result_contract or {}),
         "dispatch_context": dict(order.dispatch_context or {}),
         "idempotency_key": order.idempotency_key,

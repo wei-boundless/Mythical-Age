@@ -3678,7 +3678,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       active_task_run_id: taskRunId,
       active_turn_snapshot: {
         turn_id: "turn:session-monitor-recover:1",
-        bound_task_run_id: taskRunId,
+        task_run_id: taskRunId,
         state: "running_task",
       },
       monitor: {
@@ -4131,7 +4131,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       active_task_run_id: taskRunId,
       active_turn_snapshot: {
         turn_id: "turn:session-stream-queue:1",
-        bound_task_run_id: taskRunId,
+        task_run_id: taskRunId,
         state: "running_task",
       },
       monitor: {

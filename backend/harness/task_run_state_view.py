@@ -12,7 +12,6 @@ from harness.task_run_status import (
 )
 
 WAITING_APPROVAL_STATUSES = {"waiting_approval"}
-RECOVERY_ACTIONS: set[str] = set()
 PAUSED_CONTROL_STATES = {"pause_requested", "paused"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 
@@ -44,13 +43,11 @@ def task_run_state_view(
     )
     recovery_action = _text(diagnostics.get("recovery_action") or monitor_record.get("recovery_action"))
     recovery_cause = _recovery_cause(diagnostics, monitor_record)
-    recoverable = _recoverable(diagnostics, recovery_action=recovery_action)
+    recoverable = _recoverable(diagnostics)
     resumable_breakpoint = _resumable_breakpoint(
         status=status,
         terminal_reason=terminal_reason,
-        recovery_action=recovery_action,
         control_state=control_state,
-        recoverable=recoverable,
     )
     stopped = (
         control_state in STOP_CONTROL_STATES
@@ -75,15 +72,13 @@ def task_run_state_view(
         work_state = "paused"
     elif terminal_failed:
         work_state = "failed"
-    elif status == "blocked" and recoverable and recovery_action in RECOVERY_ACTIONS:
-        work_state = "ready_to_continue"
     elif status == "blocked":
         work_state = "waiting_user"
     elif graph_controlled and status in {"running", "queued", "in_progress"}:
         work_state = "active"
     elif live_executor_claim and executor_lease_state in {"scheduled", "running", "recovering"}:
         work_state = "active"
-    elif resumable_breakpoint or executor_lease_state in {"lost", "none", "recovering"} and recovery_action in RECOVERY_ACTIONS:
+    elif resumable_breakpoint:
         work_state = "ready_to_continue"
     elif status == "waiting_executor":
         work_state = "waiting_user"
@@ -187,9 +182,6 @@ def _executor_lease_state(
     diagnostics: dict[str, Any],
     monitor: dict[str, Any],
 ) -> str:
-    recovery_action = _text(diagnostics.get("recovery_action") or monitor.get("recovery_action"))
-    if status == "waiting_executor" and recovery_action in RECOVERY_ACTIONS:
-        return "lost"
     if status == "waiting_executor" and (terminal_reason == "waiting_executor" or control_state in {"resume_requested", "paused", "interrupted_for_replan"}):
         return "lost"
     explicit = _text(diagnostics.get("executor_lease_state") or monitor.get("executor_lease_state"))
@@ -212,20 +204,12 @@ def _executor_lease_state(
     return "none"
 
 
-def _recoverable(diagnostics: dict[str, Any], *, recovery_action: str) -> bool:
+def _recoverable(diagnostics: dict[str, Any]) -> bool:
     recoverable_error = diagnostics.get("recoverable_error")
-    if recovery_action in RECOVERY_ACTIONS:
-        if isinstance(recoverable_error, dict):
-            return recoverable_error.get("retryable") is not False
-        return True
     return isinstance(recoverable_error, dict) and recoverable_error.get("retryable") is not False
 
 
 def _recovery_cause(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str:
-    wait_reason = _text(diagnostics.get("wait_reason") or monitor.get("wait_reason"))
-    recoverable_error = _record(diagnostics.get("recoverable_error") or monitor.get("recoverable_error"))
-    error_code = _text(recoverable_error.get("error_code") or recoverable_error.get("code"))
-    latest_step = _text(diagnostics.get("latest_step") or monitor.get("latest_step"))
     return ""
 
 
@@ -233,12 +217,8 @@ def _resumable_breakpoint(
     *,
     status: str,
     terminal_reason: str,
-    recovery_action: str,
     control_state: str,
-    recoverable: bool,
 ) -> bool:
-    if recovery_action in RECOVERY_ACTIONS and recoverable:
-        return True
     if status == "waiting_executor" and control_state == "resume_requested":
         return True
     return False

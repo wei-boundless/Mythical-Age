@@ -8,7 +8,6 @@ from harness.current_work_receipt import (
     CURRENT_WORK_BOUNDARY_RECEIPT_AUTHORITY,
     current_work_boundary_receipt_allows_active_work_control as _receipt_allows_active_work_control,
 )
-from harness.task_run_status import is_terminal_task_run_reason, is_terminal_task_run_status
 
 
 CurrentWorkBoundaryAction = Literal[
@@ -19,6 +18,14 @@ CurrentWorkBoundaryAction = Literal[
     "ask_user",
     "block",
 ]
+
+_TERMINAL_TASK_ENVIRONMENT_STATUSES = {"completed", "failed", "aborted", "archived"}
+_TERMINAL_TASK_ENVIRONMENT_REASONS = {
+    "task_environment_completed",
+    "task_environment_failed",
+    "task_environment_aborted",
+    "task_environment_archived",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +55,7 @@ class CurrentWorkBoundaryDecision:
     action: CurrentWorkBoundaryAction
     relation_to_current_work: str = "none"
     active_work_id: str = ""
-    task_run_id: str = ""
+    task_environment_id: str = ""
     expected_active_turn_id: str = ""
     actual_active_turn_id: str = ""
     reason: str = ""
@@ -72,7 +79,7 @@ class CurrentWorkBoundaryReceipt:
     decision_id: str
     boundary_decision: str
     active_work_ref: dict[str, Any] = field(default_factory=dict)
-    task_run_ref: str = ""
+    task_environment_ref: str = ""
     turn_ref: str = ""
     runtime_branch_ref: dict[str, Any] = field(default_factory=dict)
     operation_availability: dict[str, bool] = field(default_factory=dict)
@@ -126,7 +133,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
     active_work = dict(boundary_input.active_work_context or {})
     active_check = dict(boundary_input.active_turn_check or {})
     actual_turn_id = str(active_check.get("actual_turn_id") or active_check.get("turn_id") or active_work.get("active_work_id") or "").strip()
-    task_run_id = str(active_check.get("actual_task_run_id") or active_work.get("task_run_id") or "").strip()
+    task_environment_id = str(active_work.get("task_environment_id") or "").strip()
     if policy == "steer":
         if not expected_turn_id:
             return _decision(
@@ -138,7 +145,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
                 response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
                 expected_turn_id=expected_turn_id,
                 actual_turn_id=actual_turn_id,
-                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
                 active_work=active_work,
                 active_check=active_check,
                 boundary_input=boundary_input,
@@ -153,7 +160,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
                 response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
                 expected_turn_id=expected_turn_id,
                 actual_turn_id=actual_turn_id,
-                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
                 active_work=active_work,
                 active_check=active_check,
                 boundary_input=boundary_input,
@@ -168,7 +175,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
                 response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
                 expected_turn_id=expected_turn_id,
                 actual_turn_id=actual_turn_id,
-                task_run_id=task_run_id,
+                task_environment_id=task_environment_id,
                 active_work=active_work,
                 active_check=active_check,
                 boundary_input=boundary_input,
@@ -179,25 +186,25 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             turn_id=turn_id,
             action="no_current_work",
             relation="none",
-            reason="no_active_turn_bound_current_work",
+            reason="no_task_environment_bound_current_work",
             expected_turn_id=expected_turn_id,
             actual_turn_id=actual_turn_id,
-            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
         )
-    if str(active_work.get("authority") or "") != "harness.runtime.active_turn_context":
+    if str(active_work.get("authority") or "") != "harness.runtime.task_environment_active_work_context":
         return _decision(
             session_id=session_id,
             turn_id=turn_id,
             action="current_work_unavailable" if policy == "steer" else "new_independent_turn_allowed",
             relation="read_only_active_work_context",
-            reason="active_work_context_not_active_turn_bound",
+            reason="active_work_context_not_task_environment_bound",
             response="当前任务状态不可作为可控制工作处理。",
             expected_turn_id=expected_turn_id,
             actual_turn_id=actual_turn_id,
-            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
@@ -212,7 +219,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             response="当前任务已经结束，不能继续控制这条运行。",
             expected_turn_id=expected_turn_id,
             actual_turn_id=actual_turn_id,
-            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
@@ -227,7 +234,7 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             response="当前任务状态已变化，这条补充没有接入正在运行的任务。",
             expected_turn_id=expected_turn_id,
             actual_turn_id=actual_turn_id,
-            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
@@ -237,11 +244,11 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
             session_id=session_id,
             turn_id=turn_id,
             action="current_work_control_required",
-            relation="active_turn_bound_current_work",
+            relation="task_environment_bound_current_work",
             reason="active_work_boundary_ready",
             expected_turn_id=expected_turn_id,
             actual_turn_id=actual_turn_id,
-            task_run_id=task_run_id,
+            task_environment_id=task_environment_id,
             active_work=active_work,
             active_check=active_check,
             boundary_input=boundary_input,
@@ -251,11 +258,11 @@ def decide_current_work_boundary(boundary_input: CurrentWorkBoundaryInput) -> Cu
         session_id=session_id,
         turn_id=turn_id,
         action="current_work_control_required",
-        relation="active_turn_bound_current_work",
+        relation="task_environment_bound_current_work",
         reason="active_work_boundary_ready",
         expected_turn_id=expected_turn_id,
         actual_turn_id=actual_turn_id,
-        task_run_id=task_run_id,
+        task_environment_id=task_environment_id,
         active_work=active_work,
         active_check=active_check,
         boundary_input=boundary_input,
@@ -280,10 +287,10 @@ def current_work_boundary_receipt_from_decision(decision: CurrentWorkBoundaryDec
         boundary_decision=decision.action,
         active_work_ref={
             "active_work_id": decision.active_work_id,
-            "task_run_id": decision.task_run_id,
+            "task_environment_id": decision.task_environment_id,
             "actual_active_turn_id": decision.actual_active_turn_id,
         },
-        task_run_ref=decision.task_run_id,
+        task_environment_ref=decision.task_environment_id,
         turn_ref=decision.turn_id,
         runtime_branch_ref=dict(decision.diagnostics.get("runtime_branch") or {}),
         operation_availability=operation_availability,
@@ -317,7 +324,7 @@ def _decision(
     reason: str,
     expected_turn_id: str,
     actual_turn_id: str,
-    task_run_id: str,
+    task_environment_id: str,
     active_work: dict[str, Any],
     active_check: dict[str, Any],
     boundary_input: CurrentWorkBoundaryInput,
@@ -336,7 +343,7 @@ def _decision(
         action=action,
         relation_to_current_work=relation,
         active_work_id=str(active_work.get("active_work_id") or "").strip(),
-        task_run_id=task_run_id,
+        task_environment_id=str(task_environment_id or "").strip(),
         expected_active_turn_id=expected_turn_id,
         actual_active_turn_id=actual_turn_id,
         reason=reason,
@@ -367,6 +374,6 @@ def _payload_from_object(value: Any | None) -> dict[str, Any]:
 
 
 def _terminal_active_work(active_work: dict[str, Any]) -> bool:
-    return is_terminal_task_run_status(active_work.get("status")) or is_terminal_task_run_reason(
-        active_work.get("terminal_reason")
-    )
+    status = str(active_work.get("status") or "").strip()
+    terminal_reason = str(active_work.get("terminal_reason") or "").strip()
+    return status in _TERMINAL_TASK_ENVIRONMENT_STATUSES or terminal_reason in _TERMINAL_TASK_ENVIRONMENT_REASONS

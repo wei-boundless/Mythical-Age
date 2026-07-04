@@ -222,7 +222,6 @@ def _blocked_node_is_recoverable(node_state: dict[str, Any], *, state: GraphLoop
         "task_execution_step_budget_exhausted",
         "task_execution_step_budget_exceeded",
         "waiting_executor",
-        "task_run_executor_already_running",
         "model_action_protocol_repair_required",
     }:
         return True
@@ -253,7 +252,7 @@ def _recoverable_failed_node_ids(state: GraphLoopState, *, services: Any | None)
         recoverable_error = dict(error.get("recoverable_error") or {})
         if recoverable_error and bool(recoverable_error.get("retryable", True)):
             targets.append(node_id)
-        elif reason in {"task_run_executor_already_running", "model_call_recovery_required", "quality_gate_failed"}:
+        elif reason in {"model_call_recovery_required", "quality_gate_failed"}:
             targets.append(node_id)
         elif any(bool(item.get("resume_retryable") is True) for item in list(error.get("postprocess_errors") or []) if isinstance(item, dict)):
             targets.append(node_id)

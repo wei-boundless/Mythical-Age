@@ -6,13 +6,6 @@ from typing import Any, Literal
 
 WorkProductConfidence = Literal["deterministic", "derived", "hypothesis", "rejected", "needs_human_review"]
 WorkProductStatus = Literal["candidate", "accepted", "rejected", "superseded", "published"]
-WorkProductReducerPolicy = Literal[
-    "append_by_work_product_id",
-    "merge_by_stable_ref",
-    "replace_by_generation",
-    "reject_on_anchor_mismatch",
-    "merge_scope_coverage",
-]
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,36 +111,6 @@ class WorkProduct:
         payload["anchor_refs"] = list(self.anchor_refs)
         payload["artifact_refs"] = list(self.artifact_refs)
         payload["acceptance_claims"] = [dict(item) for item in self.acceptance_claims]
-        return _drop_empty(payload)
-
-
-@dataclass(frozen=True, slots=True)
-class TaskReducerInput:
-    task_environment_id: str
-    episode_id: str
-    episode_result_ref: str
-    reduction_policy: WorkProductReducerPolicy = "append_by_work_product_id"
-    work_product_candidates: tuple[WorkProduct, ...] = ()
-    state_update_proposals: tuple[dict[str, Any], ...] = ()
-    memory_candidates: tuple[dict[str, Any], ...] = ()
-    artifact_refs: tuple[str, ...] = ()
-    graph_binding_ref: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "task_system.task_reducer_input"
-
-    def __post_init__(self) -> None:
-        if self.authority != "task_system.task_reducer_input":
-            raise ValueError("TaskReducerInput authority must be task_system.task_reducer_input")
-        _require_text(self.task_environment_id, "TaskReducerInput requires task_environment_id")
-        _require_text(self.episode_id, "TaskReducerInput requires episode_id")
-        _require_text(self.episode_result_ref, "TaskReducerInput requires episode_result_ref")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["work_product_candidates"] = [item.to_dict() for item in self.work_product_candidates]
-        payload["state_update_proposals"] = [dict(item) for item in self.state_update_proposals]
-        payload["memory_candidates"] = [dict(item) for item in self.memory_candidates]
-        payload["artifact_refs"] = list(self.artifact_refs)
         return _drop_empty(payload)
 
 

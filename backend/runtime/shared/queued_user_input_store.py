@@ -36,7 +36,7 @@ class QueuedUserInput:
     model_selection: dict[str, Any]
     permission_mode: str = ""
     expected_active_turn_id: str = ""
-    task_run_id: str = ""
+    task_environment_id: str = ""
     editor_context: dict[str, Any] | None = None
     dispatch_stream_run_id: str = ""
     failure_reason: str = ""
@@ -82,7 +82,7 @@ class QueuedUserInputStore:
         client_message_id: str = "",
         input_policy: str = "auto",
         expected_active_turn_id: str = "",
-        task_run_id: str = "",
+        task_environment_id: str = "",
         attachments: list[dict[str, Any]] | None = None,
         session_scope: dict[str, Any] | None = None,
         environment_binding: dict[str, Any] | None = None,
@@ -116,7 +116,7 @@ class QueuedUserInputStore:
                 content=normalized_content,
                 input_policy=normalized_policy,
                 expected_active_turn_id=_clean_text(expected_active_turn_id, limit=300),
-                task_run_id=_clean_text(task_run_id, limit=300),
+                task_environment_id=_clean_text(task_environment_id, limit=300),
                 attachments=_dict_list(attachments),
                 session_scope=dict(session_scope or {}),
                 environment_binding=dict(environment_binding or {}),
@@ -169,12 +169,12 @@ class QueuedUserInputStore:
         session_id: str,
         *,
         turn_id: str,
-        task_run_id: str = "",
+        task_environment_id: str = "",
         limit: int = 8,
     ) -> list[QueuedUserInput]:
         normalized_session_id = _clean_text(session_id, limit=240)
         normalized_turn_id = _clean_text(turn_id, limit=300)
-        normalized_task_run_id = _clean_text(task_run_id, limit=300)
+        normalized_task_environment_id = _clean_text(task_environment_id, limit=300)
         if not normalized_session_id or not normalized_turn_id:
             return []
         max_items = max(1, min(32, int(limit or 8)))
@@ -189,18 +189,14 @@ class QueuedUserInputStore:
                     updated_items.append(item)
                     continue
                 expected_turn_id = _clean_text(item.expected_active_turn_id, limit=300)
-                expected_task_run_id = _clean_text(item.task_run_id, limit=300)
                 if expected_turn_id and expected_turn_id != normalized_turn_id:
-                    updated_items.append(item)
-                    continue
-                if expected_task_run_id and expected_task_run_id != normalized_task_run_id:
                     updated_items.append(item)
                     continue
                 active_turn_item = replace(
                     item,
                     input_policy="steer",
                     expected_active_turn_id=normalized_turn_id,
-                    task_run_id=normalized_task_run_id or expected_task_run_id,
+                    task_environment_id=normalized_task_environment_id or item.task_environment_id,
                     status="dispatching",
                     updated_at=now,
                     failure_reason="",
@@ -218,7 +214,7 @@ class QueuedUserInputStore:
         *,
         input_policy: str,
         expected_active_turn_id: str = "",
-        task_run_id: str = "",
+        task_environment_id: str = "",
     ) -> QueuedUserInput | None:
         normalized_session_id = _clean_text(session_id, limit=240)
         normalized_queue_item_id = _clean_text(queue_item_id, limit=240)
@@ -236,7 +232,7 @@ class QueuedUserInputStore:
                     item,
                     input_policy=normalized_policy,
                     expected_active_turn_id=_clean_text(expected_active_turn_id, limit=300),
-                    task_run_id=_clean_text(task_run_id, limit=300),
+                    task_environment_id=_clean_text(task_environment_id, limit=300),
                     updated_at=now,
                     failure_reason="",
                 )
@@ -391,7 +387,7 @@ def _queued_input_from_payload(payload: dict[str, Any], *, session_id: str) -> Q
         content=str(payload.get("content") or "").strip(),
         input_policy=policy,
         expected_active_turn_id=_clean_text(payload.get("expected_active_turn_id"), limit=300),
-        task_run_id=_clean_text(payload.get("task_run_id"), limit=300),
+        task_environment_id=_clean_text(payload.get("task_environment_id"), limit=300),
         attachments=_dict_list(payload.get("attachments")),
         session_scope=dict(payload.get("session_scope") or {}),
         environment_binding=dict(payload.get("environment_binding") or {}),

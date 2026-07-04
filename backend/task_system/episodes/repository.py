@@ -84,6 +84,23 @@ class EpisodeRepository:
             row = conn.execute("SELECT * FROM agent_execution_episodes WHERE episode_id = ?", (target,)).fetchone()
         return _episode_from_row(row) if row is not None else None
 
+    def list_episodes(self, task_environment_id: str, *, limit: int = 50) -> tuple[AgentExecutionEpisode, ...]:
+        target = str(task_environment_id or "").strip()
+        if not target:
+            return ()
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM agent_execution_episodes
+                WHERE task_environment_id = ?
+                ORDER BY started_at DESC, episode_id ASC
+                LIMIT ?
+                """,
+                (target, _limit(limit)),
+            ).fetchall()
+        return tuple(_episode_from_row(row) for row in rows)
+
     def upsert_episode_result(self, result: EpisodeResult) -> EpisodeResult:
         with closing(self._connect()) as conn:
             conn.execute(
@@ -134,6 +151,30 @@ class EpisodeRepository:
                 ),
             )
         return result
+
+    def list_episode_results(
+        self,
+        *,
+        task_environment_id: str = "",
+        episode_id: str = "",
+        limit: int = 50,
+    ) -> tuple[EpisodeResult, ...]:
+        filters: list[str] = []
+        params: list[Any] = []
+        if task_environment_id:
+            filters.append("task_environment_id = ?")
+            params.append(str(task_environment_id))
+        if episode_id:
+            filters.append("episode_id = ?")
+            params.append(str(episode_id))
+        if not filters:
+            return ()
+        sql = "SELECT * FROM episode_results WHERE " + " AND ".join(filters)
+        sql += " ORDER BY result_id ASC LIMIT ?"
+        params.append(_limit(limit))
+        with closing(self._connect()) as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_episode_result_from_row(row) for row in rows)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
@@ -218,6 +259,28 @@ def _episode_from_row(row: sqlite3.Row) -> AgentExecutionEpisode:
     )
 
 
+def _episode_result_from_row(row: sqlite3.Row) -> EpisodeResult:
+    return EpisodeResult(
+        result_id=str(row["result_id"]),
+        episode_id=str(row["episode_id"]),
+        task_environment_id=str(row["task_environment_id"]),
+        status=str(row["status"] or "failed"),  # type: ignore[arg-type]
+        summary=str(row["summary"] or ""),
+        work_product_candidates=tuple(dict(item) for item in list(_loads(row["work_product_candidates_json"], [])) if isinstance(item, dict)),
+        state_update_proposals=tuple(dict(item) for item in list(_loads(row["state_update_proposals_json"], [])) if isinstance(item, dict)),
+        plan_patch=_loads(row["plan_patch_json"], {}),
+        todo_patch=_loads(row["todo_patch_json"], {}),
+        memory_candidates=tuple(dict(item) for item in list(_loads(row["memory_candidates_json"], [])) if isinstance(item, dict)),
+        artifact_refs=tuple(_strings(_loads(row["artifact_refs_json"], []))),
+        evidence_refs=tuple(_strings(_loads(row["evidence_refs_json"], []))),
+        blocker=str(row["blocker"] or ""),
+        continuation_hint=str(row["continuation_hint"] or ""),
+        output_contract_version=str(row["output_contract_version"] or ""),
+        diagnostics=_loads(row["diagnostics_json"], {}),
+        authority=str(row["authority"] or "task_system.episode_result"),
+    )
+
+
 def _now() -> float:
     return time.time()
 
@@ -232,3 +295,11 @@ def _loads(value: Any, default: Any) -> Any:
     except (TypeError, json.JSONDecodeError):
         return default
     return loaded if isinstance(loaded, type(default)) else default
+
+
+def _limit(value: int) -> int:
+    return max(1, min(int(value or 50), 10000))
+
+
+def _strings(value: Any) -> list[str]:
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]

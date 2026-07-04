@@ -241,7 +241,7 @@ def _collect_coordination_candidates(coordination_runs: list[dict[str, Any]], *,
                 source_ref=coordination_run_id,
                 subject_type="task_graph",
                 subject_id=coordination_run_id or task_run_id,
-                event_type="coordination_recovery_boundary",
+                event_type="coordination_boundary",
                 time_index=index,
                 summary="; ".join(item for item in summary_parts if item),
                 raw_ref=coordination_run_id,
@@ -543,4 +543,3 @@ def _tool_name_from_candidate(candidate: EvidenceCandidate) -> str:
     if candidate.event_type != "tool_call_requested":
         return ""
     return str(candidate.metadata.get("tool_name") or "")
-

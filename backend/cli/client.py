@@ -100,6 +100,15 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid TaskRun monitor payload.")
         return dict(payload)
 
+    def get_turn_run_monitor(self, turn_run_id: str) -> dict[str, Any]:
+        payload = self._json_request(
+            "GET",
+            f"/harness/run-monitor/turn-runs/{_quote_path(turn_run_id)}",
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid TurnRun monitor payload.")
+        return dict(payload)
+
     def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False) -> dict[str, Any]:
         suffix = "?include_payloads=true" if include_payloads else ""
         payload = self._json_request(

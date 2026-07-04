@@ -73,7 +73,7 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
     const runId = String(signal.task_run_id || "").trim();
     if (!runId) return;
     openRuntimeLog({
-      scope: "task_run",
+      scope: signalLogScope(signal),
       run_id: runId,
       title: publicRuntimeStatusText(signal.title) || "TaskRun",
       subtitle: publicRuntimeStatusText(signal.line) || runId,
@@ -256,4 +256,9 @@ function actionButtonClassName(action: string) {
     return "run-management-row__action run-management-row__action--warning";
   }
   return "run-management-row__action";
+}
+
+function signalLogScope(signal: RunMonitorSignal) {
+  const kind = String(signal.detail_ref?.kind || signal.source_kind || "").trim();
+  return kind === "turn_run" ? "turn_run" : "task_run";
 }

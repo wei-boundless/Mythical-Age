@@ -523,8 +523,6 @@ class GraphNodeWorkOrder:
     file_access_table_refs: tuple[str, ...] = ()
     artifact_repository_targets: tuple[dict[str, Any], ...] = ()
     memory_repository_targets: tuple[dict[str, Any], ...] = ()
-    permission_scope: dict[str, Any] = field(default_factory=dict)
-    tool_scope: dict[str, Any] = field(default_factory=dict)
     expected_result_contract: dict[str, Any] = field(default_factory=dict)
     async_policy: dict[str, Any] = field(default_factory=dict)
     retry_policy: dict[str, Any] = field(default_factory=dict)
@@ -540,6 +538,8 @@ class GraphNodeWorkOrder:
             raise ValueError("GraphNodeWorkOrder requires work_order_id")
         if self.work_kind not in {"agent", "tool", "human_gate"}:
             raise ValueError("GraphNodeWorkOrder work_kind is not supported")
+        if self.work_kind == "agent" and not self.agent_profile_id:
+            raise ValueError("Agent GraphNodeWorkOrder requires explicit agent_profile_id")
         if not self.graph_run_id:
             raise ValueError("GraphNodeWorkOrder requires graph_run_id")
         if not self.task_run_id:
@@ -592,8 +592,6 @@ class GraphNodeWorkOrder:
             file_access_table_refs=tuple(str(item) for item in list(payload.get("file_access_table_refs") or []) if str(item)),
             artifact_repository_targets=tuple(dict(item) for item in list(payload.get("artifact_repository_targets") or []) if isinstance(item, dict)),
             memory_repository_targets=tuple(dict(item) for item in list(payload.get("memory_repository_targets") or []) if isinstance(item, dict)),
-            permission_scope=dict(payload.get("permission_scope") or {}),
-            tool_scope=dict(payload.get("tool_scope") or {}),
             expected_result_contract=dict(payload.get("expected_result_contract") or {}),
             async_policy=dict(payload.get("async_policy") or {}),
             retry_policy=dict(payload.get("retry_policy") or {}),

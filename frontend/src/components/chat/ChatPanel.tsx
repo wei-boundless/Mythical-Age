@@ -520,7 +520,7 @@ function liveAssistantBindingFromState(
 ): LiveAssistantBinding {
   const monitorBinding = liveAssistantBindingFromMonitor(taskGraphLiveMonitor);
   return {
-    streamRunId: monitorBinding.streamRunId,
+    streamRunId: textValue(activeTurnSnapshot?.stream_run_id) || monitorBinding.streamRunId,
     taskRunId: textValue(activeTurnSnapshot?.task_run_id) || monitorBinding.taskRunId,
     turnId: textValue(activeTurnSnapshot?.turn_id) || monitorBinding.turnId,
     turnRunId: textValue(activeTurnSnapshot?.turn_run_id) || monitorBinding.turnRunId,
@@ -540,8 +540,7 @@ function liveAssistantBindingFromMonitor(
     streamRunId: textValue(activeTurnSnapshot.stream_run_id)
       || textValue(monitor.stream_run_id)
       || textValue(monitor.streamRunId),
-    taskRunId: textValue(activeTurnSnapshot.bound_task_run_id)
-      || textValue(activeTurnSnapshot.task_run_id)
+    taskRunId: textValue(activeTurnSnapshot.task_run_id)
       || textValue(taskRun.task_run_id)
       || textValue(monitor.task_run_id)
       || textValue(monitor.runtime_task_run_id),

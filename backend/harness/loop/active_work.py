@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from harness.runtime.public_progress import public_runtime_progress_summary
@@ -41,9 +41,12 @@ def active_work_action_is_allowed(value: Any) -> bool:
 class ActiveWorkContext:
     session_id: str
     active_work_id: str
-    task_run_id: str
-    status: str
+    task_environment_id: str = ""
+    task_instance_id: str = ""
+    session_binding_id: str = ""
+    status: str = ""
     control_state: str = ""
+    environment_kind: str = ""
     user_visible_goal: str = ""
     latest_progress: str = ""
     latest_step_name: str = ""
@@ -54,14 +57,14 @@ class ActiveWorkContext:
     execution_runtime_kind: str = ""
     continuation_kind: str = "active"
     same_run_allowed: bool = False
-    authority: str = "harness.loop.active_work_context"
+    control_capabilities: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.runtime.task_environment_active_work_context"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_model_dict(self) -> dict[str, Any]:
         payload = self.to_dict()
-        payload.pop("task_run_id", None)
         payload.pop("authority", None)
         payload["current_work_id"] = self.active_work_id
         payload["status_label"] = active_work_status_label(self)
@@ -261,11 +264,13 @@ def active_work_status_label(context: ActiveWorkContext) -> str:
         return "等待继续"
     if context.status == "waiting_approval":
         return "等待确认"
-    if context.status in {"created", "running"}:
+    if context.status in {"created", "running", "leased"}:
         return "正在处理"
+    if context.status == "ready":
+        return "可以继续"
     if context.status == "completed":
         return "已完成"
-    if context.status in {"failed", "aborted"}:
+    if context.status in {"failed", "aborted", "archived"}:
         return "已结束"
     return context.status or "处理中"
 

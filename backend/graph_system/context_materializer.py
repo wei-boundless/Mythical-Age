@@ -78,6 +78,7 @@ class GraphContextMaterializer:
         config_snapshot_id = graph_config.config_id
         config_snapshot_hash = graph_config.content_hash
         compiled_node_contract = dict(input_package.get("compiled_node_contract") or {})
+        agent_config = _node_agent_config(node=node, compiled_node_contract=compiled_node_contract)
         node_session_policy = dict(compiled_node_contract.get("session_policy") or {})
         node_session_id = _node_session_id(
             state=state,
@@ -125,8 +126,8 @@ class GraphContextMaterializer:
             node_session_id=node_session_id,
             node_session_policy=node_session_policy,
             node_id=node_id,
-            agent_id=str(node.get("agent_id") or ""),
-            agent_profile_id=str(node.get("agent_profile_id") or ""),
+            agent_id=str(agent_config.get("agent_id") or ""),
+            agent_profile_id=str(agent_config.get("agent_profile_id") or ""),
             message=str(input_package.get("agent_instruction") or ""),
             explicit_inputs=explicit_inputs,
             idempotency_key=idempotency_key,
@@ -162,8 +163,6 @@ class GraphContextMaterializer:
             file_access_table_refs=(),
             artifact_repository_targets=(),
             memory_repository_targets=(),
-            permission_scope=_explicit_permission_scope(input_package),
-            tool_scope=_explicit_tool_scope(input_package),
             expected_result_contract=execution_expected_result_contract,
             async_policy=dict(node.get("async_policy") or {}),
             retry_policy=dict(node.get("retry") or {}),
@@ -224,7 +223,7 @@ class GraphContextMaterializer:
             graph_identity={
                 "graph_run_id": state.graph_run_id,
                 "root_task_run_id": state.task_run_id,
-                "node_executor_task_run_id": "",
+                "node_executor_execution_id": "",
                 "config_id": graph_config.config_id,
                 "config_hash": graph_config.content_hash,
                 "graph_id": graph_config.graph_id,
@@ -286,9 +285,8 @@ class GraphContextMaterializer:
             visibility={
                 "system_control_only": ["graph_identity", "state_refs", "runtime_controls"],
                 "runtime_consumable": [
+                    "node_contract.agent_assembly",
                     "node_contract.model_requirement",
-                    "node_contract.tool_contract",
-                    "node_contract.permission_contract",
                     "output_contract.artifact_targets",
                 ],
                 "model_visible_projection": [
@@ -315,6 +313,7 @@ class GraphContextMaterializer:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
         compiled_node_contract = _compiled_node_contract(graph_config=graph_config, node_id=node_id)
+        agent_config = _node_agent_config(node=node, compiled_node_contract=compiled_node_contract)
         task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract)
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
         initial_inputs = dict(state.initial_inputs or {})
@@ -336,8 +335,8 @@ class GraphContextMaterializer:
                 "title": str(node.get("title") or node_id),
                 "node_type": str(node.get("node_type") or ""),
                 "task_ref": str(node.get("task_ref") or ""),
-                "agent_id": str(node.get("agent_id") or ""),
-                "agent_profile_id": str(node.get("agent_profile_id") or ""),
+                "agent_id": str(agent_config.get("agent_id") or ""),
+                "agent_profile_id": str(agent_config.get("agent_profile_id") or ""),
             },
             "prompt_contract": prompt_contract,
             "compiled_node_contract": compiled_node_contract,
@@ -378,8 +377,6 @@ class GraphContextMaterializer:
             "artifact_repository_targets": [dict(item) for item in list(environment_refs.get("artifact_repository_targets") or []) if isinstance(item, dict)],
             "memory_repository_targets": [dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)],
             "issue_view": _issue_view_request(graph_config=graph_config, node=node),
-            "permission_summary": dict(compiled_node_contract.get("permission_ceiling") or node.get("permissions") or {}),
-            "tool_capability_table": dict(compiled_node_contract.get("tool_contract") or node.get("tools") or {}),
             "hidden_control_refs": {
                 "graph_run_id": state.graph_run_id,
                 "graph_id": graph_config.graph_id,
@@ -448,11 +445,14 @@ def _graph_node_task_binding_hint(
     expected_result_contract: dict[str, Any],
 ) -> dict[str, Any]:
     node_metadata = dict(node.get("metadata") or {})
+    agent_config = _node_agent_config(
+        node=node,
+        compiled_node_contract=dict(input_package.get("compiled_node_contract") or {}),
+    )
     binding_key = stable_hash(
         [
             state.graph_run_id,
             node_id,
-            work_order_id,
             idempotency_key,
         ]
     )
@@ -484,7 +484,7 @@ def _graph_node_task_binding_hint(
             "node_task_environment_id": f"taskenv:graphnode:{task_key[:20]}",
             "task_instance_id": f"taskinst:graphnode:{task_key[:20]}",
             "task_ref": task_ref,
-            "agent_profile_id": str(node.get("agent_profile_id") or ""),
+            "agent_profile_id": str(agent_config.get("agent_profile_id") or ""),
             "input_package_ref": str(input_package.get("package_id") or ""),
             "expected_result_contract_ref": str(
                 expected_result_contract.get("contract_ref")
@@ -840,14 +840,6 @@ def _execution_runtime_scope(value: Any) -> dict[str, Any]:
         *context_provider_runtime_scope_keys(),
     }
     return _drop_empty({key: scope.get(key) for key in allowed})
-
-
-def _explicit_permission_scope(input_package: dict[str, Any]) -> dict[str, Any]:
-    return dict(dict(input_package or {}).get("permission_summary") or {})
-
-
-def _explicit_tool_scope(input_package: dict[str, Any]) -> dict[str, Any]:
-    return dict(dict(input_package or {}).get("tool_capability_table") or {})
 
 
 def _execution_runtime_policy(value: Any) -> dict[str, Any]:
@@ -1410,7 +1402,7 @@ def _execution_node_contract_from_input_package(
     bindings = dict(node_contract.get("contract_bindings") or {})
     runtime_binding = dict(bindings.get("runtime") or {})
     executor = dict(node.get("executor") or {})
-    agent = dict(compiled_node_contract.get("agent") or {})
+    agent_config = _node_agent_config(node=node, compiled_node_contract=compiled_node_contract)
     model_requirement = dict(
         runtime_binding.get("model_requirement")
         or runtime_profile.get("model_requirement")
@@ -1427,8 +1419,8 @@ def _execution_node_contract_from_input_package(
             "node_identity": dict(input_package.get("node_identity") or {}),
             "agent_assembly": _drop_empty(
                 {
-                    "agent_id": str(node.get("agent_id") or agent.get("agent_id") or ""),
-                    "agent_profile_id": str(node.get("agent_profile_id") or agent.get("agent_profile_id") or ""),
+                    "agent_id": str(agent_config.get("agent_id") or ""),
+                    "agent_profile_id": str(agent_config.get("agent_profile_id") or ""),
                     "executor_type": str(executor.get("executor_type") or "agent"),
                     "authority": "graph_system.node_agent_assembly_projection",
                 }
@@ -1438,9 +1430,6 @@ def _execution_node_contract_from_input_package(
             "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
             "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
             "runtime_policy": _execution_runtime_policy(runtime_profile.get("runtime_policy") or compiled_node_contract.get("runtime_policy")),
-            "tool_contract": dict(compiled_node_contract.get("tool_contract") or node.get("tools") or {}),
-            "skill_contract": dict(bindings.get("skills") or {}),
-            "permission_contract": dict(compiled_node_contract.get("permission_ceiling") or node.get("permissions") or {}),
             "input_contract": dict(input_package.get("input_contract") or {}),
             "acceptance_policy": dict(bindings.get("acceptance") or {}),
             "contract_bindings": _drop_empty(
@@ -1899,6 +1888,14 @@ def _node_effective_environment_id(
     ).strip()
 
 
+def _node_agent_config(*, node: dict[str, Any], compiled_node_contract: dict[str, Any]) -> dict[str, str]:
+    agent = dict(compiled_node_contract.get("agent") or {})
+    return {
+        "agent_id": str(node.get("agent_id") or agent.get("agent_id") or "").strip(),
+        "agent_profile_id": str(node.get("agent_profile_id") or agent.get("agent_profile_id") or "").strip(),
+    }
+
+
 def _node_session_id(
     *,
     state: GraphLoopState,
@@ -1973,8 +1970,6 @@ def _node_runtime_profile(*, graph_config: ExecutableGraphConfig, node: dict[str
         "node_environment_lock": environment_lock,
         "node_session_policy": dict(compiled.get("session_policy") or {}),
         "graph_project_binding": dict(compiled.get("project_binding") or {}),
-        "tool_policy": dict(compiled.get("tool_contract") or node.get("tools") or {}),
-        "permission_policy": dict(compiled.get("permission_ceiling") or node.get("permissions") or {}),
         "runtime_policy": {
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),

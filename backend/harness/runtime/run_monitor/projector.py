@@ -381,10 +381,9 @@ class RunMonitorProjector:
         session_id = str(getattr(active_turn, "session_id", "") or "")
         turn_id = str(getattr(active_turn, "turn_id", "") or "")
         turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "")
-        bound_task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
         stream_run_id = str(getattr(active_turn, "stream_run_id", "") or "")
-        task_run_id = bound_task_run_id or turn_run_id
-        task_instance_id = turn_run_id or stream_run_id or turn_id or task_run_id
+        task_run_id = turn_run_id
+        task_instance_id = turn_run_id
         active_state = str(getattr(active_turn, "state", "") or "model_turn")
         started_at = float(
             getattr(active_turn, "started_at", 0.0)
@@ -432,8 +431,13 @@ class RunMonitorProjector:
         )
         item = {
             "task_run_id": task_run_id,
+            "active_turn_id": turn_id,
+            "turn_id": turn_id,
+            "turn_run_id": turn_run_id,
+            "stream_run_id": stream_run_id,
+            "source_kind": "turn_run",
             "session_id": session_id,
-            "task_id": turn_id or stream_run_id or task_run_id,
+            "task_id": turn_id or task_run_id,
             "execution_runtime_kind": "single_agent_turn",
             "task_instance_id": task_instance_id,
             "root_task_run_id": task_run_id,
@@ -511,9 +515,12 @@ class RunMonitorProjector:
             "executor_epoch": 0,
             "next_invocation_index": 0,
             "route": {
-                "kind": "agent_runtime_run",
+                "kind": "turn_run",
                 "session_id": session_id,
                 "task_run_id": task_run_id,
+                "turn_run_id": turn_run_id,
+                "active_turn_id": turn_id,
+                "stream_run_id": stream_run_id,
                 "graph_id": "",
                 "graph_run_id": "",
                 "graph_config_id": "",
@@ -533,8 +540,8 @@ class RunMonitorProjector:
         return with_runtime_activity(
             item,
             control_context=RuntimeActivityControlContext(
-                resumable=status == "waiting_executor" and bool(bound_task_run_id),
-                interruptible=status == "running" and bool(bound_task_run_id),
+                resumable=False,
+                interruptible=status == "running" and bool(stream_run_id or turn_run_id or turn_id),
                 reason="active_turn",
             ),
         )
@@ -555,6 +562,7 @@ class RunMonitorProjector:
                 now=now,
             ),
             now=now,
+            scope="turn_run",
         )
 
     def select_current_items_by_session(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1174,19 +1182,21 @@ class RunMonitorProjector:
             *list(payload.get("node_runtime_views") or []),
         ]:
             view = dict(item or {})
-            task_run_id = str(view.get("node_executor_task_run_id") or "")
-            if not task_run_id:
+            execution_id = str(view.get("node_executor_execution_id") or "")
+            if not execution_id:
                 continue
-            task_monitor = dict(view.get("node_executor_task_run_monitor") or {})
+            task_execution = dict(view.get("node_executor_task_execution") or {})
             refs.append(
                 {
-                    "task_run_id": task_run_id,
+                    "execution_id": execution_id,
+                    "episode_id": str(task_execution.get("episode_id") or ""),
+                    "task_environment_id": str(task_execution.get("task_environment_id") or ""),
                     "node_id": str(view.get("node_id") or ""),
                     "node_label": str(view.get("node_label") or view.get("node_id") or ""),
                     "runtime_kind": "agent_runtime",
-                    "lifecycle": str(task_monitor.get("lifecycle") or view.get("status") or ""),
-                    "latest_progress": dict(task_monitor.get("latest_progress") or {}),
-                    "artifact_refs": list(view.get("artifact_refs") or task_monitor.get("artifact_refs") or []),
+                    "lifecycle": str(task_execution.get("status") or view.get("status") or ""),
+                    "latest_progress": dict(task_execution.get("latest_progress") or {}),
+                    "artifact_refs": list(view.get("artifact_refs") or task_execution.get("artifact_refs") or []),
                 }
             )
         return refs
@@ -1198,11 +1208,7 @@ def _latest_interaction_turn_id(events: list[Any], *, diagnostics: dict[str, Any
         refs = dict(getattr(event, "refs", {}) or {})
         if event_type in {
             "user_work_instruction_recorded",
-            "active_task_steer_recorded",
-            "active_task_steer_included",
-            "active_task_steer_consumed",
             "task_run_resume_requested",
-            "task_run_executor_scheduled",
             "step_summary_recorded",
         }:
             steer = dict(payload.get("steer") or {})
@@ -1646,7 +1652,7 @@ def _node_statuses_from_monitor(monitor: dict[str, Any]) -> list[dict[str, Any]]
                 "node_label": str(node_config.get("title") or node_config.get("label") or payload.get("node_label") or node_id),
                 "status": str(payload.get("status") or ""),
                 "executor_type": str(payload.get("executor_type") or ""),
-                "task_run_id": str(payload.get("node_executor_task_run_id") or ""),
+                "execution_id": str(payload.get("node_executor_execution_id") or ""),
             }
         )
     if result:

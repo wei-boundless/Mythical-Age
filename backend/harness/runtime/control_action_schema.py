@@ -15,7 +15,6 @@ CONTROL_ACTION_TOOL_NAMES = frozenset(
         "block",
         "request_task_run",
         "active_work_control",
-        "resume_task_recovery",
         "pause_for_user_steer",
     }
 )
@@ -158,6 +157,12 @@ def control_action_request_payload_from_native_tool_call(
     }
     if action_type == "respond":
         payload["final_answer"] = str(args.get("final_answer") or "").strip()
+        structured_output = args.get("structured_output")
+        if isinstance(structured_output, dict):
+            payload["structured_output"] = dict(structured_output)
+        structured_output_json = str(args.get("structured_output_json") or "").strip()
+        if structured_output_json:
+            payload["structured_output_json"] = structured_output_json
     elif action_type == "ask_user":
         payload["user_question"] = str(args.get("user_question") or "").strip()
     elif action_type == "block":
@@ -170,16 +175,6 @@ def control_action_request_payload_from_native_tool_call(
                 "action": str(args.get("action") or "").strip(),
                 "appended_instruction": str(args.get("appended_instruction") or args.get("instruction") or "").strip(),
                 "response": str(args.get("response") or args.get("answer") or "").strip(),
-                "reason": str(args.get("reason") or "").strip(),
-            }
-        )
-    elif action_type == "resume_task_recovery":
-        payload["task_recovery_resume"] = _drop_empty_payload(
-            {
-                "work_ref": str(args.get("work_ref") or args.get("task_run_id") or "").strip(),
-                "resume_ref": str(args.get("resume_ref") or args.get("continuation_id") or "").strip(),
-                "task_run_id": str(args.get("task_run_id") or args.get("work_ref") or "").strip(),
-                "continuation_id": str(args.get("continuation_id") or args.get("resume_ref") or "").strip(),
                 "reason": str(args.get("reason") or "").strip(),
             }
         )
@@ -235,7 +230,6 @@ def _control_action_description(action_name: str) -> str:
         "block": "Stop because the current work cannot continue reliably and explain the blocking reason.",
         "request_task_run": "Request a long-task resource from a compact TaskStartIntent.",
         "active_work_control": "Control an already active durable work item.",
-        "resume_task_recovery": "Resume a paused task recovery boundary from runtime-provided handles.",
         "pause_for_user_steer": "Pause current task execution at a recoverable boundary because a user steer must be handled first.",
     }.get(action_name, action_name)
 
@@ -308,22 +302,13 @@ _CONTROL_OUTPUT_LINE_DEFAULTS: dict[str, dict[str, str]] = {
         "terminal_policy": "CurrentWorkBoundaryReceipt must allow active_work_control before dispatch",
         "failure_feedback_policy": "control denial returns receipt reason to model-visible feedback",
     },
-    "resume_task_recovery": {
-        "permit_policy_ref": "harness.recovery_receipt + harness.loop.admission.resume_task_recovery",
-        "executor_ref": "harness.entrypoint.runtime_facade.legacy_task_recovery_removed",
-        "observation_contract": "legacy_task_recovery_removed_observation",
-        "public_projection_policy": "task_recovery_public_projection",
-        "commit_policy": "legacy_recovery_removed_visible_status",
-        "terminal_policy": "RecoveryReceipt is enforced; old TaskRun recovery returns visible removed-chain status",
-        "failure_feedback_policy": "removed-chain status returns receipt reason to model-visible feedback",
-    },
     "pause_for_user_steer": {
         "permit_policy_ref": "harness.loop.admission.pause_for_user_steer",
         "executor_ref": "harness.entrypoint.runtime_facade.legacy_task_pause_removed",
         "observation_contract": "pause_for_user_steer_observation",
         "public_projection_policy": "task_pause_public_projection",
         "commit_policy": "legacy_task_pause_removed_visible_status",
-        "terminal_policy": "only a mounted task episode execution surface may pause for user steer; old task_executor pause is removed",
+        "terminal_policy": "only a mounted task episode execution surface may pause for user steer",
         "failure_feedback_policy": "invalid pause request returns structured admission denial",
     },
 }
@@ -334,6 +319,10 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
         return _strict_object(
             {
                 "final_answer": _string("User-visible final answer."),
+                "structured_output_json": _optional_string(
+                    "Machine-readable JSON object for task or graph products. "
+                    "Use this only when the current task contract asks for a typed machine output; otherwise use null."
+                ),
                 "public_progress_note": _optional_string("Brief public note aligned with the answer when a separate progress note is useful."),
                 "public_action_state": _optional_public_action_state_schema(),
             },
@@ -413,19 +402,6 @@ def _control_action_input_schema(action_name: str) -> dict[str, Any]:
                 "public_action_state": _optional_public_action_state_schema(),
             },
             ["action"],
-        )
-    if action_name == "resume_task_recovery":
-        return _strict_object(
-            {
-                "work_ref": _string("Runtime-provided task recovery work reference."),
-                "resume_ref": _string("Runtime-provided resume reference."),
-                "task_run_id": _string("Optional canonical task_run_id if provided by runtime."),
-                "continuation_id": _string("Optional canonical continuation_id if provided by runtime."),
-                "reason": _string("Reason for resuming this work now."),
-                "public_progress_note": _optional_string("Brief public resume note."),
-                "public_action_state": _optional_public_action_state_schema(),
-            },
-            ["work_ref", "resume_ref"],
         )
     if action_name == "pause_for_user_steer":
         return _strict_object(
@@ -529,7 +505,6 @@ def _semantic_required_fields(action_name: str) -> list[str]:
             "todo_tool_contract",
         ],
         "active_work_control": ["action"],
-        "resume_task_recovery": ["work_ref", "resume_ref"],
         "pause_for_user_steer": [
             "reason",
             "steer_ref",

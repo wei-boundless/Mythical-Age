@@ -257,6 +257,14 @@ async def get_run_monitor_task_run(task_run_id: str) -> dict[str, Any]:
     return monitor
 
 
+@router.get("/harness/run-monitor/turn-runs/{turn_run_id}")
+async def get_run_monitor_turn_run(turn_run_id: str) -> dict[str, Any]:
+    monitor = await asyncio.to_thread(_service().get_turn_run_live_monitor, turn_run_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="TurnRun live monitor not found")
+    return monitor
+
+
 @router.get("/harness/run-monitor/resources/{resource_ref:path}")
 async def get_run_monitor_resource(resource_ref: str) -> dict[str, Any]:
     return await asyncio.to_thread(_service().get_resource, resource_ref)

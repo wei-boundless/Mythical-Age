@@ -3463,7 +3463,8 @@ export class WorkspaceRuntime {
     return {
       turn_id: turnId,
       turn_run_id: String(payload.turn_run_id ?? "").trim() || undefined,
-      task_run_id: String(payload.bound_task_run_id ?? payload.task_run_id ?? "").trim() || undefined,
+      stream_run_id: String(payload.stream_run_id ?? "").trim() || undefined,
+      task_run_id: String(payload.task_run_id ?? "").trim() || undefined,
       state: this.activeTurnStateFromPayload(payload.state),
       updated_at: Number(payload.updated_at ?? 0) || undefined,
     };
@@ -3507,7 +3508,6 @@ export class WorkspaceRuntime {
         || fallbackStreamRunId,
       taskRunId: runtimeText(data.runtime_task_run_id)
         || runtimeText(data.task_run_id)
-        || runtimeText(data.bound_task_run_id)
         || runtimeText(frameAnchor.task_run_id),
       turnId: runtimeText(data.active_turn_id)
         || runtimeText(data.turn_id)
@@ -4431,12 +4431,13 @@ export class WorkspaceRuntime {
     this.streamingSessionCache.delete(normalizedSessionId);
     const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
     const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
+    const stoppedStreamRunId = String(streamBinding?.streamRunId ?? "").trim();
     this.activeChatStreamBindings.delete(normalizedSessionId);
     this.store.setState((prev) => {
       const projected = this.stateWithVisibleRuntimeProjectionSnapshot(prev, normalizedSessionId, snapshot);
       const detached = this.removeActiveStreamSession(projected, normalizedSessionId);
       const nextState = options.connectionState === "stopped" && options.preserveActiveWorkContext !== true
-        ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId)
+        ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId, stoppedStreamRunId)
         : detached;
       return {
         ...nextState,
@@ -4507,11 +4508,11 @@ export class WorkspaceRuntime {
     }
   }
 
-  private releaseActiveTurnGateForStoppedStream(state: StoreState, taskRunId: string, turnId: string) {
+  private releaseActiveTurnGateForStoppedStream(state: StoreState, taskRunId: string, turnId: string, streamRunId: string) {
     const activeTurnSnapshot = state.activeTurnSnapshot;
     const snapshotMatches = Boolean(activeTurnSnapshot) && (
       Boolean(turnId && activeTurnSnapshot?.turn_id === turnId)
-      || Boolean(taskRunId && activeTurnSnapshot?.task_run_id === taskRunId)
+      || Boolean(streamRunId && activeTurnSnapshot?.stream_run_id === streamRunId)
     );
     const monitorInfo = this.singleAgentTaskMonitorInfo(state.taskGraphLiveMonitor);
     const monitorMatches = Boolean(taskRunId && monitorInfo?.taskRunId === taskRunId);
@@ -6585,7 +6586,7 @@ export class WorkspaceRuntime {
       const staleOrDiagnostic = stale || lifecycle === "stale" || bucket === "diagnostics";
       const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "waiting_safe_boundary", "blocked"].includes(liveStatus) && !staleOrDiagnostic;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
-      const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
+      const taskRunId = this.liveMonitorTaskRunId(activeMonitor, liveMonitor);
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
       this.updateSessionActivityFromLiveMonitor(
         staleOrDiagnostic && controlState.trim().toLowerCase() !== "paused" ? "stale" : liveStatus,
@@ -6633,6 +6634,20 @@ export class WorkspaceRuntime {
       ? monitor.task_run as Record<string, unknown>
       : {};
     return Object.keys(nested).length ? nested : monitor as unknown as Record<string, unknown>;
+  }
+
+  private liveMonitorTaskRunId(
+    monitor: HarnessSessionMonitor,
+    liveMonitor?: Awaited<ReturnType<typeof getHarnessSessionLiveMonitor>>,
+  ) {
+    const monitorRecord = monitor as unknown as Record<string, unknown>;
+    const sourceKind = String(monitorRecord.source_kind ?? "").trim();
+    const executionRuntimeKind = String(monitor.execution_runtime_kind ?? monitorRecord.execution_runtime_kind ?? "").trim();
+    if (sourceKind === "turn_run" || executionRuntimeKind === "single_agent_turn") {
+      return "";
+    }
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    return String(taskRun.task_run_id ?? monitor.task_run_id ?? liveMonitor?.active_task_run_id ?? "").trim();
   }
 
   private runtimeControlState(monitor: HarnessSessionMonitor) {
@@ -6774,7 +6789,7 @@ export class WorkspaceRuntime {
       return;
     }
     const liveStatus = runtimeText(signal.status || signal.activity_state || signal.state);
-    const taskRunId = runtimeText(signal.task_run_id || signal.detail_ref?.task_run_id || signal.task_instance_id);
+    const taskRunId = this.runMonitorSignalTaskRunId(signal);
     const graphRunId = runtimeText(signal.graph_run_id || signal.graph_ref?.graph_run_id || signal.detail_ref?.graph_run_id);
     this.updateSessionActivityFromLiveMonitor(
       liveStatus,
@@ -6783,6 +6798,14 @@ export class WorkspaceRuntime {
       this.runMonitorSignalControlState(signal),
       signal as unknown as Record<string, unknown>,
     );
+  }
+
+  private runMonitorSignalTaskRunId(signal: RunMonitorSignal) {
+    const kind = runtimeText(signal.detail_ref?.kind || signal.source_kind);
+    if (kind === "turn_run") {
+      return "";
+    }
+    return runtimeText(signal.task_run_id || signal.detail_ref?.task_run_id || signal.task_instance_id);
   }
 
   private currentSessionActivitySignal(monitor: RunMonitorEnvelope, currentSessionId: string): RunMonitorSignal | null {

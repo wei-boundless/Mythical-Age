@@ -37,11 +37,11 @@ def iter_memory_candidate_payload_handlers() -> tuple[MemoryCandidatePayloadHand
     return tuple(sorted(_HANDLERS.values(), key=lambda handler: (handler.priority, handler.handler_id)))
 
 
-def augment_candidate_source_payload(*, task_run_payload: dict[str, Any], base_payload: dict[str, Any]) -> dict[str, Any]:
+def augment_candidate_source_payload(*, task_execution_payload: dict[str, Any], base_payload: dict[str, Any]) -> dict[str, Any]:
     patch: dict[str, Any] = {}
     for handler in iter_memory_candidate_payload_handlers():
         contribution = handler.augment_candidate_source_payload(
-            task_run_payload=dict(task_run_payload or {}),
+            task_execution_payload=dict(task_execution_payload or {}),
             base_payload={**dict(base_payload or {}), **patch},
         )
         if contribution:

@@ -361,44 +361,25 @@ class GraphRunRunner:
         work_order: GraphNodeWorkOrder,
         execution: dict[str, Any],
     ) -> None:
-        task_run = self._executor_task_run_payload(execution, work_order=work_order)
-        if not task_run:
+        task_execution = self._executor_task_execution_payload(execution, work_order=work_order)
+        if not task_execution:
             return
-        if _task_run_origin_kind(task_run) != "graph_node_assigned":
-            raise ValueError("GraphRunRunner node executor TaskRun origin_kind mismatch")
-        if _task_run_graph_run_id(task_run) != graph_run_id:
-            raise ValueError("GraphRunRunner node executor TaskRun graph_run_id mismatch")
-        if _task_run_work_order_id(task_run) != work_order.work_order_id:
-            raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
+        if _task_execution_origin_kind(task_execution) != "graph_node_assigned":
+            raise ValueError("GraphRunRunner node executor task execution origin_kind mismatch")
+        if _task_execution_graph_run_id(task_execution) != graph_run_id:
+            raise ValueError("GraphRunRunner node executor task execution graph_run_id mismatch")
+        if _task_execution_work_order_id(task_execution) != work_order.work_order_id:
+            raise ValueError("GraphRunRunner node executor task execution work_order_id mismatch")
 
-    def _executor_task_run_payload(self, execution: dict[str, Any], *, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-        task_run = dict(execution.get("node_executor_task_run") or {})
-        if _task_run_origin_kind(task_run) and _task_run_graph_run_id(task_run) and _task_run_work_order_id(task_run):
-            if _task_run_work_order_id(task_run) != work_order.work_order_id:
-                raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
-            return task_run
-        task_run_id = str(
-            task_run.get("task_run_id")
-            or dict(dict(execution.get("node_result") or {}).get("outputs") or {}).get("node_executor_task_run_id")
-            or ""
-        ).strip()
-        if not task_run_id:
-            return task_run
-        persisted = self._services.state_index.get_task_run(task_run_id)
-        persisted_payload = persisted.to_dict() if hasattr(persisted, "to_dict") else (dict(persisted) if isinstance(persisted, dict) else {})
-        if not persisted_payload:
-            if _task_run_work_order_id(task_run):
-                return task_run
-            return {}
-        resolved = {
-            **persisted_payload,
-            **{key: value for key, value in task_run.items() if value not in ("", None, {}, [])},
-        }
-        if _task_run_work_order_id(resolved) and _task_run_work_order_id(resolved) != work_order.work_order_id:
-            raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
-        if not _task_run_work_order_id(resolved) and task_run_id == work_order.task_run_id:
-            return {}
-        return resolved
+    def _executor_task_execution_payload(self, execution: dict[str, Any], *, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+        task_execution = dict(execution.get("node_executor_task_execution") or {})
+        outputs = dict(dict(execution.get("node_result") or {}).get("outputs") or {})
+        execution_id = str(task_execution.get("execution_id") or outputs.get("node_executor_execution_id") or "").strip()
+        if execution_id and not task_execution.get("execution_id"):
+            task_execution["execution_id"] = execution_id
+        if _task_execution_work_order_id(task_execution) and _task_execution_work_order_id(task_execution) != work_order.work_order_id:
+            raise ValueError("GraphRunRunner node executor task execution work_order_id mismatch")
+        return task_execution
 
     def _append_runner_event(
         self,
@@ -543,30 +524,30 @@ def _runtime_budget_exhausted(started_at: float, *, max_runtime_seconds: float) 
     return (time.monotonic() - started_at) >= max_runtime_seconds
 
 
-def _task_run_diagnostics(task_run: dict[str, Any]) -> dict[str, Any]:
-    return dict(task_run.get("diagnostics") or {})
+def _task_execution_diagnostics(task_execution: dict[str, Any]) -> dict[str, Any]:
+    return dict(task_execution.get("diagnostics") or {})
 
 
-def _task_run_origin(task_run: dict[str, Any]) -> dict[str, Any]:
-    return dict(_task_run_diagnostics(task_run).get("origin") or {})
+def _task_execution_origin(task_execution: dict[str, Any]) -> dict[str, Any]:
+    return dict(_task_execution_diagnostics(task_execution).get("origin") or {})
 
 
-def _task_run_origin_kind(task_run: dict[str, Any]) -> str:
-    diagnostics = _task_run_diagnostics(task_run)
-    origin = _task_run_origin(task_run)
-    return str(task_run.get("origin_kind") or origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
+def _task_execution_origin_kind(task_execution: dict[str, Any]) -> str:
+    diagnostics = _task_execution_diagnostics(task_execution)
+    origin = _task_execution_origin(task_execution)
+    return str(task_execution.get("origin_kind") or origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
 
 
-def _task_run_graph_run_id(task_run: dict[str, Any]) -> str:
-    diagnostics = _task_run_diagnostics(task_run)
-    origin = _task_run_origin(task_run)
-    return str(task_run.get("graph_run_id") or diagnostics.get("graph_run_id") or origin.get("graph_run_id") or "").strip()
+def _task_execution_graph_run_id(task_execution: dict[str, Any]) -> str:
+    diagnostics = _task_execution_diagnostics(task_execution)
+    origin = _task_execution_origin(task_execution)
+    return str(task_execution.get("graph_run_id") or diagnostics.get("graph_run_id") or origin.get("graph_run_id") or "").strip()
 
 
-def _task_run_work_order_id(task_run: dict[str, Any]) -> str:
-    diagnostics = _task_run_diagnostics(task_run)
-    origin = _task_run_origin(task_run)
-    return str(task_run.get("graph_work_order_id") or diagnostics.get("graph_work_order_id") or origin.get("origin_ref") or "").strip()
+def _task_execution_work_order_id(task_execution: dict[str, Any]) -> str:
+    diagnostics = _task_execution_diagnostics(task_execution)
+    origin = _task_execution_origin(task_execution)
+    return str(task_execution.get("graph_work_order_id") or diagnostics.get("graph_work_order_id") or origin.get("origin_ref") or "").strip()
 
 
 def _loop_state_public_view(state: GraphLoopState) -> dict[str, Any]:
@@ -682,8 +663,8 @@ def _event_payload_public_view(payload: dict[str, Any]) -> dict[str, Any]:
         ]
     if isinstance(payload.get("node_result"), dict):
         public["node_result"] = _node_result_event_public_view(dict(payload["node_result"]))
-    if isinstance(payload.get("node_executor_task_run"), dict):
-        public["node_executor_task_run"] = _task_run_event_public_view(dict(payload["node_executor_task_run"]))
+    if isinstance(payload.get("node_executor_task_execution"), dict):
+        public["node_executor_task_execution"] = _task_execution_event_public_view(dict(payload["node_executor_task_execution"]))
     if isinstance(payload.get("graph_loop_state"), dict):
         public["graph_loop_state"] = _loop_state_payload_event_public_view(dict(payload["graph_loop_state"]))
     if isinstance(payload.get("graph_result"), dict):
@@ -713,7 +694,7 @@ def _node_result_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
         "task_run_id": str(payload.get("task_run_id") or ""),
         "node_id": str(payload.get("node_id") or ""),
         "work_order_id": str(payload.get("work_order_id") or ""),
-        "node_executor_task_run_id": str(payload.get("node_executor_task_run_id") or ""),
+        "node_executor_execution_id": str(payload.get("node_executor_execution_id") or ""),
         "executor_type": str(payload.get("executor_type") or ""),
         "status": str(payload.get("status") or ""),
         "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
@@ -726,11 +707,13 @@ def _node_result_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _task_run_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+def _task_execution_event_public_view(payload: dict[str, Any]) -> dict[str, Any]:
     return {
-        "task_run_id": str(payload.get("task_run_id") or ""),
+        "execution_id": str(payload.get("execution_id") or ""),
+        "episode_id": str(payload.get("episode_id") or ""),
+        "task_environment_id": str(payload.get("task_environment_id") or ""),
         "session_id": str(payload.get("session_id") or ""),
-        "task_id": str(payload.get("task_id") or ""),
+        "task_ref": str(payload.get("task_ref") or ""),
         "owner_agent_seat_id": str(payload.get("owner_agent_seat_id") or ""),
         "agent_id": str(payload.get("agent_id") or ""),
         "agent_profile_id": str(payload.get("agent_profile_id") or ""),

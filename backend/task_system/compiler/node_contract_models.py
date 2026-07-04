@@ -63,6 +63,12 @@ def build_node_contract(
         graph_binding_contract=graph_binding_contract,
     )
     executor = dict(node.get("executor") or {})
+    executor_policy = dict(executor.get("executor_policy") or {})
+    tool_policy = _node_tool_policy(
+        node=node,
+        executor_policy=executor_policy,
+        graph_tools=graph_tools,
+    )
     return _drop_empty(
         {
             "contract_id": str(contracts.get("node_contract_id") or f"node-contract:{node_id}"),
@@ -103,6 +109,7 @@ def build_node_contract(
             "session_policy": session_policy,
             "permission_ceiling": dict(node.get("permissions") or graph_permissions or {}),
             "tool_contract": dict(node.get("tools") or graph_tools or {}),
+            "tool_policy": tool_policy,
             "memory_contract": dict(node.get("memory") or {}),
             "artifact_contract": dict(node.get("artifacts") or {}),
             "state_policy": {
@@ -114,6 +121,43 @@ def build_node_contract(
                 "receipt_required": True,
             },
             "authority": "task_system.compiled_node_contract",
+        }
+    )
+
+
+def _node_tool_policy(
+    *,
+    node: dict[str, Any],
+    executor_policy: dict[str, Any],
+    graph_tools: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(node.get("metadata") or {})
+    runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
+    runtime_tool_policy = _merge_runtime_policy_dicts(
+        runtime_profile.get("tool_exposure_policy"),
+        runtime_profile.get("tool_policy"),
+    )
+    executor_tool_policy = _merge_runtime_policy_dicts(
+        executor_policy.get("operation_policy"),
+        executor_policy.get("tool_exposure_policy"),
+        executor_policy.get("tool_policy"),
+    )
+    explicit_node_policy = _merge_runtime_policy_dicts(
+        node.get("tool_exposure_policy"),
+        node.get("tool_policy"),
+        dict(node.get("tools") or {}).get("tool_policy"),
+        dict(graph_tools or {}).get("tool_policy"),
+    )
+    return _drop_empty(
+        {
+            **runtime_tool_policy,
+            **executor_tool_policy,
+            **explicit_node_policy,
+            **(
+                {"authority": "task_system.compiled_node_contract.tool_policy"}
+                if runtime_tool_policy or executor_tool_policy or explicit_node_policy
+                else {}
+            ),
         }
     )
 

@@ -104,7 +104,16 @@ export function selectRunMonitorSignal(state: RunMonitorState, signalId: string)
 
 export function signalDetailTaskRunId(signal: RunMonitorSignal | null | undefined) {
   const detail = signal?.detail_ref;
+  const kind = String(detail?.kind || signal?.source_kind || "").trim();
+  if (kind === "turn_run") return "";
   return String(detail?.task_run_id || signal?.task_run_id || "").trim();
+}
+
+export function signalDetailTurnRunId(signal: RunMonitorSignal | null | undefined) {
+  const detail = signal?.detail_ref;
+  const kind = String(detail?.kind || signal?.source_kind || "").trim();
+  if (kind !== "turn_run") return "";
+  return String(detail?.turn_run_id || detail?.task_run_id || signal?.task_run_id || "").trim();
 }
 
 function signalKey(signal: RunMonitorSignal | null | undefined) {

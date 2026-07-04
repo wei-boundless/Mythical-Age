@@ -187,12 +187,6 @@ def _harness_control_spine_lines() -> tuple[HarnessControlSpineLine, ...]:
             terminal_policy="active work control requires CurrentWorkBoundaryReceipt and admission",
         )
         + _harness_control_spine_line(
-            action_type="resume_task_recovery",
-            receipt_ref="harness.recovery_receipt.RecoveryReceipt",
-            commit_ref="",
-            terminal_policy="task recovery resume requires enforced RecoveryReceipt and route",
-        )
-        + _harness_control_spine_line(
             action_type="pause_for_user_steer",
             receipt_ref="task_execution_action_surface",
             commit_ref="",

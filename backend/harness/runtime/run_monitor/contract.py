@@ -67,11 +67,11 @@ def build_envelope(
     return payload
 
 
-def build_task_detail_envelope(*, item: dict[str, Any], now: float) -> dict[str, Any]:
+def build_task_detail_envelope(*, item: dict[str, Any], now: float, scope: str = "task_run") -> dict[str, Any]:
     return {
         **item,
         "authority": MONITOR_AUTHORITY,
-        "scope": "task_run",
+        "scope": str(scope or "task_run"),
         "revision": monitor_revision([item], now=now),
         "updated_at": float(now),
     }

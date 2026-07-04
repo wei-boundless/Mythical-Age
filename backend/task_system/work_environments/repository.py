@@ -291,6 +291,31 @@ class TaskEnvironmentRepository:
             ).fetchall()
         return tuple(_task_event_from_row(row) for row in rows)
 
+    def get_context_package(self, package_id: str) -> TaskContextPackage | None:
+        target = str(package_id or "").strip()
+        if not target:
+            return None
+        with closing(self._connect()) as conn:
+            row = conn.execute("SELECT * FROM task_context_packages WHERE package_id = ?", (target,)).fetchone()
+        return _context_package_from_row(row) if row is not None else None
+
+    def list_context_packages(self, task_environment_id: str, *, limit: int = 20) -> tuple[TaskContextPackage, ...]:
+        target = str(task_environment_id or "").strip()
+        if not target:
+            return ()
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM task_context_packages
+                WHERE task_environment_id = ?
+                ORDER BY created_at DESC, package_id ASC
+                LIMIT ?
+                """,
+                (target, _limit(limit)),
+            ).fetchall()
+        return tuple(_context_package_from_row(row) for row in rows)
+
     def upsert_session_binding(self, binding: SessionTaskBinding) -> SessionTaskBinding:
         now = _now()
         stored = replace(binding, created_at=binding.created_at or now, updated_at=now)
@@ -336,6 +361,59 @@ class TaskEnvironmentRepository:
                 ),
             )
         return stored
+
+    def get_session_binding(self, binding_id: str) -> SessionTaskBinding | None:
+        target = str(binding_id or "").strip()
+        if not target:
+            return None
+        with closing(self._connect()) as conn:
+            row = conn.execute("SELECT * FROM session_task_bindings WHERE binding_id = ?", (target,)).fetchone()
+        return _session_binding_from_row(row) if row is not None else None
+
+    def list_session_bindings(
+        self,
+        session_id: str,
+        *,
+        visibility: str = "",
+        status: str = "",
+        control_role: str = "",
+        limit: int = 20,
+    ) -> tuple[SessionTaskBinding, ...]:
+        target = str(session_id or "").strip()
+        if not target:
+            return ()
+        filters = ["session_id = ?"]
+        params: list[Any] = [target]
+        if visibility:
+            filters.append("visibility = ?")
+            params.append(str(visibility or "").strip())
+        if status:
+            filters.append("status = ?")
+            params.append(str(status or "").strip())
+        if control_role:
+            filters.append("control_role = ?")
+            params.append(str(control_role or "").strip())
+        sql = f"""
+            SELECT *
+            FROM session_task_bindings
+            WHERE {" AND ".join(filters)}
+            ORDER BY last_focused_at DESC, updated_at DESC, binding_id ASC
+            LIMIT ?
+        """
+        params.append(_limit(limit))
+        with closing(self._connect()) as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_session_binding_from_row(row) for row in rows)
+
+    def get_foreground_session_binding(self, session_id: str) -> SessionTaskBinding | None:
+        bindings = self.list_session_bindings(
+            session_id,
+            visibility="foreground",
+            status="active",
+            control_role="controller",
+            limit=1,
+        )
+        return bindings[0] if bindings else None
 
     def upsert_context_package(self, package: TaskContextPackage) -> TaskContextPackage:
         stored = replace(package, created_at=package.created_at or _now())
@@ -443,6 +521,61 @@ class TaskEnvironmentRepository:
             )
         return stored
 
+    def get_lease(self, lease_id: str) -> TaskEnvironmentLease | None:
+        target = str(lease_id or "").strip()
+        if not target:
+            return None
+        with closing(self._connect()) as conn:
+            row = conn.execute("SELECT * FROM task_environment_leases WHERE lease_id = ?", (target,)).fetchone()
+        return _lease_from_row(row) if row is not None else None
+
+    def list_leases(
+        self,
+        task_environment_id: str,
+        *,
+        status: str = "",
+        limit: int = 50,
+    ) -> tuple[TaskEnvironmentLease, ...]:
+        target = str(task_environment_id or "").strip()
+        if not target:
+            return ()
+        filters = ["task_environment_id = ?"]
+        params: list[Any] = [target]
+        if status:
+            filters.append("status = ?")
+            params.append(status)
+        sql = f"""
+            SELECT *
+            FROM task_environment_leases
+            WHERE {" AND ".join(filters)}
+            ORDER BY acquired_at DESC, lease_id ASC
+            LIMIT ?
+        """
+        params.append(_limit(limit))
+        with closing(self._connect()) as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_lease_from_row(row) for row in rows)
+
+    def list_expired_active_leases(
+        self,
+        *,
+        now: float | None = None,
+        limit: int = 200,
+    ) -> tuple[TaskEnvironmentLease, ...]:
+        cutoff = _now() if now is None else float(now)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM task_environment_leases
+                WHERE status = 'active' AND expires_at <= ?
+                ORDER BY expires_at ASC, lease_id ASC
+                LIMIT ?
+                """,
+                (cutoff, _limit(limit)),
+            ).fetchall()
+        return tuple(_lease_from_row(row) for row in rows)
+
     def upsert_control_signal(self, signal: TaskControlSignal) -> TaskControlSignal:
         stored = replace(signal, created_at=signal.created_at or _now())
         with closing(self._connect()) as conn:
@@ -479,6 +612,41 @@ class TaskEnvironmentRepository:
                 ),
             )
         return stored
+
+    def get_control_signal(self, signal_id: str) -> TaskControlSignal | None:
+        target = str(signal_id or "").strip()
+        if not target:
+            return None
+        with closing(self._connect()) as conn:
+            row = conn.execute("SELECT * FROM task_control_signals WHERE signal_id = ?", (target,)).fetchone()
+        return _control_signal_from_row(row) if row is not None else None
+
+    def list_control_signals(
+        self,
+        task_environment_id: str,
+        *,
+        status: str = "",
+        limit: int = 50,
+    ) -> tuple[TaskControlSignal, ...]:
+        target = str(task_environment_id or "").strip()
+        if not target:
+            return ()
+        filters = ["task_environment_id = ?"]
+        params: list[Any] = [target]
+        if status:
+            filters.append("status = ?")
+            params.append(status)
+        sql = f"""
+            SELECT *
+            FROM task_control_signals
+            WHERE {" AND ".join(filters)}
+            ORDER BY created_at DESC, signal_id ASC
+            LIMIT ?
+        """
+        params.append(_limit(limit))
+        with closing(self._connect()) as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return tuple(_control_signal_from_row(row) for row in rows)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
@@ -793,6 +961,89 @@ def _task_event_from_row(row: sqlite3.Row) -> TaskEvent:
     )
 
 
+def _session_binding_from_row(row: sqlite3.Row) -> SessionTaskBinding:
+    return SessionTaskBinding(
+        binding_id=str(row["binding_id"]),
+        session_id=str(row["session_id"]),
+        task_environment_id=str(row["task_environment_id"]),
+        task_instance_id=str(row["task_instance_id"]),
+        binding_kind=str(row["binding_kind"] or "origin"),
+        control_role=str(row["control_role"] or "controller"),
+        visibility=str(row["visibility"] or "foreground"),
+        created_from_turn_id=str(row["created_from_turn_id"] or ""),
+        last_focused_at=float(row["last_focused_at"] or 0.0),
+        last_user_steer_ref=str(row["last_user_steer_ref"] or ""),
+        status=str(row["status"] or "active"),
+        created_at=float(row["created_at"] or 0.0),
+        updated_at=float(row["updated_at"] or 0.0),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.session_task_binding"),
+    )
+
+
+def _context_package_from_row(row: sqlite3.Row) -> TaskContextPackage:
+    return TaskContextPackage(
+        package_id=str(row["package_id"]),
+        task_environment_id=str(row["task_environment_id"]),
+        episode_id=str(row["episode_id"]),
+        package_hash=str(row["package_hash"]),
+        role_contract=str(row["role_contract"] or ""),
+        goal=str(row["goal"] or ""),
+        scope=_loads(row["scope_json"], {}),
+        acceptance=_loads(row["acceptance_json"], {}),
+        stable_context_ref=str(row["stable_context_ref"] or ""),
+        current_context_ref=str(row["current_context_ref"] or ""),
+        memory_refs=tuple(_strings(_loads(row["memory_refs_json"], []))),
+        artifact_refs=tuple(_strings(_loads(row["artifact_refs_json"], []))),
+        resource_handles=_loads(row["resource_handles_json"], {}),
+        graph_context=_loads(row["graph_context_json"], {}),
+        project_network_handles=_loads(row["project_network_handles_json"], {}),
+        continuation_hint=str(row["continuation_hint"] or ""),
+        output_contract=_loads(row["output_contract_json"], {}),
+        packet_policy=_loads(row["packet_policy_json"], {}),
+        metadata=_loads(row["metadata_json"], {}),
+        created_at=float(row["created_at"] or 0.0),
+        authority=str(row["authority"] or "task_system.task_context_package"),
+    )
+
+
+def _lease_from_row(row: sqlite3.Row) -> TaskEnvironmentLease:
+    return TaskEnvironmentLease(
+        lease_id=str(row["lease_id"]),
+        task_environment_id=str(row["task_environment_id"]),
+        episode_id=str(row["episode_id"]),
+        lease_kind=str(row["lease_kind"]),
+        holder_kind=str(row["holder_kind"]),
+        holder_id=str(row["holder_id"]),
+        status=str(row["status"] or "active"),  # type: ignore[arg-type]
+        acquired_at=float(row["acquired_at"] or 0.0),
+        expires_at=float(row["expires_at"] or 0.0),
+        heartbeat_at=float(row["heartbeat_at"] or 0.0),
+        released_at=float(row["released_at"] or 0.0),
+        release_reason=str(row["release_reason"] or ""),
+        idempotency_key=str(row["idempotency_key"] or ""),
+        metadata=_loads(row["metadata_json"], {}),
+        authority=str(row["authority"] or "task_system.task_environment_lease"),
+    )
+
+
+def _control_signal_from_row(row: sqlite3.Row) -> TaskControlSignal:
+    return TaskControlSignal(
+        signal_id=str(row["signal_id"]),
+        task_environment_id=str(row["task_environment_id"]),
+        signal_kind=str(row["signal_kind"]),  # type: ignore[arg-type]
+        requested_by=str(row["requested_by"]),
+        status=str(row["status"] or "pending"),  # type: ignore[arg-type]
+        reason=str(row["reason"] or ""),
+        payload=_loads(row["payload_json"], {}),
+        created_at=float(row["created_at"] or 0.0),
+        handled_at=float(row["handled_at"] or 0.0),
+        handler_episode_id=str(row["handler_episode_id"] or ""),
+        idempotency_key=str(row["idempotency_key"] or ""),
+        authority=str(row["authority"] or "task_system.task_control_signal"),
+    )
+
+
 def _now() -> float:
     return time.time()
 
@@ -811,3 +1062,7 @@ def _loads(value: Any, default: Any) -> Any:
     except (TypeError, json.JSONDecodeError):
         return default
     return loaded if isinstance(loaded, type(default)) else default
+
+
+def _strings(value: Any) -> list[str]:
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]

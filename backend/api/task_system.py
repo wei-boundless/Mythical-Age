@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
@@ -44,6 +44,8 @@ from task_system.node_configurations import (
 )
 from task_system.projects import ProjectFileService, ProjectLifecycleService
 from task_system.session_scope import normalize_session_scope, session_scope_matches
+from task_system.work_environments import TaskEnvironmentViewService, TaskWorkEnvironmentService
+from task_system.work_environments.control_signal_bridge import apply_task_environment_control_signal_bridge
 
 router = APIRouter()
 
@@ -258,6 +260,53 @@ class TaskEnvironmentSessionResolveRequest(BaseModel):
     create_if_missing: bool = False
     graph_run_id: str = Field(default="", max_length=240)
     startup_parameters: dict[str, object] = Field(default_factory=dict)
+
+
+class TaskEnvironmentControlSignalRequest(BaseModel):
+    signal_kind: str = Field(..., min_length=3, max_length=80)
+    reason: str = Field(default="", max_length=1000)
+    requested_by: str = Field(default="user", max_length=120)
+    payload: dict[str, object] = Field(default_factory=dict)
+    idempotency_key: str = Field(default="", max_length=240)
+    bridge_graph_control: bool = True
+
+
+class TaskEnvironmentRecoveryActionRequest(BaseModel):
+    action: str = Field(default="resume_graph_run", min_length=3, max_length=100)
+    reason: str = Field(default="", max_length=1000)
+    requested_by: str = Field(default="user", max_length=120)
+    idempotency_key: str = Field(default="", max_length=240)
+    start_node_ids: list[str] = Field(default_factory=list)
+    reset_downstream: bool = False
+    dispatch_ready: bool = True
+    max_dispatch_requests: int = Field(default=4, ge=0, le=100)
+    runtime_settings_patch: dict[str, object] = Field(default_factory=dict)
+
+
+class TaskEnvironmentStaleLeaseRecoveryRequest(BaseModel):
+    limit: int = Field(default=200, ge=1, le=1000)
+    reason: str = Field(default="task_environment_lease_expired", max_length=240)
+
+
+class TaskEnvironmentEpisodePrepareRequest(BaseModel):
+    agent_id: str = Field(default="", max_length=160)
+    agent_profile_id: str = Field(default="", max_length=160)
+    invocation_kind: str = Field(default="task_episode", max_length=120)
+    caller_kind: str = Field(default="task_system", max_length=120)
+    role_contract: str = Field(default="", max_length=12000)
+    scope: dict[str, object] = Field(default_factory=dict)
+    acceptance: dict[str, object] = Field(default_factory=dict)
+    resource_handles: dict[str, object] = Field(default_factory=dict)
+    graph_context: dict[str, object] = Field(default_factory=dict)
+    project_network_handles: dict[str, object] = Field(default_factory=dict)
+    output_contract: dict[str, object] = Field(default_factory=dict)
+    packet_policy: dict[str, object] = Field(default_factory=dict)
+    continuation_hint: str = Field(default="", max_length=4000)
+    idempotency_key: str = Field(default="", max_length=240)
+
+
+class TaskEnvironmentEpisodeRunRequest(BaseModel):
+    max_steps: int = Field(default=12, ge=1, le=100)
 
 
 class ProjectLifecycleRunStartRequest(BaseModel):
@@ -1505,6 +1554,628 @@ async def list_task_system_environment_projects(environment_id: str) -> dict[str
     }
 
 
+@router.get("/task-environments")
+async def list_task_work_environments(
+    status: str = "",
+    task_kind: str = "",
+    project_id: str = "",
+    caller_kind: str = "",
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    return TaskEnvironmentViewService(runtime.base_dir).list_task_environments(
+        status=status,
+        task_kind=task_kind,
+        project_id=project_id,
+        caller_kind=caller_kind,
+        limit=limit,
+    )
+
+
+@router.get("/task-environments/resumable")
+async def list_resumable_task_work_environments(
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    payload = TaskEnvironmentViewService(runtime.base_dir).list_resumable_task_environments(limit=limit)
+    items = []
+    for item in list(payload.get("task_environments") or []):
+        row = dict(item or {})
+        row["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, row)
+        items.append(row)
+    payload["task_environments"] = items
+    return payload
+
+
+@router.post("/task-environments/recover-stale-leases")
+async def recover_stale_task_environment_leases(
+    payload: TaskEnvironmentStaleLeaseRecoveryRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    result = TaskWorkEnvironmentService(runtime.base_dir).recover_stale_leases(
+        limit=payload.limit,
+        reason=payload.reason,
+    )
+    recovered_items = []
+    for item in list(result.get("recovered_leases") or []):
+        row = dict(item or {})
+        recovery_projection = dict(row.get("recovery_projection") or {})
+        if recovery_projection:
+            row["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, recovery_projection)
+        recovered_items.append(row)
+    result["recovered_leases"] = recovered_items
+    return result
+
+
+@router.get("/task-environments/{environment_id}")
+async def get_task_work_environment(
+    environment_id: str,
+    event_limit: int = Query(default=80, ge=1, le=500),
+    episode_limit: int = Query(default=40, ge=1, le=200),
+    context_package_limit: int = Query(default=10, ge=1, le=100),
+    work_product_limit: int = Query(default=40, ge=1, le=200),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    detail = TaskEnvironmentViewService(runtime.base_dir).task_environment_detail(
+        environment_id,
+        event_limit=event_limit,
+        episode_limit=episode_limit,
+        context_package_limit=context_package_limit,
+        work_product_limit=work_product_limit,
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    detail["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, detail)
+    return detail
+
+
+@router.get("/task-environments/{environment_id}/graph-runtime")
+async def get_task_work_environment_graph_runtime(environment_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    detail = TaskEnvironmentViewService(runtime.base_dir).task_environment_detail(
+        environment_id,
+        event_limit=1,
+        episode_limit=1,
+        context_package_limit=1,
+        work_product_limit=1,
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    return _task_environment_graph_runtime_projection(runtime, detail)
+
+
+@router.post("/task-environments/{environment_id}/episodes/prepare")
+async def prepare_task_work_environment_episode(
+    environment_id: str,
+    payload: TaskEnvironmentEpisodePrepareRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    service = TaskWorkEnvironmentService(runtime.base_dir)
+    try:
+        preparation = service.prepare_task_episode(
+            task_environment_id=environment_id,
+            agent_id=payload.agent_id,
+            agent_profile_id=payload.agent_profile_id,
+            invocation_kind=payload.invocation_kind,
+            caller_kind=payload.caller_kind,
+            role_contract=payload.role_contract,
+            scope=dict(payload.scope or {}),
+            acceptance=dict(payload.acceptance or {}),
+            resource_handles=dict(payload.resource_handles or {}),
+            graph_context=dict(payload.graph_context or {}),
+            project_network_handles=dict(payload.project_network_handles or {}),
+            output_contract=dict(payload.output_contract or {}),
+            packet_policy=dict(payload.packet_policy or {}),
+            continuation_hint=payload.continuation_hint,
+            idempotency_key=payload.idempotency_key,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        reason = str(exc)
+        status_code = 409 if "active lease" in reason else 400
+        raise HTTPException(status_code=status_code, detail=reason) from exc
+    return preparation.to_dict()
+
+
+@router.post("/task-environments/{environment_id}/episodes/{episode_id}/run")
+async def run_task_work_environment_episode(
+    environment_id: str,
+    episode_id: str,
+    payload: TaskEnvironmentEpisodeRunRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return await runtime.harness_runtime.execute_task_environment_episode(
+            task_environment_id=environment_id,
+            episode_id=episode_id,
+            max_steps=payload.max_steps,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        reason = str(exc)
+        status_code = 409 if "active lease" in reason or "does not belong" in reason else 400
+        raise HTTPException(status_code=status_code, detail=reason) from exc
+
+
+@router.get("/task-environments/{environment_id}/control-signals")
+async def list_task_work_environment_control_signals(
+    environment_id: str,
+    status: str = "",
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    repository = TaskWorkEnvironmentService(runtime.base_dir).repository
+    if repository.get_task_environment(environment_id) is None:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    signals = repository.list_control_signals(environment_id, status=status, limit=limit)
+    return {
+        "authority": "task_system.task_environment_control_signal_api.list",
+        "task_environment_id": environment_id,
+        "control_signals": [item.to_dict() for item in signals],
+        "summary": {
+            "control_signal_count": len(signals),
+            "status": status,
+        },
+    }
+
+
+@router.post("/task-environments/{environment_id}/control-signals")
+async def request_task_work_environment_control_signal(
+    environment_id: str,
+    payload: TaskEnvironmentControlSignalRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    service = TaskWorkEnvironmentService(runtime.base_dir)
+    try:
+        request_result = service.request_control_signal(
+            task_environment_id=environment_id,
+            signal_kind=payload.signal_kind,
+            requested_by=payload.requested_by,
+            reason=payload.reason,
+            payload=dict(payload.payload or {}),
+            idempotency_key=payload.idempotency_key,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    signal = dict(request_result.get("control_signal") or {})
+    bridge = apply_task_environment_control_signal_bridge(
+        base_dir=runtime.base_dir,
+        graph_system=getattr(getattr(runtime, "harness_runtime", None), "graph_system", None),
+        environment_id=environment_id,
+        signal=signal,
+        bridge_graph_control=payload.bridge_graph_control,
+    )
+    handling_result: dict[str, object] = {}
+    bridge_status = str(bridge.get("signal_status") or "")
+    if bridge_status in {"handled", "failed"}:
+        try:
+            handling_result = service.record_control_signal_handling(
+                signal_id=str(signal.get("signal_id") or ""),
+                status=bridge_status,
+                handling_result=bridge,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "authority": "task_system.task_environment_control_signal_api.request",
+        "request": request_result,
+        "bridge": bridge,
+        "handling": handling_result,
+    }
+
+
+@router.post("/task-environments/{environment_id}/recovery-actions")
+async def request_task_work_environment_recovery_action(
+    environment_id: str,
+    payload: TaskEnvironmentRecoveryActionRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    service = TaskWorkEnvironmentService(runtime.base_dir)
+    action = _normalized_task_environment_recovery_action(payload.action)
+    if not action:
+        raise HTTPException(status_code=400, detail="unsupported task environment recovery action")
+    try:
+        request_result = service.request_control_signal(
+            task_environment_id=environment_id,
+            signal_kind=_recovery_action_signal_kind(action),
+            requested_by=payload.requested_by,
+            reason=payload.reason or action,
+            payload={
+                "recovery_action": action,
+                "start_node_ids": list(payload.start_node_ids or []),
+                "reset_downstream": bool(payload.reset_downstream),
+                "dispatch_ready": bool(payload.dispatch_ready),
+                "max_dispatch_requests": int(payload.max_dispatch_requests or 0),
+                "runtime_settings_patch": dict(payload.runtime_settings_patch or {}),
+            },
+            idempotency_key=payload.idempotency_key or f"recovery:{action}:{environment_id}",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    signal = dict(request_result.get("control_signal") or {})
+    bridge = _apply_task_environment_recovery_action_bridge(
+        runtime,
+        environment_id=environment_id,
+        action=action,
+        signal=signal,
+        start_node_ids=tuple(str(item).strip() for item in payload.start_node_ids if str(item).strip()),
+        reset_downstream=payload.reset_downstream,
+        dispatch_ready=payload.dispatch_ready,
+        max_dispatch_requests=payload.max_dispatch_requests,
+        runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
+    )
+    handling_result: dict[str, object] = {}
+    bridge_status = str(bridge.get("signal_status") or "")
+    if bridge_status in {"handled", "failed"}:
+        try:
+            handling_result = service.record_control_signal_handling(
+                signal_id=str(signal.get("signal_id") or ""),
+                status=bridge_status,
+                handling_result=bridge,
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "authority": "task_system.task_environment_recovery_action_api.request",
+        "request": request_result,
+        "bridge": bridge,
+        "handling": handling_result,
+    }
+
+
+def _apply_task_environment_recovery_action_bridge(
+    runtime,
+    *,
+    environment_id: str,
+    action: str,
+    signal: dict[str, object],
+    start_node_ids: tuple[str, ...],
+    reset_downstream: bool,
+    dispatch_ready: bool,
+    max_dispatch_requests: int,
+    runtime_settings_patch: dict[str, object],
+) -> dict[str, object]:
+    detail = TaskEnvironmentViewService(runtime.base_dir).task_environment_detail(
+        environment_id,
+        event_limit=1,
+        episode_limit=1,
+        context_package_limit=1,
+        work_product_limit=1,
+    )
+    binding = dict(detail.get("graph_node_binding") or {})
+    graph_run_id = str(binding.get("graph_run_id") or "").strip()
+    node_id = str(binding.get("node_id") or "").strip()
+    config_id = str(binding.get("config_id") or "").strip()
+    if not graph_run_id or not node_id or not config_id:
+        return {
+            "authority": "task_system.task_environment_recovery_action_bridge",
+            "applied": False,
+            "signal_status": "pending",
+            "reason": "graph_node_binding_incomplete",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+        }
+    graph_system = getattr(getattr(runtime, "harness_runtime", None), "graph_system", None)
+    if graph_system is None:
+        return {
+            "authority": "task_system.task_environment_recovery_action_bridge",
+            "applied": False,
+            "signal_status": "failed",
+            "reason": "graph_system_unavailable",
+            "graph_run_id": graph_run_id,
+        }
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(config_id)
+    if graph_config is None:
+        return {
+            "authority": "task_system.task_environment_recovery_action_bridge",
+            "applied": False,
+            "signal_status": "failed",
+            "reason": "graph_config_not_found",
+            "graph_run_id": graph_run_id,
+            "config_id": config_id,
+        }
+    try:
+        if action == "resume_graph_run":
+            result = graph_system.resume_run(
+                graph_config=graph_config,
+                graph_run_id=graph_run_id,
+                dispatch_ready=dispatch_ready,
+                max_requests=max_dispatch_requests,
+            )
+            return {
+                "authority": "task_system.task_environment_recovery_action_bridge",
+                "applied": True,
+                "signal_status": "handled",
+                "action": action,
+                "signal_id": str(signal.get("signal_id") or ""),
+                "graph_run_id": graph_run_id,
+                "graph_result": _compact_graph_action_result(result.to_dict() if hasattr(result, "to_dict") else dict(result or {})),
+            }
+        if action == "dispatch_ready_graph_nodes":
+            dispatch = graph_system.graph_loop.dispatch_ready_and_checkpoint(
+                graph_config=graph_config,
+                graph_run_id=graph_run_id,
+                max_requests=max_dispatch_requests,
+            )
+            return {
+                "authority": "task_system.task_environment_recovery_action_bridge",
+                "applied": True,
+                "signal_status": "handled",
+                "action": action,
+                "signal_id": str(signal.get("signal_id") or ""),
+                "graph_run_id": graph_run_id,
+                "dispatch": _compact_graph_loop_start(dispatch),
+            }
+        if action == "requeue_graph_node":
+            targets = start_node_ids or (node_id,)
+            requeue = graph_system.graph_loop.requeue_nodes_and_checkpoint(
+                graph_config=graph_config,
+                graph_run_id=graph_run_id,
+                start_node_ids=targets,
+                runtime_settings_patch=dict(runtime_settings_patch or {}),
+                reset_downstream=reset_downstream,
+            )
+            dispatch_payload: dict[str, object] = {}
+            if dispatch_ready:
+                dispatch = graph_system.graph_loop.dispatch_ready_and_checkpoint(
+                    graph_config=graph_config,
+                    graph_run_id=graph_run_id,
+                    max_requests=max_dispatch_requests,
+                )
+                dispatch_payload = _compact_graph_loop_start(dispatch)
+            return {
+                "authority": "task_system.task_environment_recovery_action_bridge",
+                "applied": True,
+                "signal_status": "handled",
+                "action": action,
+                "signal_id": str(signal.get("signal_id") or ""),
+                "graph_run_id": graph_run_id,
+                "node_ids": list(targets),
+                "requeue": _compact_graph_loop_start(requeue),
+                "dispatch": dispatch_payload,
+            }
+    except ValueError as exc:
+        return {
+            "authority": "task_system.task_environment_recovery_action_bridge",
+            "applied": False,
+            "signal_status": "failed",
+            "reason": str(exc),
+            "action": action,
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+        }
+    return {
+        "authority": "task_system.task_environment_recovery_action_bridge",
+        "applied": False,
+        "signal_status": "failed",
+        "reason": "unsupported_recovery_action",
+        "action": action,
+        "graph_run_id": graph_run_id,
+    }
+
+
+def _normalized_task_environment_recovery_action(value: str) -> str:
+    action = str(value or "").strip()
+    aliases = {
+        "resume": "resume_graph_run",
+        "resume_graph": "resume_graph_run",
+        "requeue": "requeue_graph_node",
+        "requeue_node": "requeue_graph_node",
+        "dispatch": "dispatch_ready_graph_nodes",
+        "dispatch_ready": "dispatch_ready_graph_nodes",
+    }
+    action = aliases.get(action, action)
+    if action in {"resume_graph_run", "requeue_graph_node", "dispatch_ready_graph_nodes"}:
+        return action
+    return ""
+
+
+def _recovery_action_signal_kind(action: str) -> str:
+    if action == "requeue_graph_node":
+        return "replan_requested"
+    return "resume_requested"
+
+
+def _task_environment_graph_runtime_projection(runtime, detail: dict[str, object]) -> dict[str, object]:
+    binding = dict(detail.get("graph_node_binding") or {})
+    graph_run_id = str(binding.get("graph_run_id") or "").strip()
+    node_id = str(binding.get("node_id") or "").strip()
+    config_id = str(binding.get("config_id") or "").strip()
+    if not graph_run_id:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "no_graph_node_binding",
+        }
+    graph_system = getattr(getattr(runtime, "harness_runtime", None), "graph_system", None)
+    if graph_system is None:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "graph_system_unavailable",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+        }
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(config_id) if config_id else None
+    monitor_loader = getattr(graph_system, "get_graph_run_monitor", None)
+    if not callable(monitor_loader):
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "graph_run_monitor_unavailable",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+            "graph_config_available": graph_config is not None,
+        }
+    try:
+        monitor = monitor_loader(
+            graph_run_id,
+            graph_config=graph_config,
+            event_limit=1,
+            include_config=False,
+        )
+    except ValueError as exc:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": str(exc),
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+            "graph_config_available": graph_config is not None,
+        }
+    if not monitor:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "graph_run_monitor_not_found",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+            "graph_config_available": graph_config is not None,
+        }
+    monitor_payload = dict(monitor or {})
+    loop_state = dict(monitor_payload.get("graph_loop_state") or {})
+    graph_run = dict(monitor_payload.get("graph_run") or {})
+    task_run = dict(monitor_payload.get("task_run") or {})
+    active_orders = [dict(item) for item in list(monitor_payload.get("active_node_work_orders") or []) if isinstance(item, dict)]
+    node_states = dict(loop_state.get("node_states") or {})
+    node_state = dict(node_states.get(node_id) or {})
+    active_order = _first_work_order_for_node(active_orders, node_id=node_id)
+    latest_checkpoint = {}
+    checkpoint_loader = getattr(graph_system, "get_latest_checkpoint", None)
+    if callable(checkpoint_loader):
+        try:
+            latest_checkpoint = dict(checkpoint_loader(graph_run_id) or {})
+        except ValueError:
+            latest_checkpoint = {}
+    return {
+        "authority": "task_system.task_environment_graph_runtime_projection",
+        "available": True,
+        "graph_run_id": graph_run_id,
+        "graph_id": str(binding.get("graph_id") or loop_state.get("graph_id") or graph_run.get("graph_id") or ""),
+        "config_id": config_id or str(loop_state.get("config_id") or graph_run.get("config_id") or ""),
+        "graph_config_available": graph_config is not None,
+        "graph_run_status": str(graph_run.get("status") or loop_state.get("status") or ""),
+        "task_run": {
+            key: task_run.get(key)
+            for key in ("task_run_id", "status", "terminal_reason")
+            if task_run.get(key) not in (None, "", [], {})
+        },
+        "loop_state": {
+            "status": str(loop_state.get("status") or ""),
+            "terminal_reason": str(loop_state.get("terminal_reason") or ""),
+            "ready_node_ids": _id_list(loop_state.get("ready_node_ids")),
+            "running_node_ids": _id_list(loop_state.get("running_node_ids")),
+            "blocked_node_ids": _id_list(loop_state.get("blocked_node_ids")),
+            "failed_node_ids": _id_list(loop_state.get("failed_node_ids")),
+            "active_work_order_node_ids": _id_list(loop_state.get("active_work_order_node_ids")),
+            "event_cursor": loop_state.get("event_cursor", -1),
+        },
+        "node_runtime": {
+            "node_id": node_id,
+            "status": str(node_state.get("status") or ""),
+            "result_ref": str(node_state.get("result_ref") or ""),
+            "active_work_order_id": str(active_order.get("work_order_id") or ""),
+            "is_active": bool(active_order),
+        },
+        "active_node_work_order_count": len(active_orders),
+        "latest_checkpoint": _compact_checkpoint(latest_checkpoint),
+    }
+
+
+def _first_work_order_for_node(work_orders: list[dict[str, object]], *, node_id: str) -> dict[str, object]:
+    target = str(node_id or "").strip()
+    for item in work_orders:
+        if str(item.get("node_id") or "").strip() == target:
+            return dict(item)
+    return {}
+
+
+def _compact_checkpoint(checkpoint: dict[str, object]) -> dict[str, object]:
+    if not checkpoint:
+        return {}
+    return {
+        key: checkpoint.get(key)
+        for key in ("checkpoint_id", "id", "graph_run_id", "state_id", "created_at", "event_cursor")
+        if checkpoint.get(key) not in (None, "", [], {})
+    }
+
+
+def _id_list(value: object) -> list[str]:
+    return [str(item) for item in list(value or []) if str(item)]
+
+
+def _compact_graph_loop_start(value: object) -> dict[str, object]:
+    payload = value.to_dict() if hasattr(value, "to_dict") else dict(value or {}) if isinstance(value, dict) else {}
+    loop_state = dict(payload.get("graph_loop_state") or {})
+    if not loop_state and hasattr(value, "loop_state"):
+        state = getattr(value, "loop_state")
+        loop_state = state.to_dict() if hasattr(state, "to_dict") else {}
+    node_work_orders = list(payload.get("node_work_orders") or [])
+    if not node_work_orders and hasattr(value, "node_work_orders"):
+        node_work_orders = [
+            item.to_dict() if hasattr(item, "to_dict") else dict(item or {})
+            for item in list(getattr(value, "node_work_orders") or [])
+        ]
+    checkpoint = dict(payload.get("checkpoint") or getattr(value, "checkpoint", {}) or {})
+    events = list(payload.get("events") or getattr(value, "events", ()) or ())
+    return {
+        "authority": "task_system.task_environment_recovery_action_bridge.graph_loop_start_summary",
+        "graph_loop_state": _compact_graph_loop_state(loop_state),
+        "checkpoint_id": str(checkpoint.get("checkpoint_id") or checkpoint.get("id") or ""),
+        "node_work_orders": [_compact_work_order(item) for item in node_work_orders],
+        "work_order_count": len(node_work_orders),
+        "event_count": len(events),
+    }
+
+
+def _compact_graph_action_result(payload: dict[str, object]) -> dict[str, object]:
+    loop_state = dict(payload.get("graph_loop_state") or {})
+    return {
+        "authority": str(payload.get("authority") or "task_system.task_environment_recovery_action_bridge.graph_result_summary"),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "resumed": bool(payload.get("resumed") is True),
+        "reason": str(payload.get("reason") or ""),
+        "graph_loop_state": _compact_graph_loop_state(loop_state),
+        "active_work_order_count": len(list(payload.get("active_work_orders") or [])),
+        "node_work_order_count": len(list(payload.get("node_work_orders") or [])),
+        "event_count": len(list(payload.get("events") or [])),
+    }
+
+
+def _compact_graph_loop_state(loop_state: dict[str, object]) -> dict[str, object]:
+    return {
+        "status": str(loop_state.get("status") or ""),
+        "terminal_reason": str(loop_state.get("terminal_reason") or ""),
+        "ready_node_ids": [str(item) for item in list(loop_state.get("ready_node_ids") or []) if str(item)],
+        "running_node_ids": [str(item) for item in list(loop_state.get("running_node_ids") or []) if str(item)],
+        "blocked_node_ids": [str(item) for item in list(loop_state.get("blocked_node_ids") or []) if str(item)],
+        "failed_node_ids": [str(item) for item in list(loop_state.get("failed_node_ids") or []) if str(item)],
+    }
+
+
+def _compact_work_order(value: object) -> dict[str, object]:
+    row = value if isinstance(value, dict) else value.to_dict() if hasattr(value, "to_dict") else {}
+    payload = dict(row or {})
+    return {
+        key: payload.get(key)
+        for key in ("work_order_id", "node_id", "graph_run_id", "task_run_id", "executor_type", "agent_profile_id")
+        if payload.get(key) not in (None, "", [], {})
+    }
+
+
 @router.get("/task-environments/{environment_id}/sessions")
 async def list_task_environment_sessions(
     environment_id: str,
@@ -2032,4 +2703,3 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
-

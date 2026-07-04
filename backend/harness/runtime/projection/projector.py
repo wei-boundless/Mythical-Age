@@ -298,8 +298,6 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_spec(data)
-    if event_type == "active_task_steer_accepted":
-        return _active_task_steer_status_spec(data)
     if event_type in {"error", "stopped"}:
         return _stream_terminal_status_spec(event_type, data)
     return _hidden_trace_spec(event_type, data)
@@ -955,25 +953,6 @@ def _assistant_public_feedback_parts(data: dict[str, Any]) -> tuple[str, str, st
     )
     body_text = _runtime_step_summary_body_text(title=primary_body, detail=detail)
     return title, detail, body_text
-
-
-def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
-    detail = public_text(data.get("summary") or data.get("message") or data.get("content"), limit=180)
-    return _typed_status_spec(
-        data,
-        kind="status_event",
-        state="done",
-        title="补充要求已接入当前任务",
-        detail=detail,
-        item_id=stable_id(
-            "active-task-steer",
-            data.get("runtime_event_id"),
-            data.get("task_run_id"),
-            data.get("turn_run_id"),
-            data.get("turn_id"),
-        ),
-        retention="transient",
-    )
 
 
 def _runtime_status_spec(data: dict[str, Any]) -> dict[str, Any]:

@@ -161,7 +161,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "public_action_state",
         "task_run_contract_seed",
         "active_work_control",
-        "task_recovery_resume",
     },
     "model_action_admission": {
         "request_id",
@@ -170,10 +169,6 @@ PUBLIC_EVENT_DATA_ALLOWLIST = {
         "admission",
         "runtime_event_id",
         "source_event_id",
-    },
-    "active_task_steer_accepted": {
-        "summary",
-        "status",
     },
     "runtime_status": {
         "title",
@@ -757,7 +752,6 @@ def _model_action_request_public_data(raw_data: dict[str, Any]) -> dict[str, Any
                 "public_action_state": _record(request.get("public_action_state")),
                 "task_run_contract_seed": _record(request.get("task_run_contract_seed")),
                 "active_work_control": _record(request.get("active_work_control")),
-                "task_recovery_resume": _record(request.get("task_recovery_resume")),
             }
         )
     )

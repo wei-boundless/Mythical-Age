@@ -19,8 +19,8 @@ def register_memory_candidate_payload_handlers(register) -> None:
     )
 
 
-def augment_writing_review_candidate_payload(*, task_run_payload: dict[str, Any], base_payload: dict[str, Any]) -> dict[str, Any] | None:
-    del task_run_payload
+def augment_writing_review_candidate_payload(*, task_execution_payload: dict[str, Any], base_payload: dict[str, Any]) -> dict[str, Any] | None:
+    del task_execution_payload
     final_answer = str(dict(base_payload or {}).get("final_answer") or "")
     if not final_answer.strip():
         return None

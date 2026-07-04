@@ -12,7 +12,6 @@ CONTROL_ACTION_TYPES = (
     "block",
     "request_task_run",
     "active_work_control",
-    "resume_task_recovery",
     "pause_for_user_steer",
 )
 TASK_START_PRIMARY_MODES = ("goal", "plan")
@@ -493,16 +492,6 @@ def turn_output_contract_payload(
                 ],
                 "not_for": "continuing execution; continue current work through this same turn's ordinary actions.",
             },
-            **(
-                {
-                    "resume_task_recovery": {
-                        "enabled": True,
-                        "operation_availability_gate": "Use only with explicit work-continuation handles.",
-                    }
-                }
-                if "resume_task_recovery" in allowed
-                else {}
-            ),
         },
         "planning_protocol": dict(planning_protocol or {}),
     }

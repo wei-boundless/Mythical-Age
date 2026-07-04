@@ -26,6 +26,75 @@ Task = 一个由系统持久化管理的工作环境。
 它承载 agent 围绕独立目标进行可恢复、可审计、可归并产物的持续工作。
 ```
 
+### 1.1 TaskWorkEnvironment 的硬定义
+
+`TaskWorkEnvironment` 不是任务目标本身，不是 agent，不是 session，也不是 GraphNode。
+
+它是系统为一个任务建立的持久工作现场：
+
+```text
+Task = 要完成的目标
+TaskWorkEnvironment = 这个目标正在被执行时的持久工作现场
+AgentExecutionEpisode = agent 在任务环境中的一次执行片段
+Session = 用户与系统交互的入口窗口
+GraphNodeWorkOrder = 图系统发出的节点调度请求
+Harness = 唯一单 agent 执行 runtime
+```
+
+任务环境存在的必要性来自普通 turn 的天然缺陷。普通 turn 只能表达当前一轮对话，不能稳定回答：
+
+- 这个任务做到哪一步；
+- 当前是否有 agent 正在执行；
+- 中断后从哪里恢复；
+- 哪些产物已经交付，哪些只是候选；
+- 哪些证据、文件、AST、graph binding 与当前任务相关；
+- 当前应该由用户、GraphSystem、Harness、TaskReducer 还是维护任务来接手。
+
+因此任务环境的工程职责是：
+
+```text
+把一次性对话升级为可追踪、可恢复、可审计、可继续推进的任务运行现场。
+```
+
+它必须承载：
+
+| 承载对象 | 作用 |
+| --- | --- |
+| 任务身份 | 目标、范围、验收、所属项目、绑定 session / graph run |
+| 运行状态 | ready / leased / paused / blocked / completed 等生命周期投影 |
+| 上下文包 | agent 本次 episode 需要的 stable context、current context、refs 和资源边界 |
+| 执行片段 | 每次 agent 执行的 AgentExecutionEpisode，不把 episode 当成任务本身 |
+| 产物 | WorkProduct candidate / accepted / repair-needed，不把 assistant final answer 当唯一产物 |
+| 控制信号 | pause / resume / replan / abort 等可审计控制意图和处理回执 |
+| 恢复锚点 | checkpoint、continuation hint、blocked reason、latest context package |
+| 查询投影 | 给 UI、session、graph、维护任务读取的任务进度视图 |
+
+核心裁决：
+
+```text
+任务环境是承载层，不是执行权威。
+```
+
+权威分工必须保持：
+
+```text
+TaskSystem 记录任务环境、事件、episode、work product、control signal。
+GraphSystem 决定图结构、节点 ready、dispatch、requeue、checkpoint。
+Harness 执行单 agent episode。
+Agent 做语义判断、提出计划、执行工具、提交产物候选。
+ProjectNetworkSystem 保存项目控制网络资产。
+FileManagement 提供文件树、AST、物理事实和资源引用。
+```
+
+设计成熟度的判断标准是：任务环境应该像一个持久工位，保存任务资料、当前进度、交付物、暂停原因和恢复入口；但真正工作的是 agent，调度复杂流程的是 GraphSystem，长期项目资产由 ProjectNetworkSystem 维护。
+
+一句话：
+
+```text
+TaskWorkEnvironment = 持久工作现场 + 状态账本 + 恢复锚点。
+它让 agent 不靠记忆硬扛任务连续性，让系统不靠聊天记录猜任务状态。
+```
+
 ## 2. 任务的要素
 
 ### 2.1 最小成立要素

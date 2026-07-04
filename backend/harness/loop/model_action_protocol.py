@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
@@ -9,7 +10,6 @@ ModelActionType = Literal[
     "tool_call",
     "request_task_run",
     "active_work_control",
-    "resume_task_recovery",
     "pause_for_user_steer",
     "block",
 ]
@@ -41,7 +41,6 @@ class ModelActionRequest:
     completion_contract: dict[str, Any] = field(default_factory=dict)
     permission_request: dict[str, Any] = field(default_factory=dict)
     active_work_control: dict[str, Any] = field(default_factory=dict)
-    task_recovery_resume: dict[str, Any] = field(default_factory=dict)
     pause_request: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
@@ -59,7 +58,6 @@ class ModelActionRequest:
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
         payload["active_work_control"] = dict(self.active_work_control or {})
-        payload["task_recovery_resume"] = dict(self.task_recovery_resume or {})
         payload["pause_request"] = dict(self.pause_request or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
@@ -108,11 +106,15 @@ def model_action_request_from_payload(
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
     errors: list[str] = []
+    raw_diagnostics_value = raw.get("diagnostics")
+    raw_diagnostics = dict(raw_diagnostics_value) if isinstance(raw_diagnostics_value, dict) else {}
+    if _has_non_empty_value(raw_diagnostics_value) and not isinstance(raw_diagnostics_value, dict):
+        errors.append("diagnostics_must_be_object")
     authority = str(raw.get("authority") or "harness.loop.model_action_request").strip()
     if authority != "harness.loop.model_action_request":
         errors.append("invalid_authority")
     action_type = str(raw.get("action_type") or "").strip()
-    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_task_recovery", "pause_for_user_steer", "block"}:
+    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "pause_for_user_steer", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
     allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
     if allowed and action_type and action_type not in allowed:
@@ -131,7 +133,6 @@ def model_action_request_from_payload(
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
     active_work_control = raw.get("active_work_control") or {}
-    task_recovery_resume = raw.get("task_recovery_resume") or {}
     pause_request = raw.get("pause_request") or {}
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
@@ -152,11 +153,6 @@ def model_action_request_from_payload(
         active_work_control = {}
     else:
         active_work_control = _normalize_active_work_control_payload(dict(active_work_control))
-    if not isinstance(task_recovery_resume, dict):
-        errors.append("task_recovery_resume_must_be_object")
-        task_recovery_resume = {}
-    else:
-        task_recovery_resume = _normalize_task_recovery_resume(dict(task_recovery_resume))
     if not isinstance(pause_request, dict):
         errors.append("pause_request_must_be_object")
         pause_request = {}
@@ -242,12 +238,6 @@ def model_action_request_from_payload(
             errors.append("active_work_action_must_be_canonical")
         elif not active_work_action_is_allowed(action):
             errors.append("active_work_action_not_allowed")
-    if action_type == "resume_task_recovery":
-        resume_payload = dict(task_recovery_resume or {})
-        if not str(resume_payload.get("task_run_id") or "").strip():
-            errors.append("task_recovery_resume.task_run_id_required")
-        if not str(resume_payload.get("continuation_id") or "").strip():
-            errors.append("task_recovery_resume.continuation_id_required")
     if action_type == "pause_for_user_steer":
         pause_payload = dict(pause_request or {})
         if not str(pause_payload.get("steer_ref") or "").strip():
@@ -256,17 +246,25 @@ def model_action_request_from_payload(
             errors.append("pause_request.reason_must_be_user_steer_requires_pause")
         if not str(pause_payload.get("checkpoint_summary") or "").strip():
             errors.append("pause_request.checkpoint_summary_required")
-        if _has_non_empty_value(dict(raw.get("diagnostics") or {}).get("consumed_steer_refs")):
+        if _has_non_empty_value(raw_diagnostics.get("consumed_steer_refs")):
             errors.append("pause_for_user_steer_must_not_consume_steer_refs")
-        if _has_non_empty_value(dict(raw.get("diagnostics") or {}).get("consumed_user_steer_refs")):
+        if _has_non_empty_value(raw_diagnostics.get("consumed_user_steer_refs")):
             errors.append("pause_for_user_steer_must_not_consume_user_steer_refs")
+    final_action_diagnostics, final_action_errors = _normalized_final_action_diagnostics(
+        raw,
+        raw_diagnostics=raw_diagnostics,
+        action_type=action_type,
+    )
+    errors.extend(final_action_errors)
     if errors:
         return None, {
             "status": "invalid",
             "validation_errors": errors,
             "authority": "harness.loop.model_action_protocol",
         }
-    normalized_diagnostics = dict(raw.get("diagnostics") or {})
+    normalized_diagnostics = dict(raw_diagnostics or {})
+    if final_action_diagnostics:
+        normalized_diagnostics["final_action_diagnostics"] = final_action_diagnostics
     if contract_gaps:
         normalized_diagnostics["contract_gaps"] = [
             *list(normalized_diagnostics.get("contract_gaps") or []),
@@ -288,7 +286,6 @@ def model_action_request_from_payload(
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
         active_work_control=dict(active_work_control),
-        task_recovery_resume=dict(task_recovery_resume),
         pause_request=dict(pause_request),
         diagnostics=normalized_diagnostics,
     ), {
@@ -307,7 +304,6 @@ _TASK_EXECUTION_CROSS_CONTEXT_FIELDS = (
     "permission_request",
     "engagement_request",
     "active_work_control",
-    "task_recovery_resume",
     "plan_id",
 )
 
@@ -406,25 +402,73 @@ def _public_progress_note(value: Any) -> str:
     return text[:160].rstrip()
 
 
-def _normalize_task_recovery_resume(value: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(value or {})
-    work_ref = str(
-        payload.get("work_ref")
-        or payload.get("task_ref")
-        or payload.get("task_run_id")
-        or ""
-    ).strip()
-    resume_ref = str(
-        payload.get("resume_ref")
-        or payload.get("continuation_ref")
-        or payload.get("continuation_id")
-        or ""
-    ).strip()
-    if work_ref and not str(payload.get("task_run_id") or "").strip():
-        payload["task_run_id"] = work_ref
-    if resume_ref and not str(payload.get("continuation_id") or "").strip():
-        payload["continuation_id"] = resume_ref
-    return payload
+def _normalized_final_action_diagnostics(
+    raw: dict[str, Any],
+    *,
+    raw_diagnostics: dict[str, Any],
+    action_type: str,
+) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    diagnostics: dict[str, Any] = {}
+    existing = raw_diagnostics.get("final_action_diagnostics")
+    if isinstance(existing, dict):
+        diagnostics.update(dict(existing))
+    elif _has_non_empty_value(existing):
+        errors.append("final_action_diagnostics_must_be_object")
+
+    structured_output, structured_errors = _machine_output_object_from_payload(
+        raw,
+        object_key="structured_output",
+        json_key="structured_output_json",
+    )
+    errors.extend(structured_errors)
+    node_output, node_errors = _machine_output_object_from_payload(
+        raw,
+        object_key="node_output",
+        json_key="node_output_json",
+    )
+    errors.extend(node_errors)
+
+    if diagnostics or structured_output or node_output:
+        if action_type != "respond":
+            errors.append("structured_output_only_allowed_for_respond")
+        if structured_output:
+            diagnostics["structured_output"] = structured_output
+        if node_output:
+            diagnostics["node_output"] = node_output
+        structured_diagnostic = diagnostics.get("structured_output")
+        node_diagnostic = diagnostics.get("node_output")
+        if isinstance(structured_diagnostic, dict) and not isinstance(node_diagnostic, dict):
+            diagnostics["node_output"] = dict(structured_diagnostic)
+        if isinstance(node_diagnostic, dict) and not isinstance(structured_diagnostic, dict):
+            diagnostics["structured_output"] = dict(node_diagnostic)
+    return diagnostics, errors
+
+
+def _machine_output_object_from_payload(
+    raw: dict[str, Any],
+    *,
+    object_key: str,
+    json_key: str,
+) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    value = raw.get(object_key)
+    if isinstance(value, dict):
+        return dict(value), []
+    if _has_non_empty_value(value):
+        errors.append(f"{object_key}_must_be_object")
+    text = str(raw.get(json_key) or "").strip()
+    if not text:
+        return {}, errors
+    try:
+        decoded = json.loads(text)
+    except Exception:
+        errors.append(f"{json_key}_must_be_valid_json_object")
+        return {}, errors
+    if not isinstance(decoded, dict):
+        errors.append(f"{json_key}_must_decode_to_object")
+        return {}, errors
+    return dict(decoded), errors
 
 
 def _normalize_active_work_control_payload(value: dict[str, Any]) -> dict[str, Any]:

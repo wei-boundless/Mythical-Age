@@ -4,8 +4,6 @@ import time
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
-from harness.task_run_status import is_stopped_or_terminal_task_run, runtime_control_state_from_task_run
-
 
 ActiveTurnState = Literal[
     "starting",
@@ -38,7 +36,6 @@ class ActiveTurnRecord:
     turn_id: str
     turn_run_id: str
     state: ActiveTurnState = "starting"
-    bound_task_run_id: str = ""
     stream_run_id: str = ""
     started_at: float = 0.0
     updated_at: float = 0.0
@@ -93,24 +90,6 @@ class ActiveTurnRegistry:
         record = self.snapshot(session_id)
         if record is not None and record.state == "interrupting":
             return None
-        if record is None or not record.bound_task_run_id:
-            return record
-        task_run = getattr(getattr(self.runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(
-            record.bound_task_run_id
-        )
-        if task_run is None:
-            self._update(record, state="terminal", steerable=False, terminal_reason="bound_task_run_missing")
-            return None
-        status = str(getattr(task_run, "status", "") or "").strip()
-        control_state = runtime_control_state_from_task_run(task_run, runtime_host=self.runtime_host)
-        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.runtime_host):
-            self._update(
-                record,
-                state="terminal",
-                steerable=False,
-                terminal_reason=f"bound_task_run_terminal:{status or control_state or 'unknown'}",
-            )
-            return None
         return record
 
     def start(
@@ -137,7 +116,6 @@ class ActiveTurnRegistry:
             updated_at=now,
             owner_instance_id=str(getattr(self.runtime_host, "instance_id", "") or ""),
             steerable=bool(steerable),
-            bound_task_run_id=current.bound_task_run_id if current is not None else "",
         )
         self._write(record)
         return record
@@ -154,34 +132,12 @@ class ActiveTurnRegistry:
             return record
         return self._update(record, stream_run_id=str(stream_run_id or "").strip())
 
-    def bind_task_run(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        task_run_id: str,
-        state: ActiveTurnState = "model_turn",
-    ) -> ActiveTurnRecord | None:
-        record = self.resolve_current(session_id)
-        if record is None or record.turn_id != turn_id:
-            return record
-        return self._update(record, bound_task_run_id=str(task_run_id or "").strip(), state=state)
-
     def complete(self, *, session_id: str, expected_turn_id: str, terminal_reason: str) -> ActiveTurnRecord | None:
         record = self.resolve_current(session_id)
         if record is None:
             return None
         if expected_turn_id and record.turn_id != expected_turn_id:
             raise ActiveTurnMismatch(expected=expected_turn_id, actual=record.turn_id)
-        return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
-
-    def complete_bound_task(self, *, session_id: str, task_run_id: str, terminal_reason: str) -> ActiveTurnRecord | None:
-        record = self.snapshot(session_id)
-        if record is None:
-            return None
-        expected_task_run_id = str(task_run_id or "").strip()
-        if not expected_task_run_id or record.bound_task_run_id != expected_task_run_id:
-            return record
         return self._update(record, state="terminal", steerable=False, terminal_reason=str(terminal_reason or "completed"))
 
     def complete_interrupted(
@@ -205,13 +161,11 @@ class ActiveTurnRegistry:
         *,
         session_id: str,
         expected_turn_id: str = "",
-        expected_task_run_id: str = "",
         reason: str = "runtime_interrupted_for_resume",
     ) -> dict[str, Any]:
         result = self.compare_and_update_current_turn(
             session_id=session_id,
             expected_turn_id=expected_turn_id,
-            expected_task_run_id=expected_task_run_id,
             terminal_reason=reason,
         )
         if not result.get("accepted"):
@@ -241,12 +195,9 @@ class ActiveTurnRegistry:
         *,
         session_id: str,
         expected_turn_id: str = "",
-        expected_task_run_id: str = "",
-        require_bound_task: bool = False,
         terminal_reason: str = "",
     ) -> dict[str, Any]:
         expected_turn_id = str(expected_turn_id or "").strip()
-        expected_task_run_id = str(expected_task_run_id or "").strip()
         record = self.resolve_current(session_id)
         if record is None:
             return {
@@ -254,31 +205,22 @@ class ActiveTurnRegistry:
                 "denied_reason": "active_turn_unavailable",
                 "expected_turn_id": expected_turn_id,
                 "actual_turn_id": "",
-                "expected_task_run_id": expected_task_run_id,
-                "actual_task_run_id": "",
                 "owner_instance_id": "",
                 "terminal_reason": str(terminal_reason or "active_turn_unavailable"),
                 "authority": "harness.runtime.active_turn.compare_and_update_current_turn",
             }
         actual_turn_id = str(record.turn_id or "").strip()
-        actual_task_run_id = str(record.bound_task_run_id or "").strip()
         denied_reason = ""
         if expected_turn_id and actual_turn_id != expected_turn_id:
             denied_reason = "expected_active_turn_mismatch"
-        elif expected_task_run_id and actual_task_run_id != expected_task_run_id:
-            denied_reason = "expected_task_run_mismatch"
         elif not bool(record.steerable):
             denied_reason = "active_turn_not_steerable"
-        elif require_bound_task and not actual_task_run_id:
-            denied_reason = "active_turn_not_bound_to_task"
         if denied_reason:
             return {
                 "accepted": False,
                 "denied_reason": denied_reason,
                 "expected_turn_id": expected_turn_id,
                 "actual_turn_id": actual_turn_id,
-                "expected_task_run_id": expected_task_run_id,
-                "actual_task_run_id": actual_task_run_id,
                 "owner_instance_id": str(record.owner_instance_id or ""),
                 "terminal_reason": str(terminal_reason or denied_reason),
                 "record": record.to_dict(),
@@ -289,8 +231,6 @@ class ActiveTurnRegistry:
             "denied_reason": "",
             "expected_turn_id": expected_turn_id,
             "actual_turn_id": actual_turn_id,
-            "expected_task_run_id": expected_task_run_id,
-            "actual_task_run_id": actual_task_run_id,
             "owner_instance_id": str(record.owner_instance_id or ""),
             "terminal_reason": "",
             "record": record.to_dict(),
@@ -371,7 +311,6 @@ def _record_from_payload(payload: dict[str, Any]) -> ActiveTurnRecord | None:
             turn_id=str(payload.get("turn_id") or ""),
             turn_run_id=str(payload.get("turn_run_id") or ""),
             state=_state(payload.get("state")),
-            bound_task_run_id=str(payload.get("bound_task_run_id") or ""),
             stream_run_id=str(payload.get("stream_run_id") or ""),
             started_at=float(payload.get("started_at") or 0.0),
             updated_at=float(payload.get("updated_at") or 0.0),

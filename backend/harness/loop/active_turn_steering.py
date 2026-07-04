@@ -9,9 +9,6 @@ from typing import Any
 from runtime.shared.models import TurnRun
 from runtime.shared.queued_user_input_store import QueuedUserInput
 
-from .task_steering import create_active_task_steer
-
-
 logger = logging.getLogger(__name__)
 
 _ACTIVE_TURN_STEER_CLAIM_LIMIT = 8
@@ -22,7 +19,6 @@ class ActiveTurnQueuedUserSteers:
     items: tuple[QueuedUserInput, ...] = ()
     model_message: dict[str, Any] | None = None
     events: tuple[dict[str, Any], ...] = ()
-    task_steer_results: tuple[dict[str, Any], ...] = ()
 
 
 async def claim_active_turn_queued_user_steers(
@@ -34,9 +30,7 @@ async def claim_active_turn_queued_user_steers(
     stream_run_id: str = "",
     packet_ref: str = "",
     phase: str,
-    bound_task_run_id: str | None = None,
     include_model_message: bool = True,
-    mirror_bound_task: bool = True,
     source_authority: str = "harness.loop.active_turn_steer",
 ) -> ActiveTurnQueuedUserSteers:
     if runtime_host is None:
@@ -45,7 +39,6 @@ async def claim_active_turn_queued_user_steers(
         runtime_host,
         session_id=session_id,
         turn_id=turn_id,
-        bound_task_run_id=bound_task_run_id,
     )
     if active_turn is None:
         return ActiveTurnQueuedUserSteers()
@@ -53,14 +46,10 @@ async def claim_active_turn_queued_user_steers(
     claim = getattr(store, "claim_for_active_turn", None)
     if not callable(claim):
         return ActiveTurnQueuedUserSteers()
-    task_run_id = str(bound_task_run_id if bound_task_run_id is not None else getattr(active_turn, "bound_task_run_id", "") or "").strip()
-    if task_run_id and _task_origin_kind(runtime_host, task_run_id) == "graph_node_assigned":
-        return ActiveTurnQueuedUserSteers()
     items = await asyncio.to_thread(
         claim,
         session_id,
         turn_id=turn_id,
-        task_run_id=task_run_id,
         limit=_ACTIVE_TURN_STEER_CLAIM_LIMIT,
     )
     claimed = tuple(item for item in list(items or []) if isinstance(item, QueuedUserInput))
@@ -68,8 +57,6 @@ async def claim_active_turn_queued_user_steers(
         return ActiveTurnQueuedUserSteers()
     stream_ref = str(stream_run_id or getattr(active_turn, "stream_run_id", "") or "").strip()
     dispatch_ref = stream_ref or (turn_run.turn_run_id if turn_run is not None else turn_id)
-    task_steer_results: list[dict[str, Any]] = []
-    failed_items: set[str] = set()
     for item in claimed:
         _persist_queued_user_steer_as_turn_message(
             runtime_host,
@@ -77,37 +64,11 @@ async def claim_active_turn_queued_user_steers(
             turn_id=turn_id,
             source=f"{source_authority}.message",
         )
-        if task_run_id and mirror_bound_task:
-            task_steer_result = _mirror_queued_user_steer_to_active_task(
-                runtime_host,
-                item,
-                task_run_id=task_run_id,
-                turn_id=turn_id,
-            )
-            if bool(task_steer_result.get("ok")):
-                task_steer_results.append(task_steer_result)
-            else:
-                failed_items.add(item.queue_item_id)
-                _mark_queued_item_failed(
-                    store,
-                    item,
-                    reason=str(task_steer_result.get("error") or "active_task_steer_mirror_failed"),
-                )
-                logger.warning(
-                    "failed to mirror queued active-turn steer to bound task",
-                    extra={
-                        "queue_item_id": item.queue_item_id,
-                        "task_run_id": task_run_id,
-                        "reason": str(task_steer_result.get("error") or ""),
-                    },
-                )
-                continue
         marker = getattr(store, "mark_dispatched", None)
         if callable(marker):
             await asyncio.to_thread(marker, item.session_id, item.queue_item_id, stream_run_id=dispatch_ref)
-    dispatched = tuple(item for item in claimed if item.queue_item_id not in failed_items)
-    if not dispatched:
-        return ActiveTurnQueuedUserSteers()
+    dispatched = claimed
+    task_environment_id = _first_task_environment_id(dispatched)
     _record_claimed_steers_in_turn_memory(
         runtime_host,
         session_id=session_id,
@@ -117,7 +78,7 @@ async def claim_active_turn_queued_user_steers(
         claimed=dispatched,
     )
     model_message = (
-        _queued_user_steer_model_message(dispatched, turn_id=turn_id, task_run_id=task_run_id, phase=phase)
+        _queued_user_steer_model_message(dispatched, turn_id=turn_id, task_environment_id=task_environment_id, phase=phase)
         if include_model_message
         else None
     )
@@ -127,10 +88,9 @@ async def claim_active_turn_queued_user_steers(
         turn_id=turn_id,
         stream_ref=stream_ref,
         packet_ref=packet_ref,
-        task_run_id=task_run_id,
+        task_environment_id=task_environment_id,
         phase=phase,
         claimed=dispatched,
-        task_steer_results=task_steer_results,
         source_authority=source_authority,
     )
     public_event = {
@@ -140,14 +100,13 @@ async def claim_active_turn_queued_user_steers(
         "packet_ref": str(packet_ref or ""),
         "phase": str(phase or ""),
         "queued_user_steers": [_queued_user_steer_payload(item) for item in dispatched],
-        **({"task_run_id": task_run_id} if task_run_id else {}),
+        **({"task_environment_id": task_environment_id} if task_environment_id else {}),
         **({"event": lifecycle_event} if lifecycle_event else {}),
     }
     return ActiveTurnQueuedUserSteers(
         items=dispatched,
         model_message=model_message,
         events=(public_event,),
-        task_steer_results=tuple(task_steer_results),
     )
 
 
@@ -187,7 +146,6 @@ def _resolve_active_turn_for_queued_steer(
     *,
     session_id: str,
     turn_id: str,
-    bound_task_run_id: str | None = None,
 ) -> Any | None:
     active_registry = getattr(runtime_host, "active_turn_registry", None)
     resolver = getattr(active_registry, "resolve_current", None)
@@ -202,9 +160,6 @@ def _resolve_active_turn_for_queued_steer(
     if str(getattr(active_turn, "turn_id", "") or "").strip() != str(turn_id or "").strip():
         return None
     if not bool(getattr(active_turn, "steerable", False)):
-        return None
-    expected_task_run_id = str(bound_task_run_id or "").strip()
-    if expected_task_run_id and str(getattr(active_turn, "bound_task_run_id", "") or "").strip() != expected_task_run_id:
         return None
     return active_turn
 
@@ -266,38 +221,6 @@ def _session_already_contains_queued_user_steer(
     return False
 
 
-def _mirror_queued_user_steer_to_active_task(
-    runtime_host: Any,
-    item: QueuedUserInput,
-    *,
-    task_run_id: str,
-    turn_id: str,
-) -> dict[str, Any]:
-    try:
-        result = create_active_task_steer(
-            runtime_host,
-            task_run_id,
-            content=item.content,
-            turn_id=turn_id,
-            intent="active_turn_queued_user_steer",
-            editor_context=dict(item.editor_context or {}),
-        )
-    except Exception:
-        logger.debug("failed to mirror queued user steer to active task", exc_info=True)
-        return {"ok": False, "error": "active_task_steer_mirror_exception"}
-    return dict(result or {}) if isinstance(result, dict) else {"ok": False, "error": "active_task_steer_mirror_invalid_result"}
-
-
-def _mark_queued_item_failed(store: Any, item: QueuedUserInput, *, reason: str) -> None:
-    marker = getattr(store, "mark_failed", None)
-    if not callable(marker):
-        return
-    try:
-        marker(item.session_id, item.queue_item_id, reason=reason)
-    except Exception:
-        logger.debug("failed to mark queued active-turn steer item failed", exc_info=True)
-
-
 def _record_active_turn_steer_included_event(
     runtime_host: Any,
     *,
@@ -305,10 +228,9 @@ def _record_active_turn_steer_included_event(
     turn_id: str,
     stream_ref: str,
     packet_ref: str,
-    task_run_id: str,
+    task_environment_id: str,
     phase: str,
     claimed: tuple[QueuedUserInput, ...],
-    task_steer_results: list[dict[str, Any]],
     source_authority: str,
 ) -> dict[str, Any]:
     if turn_run is None:
@@ -322,9 +244,8 @@ def _record_active_turn_steer_included_event(
                 "phase": str(phase or ""),
                 "packet_ref": str(packet_ref or ""),
                 "stream_run_id": stream_ref,
-                "task_run_id": task_run_id,
+                "task_environment_id": task_environment_id,
                 "queued_user_steers": [_queued_user_steer_payload(item) for item in claimed],
-                "task_steer_results": [dict(item) for item in task_steer_results],
                 "authority": source_authority,
             },
             refs={
@@ -332,7 +253,7 @@ def _record_active_turn_steer_included_event(
                 "turn_run_ref": turn_run.turn_run_id,
                 "runtime_invocation_packet_ref": str(packet_ref or ""),
                 "queued_user_input_refs": [item.queue_item_id for item in claimed],
-                **({"task_run_ref": task_run_id} if task_run_id else {}),
+                **({"task_environment_ref": task_environment_id} if task_environment_id else {}),
             },
         )
         _update_turn_run_event_offset(runtime_host, turn_run=turn_run, event=event)
@@ -360,12 +281,12 @@ def _queued_user_steer_model_message(
     items: tuple[QueuedUserInput, ...],
     *,
     turn_id: str,
-    task_run_id: str,
+    task_environment_id: str,
     phase: str,
 ) -> dict[str, Any]:
     payload = {
         "turn_id": str(turn_id or ""),
-        "task_run_id": str(task_run_id or ""),
+        "task_environment_id": str(task_environment_id or ""),
         "phase": str(phase or ""),
         "steers": [_queued_user_steer_payload(item) for item in items],
         "authority": "harness.loop.active_turn_steer",
@@ -394,21 +315,15 @@ def _queued_user_steer_payload(item: QueuedUserInput) -> dict[str, Any]:
         "content": item.content,
         "input_policy": item.input_policy,
         "expected_active_turn_id": item.expected_active_turn_id,
-        "task_run_id": item.task_run_id,
+        "task_environment_id": item.task_environment_id,
         "created_at": item.created_at,
         "editor_context": dict(item.editor_context or {}),
     }
 
 
-def _task_origin_kind(runtime_host: Any, task_run_id: str) -> str:
-    state_index = getattr(runtime_host, "state_index", None)
-    getter = getattr(state_index, "get_task_run", None)
-    if not callable(getter):
-        return ""
-    try:
-        task_run = getter(task_run_id)
-    except Exception:
-        return ""
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {}) if task_run is not None else {}
-    origin = dict(diagnostics.get("origin") or {})
-    return str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
+def _first_task_environment_id(items: tuple[QueuedUserInput, ...]) -> str:
+    for item in items:
+        task_environment_id = str(getattr(item, "task_environment_id", "") or "").strip()
+        if task_environment_id:
+            return task_environment_id
+    return ""

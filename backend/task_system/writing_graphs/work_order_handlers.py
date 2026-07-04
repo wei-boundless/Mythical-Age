@@ -28,7 +28,7 @@ def handle_writing_progress_receipt_router(
 ) -> DeterministicWorkOrderResult | None:
     if not _is_deterministic_progress_receipt_router_node(graph_config=graph_config, work_order=work_order):
         return None
-    task_run_id = f"system:{stable_safe_id(work_order.work_order_id)}"
+    execution_id = f"system:{stable_safe_id(work_order.work_order_id)}"
     initial_inputs = _work_order_initial_inputs(work_order)
     try:
         if not _has_inbound_artifact_evidence(work_order):
@@ -42,8 +42,9 @@ def handle_writing_progress_receipt_router(
             executor_result={
                 "ok": True,
                 "final_answer": final_answer,
-                "task_run": {
-                    "task_run_id": task_run_id,
+                "task_execution": {
+                    "execution_id": execution_id,
+                    "task_ref": work_order.task_ref,
                     "status": "completed",
                     "diagnostics": {
                         "final_answer": final_answer,
@@ -65,8 +66,9 @@ def handle_writing_progress_receipt_router(
             executor_result={
                 "ok": False,
                 "error": "deterministic_progress_receipt_invalid",
-                "task_run": {
-                    "task_run_id": task_run_id,
+                "task_execution": {
+                    "execution_id": execution_id,
+                    "task_ref": work_order.task_ref,
                     "status": "failed",
                     "terminal_reason": "deterministic_progress_receipt_invalid",
                     "diagnostics": {

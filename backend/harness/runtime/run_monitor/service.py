@@ -247,7 +247,10 @@ class RunMonitorService:
                     selected=active_item,
                     extra={
                         "session_id": session_id,
-                        "active_task_run_id": str(active_item.get("task_run_id") or ""),
+                        "active_task_run_id": "",
+                        "active_turn_id": str(active_item.get("active_turn_id") or active_item.get("turn_id") or ""),
+                        "active_turn_run_id": str(active_item.get("turn_run_id") or ""),
+                        "active_stream_run_id": str(active_item.get("stream_run_id") or ""),
                         "latest_task_run_id": "",
                         "task_run_count": len(task_runs),
                         "monitor": active_item,
@@ -333,15 +336,23 @@ class RunMonitorService:
         now = time.time()
         if task_run is not None:
             return self.projector.build_task_monitor(task_run, now=now)
-        turn_run = self.runtime_host.state_index.get_turn_run(task_run_id)
+        return None
+
+    def get_turn_run_live_monitor(self, turn_run_id: str) -> dict[str, Any] | None:
+        turn_run = self.runtime_host.state_index.get_turn_run(turn_run_id)
         if turn_run is None:
             return None
+        now = time.time()
         active_turn = None
         active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
         if active_turn_registry is not None:
             try:
                 candidate = active_turn_registry.resolve_current(str(getattr(turn_run, "session_id", "") or ""))
-                if candidate is not None and str(getattr(candidate, "turn_run_id", "") or "") == str(getattr(turn_run, "turn_run_id", "") or ""):
+                if (
+                    candidate is not None
+                    and str(getattr(candidate, "turn_run_id", "") or "")
+                    == str(getattr(turn_run, "turn_run_id", "") or "")
+                ):
                     active_turn = candidate
             except Exception:
                 active_turn = None
@@ -427,16 +438,19 @@ class RunMonitorService:
 
     def _visible_item_already_represents_active_turn(self, active_item: dict[str, Any], visible_items: list[dict[str, Any]]) -> bool:
         active_session_id = str(active_item.get("session_id") or "").strip()
-        active_task_run_id = str(active_item.get("task_run_id") or "").strip()
-        active_instance_id = str(active_item.get("task_instance_id") or "").strip()
+        active_turn_run_id = str(active_item.get("turn_run_id") or "").strip()
+        active_stream_run_id = str(active_item.get("stream_run_id") or "").strip()
+        active_turn_id = str(active_item.get("active_turn_id") or active_item.get("turn_id") or "").strip()
         for item in visible_items:
             if str(item.get("session_id") or "").strip() != active_session_id:
                 continue
-            item_task_run_id = str(item.get("task_run_id") or "").strip()
-            item_instance_id = str(item.get("task_instance_id") or "").strip()
-            same_work = active_task_run_id and item_task_run_id == active_task_run_id
-            same_instance = active_instance_id and item_instance_id == active_instance_id
-            if not same_work and not same_instance:
+            item_turn_run_id = str(item.get("turn_run_id") or "").strip()
+            item_stream_run_id = str(item.get("stream_run_id") or "").strip()
+            item_turn_id = str(item.get("active_turn_id") or item.get("turn_id") or "").strip()
+            same_turn_run = active_turn_run_id and item_turn_run_id == active_turn_run_id
+            same_stream = active_stream_run_id and item_stream_run_id == active_stream_run_id
+            same_turn = active_turn_id and item_turn_id == active_turn_id
+            if not same_turn_run and not same_stream and not same_turn:
                 continue
             if item.get("is_running") is True or str(item.get("activity_state") or "") in {"waiting", "paused", "stale"}:
                 return True
@@ -459,4 +473,3 @@ class RunMonitorService:
 
     def _session_task_run_summaries(self, session_id: str, *, limit: int | None = None) -> list[Any]:
         return list(self.runtime_host.state_index.list_session_task_run_summaries(session_id, limit=limit) or [])
-

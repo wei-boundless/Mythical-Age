@@ -310,7 +310,6 @@ def test_chat_event_log_does_not_bind_identityless_turn_from_active_registry(mon
     def active_snapshot(session_id: str):
         snapshot_calls.append(session_id)
         return SimpleNamespace(
-            bound_task_run_id="taskrun:active-registry",
             turn_id="turn:active-registry",
             turn_run_id="turnrun:turn:active-registry",
         )
@@ -632,25 +631,6 @@ def test_public_projection_frame_event_offset_uses_public_sequence_only() -> Non
 
     assert frame["sequence"] == 7
     assert frame["event_offset"] == 7
-
-
-def test_active_task_steer_accepted_is_lightweight_status_event_not_body() -> None:
-    frame = _frame(
-        "active_task_steer_accepted",
-        {
-            "task_run_id": "taskrun:active",
-            "turn_id": "turn:test",
-        },
-    )
-
-    assert frame["op"] == "item_upsert"
-    assert frame["slot"] == "status"
-    assert frame["main_visibility"] == "visible_live"
-    assert frame["retention"] == "transient"
-    assert frame["status_kind"] == "status_event"
-    assert frame["event_family"] == "status_trace"
-    assert frame["channel"] == "status"
-    assert frame["slot"] != "body"
 
 
 def test_runtime_gateway_signals_are_not_public_stream_events() -> None:

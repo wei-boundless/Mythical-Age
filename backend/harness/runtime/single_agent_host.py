@@ -566,6 +566,9 @@ class SingleAgentRuntimeHost:
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
         return self.run_monitor_service.get_task_run_live_monitor(task_run_id)
 
+    def get_turn_run_live_monitor(self, turn_run_id: str) -> dict[str, Any] | None:
+        return self.run_monitor_service.get_turn_run_live_monitor(turn_run_id)
+
     def run_task_run_retention_maintenance(self, *, limit: int = 240) -> dict[str, Any]:
         return self.run_monitor_service.run_lifecycle_retention_maintenance(limit=limit)
 

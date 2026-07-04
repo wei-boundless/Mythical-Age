@@ -7,11 +7,18 @@ from typing import Any, Literal
 
 
 TaskInstanceStatus = Literal["draft", "active", "paused", "waiting_user", "waiting_external", "completed", "failed", "aborted", "archived"]
-TaskEnvironmentStatus = Literal["created", "ready", "leased", "paused", "blocked", "completed", "archived"]
+TaskEnvironmentStatus = Literal["created", "ready", "leased", "paused", "blocked", "completed", "failed", "aborted", "archived"]
 TaskPlanStatus = Literal["proposed", "active", "revised", "superseded", "completed"]
 TaskTodoStatus = Literal["pending", "active", "blocked", "done", "canceled"]
 TaskLeaseStatus = Literal["active", "released", "expired", "revoked"]
-TaskControlSignalKind = Literal["pause_requested", "stop_requested", "abort_requested", "resume_requested", "replan_requested"]
+TaskControlSignalKind = Literal[
+    "pause_requested",
+    "stop_requested",
+    "abort_requested",
+    "resume_requested",
+    "replan_requested",
+    "instruction_appended",
+]
 TaskControlSignalStatus = Literal["pending", "handled", "canceled", "failed"]
 
 

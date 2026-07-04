@@ -2,6 +2,7 @@ import {
   executeRunMonitorAction,
   getGraphRunMonitor,
   getHarnessTaskRunLiveMonitor,
+  getHarnessTurnRunLiveMonitor,
   getRunMonitor,
   getRunMonitorEventStreamUrl,
   preflightRunMonitorAction,
@@ -25,6 +26,10 @@ export async function fetchRunMonitorTaskDetail(taskRunId: string) {
   return getHarnessTaskRunLiveMonitor(taskRunId);
 }
 
+export async function fetchRunMonitorTurnDetail(turnRunId: string) {
+  return getHarnessTurnRunLiveMonitor(turnRunId);
+}
+
 export async function fetchRunMonitorGraphDetail(
   graphRunId: string,
   graphConfigId: string,
@@ -34,5 +39,4 @@ export async function fetchRunMonitorGraphDetail(
 }
 
 export { getRunMonitorEventStreamUrl };
-
 

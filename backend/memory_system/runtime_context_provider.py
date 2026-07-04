@@ -395,7 +395,18 @@ def _runtime_memory_main_context(
         "turn_input": _compact_mapping(turn_input_facts, keys=("user_intent", "environment_binding", "expected_active_turn_id")),
         "active_work": _compact_mapping(
             active_work_context or {},
-            keys=("task_run_id", "task_id", "status", "current_step", "summary"),
+            keys=(
+                "task_environment_id",
+                "task_instance_id",
+                "session_binding_id",
+                "environment_kind",
+                "status",
+                "current_step",
+                "latest_step_name",
+                "latest_progress",
+                "user_visible_goal",
+                "summary",
+            ),
         ),
         "recent_work_outcome": _compact_mapping(
             recent_work_outcome or {},

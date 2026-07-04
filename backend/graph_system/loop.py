@@ -3291,7 +3291,11 @@ def _state_with_work_orders(
         node_states[node_id] = payload
         active[node_id] = order.work_order_id
         work_order_ref = store_work_order(services, order) if services is not None else ""
-        work_order_index[order.work_order_id] = _work_order_summary(order, work_order_ref=work_order_ref)
+        order_summary = _work_order_summary(order, work_order_ref=work_order_ref)
+        graph_node_task_preparation = _prepare_graph_node_task(services, order)
+        if graph_node_task_preparation:
+            order_summary["graph_node_task_preparation"] = graph_node_task_preparation
+        work_order_index[order.work_order_id] = order_summary
     return _replace_state(
         state,
         status="running" if work_orders else state.status,
@@ -3436,6 +3440,39 @@ def _loop_state_summary(state: GraphLoopState) -> dict[str, Any]:
 
 def _work_order_summary(order: GraphNodeWorkOrder, *, work_order_ref: str = "") -> dict[str, Any]:
     return work_order_summary(order, work_order_ref=work_order_ref)
+
+
+def _prepare_graph_node_task(services: Any | None, order: GraphNodeWorkOrder) -> dict[str, Any]:
+    if services is None:
+        return {}
+    sink = getattr(services, "graph_node_task_preparation_sink", None)
+    preparer = getattr(sink, "prepare_work_order", None)
+    if not callable(preparer):
+        raise RuntimeError("GraphLoop requires graph_node_task_preparation_sink to prepare graph node task environment")
+    preparation = preparer(order)
+    payload = preparation.to_dict() if hasattr(preparation, "to_dict") else dict(preparation or {})
+    return _graph_node_task_preparation_summary(payload)
+
+
+def _graph_node_task_preparation_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    binding = dict(payload.get("binding") or {})
+    task_environment = dict(payload.get("task_environment") or {})
+    episode = dict(payload.get("episode") or {})
+    context_package = dict(payload.get("context_package") or {})
+    return {
+        "authority": "graph_system.graph_node_task_preparation_summary",
+        "binding_id": str(binding.get("binding_id") or ""),
+        "binding_status": str(binding.get("status") or ""),
+        "task_instance_id": str(binding.get("task_instance_id") or ""),
+        "task_environment_id": str(task_environment.get("task_environment_id") or binding.get("node_task_environment_id") or ""),
+        "task_environment_status": str(task_environment.get("status") or ""),
+        "episode_id": str(episode.get("episode_id") or ""),
+        "episode_status": str(episode.get("status") or ""),
+        "context_package_id": str(context_package.get("package_id") or ""),
+        "graph_run_id": str(binding.get("graph_run_id") or ""),
+        "node_id": str(binding.get("node_id") or ""),
+        "work_order_id": str(binding.get("work_order_id") or ""),
+    }
 
 
 def _node_result_summary(result: NodeResultEnvelope, *, result_ref: str = "") -> dict[str, Any]:

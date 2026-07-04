@@ -152,7 +152,7 @@ function bindStreamSessionAnchor(
   bind("boundTurnId", stringValue(data.turn_id));
   bind("boundStreamRunId", stringValue(data.stream_run_id) || stringValue(data.streamRunId));
   bind("boundRunId", stringValue(data.runtime_run_id) || stringValue(data.run_id));
-  bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id) || stringValue(data.bound_task_run_id));
+  bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id));
   bind("boundTurnRunId", stringValue(data.turn_run_id));
   return next;
 }
@@ -265,14 +265,15 @@ function streamEventReleasesActiveTaskTurnGate(
 function releaseActiveTaskTurnGate(
   state: StoreState,
   turnId: string,
+  streamRunId: string,
   taskRunId: string,
 ) {
   const snapshot = state.activeTurnSnapshot;
   const snapshotTurnId = stringValue(snapshot?.turn_id);
-  const snapshotTaskRunId = stringValue(snapshot?.task_run_id);
+  const snapshotStreamRunId = stringValue(snapshot?.stream_run_id);
   const snapshotMatches = Boolean(snapshot) && (
     Boolean(turnId && snapshotTurnId === turnId)
-    || Boolean(taskRunId && snapshotTaskRunId === taskRunId)
+    || Boolean(streamRunId && snapshotStreamRunId === streamRunId)
   );
   const monitorTaskRunId = taskGraphLiveMonitorTaskRunId(state.taskGraphLiveMonitor);
   const monitorMatches = Boolean(taskRunId && monitorTaskRunId === taskRunId);
@@ -300,22 +301,23 @@ function patchActiveTaskTurnGate(
     || stringValue(originBinding.active_turn_id)
     || stringValue(originBinding.turn_id)
     || stringValue(activeTurn.turn_id);
+  const streamRunId = stringValue(session.boundStreamRunId)
+    || stringValue(data.stream_run_id)
+    || stringValue(data.streamRunId)
+    || stringValue(activeTurn.stream_run_id);
   const taskRunId = stringValue(session.boundTaskRunId)
     || stringValue(data.runtime_task_run_id)
     || stringValue(data.task_run_id)
     || stringValue(originBinding.task_run_id)
-    || stringValue(activeTurn.bound_task_run_id);
+    || stringValue(activeTurn.task_run_id);
   const currentTaskRunId = stringValue(state.activeTurnSnapshot?.task_run_id);
-  if (!turnId && !taskRunId) {
+  if (!turnId && !streamRunId) {
     return state;
   }
   if (streamEventReleasesActiveTaskTurnGate(event, data)) {
-    return releaseActiveTaskTurnGate(state, turnId, taskRunId);
+    return releaseActiveTaskTurnGate(state, turnId, streamRunId, taskRunId);
   }
   const effectiveTaskRunId = taskRunId || currentTaskRunId;
-  if (!effectiveTaskRunId) {
-    return state;
-  }
   const terminalReason = stringValue(data.terminal_reason);
   const nextState = stringValue(data.active_turn_state)
     || stringValue(activeTurn.state)
@@ -326,7 +328,8 @@ function patchActiveTaskTurnGate(
     ...state,
     activeTurnSnapshot: {
       turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
-      task_run_id: effectiveTaskRunId,
+      stream_run_id: streamRunId || state.activeTurnSnapshot?.stream_run_id,
+      task_run_id: effectiveTaskRunId || undefined,
       state: nextState as NonNullable<StoreState["activeTurnSnapshot"]>["state"],
       turn_run_id: stringValue(session.boundTurnRunId)
         || stringValue(originBinding.turn_run_id)

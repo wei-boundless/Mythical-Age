@@ -98,6 +98,23 @@ class GraphNodeTaskBindingRepository:
             ).fetchone()
         return _binding_from_row(row) if row is not None else None
 
+    def get_by_task_environment(self, task_environment_id: str) -> GraphNodeTaskBinding | None:
+        target = str(task_environment_id or "").strip()
+        if not target:
+            return None
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM graph_node_task_bindings
+                WHERE node_task_environment_id = ?
+                ORDER BY updated_at DESC, binding_id ASC
+                LIMIT 1
+                """,
+                (target,),
+            ).fetchone()
+        return _binding_from_row(row) if row is not None else None
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
         conn.row_factory = sqlite3.Row

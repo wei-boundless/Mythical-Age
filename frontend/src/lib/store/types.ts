@@ -341,6 +341,7 @@ export type ActiveTurnState =
 export type ActiveTurnSnapshot = {
   turn_id: string;
   turn_run_id?: string;
+  stream_run_id?: string;
   task_run_id?: string;
   state?: ActiveTurnState;
   updated_at?: number;

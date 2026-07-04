@@ -18,15 +18,6 @@ from .task_tool_approval import matching_approval_grant_for_pending
 
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 PAUSE_CONTROL_STATES = {"pause_requested", "paused"}
-RECOVERY_ACTIONS: set[str] = set()
-RECOVERY_WAIT_REASONS = {
-    "resume_requested",
-    "model_call_recovery_required",
-    "user_interrupt_replan_required",
-    "task_execution_step_budget_exhausted",
-    "repeated_admission_denial",
-}
-RESUME_REQUEST_CONTROL_STATE = "resume_requested"
 
 @dataclass(frozen=True, slots=True)
 class TaskRunRecoveryState:
@@ -54,7 +45,7 @@ def recovery_state_for_task_run(task_run: Any, *, runtime_host: Any | None = Non
     executor_status = str(diagnostics.get("executor_status") or "").strip()
     recovery_action = str(diagnostics.get("recovery_action") or "").strip()
     control_state = runtime_control_state_from_task_run(task_run, runtime_host=runtime_host)
-    recoverable = _has_explicit_retryable_recovery(diagnostics, recovery_action=recovery_action)
+    recoverable = _has_explicit_retryable_recovery(diagnostics)
     graph_controlled = _graph_controlled(diagnostics)
     running_claimed = _has_live_executor_claim(runtime_host, task_run)
     stopped = (
@@ -81,12 +72,6 @@ def recovery_state_for_task_run(task_run: Any, *, runtime_host: Any | None = Non
     elif _is_durable_paused_boundary(status=status, control_state=control_state):
         same_run_resumable = True
         reason = "paused"
-    elif _is_explicit_resume_request(status=status, control_state=control_state, diagnostics=diagnostics, recovery_action=recovery_action):
-        same_run_resumable = True
-        reason = "resume_requested"
-    elif _is_explicit_recovery_checkpoint(status=status, diagnostics=diagnostics, recovery_action=recovery_action, recoverable=recoverable):
-        same_run_resumable = True
-        reason = _recovery_reason(diagnostics, fallback="resumable")
     elif status == "waiting_approval" and matching_approval_grant_for_pending(task_run) is not None:
         same_run_resumable = True
         reason = "approval_granted"
@@ -117,64 +102,15 @@ def should_auto_continue_task_run(task_run: Any, *, runtime_host: Any | None = N
     return recovery_state_for_task_run(task_run, runtime_host=runtime_host).executable
 
 
-def _has_explicit_retryable_recovery(diagnostics: dict[str, Any], *, recovery_action: str) -> bool:
-    if recovery_action not in RECOVERY_ACTIONS:
-        return False
+def _has_explicit_retryable_recovery(diagnostics: dict[str, Any]) -> bool:
     recoverable_error = diagnostics.get("recoverable_error")
     if not isinstance(recoverable_error, dict):
         return False
     return recoverable_error.get("retryable") is not False
 
 
-def _is_explicit_recovery_checkpoint(
-    *,
-    status: str,
-    diagnostics: dict[str, Any],
-    recovery_action: str,
-    recoverable: bool,
-) -> bool:
-    if status not in {"waiting_executor", "blocked"}:
-        return False
-    if recovery_action not in RECOVERY_ACTIONS or not recoverable:
-        return False
-    wait_reason = str(diagnostics.get("wait_reason") or "").strip()
-    recoverable_error = diagnostics.get("recoverable_error")
-    error_code = ""
-    if isinstance(recoverable_error, dict):
-        error_code = str(recoverable_error.get("error_code") or recoverable_error.get("code") or "").strip()
-    return bool(wait_reason or error_code or str(diagnostics.get("latest_step") or "").strip())
-
-
-def _is_explicit_resume_request(
-    *,
-    status: str,
-    control_state: str,
-    diagnostics: dict[str, Any],
-    recovery_action: str,
-) -> bool:
-    if status != "waiting_executor":
-        return False
-    if recovery_action not in RECOVERY_ACTIONS:
-        return False
-    if control_state != RESUME_REQUEST_CONTROL_STATE:
-        return False
-    return str(diagnostics.get("wait_reason") or "").strip() == "resume_requested"
-
-
 def _is_durable_paused_boundary(*, status: str, control_state: str) -> bool:
     return status in {"waiting_executor", "paused"} and control_state in PAUSE_CONTROL_STATES
-
-
-def _recovery_reason(diagnostics: dict[str, Any], *, fallback: str) -> str:
-    wait_reason = str(diagnostics.get("wait_reason") or "").strip()
-    if wait_reason in RECOVERY_WAIT_REASONS:
-        return wait_reason
-    recoverable_error = diagnostics.get("recoverable_error")
-    if isinstance(recoverable_error, dict):
-        code = str(recoverable_error.get("error_code") or recoverable_error.get("code") or "").strip()
-        if code:
-            return code
-    return fallback
 
 
 def _graph_controlled(diagnostics: dict[str, Any]) -> bool:

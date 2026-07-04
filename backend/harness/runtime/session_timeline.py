@@ -1041,11 +1041,7 @@ def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
         refs = dict(event.get("refs") or {})
         if event_type in {
             "user_work_instruction_recorded",
-            "active_task_steer_recorded",
-            "active_task_steer_included",
-            "active_task_steer_consumed",
             "task_run_resume_requested",
-            "task_run_executor_scheduled",
             "step_summary_recorded",
         }:
             steer = dict(payload.get("steer") or {})

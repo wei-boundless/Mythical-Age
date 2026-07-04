@@ -19,7 +19,6 @@ class TurnInputFacts:
     user_message: str
     expected_active_turn_id: str = ""
     active_turn_input_policy: str = "auto"
-    expected_task_run_id: str = ""
     expected_continuation_id: str = ""
     recovery_input_policy: str = "auto"
     active_turn: dict[str, Any] = field(default_factory=dict)
@@ -54,7 +53,6 @@ def build_turn_input_facts(
     user_message: str,
     expected_active_turn_id: str = "",
     active_turn_input_policy: str = "auto",
-    expected_task_run_id: str = "",
     expected_continuation_id: str = "",
     recovery_input_policy: str = "auto",
     active_turn: Any | None = None,
@@ -71,7 +69,6 @@ def build_turn_input_facts(
         user_message=str(user_message or ""),
         expected_active_turn_id=str(expected_active_turn_id or "").strip(),
         active_turn_input_policy=str(active_turn_input_policy or "auto").strip() or "auto",
-        expected_task_run_id=str(expected_task_run_id or "").strip(),
         expected_continuation_id=str(expected_continuation_id or "").strip(),
         recovery_input_policy=_external_recovery_input_policy(recovery_input_policy),
         active_turn=_payload_from_object(active_turn),

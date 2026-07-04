@@ -4,6 +4,7 @@ import type {
   HarnessSessionTaskRuns,
   HarnessTaskRunLiveMonitor,
   HarnessTaskRunTrace,
+  HarnessTurnRunLiveMonitor,
   HarnessTurnRunTrace,
   RunMonitorActionPayload,
   RunMonitorActionResult,
@@ -100,6 +101,12 @@ export async function getHarnessTurnTrace(
 export async function getHarnessTaskRunLiveMonitor(taskRunId: string) {
   return request<HarnessTaskRunLiveMonitor>(
     `/harness/run-monitor/task-runs/${encodeURIComponent(taskRunId)}`
+  );
+}
+
+export async function getHarnessTurnRunLiveMonitor(turnRunId: string) {
+  return request<HarnessTurnRunLiveMonitor>(
+    `/harness/run-monitor/turn-runs/${encodeURIComponent(turnRunId)}`
   );
 }
 

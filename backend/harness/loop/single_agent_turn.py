@@ -155,7 +155,6 @@ logger = logging.getLogger(__name__)
 CommitAssistantMessage = Callable[[str, dict[str, Any]], Awaitable[Any]]
 StartTaskFromActionRequest = Callable[[ModelActionRequest, dict[str, Any]], AsyncIterator[dict[str, Any]]]
 ApplyActiveWorkControl = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
-ApplyTaskRecoveryResume = Callable[[ModelActionRequest], AsyncIterator[dict[str, Any]]]
 CompactSessionContext = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 
 _DEFAULT_INTERACTIVE_TOOL_BATCH_TIMEOUT_SECONDS = 45.0
@@ -212,6 +211,18 @@ _ACTION_OBJECT_ONLY_ACTION_HINTS = {
 }
 _ACTION_OBJECT_ONLY_ACTION_NAMES = _LEGACY_CONTROL_ACTION_NAMES
 _INTERNAL_MODEL_RESPONSE_EVENT = "__single_agent_model_response"
+
+
+def _normalize_single_turn_tool_iteration_limit(value: Any) -> int | None:
+    if value in (None, "", {}, []):
+        return None
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return None
+    if limit <= 0:
+        return None
+    return limit
 
 
 def _is_model_action_native_tool_name(value: Any) -> bool:
@@ -400,9 +411,19 @@ def _agent_visible_action_fields(allowed_action_types: tuple[str, ...] | list[st
         fields["tool_call"] = "tool_call or tool_calls"
     if "active_work_control" in allowed:
         fields["active_work_control"] = "active_work_control"
-    if "resume_task_recovery" in allowed:
-        fields["resume_task_recovery"] = "task_recovery_resume"
     return fields
+
+
+def _final_extra_for_model_action(
+    runtime_branch: dict[str, Any] | None,
+    action_request: ModelActionRequest | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"runtime_branch": dict(runtime_branch or {})}
+    diagnostics = dict(getattr(action_request, "diagnostics", {}) or {}) if action_request is not None else {}
+    final_action_diagnostics = diagnostics.get("final_action_diagnostics")
+    if isinstance(final_action_diagnostics, dict) and final_action_diagnostics:
+        payload["final_action_diagnostics"] = dict(final_action_diagnostics)
+    return payload
 
 
 def _agent_closeout_lifecycle_payload(
@@ -609,6 +630,58 @@ def _consecutive_tool_failure_closeout_control_signal(
             "code": "single_turn_consecutive_tool_failures",
             "message": instruction,
             "origin": "single_agent_turn_tool_failure_boundary",
+            "retryable": False,
+        },
+        "authority": "harness.loop.single_agent_turn.runtime_control_signal",
+    }
+
+
+def _tool_budget_exhausted_closeout_control_signal(
+    *,
+    turn_id: str,
+    packet_ref: str,
+    used_tool_iterations: int,
+    max_tool_iterations: int,
+    attempted_actions: list[ModelActionRequest],
+    recent_observations: list[dict[str, Any]],
+    phase: str,
+) -> dict[str, Any]:
+    attempted_payloads = [item.to_dict() for item in list(attempted_actions or []) if item is not None]
+    instruction = (
+        f"本次运行最多允许 {max(1, int(max_tool_iterations or 1))} 轮工具执行，"
+        f"当前已经使用 {max(0, int(used_tool_iterations or 0))} 轮。"
+        "你刚才提出的工具请求没有执行。"
+        "现在必须停止继续申请工具，基于已经观察到的事实完成本次任务收口。"
+        "如果事实足够，选择 respond 并给出可发布结论；"
+        "如果缺少必要输入，选择 ask_user；"
+        "如果当前无法可靠继续，选择 block 并写清阻塞事实和恢复条件。"
+    )
+    return {
+        "observation_type": "runtime_control_signal",
+        "source": "system:runtime_control_signal",
+        "signal_kind": "tool_budget_exhausted",
+        "runtime_control_state": "agent_closeout_required",
+        "turn_id": turn_id,
+        "packet_ref": packet_ref,
+        "phase": phase,
+        "used_tool_iterations": max(0, int(used_tool_iterations or 0)),
+        "max_tool_iterations": max(1, int(max_tool_iterations or 1)),
+        "agent_closeout_required": True,
+        "allowed_agent_actions": list(_AGENT_CLOSEOUT_ACTION_TYPES),
+        "tool_calls_allowed_after_signal": False,
+        "feedback_contract": _feedback_contract_payload(
+            source="tool_budget_exhausted",
+            public_feedback_recommended=True,
+            tool_calls_allowed=False,
+            allowed_action_types=list(_AGENT_CLOSEOUT_ACTION_TYPES),
+        ),
+        "attempted_actions_not_executed": attempted_payloads,
+        "recent_observations": [dict(item) for item in list(recent_observations or [])],
+        "repair_instruction": instruction,
+        "structured_signal": {
+            "code": "single_turn_tool_iteration_limit",
+            "message": instruction,
+            "origin": "single_agent_turn_tool_budget_boundary",
             "retryable": False,
         },
         "authority": "harness.loop.single_agent_turn.runtime_control_signal",
@@ -892,7 +965,6 @@ def _tool_followup_requires_action_transport(allowed_action_types: tuple[str, ..
             "block",
             "request_task_run",
             "active_work_control",
-            "resume_task_recovery",
             "tool_call",
         }.intersection(str(item) for item in tuple(allowed_action_types or ()))
     )
@@ -1755,12 +1827,13 @@ async def run_single_agent_turn(
     commit_assistant_message: CommitAssistantMessage,
     start_task_from_action_request: StartTaskFromActionRequest,
     apply_active_work_control: ApplyActiveWorkControl | None = None,
-    apply_task_recovery_resume: ApplyTaskRecoveryResume | None = None,
     compact_session_context: CompactSessionContext | None = None,
+    max_tool_iterations: int | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     turn_run = None
     terminal_recorded = False
     assistant_visible_stream_continuity: dict[str, Any] = {}
+    tool_iteration_limit = _normalize_single_turn_tool_iteration_limit(max_tool_iterations)
 
     def terminal_payload_with_stream_continuity(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         continuity = dict(assistant_visible_stream_continuity or {})
@@ -1792,23 +1865,24 @@ async def run_single_agent_turn(
         active_work_payload = _active_work_payload(active_work_context)
         active_work_for_turn = active_work_payload
         def active_work_event_refs() -> dict[str, Any]:
-            task_run_id = str(active_work_payload.get("task_run_id") or "").strip()
-            if not task_run_id:
+            task_environment_id = str(active_work_payload.get("task_environment_id") or "").strip()
+            if not task_environment_id:
                 return {}
             active_work_id = str(active_work_payload.get("active_work_id") or "").strip()
             active_turn_id = active_work_id if active_work_id.startswith("turn:") else turn_id
             state = "running_task" if bool(active_work_payload.get("running")) else "waiting_executor"
-            return {
-                "runtime_task_run_id": task_run_id,
-                "task_run_id": task_run_id,
+            refs = {
+                "task_environment_id": task_environment_id,
+                "active_work_id": active_work_id,
                 "active_turn_id": active_turn_id,
                 "active_turn": {
                     "session_id": session_id,
                     "turn_id": active_turn_id,
-                    "bound_task_run_id": task_run_id,
+                    "task_environment_id": task_environment_id,
                     "state": state,
                 },
             }
+            return {key: value for key, value in refs.items() if value not in ("", None, {}, [])}
 
         tool_definitions_by_name = dict(getattr(getattr(runtime_host, "tool_authorization_index", None), "definitions_by_name", {}) or {})
         compilation = compiler.compile_single_agent_turn_packet(
@@ -1855,6 +1929,7 @@ async def run_single_agent_turn(
             "turn_id": turn_id,
             "turn_run_id": turn_run.turn_run_id if turn_run is not None else "",
             "active_turn_id": turn_id,
+            "max_tool_iterations": tool_iteration_limit,
         }
         runtime_tool_plan = build_runtime_tool_plan(
             runtime_assembly=runtime_assembly,
@@ -1969,7 +2044,7 @@ async def run_single_agent_turn(
                     reasoning_content,
                     turn_id=turn_id,
                     turn_run_id=turn_run.turn_run_id if turn_run is not None else "",
-                    task_run_id=str(dict(active_work_payload or {}).get("task_run_id") or ""),
+                    task_run_id="",
                     answer_channel=decision.answer_channel,
                     answer_source=decision.answer_source,
                 )
@@ -2496,6 +2571,34 @@ async def run_single_agent_turn(
                 if action_parse.action_request is not None or action_parse.assistant_final_text:
                     repaired_or_parsed_final_action = action_parse
                 break
+            if tool_iteration_limit is not None and tool_iteration >= tool_iteration_limit:
+                control_signal = _tool_budget_exhausted_closeout_control_signal(
+                    turn_id=turn_id,
+                    packet_ref=current_packet_ref,
+                    used_tool_iterations=tool_iteration,
+                    max_tool_iterations=tool_iteration_limit,
+                    attempted_actions=tool_actions,
+                    recent_observations=tool_observation_payloads,
+                    phase="tool_loop",
+                )
+                if runtime_host is not None and turn_run is not None:
+                    event = _record_turn_runtime_control_signal(
+                        runtime_host,
+                        turn_run=turn_run,
+                        turn_id=turn_id,
+                        packet_ref=current_packet_ref,
+                        control_signal=control_signal,
+                    )
+                    yield {"type": "turn_runtime_control_signal_observed", "event": event}
+                async for event in emit_agent_authored_closeout(
+                    reason="tool_budget_exhausted",
+                    phase="tool_budget_closeout",
+                    terminal_reason="single_turn_tool_iteration_limit",
+                    control_signal=control_signal,
+                    completion_state="tool_budget_exhausted",
+                ):
+                    yield event
+                return
             tool_iteration += 1
             for feedback_event in _record_model_action_public_feedback_events(
                 runtime_host,
@@ -3486,7 +3589,7 @@ async def run_single_agent_turn(
                     answer_source="harness.single_agent_turn.respond",
                     terminal_status="completed",
                     terminal_reason="respond",
-                    final_extra={"runtime_branch": dict(runtime_branch or {})},
+                    final_extra=_final_extra_for_model_action(runtime_branch, action_request),
                     commit_decision=commit_decision,
                     reasoning_content=_reasoning_content_from_response(response),
                 ):
@@ -3577,7 +3680,7 @@ async def run_single_agent_turn(
                     answer_source="harness.single_agent_turn.block",
                     terminal_status="blocked",
                     terminal_reason="blocked",
-                    final_extra={"runtime_branch": dict(runtime_branch or {})},
+                    final_extra=_final_extra_for_model_action(runtime_branch, action_request),
                     commit_decision=commit_decision,
                     reasoning_content=_reasoning_content_from_response(response),
                 ):
@@ -3632,52 +3735,11 @@ async def run_single_agent_turn(
                     answer_source="harness.single_agent_turn.ask_user",
                     terminal_status="completed",
                     terminal_reason="ask_user",
-                    final_extra={"runtime_branch": dict(runtime_branch or {})},
+                    final_extra=_final_extra_for_model_action(runtime_branch, action_request),
                     commit_decision=commit_decision,
                     reasoning_content=_reasoning_content_from_response(response),
                 ):
                     yield event
-                return
-            if action_request.action_type == "resume_task_recovery":
-                if apply_task_recovery_resume is None:
-                    async for event in emit_agent_authored_closeout(
-                        reason="task_recovery_resume_executor_missing",
-                        phase="task_recovery_resume_executor_missing",
-                        terminal_reason="task_recovery_resume_executor_missing",
-                        protocol_error=_single_agent_protocol_error(
-                            code="task_recovery_resume_executor_missing",
-                            reason="single_agent_turn_missing_task_recovery_resume_callback",
-                            diagnostics={"action_request": action_request.to_dict()},
-                        ),
-                    ):
-                        yield event
-                    terminal_recorded = True
-                    return
-                terminal_reason = "task_recovery_resume"
-                terminal_status = "completed"
-                buffered_resume_events: list[dict[str, Any]] = []
-                async for event in apply_task_recovery_resume(action_request):
-                    event_payload = dict(event or {})
-                    event_type = str(event_payload.get("type") or "").strip()
-                    if event_type == "error":
-                        terminal_status = "failed"
-                        terminal_reason = str(event_payload.get("code") or terminal_reason)
-                    elif event_type == "done":
-                        terminal_reason = str(event_payload.get("terminal_reason") or terminal_reason)
-                    buffered_resume_events.append(event_payload)
-                for event in buffered_resume_events:
-                    yield event
-                if runtime_host is not None and turn_run is not None:
-                    terminal = _record_turn_terminal(
-                        runtime_host,
-                        turn_run=turn_run,
-                        turn_id=turn_id,
-                        status=terminal_status,
-                        terminal_reason=terminal_reason,
-                        payload=terminal_payload_with_stream_continuity({"action_request_ref": action_request.request_id}),
-                    )
-                    terminal_recorded = True
-                    yield {"type": "agent_turn_terminal", "event": terminal}
                 return
             if action_request.action_type == "active_work_control":
                 if apply_active_work_control is None:
@@ -3808,7 +3870,7 @@ async def run_single_agent_turn(
             has_tool_receipt=bool(provider_protocol_messages_to_append),
             terminal_status="completed",
             terminal_reason="assistant_message",
-            final_extra={"runtime_branch": dict(runtime_branch or {})},
+            final_extra=_final_extra_for_model_action(runtime_branch),
             commit_decision=commit_decision,
             reasoning_content=_reasoning_content_from_response(response),
         ):
@@ -5171,7 +5233,6 @@ def _looks_like_malformed_single_agent_action_payload(payload: dict[str, Any]) -
         "permission_request",
         "public_action_state",
         "public_progress_note",
-        "task_recovery_resume",
         "selected_skill_ids",
         "task_run_contract_seed",
         "tool_call",
@@ -5559,9 +5620,6 @@ _REQUEST_TASK_RUN_TASK_CONTRACT_FIELDS = (
     "verification_requirements",
     *_REQUEST_TASK_RUN_NESTED_CONTRACT_FIELDS,
 )
-_TASK_RECOVERY_RESUME_NESTED_FIELDS = ("work_ref", "resume_ref", "task_run_id", "continuation_id")
-
-
 def _request_task_run_minimal_repair_action() -> dict[str, Any]:
     return {
         "action_type": "request_task_run",
@@ -5665,35 +5723,6 @@ def _invalid_json_action_repair_instruction(*, json_payload: dict[str, Any], dia
             "并在顶层 public_progress_note 或 public_action_state.current_judgment 中写明要核对的公开事实；"
             "不要把反馈写成普通正文，也不要把尚未完成的工具动作说成已经完成。"
         )
-    if action_type == "resume_task_recovery":
-        task_recovery_resume = payload.get("task_recovery_resume")
-        task_recovery_resume_obj = dict(task_recovery_resume or {}) if isinstance(task_recovery_resume, dict) else {}
-        misplaced_top_level = [field for field in _TASK_RECOVERY_RESUME_NESTED_FIELDS if field in payload]
-        payload_wrapper = payload.get("payload") if isinstance(payload.get("payload"), dict) else None
-        if misplaced_top_level or payload_wrapper is not None:
-            misplaced = "、".join(misplaced_top_level) if misplaced_top_level else "payload"
-            return (
-                "resume_task_recovery 的恢复句柄字段放错层级。不要把 "
-                f"{misplaced} 放在动作对象顶层，也不要使用 payload 包裹。"
-                "请保留 action_type=resume_task_recovery，并把 work_ref、resume_ref "
-                "全部放入 task_recovery_resume 对象内。只使用当前任务恢复上下文提供的句柄，不要从旧消息文本猜测。"
-            )
-        if (
-            "task_recovery_resume.task_run_id_required" in errors
-            or "task_recovery_resume.continuation_id_required" in errors
-            or not isinstance(task_recovery_resume, dict)
-        ):
-            missing = []
-            if not str(task_recovery_resume_obj.get("work_ref") or task_recovery_resume_obj.get("task_run_id") or "").strip():
-                missing.append("work_ref")
-            if not str(task_recovery_resume_obj.get("resume_ref") or task_recovery_resume_obj.get("continuation_id") or "").strip():
-                missing.append("resume_ref")
-            missing_text = "、".join(missing) if missing else "必需字段"
-            return (
-                "resume_task_recovery 必须包含 task_recovery_resume 对象。请在 task_recovery_resume 内补齐 "
-                f"{missing_text}；这些句柄必须来自当前可恢复上下文。"
-            )
-        return default
     if action_type != "request_task_run":
         return default
     task_seed = payload.get("task_run_contract_seed")
@@ -5953,7 +5982,6 @@ def _model_action_request_should_emit_public_feedback(action_request: ModelActio
         "tool_call",
         "request_task_run",
         "active_work_control",
-        "resume_task_recovery",
         "pause_for_user_steer",
     }
 
@@ -10578,22 +10606,6 @@ def _complete_active_turn_after_turn_terminal(
         return
     if record is None or str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
         return
-    bound_task_run_id = str(getattr(record, "bound_task_run_id", "") or "").strip()
-    if bound_task_run_id:
-        task_run = getattr(getattr(runtime_host, "state_index", None), "get_task_run", lambda _task_run_id: None)(bound_task_run_id)
-        task_status = str(getattr(task_run, "status", "") or "").strip()
-        if task_run is not None and task_status not in {
-            "completed",
-            "success",
-            "failed",
-            "aborted",
-            "cancelled",
-            "canceled",
-            "error",
-            "stopped",
-            "user_aborted",
-        }:
-            return
     try:
         active_registry.complete(session_id=session_id, expected_turn_id=turn_id, terminal_reason=terminal_reason)
     except Exception:

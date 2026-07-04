@@ -447,15 +447,12 @@ def _runtime_object_identities(path: Path) -> dict[str, str]:
         return {}
     payload = dict(body.get("payload") or {}) if isinstance(body, dict) else {}
     diagnostics = dict(payload.get("diagnostics") or {})
-    outputs = dict(payload.get("outputs") or {})
     return {
         "task_run_id": _first_text(
             payload.get("task_run_id"),
-            payload.get("bound_task_run_id"),
             payload.get("current_task_run_id"),
             payload.get("root_task_run_id"),
             diagnostics.get("task_run_id"),
-            outputs.get("node_executor_task_run_id"),
         ),
         "graph_run_id": _first_text(payload.get("graph_run_id"), diagnostics.get("graph_run_id")),
         "session_id": _first_text(payload.get("session_id"), diagnostics.get("session_id")),

@@ -15,7 +15,6 @@ _CONTROL_ACTION_TYPES = {
     "block",
     "request_task_run",
     "active_work_control",
-    "resume_task_recovery",
     "pause_for_user_steer",
 }
 

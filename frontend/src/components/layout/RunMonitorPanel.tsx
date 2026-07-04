@@ -76,7 +76,7 @@ export function RunMonitorPanel({ embedded = false }: { embedded?: boolean } = {
     const runId = String(signal.task_run_id || "").trim();
     if (!runId) return;
     openRuntimeLog({
-      scope: "task_run",
+      scope: signalLogScope(signal),
       run_id: runId,
       title: signal.title || "TaskRun",
       subtitle: signal.line || runId,
@@ -123,4 +123,9 @@ export function RunMonitorPanel({ embedded = false }: { embedded?: boolean } = {
       </div>
     </section>
   );
+}
+
+function signalLogScope(signal: RunMonitorSignal) {
+  const kind = String(signal.detail_ref?.kind || signal.source_kind || "").trim();
+  return kind === "turn_run" ? "turn_run" : "task_run";
 }

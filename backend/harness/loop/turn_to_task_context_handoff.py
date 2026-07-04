@@ -43,7 +43,6 @@ def build_turn_to_task_context_handoff_seed(
             "user_intent",
             "environment_binding",
             "expected_active_turn_id",
-            "expected_task_run_id",
             "active_turn_input_policy",
             "recovery_input_policy",
             "editor_context",

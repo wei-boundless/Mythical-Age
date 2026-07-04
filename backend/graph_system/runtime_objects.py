@@ -88,7 +88,7 @@ def node_result_summary(result: NodeResultEnvelope, *, result_ref: str = "") -> 
         "task_run_id": result.task_run_id,
         "node_id": result.node_id,
         "work_order_id": result.work_order_id,
-        "node_executor_task_run_id": str(outputs.get("node_executor_task_run_id") or ""),
+        "node_executor_execution_id": str(outputs.get("node_executor_execution_id") or ""),
         "executor_type": result.executor_type,
         "status": result.status,
         "artifact_refs": list(result.artifact_refs),

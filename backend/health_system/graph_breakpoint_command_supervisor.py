@@ -24,7 +24,6 @@ _AUTO_RESUME_REASONS = {
     "quality_gate_failed",
     "task_execution_step_budget_exceeded",
     "task_execution_step_budget_exhausted",
-    "task_run_executor_already_running",
     "waiting_executor",
 }
 _GRAPH_CONFIG_MISMATCH_ERRORS = {

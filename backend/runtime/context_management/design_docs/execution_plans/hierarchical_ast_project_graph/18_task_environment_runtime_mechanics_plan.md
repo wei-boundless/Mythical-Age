@@ -37,6 +37,21 @@ WorkProduct 怎么归并
 - observability and UI projection；
 - migration and cleanup plan。
 
+实现本文时必须继承 `19_task_framework_canonical_definition_and_agent_system_contract.md` 的硬定义：
+
+```text
+TaskWorkEnvironment = 持久工作现场 + 状态账本 + 恢复锚点。
+它承载任务推进，但不执行模型、不决定图节点 ready、不保存项目网络长期资产。
+```
+
+因此本文所有运行机制都只服务三件事：
+
+1. 让任务状态可持久查询；
+2. 让 agent episode 可受控执行和恢复；
+3. 让产物、控制信号、Graph binding 和维护动作有统一归属。
+
+如果某个实现让任务环境开始替代 Harness 执行模型、替代 GraphSystem 推进图状态、或者替代 ProjectNetworkSystem 保存项目控制网络资产，就说明边界已经错误。
+
 ## 2. 当前源码依据
 
 ### 2.1 可复用基础

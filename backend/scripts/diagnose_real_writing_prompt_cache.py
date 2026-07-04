@@ -52,12 +52,6 @@ def main() -> int:
     )
     parser.add_argument("--base-dir", default=str(Path(__file__).resolve().parents[1]), help="Backend directory.")
     parser.add_argument("--packet", action="append", default=[], help="Specific runtime packet JSON path to inspect.")
-    parser.add_argument(
-        "--work-order",
-        action="append",
-        default=[],
-        help="Specific graph_node_work_order runtime object JSON path to recompile with current code before inspecting.",
-    )
     parser.add_argument("--scan-limit", type=int, default=20, help="Maximum real writing packets to inspect when scanning.")
     parser.add_argument("--provider", default="deepseek", help="Provider used for local token prediction metadata.")
     parser.add_argument("--model", default="deepseek-v4-pro", help="Model used for local token prediction metadata.")
@@ -67,10 +61,8 @@ def main() -> int:
     base_dir = Path(args.base_dir).resolve()
     project_root = base_dir.parent if base_dir.name == "backend" else base_dir
     packets = _load_packet_candidates(
-        base_dir=base_dir,
         project_root=project_root,
         explicit_paths=[Path(item) for item in list(args.packet or [])],
-        work_order_paths=[Path(item) for item in list(args.work_order or [])],
         scan_limit=max(1, int(args.scan_limit or 1)),
     )
     report = build_report(
@@ -139,20 +131,10 @@ def build_report(
 
 def _load_packet_candidates(
     *,
-    base_dir: Path,
     project_root: Path,
     explicit_paths: list[Path],
-    work_order_paths: list[Path],
     scan_limit: int,
 ) -> list[PacketCandidate]:
-    if work_order_paths:
-        return [
-            _candidate_from_packet(
-                path=_resolve_path(project_root, path),
-                packet=_compile_work_order_packet(base_dir=base_dir, path=_resolve_path(project_root, path)),
-            )
-            for path in work_order_paths
-        ]
     if explicit_paths:
         return [_candidate_from_path(_resolve_path(project_root, path)) for path in explicit_paths]
     roots = [
@@ -195,76 +177,6 @@ def _candidate_from_path(path: Path) -> PacketCandidate:
         chars=len(text),
         marker_count=sum(1 for marker in WRITING_MARKERS if marker in text),
     )
-
-
-def _candidate_from_packet(*, path: Path, packet: dict[str, Any]) -> PacketCandidate:
-    text = _packet_text(packet)
-    return PacketCandidate(
-        path=path.resolve(),
-        packet=packet,
-        chars=len(text),
-        marker_count=sum(1 for marker in WRITING_MARKERS if marker in text),
-    )
-
-
-def _compile_work_order_packet(*, base_dir: Path, path: Path) -> dict[str, Any]:
-    from graph_system.models import GraphNodeWorkOrder
-    from harness.runtime.compiler import RuntimeCompiler
-    from graph_system.work_order_contract import _graph_node_contract_from_work_order
-
-    raw = _read_json(path)
-    payload = dict(raw.get("payload") or raw)
-    work_order = GraphNodeWorkOrder.from_dict(payload)
-    contract = _graph_node_contract_from_work_order(work_order).to_dict()
-    task_run = {
-        "task_run_id": f"gtask:{_safe_id(work_order.work_order_id)}",
-        "session_id": "prompt-cache-real-writing-diagnostic",
-        "task_id": work_order.task_ref,
-        "task_run_contract_ref": contract.get("contract_id") or "",
-        "owner_agent_seat_id": work_order.node_id,
-        "agent_id": work_order.agent_id or "agent:writing_modular_creator",
-        "agent_profile_id": work_order.agent_profile_id or "main_interactive_agent",
-        "execution_runtime_kind": "single_agent_task",
-        "status": "running",
-        "diagnostics": {
-            "contract": contract,
-            "graph_node_id": work_order.node_id,
-            "origin_kind": "graph_node_assigned",
-        },
-    }
-    runtime_assembly = {
-        "assembly_id": "rtasm:prompt-cache-real-writing-diagnostic",
-        "backend_dir": str(base_dir),
-        "profile": {
-            "profile_ref": work_order.agent_profile_id or "main_interactive_agent",
-            "interaction_policy": {"style": "task_execution"},
-            "context_policy": {"task_run_context": "disabled"},
-            "prompt_wiring_overrides": {
-                "task_execution": {
-                    "runtime_prompt_pack": {
-                        "pack_refs": ["runtime.pack.graph_node_execution"],
-                        "replace": True,
-                        "owner_layer": "graph_system",
-                        "cache_scope": "static",
-                    }
-                }
-            },
-            "operation_authorization_projection": {"model_visible": "summary_without_denials"},
-        },
-        "task_environment": {
-            "environment_id": "env.office.file_search",
-            "task_environment_id": "env.office.file_search",
-        },
-        "operation_authorization": {"allowed_operations": [], "denied_operations": []},
-    }
-    return RuntimeCompiler(base_dir=base_dir).compile_task_execution_packet(
-        session_id="prompt-cache-real-writing-diagnostic",
-        task_run=task_run,
-        contract=contract,
-        observations=[],
-        runtime_assembly=runtime_assembly,
-        invocation_index=1,
-    ).packet.to_dict()
 
 
 def _packet_report(
@@ -626,10 +538,6 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def _hash_text(text: str) -> str:
     return "sha256:" + hashlib.sha256(str(text or "").encode("utf-8", errors="ignore")).hexdigest()
-
-
-def _safe_id(value: str) -> str:
-    return "".join(ch if ch.isalnum() else "_" for ch in str(value or ""))[:160]
 
 
 def _print_report(report: dict[str, Any]) -> None:

@@ -95,15 +95,21 @@ def test_single_turn_active_work_control_contract_exposes_canonical_control_fiel
         active_work_context={
             "session_id": "session:active-work-control-shape",
             "active_work_id": "turn:active",
-            "task_run_id": "taskrun:active-work-control-shape",
+            "task_environment_id": "taskenv:active-work-control-shape",
             "status": "waiting_executor",
             "resumable": True,
+            "authority": "harness.runtime.task_environment_active_work_context",
         },
         current_work_boundary_receipt={
             "receipt_id": "cwreceipt:active-work-control-shape",
+            "decision_id": "cwbd:active-work-control-shape",
             "boundary_decision": "current_work_control_required",
             "observation_state": "controllable_current_work",
-            "active_work_ref": {"task_run_id": "taskrun:active-work-control-shape", "actual_active_turn_id": "turn:active"},
+            "task_environment_ref": "taskenv:active-work-control-shape",
+            "active_work_ref": {
+                "task_environment_id": "taskenv:active-work-control-shape",
+                "actual_active_turn_id": "turn:active",
+            },
             "operation_availability": {"active_work_control": True},
             "authority": "harness.entrypoint.current_work_boundary_receipt",
         },

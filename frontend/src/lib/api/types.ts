@@ -3072,6 +3072,10 @@ export type HarnessTaskRunLiveMonitor = {
   scope?: string;
   task_run: Record<string, unknown>;
   task_run_id?: string;
+  turn_run_id?: string;
+  stream_run_id?: string;
+  active_turn_id?: string;
+  source_kind?: "task_run" | "turn_run" | string;
   task_instance_id?: string;
   root_task_run_id?: string;
   kind?: "agent_run" | "task_graph" | string;
@@ -3120,6 +3124,14 @@ export type HarnessTaskRunLiveMonitor = {
   status: string;
   terminal_reason: string;
   updated_at: number;
+};
+
+export type HarnessTurnRunLiveMonitor = HarnessTaskRunLiveMonitor & {
+  scope?: "turn_run" | string;
+  source_kind?: "turn_run" | string;
+  turn_run_id?: string;
+  stream_run_id?: string;
+  active_turn_id?: string;
 };
 
 export type RuntimeApprovalResolution = {
@@ -3198,10 +3210,13 @@ export type HarnessSessionLiveMonitor = {
   authority: string;
   session_id: string;
   active_task_run_id?: string;
+  active_turn_id?: string;
+  active_turn_run_id?: string;
+  active_stream_run_id?: string;
   active_turn_snapshot?: {
     turn_id?: string;
     turn_run_id?: string;
-    bound_task_run_id?: string;
+    stream_run_id?: string;
     task_run_id?: string;
     state?: string;
     updated_at?: number;

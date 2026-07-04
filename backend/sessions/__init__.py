@@ -1290,7 +1290,14 @@ def _normalize_turn_environment_snapshot(payload: dict[str, Any] | None) -> dict
     ]
     return {
         "turn_id": str(raw.get("turn_id") or "").strip(),
+        "execution_scope_kind": str(raw.get("execution_scope_kind") or raw.get("scope_kind") or "").strip(),
         "task_environment_id": environment_id,
+        "task_instance_id": str(raw.get("task_instance_id") or "").strip(),
+        "episode_id": str(raw.get("episode_id") or "").strip(),
+        "graph_run_id": str(raw.get("graph_run_id") or "").strip(),
+        "node_id": str(raw.get("node_id") or "").strip(),
+        "work_order_id": str(raw.get("work_order_id") or "").strip(),
+        "context_package_id": str(raw.get("context_package_id") or "").strip(),
         "environment_kind": str(raw.get("environment_kind") or "").strip(),
         "environment_prompt_refs": prompt_refs,
         "runtime_assembly_id": str(raw.get("runtime_assembly_id") or raw.get("assembly_id") or "").strip(),

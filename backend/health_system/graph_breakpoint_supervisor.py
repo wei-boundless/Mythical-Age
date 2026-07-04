@@ -212,11 +212,9 @@ def _running_graph_recovery_signal(monitor: dict[str, Any], *, now: float) -> di
         if not node_id or not work_order_id:
             continue
         executor_presence = str(view.get("executor_presence") or "").strip()
-        task_monitor = dict(view.get("node_executor_task_run_monitor") or {})
+        task_execution = dict(view.get("node_executor_task_execution") or {})
         if not executor_presence:
-            if bool(task_monitor.get("stale")) or str(task_monitor.get("lifecycle") or "") == "stale":
-                executor_presence = "stale"
-            elif view.get("node_executor_task_run") or str(view.get("node_executor_task_run_id") or "").strip():
+            if task_execution or str(view.get("node_executor_execution_id") or "").strip():
                 executor_presence = "present"
             else:
                 executor_presence = "unknown"
@@ -286,22 +284,18 @@ def _select_breakpoint_node(monitor: dict[str, Any]) -> tuple[str, str, str, dic
         node_id = str(view.get("node_id") or "").strip()
         if not node_id:
             continue
-        task_run = dict(view.get("node_executor_task_run") or {})
-        task_monitor = dict(view.get("node_executor_task_run_monitor") or {})
+        task_execution = dict(view.get("node_executor_task_execution") or {})
         work_order = dict(view.get("work_order_summary") or {})
-        diagnostics = dict(task_run.get("runtime_scope") or {})
-        step = dict(task_monitor.get("step") or {})
+        diagnostics = dict(task_execution.get("runtime_scope") or {})
         executor_presence = str(view.get("executor_presence") or "")
         blocked_reason = str(
             view.get("terminal_reason")
-            or task_run.get("terminal_reason")
-            or step.get("terminal_reason")
+            or task_execution.get("terminal_reason")
             or ""
         ).strip()
         response_diagnostics = {
             **({"executor_presence": executor_presence} if executor_presence else {}),
-            **({"node_executor_task_run": task_run} if task_run else {}),
-            **({"node_executor_task_run_monitor": task_monitor} if task_monitor else {}),
+            **({"node_executor_task_execution": task_execution} if task_execution else {}),
             **({"runtime_scope": diagnostics} if diagnostics else {}),
         }
         return node_id, str(work_order.get("work_order_id") or view.get("work_order_id") or "").strip(), blocked_reason, response_diagnostics

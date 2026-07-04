@@ -51,13 +51,14 @@ from runtime.output_stream.public_contract import (
 from runtime.shared.queued_user_input_dispatcher import (
     chat_run_execution_attached,
     has_active_primary_chat_run,
-    queued_input_admission_target,
+    queued_input_admission_target as runtime_queued_input_admission_target,
     validate_queued_steer,
 )
 from runtime.shared.queued_user_input_store import QueuedUserInput
 from runtime.shared.runtime_run_registry import RuntimeRun, TERMINAL_RUNTIME_RUN_STATUSES, is_recoverable_runtime_run_interruption
 from sessions import SessionProjectBindingConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
+from task_system.work_environments.repository import TaskEnvironmentRepository
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
 from core.config import runtime_config
 from core.project_layout import ProjectLayout
@@ -193,8 +194,6 @@ class ChatRunInterruptRequest(BaseModel):
     mode: str = Field(default="interrupt_for_resume", max_length=80)
     reason: str = Field(default="user_stop_from_chat", max_length=240)
     expected_active_turn_id: str = Field(default="", max_length=240)
-    expected_task_run_id: str = Field(default="", max_length=240)
-    cascade_subagents: str = Field(default="interrupt_for_resume", max_length=80)
 
 
 @router.post("/chat/runs")
@@ -221,7 +220,7 @@ async def enqueue_queued_chat_input(session_id: str, payload: QueuedChatInputReq
     _bind_or_validate_editor_project(runtime, validated_session_id, editor_context)
     attachments = _normalize_chat_attachments(payload.attachments, session_id=validated_session_id, base_dir=runtime.base_dir)
     host = runtime.harness_runtime.single_agent_runtime_host
-    admission = queued_input_admission_target(host, session_id=validated_session_id)
+    admission = _queued_input_admission_target(runtime, session_id=validated_session_id)
     item = await asyncio.to_thread(
         host.queued_user_inputs.enqueue,
         session_id=validated_session_id,
@@ -229,7 +228,7 @@ async def enqueue_queued_chat_input(session_id: str, payload: QueuedChatInputReq
         client_message_id=payload.client_message_id,
         input_policy=str(admission.get("input_policy") or "auto"),
         expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
-        task_run_id=str(admission.get("task_run_id") or ""),
+        task_environment_id=str(admission.get("task_environment_id") or ""),
         attachments=attachments,
         session_scope=dict(payload.session_scope or {}),
         environment_binding=dict(payload.environment_binding or {}),
@@ -314,56 +313,36 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
     request = payload or ChatRunInterruptRequest()
     run = _get_run_or_404(runtime, stream_run_id)
     mode = _validated_interrupt_mode(request.mode)
-    cascade_policy = _validated_interrupt_cascade(request.cascade_subagents, mode=mode)
     reason = str(request.reason or "user_stop_from_chat").strip() or "user_stop_from_chat"
     host = runtime.harness_runtime.single_agent_runtime_host
     registry = host.run_registry
     active_turn = host.active_turn_registry.snapshot(run.session_id)
     expected_turn_id = str(request.expected_active_turn_id or "").strip()
-    expected_task_run_id = str(request.expected_task_run_id or "").strip()
     active_turn_control: dict[str, Any] = {}
     if active_turn is not None:
         active_turn_control = host.active_turn_registry.mark_interrupting(
             session_id=run.session_id,
             expected_turn_id=expected_turn_id,
-            expected_task_run_id=expected_task_run_id,
             reason=reason,
         )
         if not active_turn_control.get("accepted"):
             raise HTTPException(status_code=409, detail=active_turn_control)
         active_turn = host.active_turn_registry.snapshot(run.session_id)
-    elif expected_turn_id or expected_task_run_id:
+    elif expected_turn_id:
         raise HTTPException(
             status_code=409,
             detail={
                 "reason": "active_turn_unavailable",
                 "expected_active_turn_id": expected_turn_id,
-                "expected_task_run_id": expected_task_run_id,
                 "authority": "api.chat.runtime_interruption",
             },
         )
 
-    root_task_run_id = _interrupt_root_task_run_id(
-        run,
-        active_turn=active_turn,
-        expected_task_run_id=expected_task_run_id,
-    )
     stream_control = await asyncio.to_thread(
         host.cancel_runtime_run_cells,
         runtime_run_sessions={run.stream_run_id: run.session_id},
         reason=reason,
     )
-    task_control: dict[str, Any] = {}
-    if root_task_run_id:
-        task_control = {
-            "ok": True,
-            "applied": False,
-            "task_run_id": root_task_run_id,
-            "mode": mode,
-            "reason": "legacy_task_run_control_removed",
-            "detail": "runtime interruption only cancels active runtime cells; legacy TaskRun pause/stop control is no longer an execution authority.",
-            "authority": "api.chat.runtime_interruption.legacy_task_run_control_removed",
-        }
     interruption_record: dict[str, Any] = {}
     if mode == "interrupt_for_resume":
         interruption_record = await asyncio.to_thread(
@@ -387,15 +366,6 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
                 "runtime_interruption_reason": reason,
             },
         )
-    subagent_controls = await asyncio.to_thread(
-        _cascade_interrupted_subagents,
-        host,
-        root_task_run_id=root_task_run_id,
-        session_id=run.session_id,
-        mode=mode,
-        cascade_policy=cascade_policy,
-        reason=reason,
-    )
     context_status = _session_context_recovery_status(runtime, run.session_id)
     selection = select_session_continuation(
         host,
@@ -413,18 +383,14 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
     runtime_signal = _publish_chat_interruption_fact_signal(
         host,
         run=current_run,
-        root_task_run_id=root_task_run_id,
         mode=mode,
         reason=reason,
         stream_control=stream_control,
-        task_control=task_control,
-        subagent_controls=subagent_controls,
         context_recovery_status=context_status,
         checkpoint=checkpoint,
     )
     accepted = bool(
-        (not task_control or task_control.get("ok") is True)
-        and (not stream_control or not stream_control.get("rejected"))
+        not stream_control or not stream_control.get("rejected")
     )
     return {
         "ok": accepted,
@@ -435,9 +401,7 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
         "reason": reason,
         "active_turn": active_turn.to_dict() if active_turn is not None else {},
         "active_turn_control": active_turn_control,
-        "task_control": task_control,
         "stream_control": stream_control,
-        "subagent_controls": subagent_controls,
         "interruption_record": interruption_record,
         "continuation": selection.to_dict(),
         "runtime_signal": runtime_signal,
@@ -745,7 +709,7 @@ async def _enqueue_request_for_attached_active_session(
     enqueue = getattr(store, "enqueue", None)
     if not callable(enqueue):
         return None
-    admission = queued_input_admission_target(host, session_id=session_id)
+    admission = _queued_input_admission_target(runtime, session_id=session_id)
     item = await asyncio.to_thread(
         enqueue,
         session_id=session_id,
@@ -753,7 +717,7 @@ async def _enqueue_request_for_attached_active_session(
         client_message_id=str(request.client_message_id or ""),
         input_policy=str(admission.get("input_policy") or "auto"),
         expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
-        task_run_id=str(admission.get("task_run_id") or ""),
+        task_environment_id=str(admission.get("task_environment_id") or ""),
         attachments=[dict(entry) for entry in list(request.attachments or []) if isinstance(entry, dict)],
         session_scope=dict(getattr(request, "session_scope", {}) or {}),
         environment_binding=dict(request.environment_binding or {}),
@@ -840,6 +804,30 @@ def _queued_input_response(runtime: Any, session_id: str, item: QueuedUserInput)
     }
 
 
+def _queued_input_admission_target(runtime: Any, *, session_id: str) -> dict[str, str]:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    admission = dict(runtime_queued_input_admission_target(host, session_id=session_id))
+    if str(admission.get("input_policy") or "").strip().lower() == "steer":
+        admission["task_environment_id"] = _foreground_task_environment_id(runtime, session_id)
+    else:
+        admission["task_environment_id"] = ""
+    admission.pop("task_run_id", None)
+    admission["authority"] = "api.chat.queued_input_admission_target"
+    return admission
+
+
+def _foreground_task_environment_id(runtime: Any, session_id: str) -> str:
+    try:
+        repository = TaskEnvironmentRepository(runtime.base_dir)
+        binding = repository.get_foreground_session_binding(session_id)
+    except Exception:
+        logger.debug("Failed to read foreground task environment binding for queued input.", exc_info=True)
+        return ""
+    if binding is None:
+        return ""
+    return str(getattr(binding, "task_environment_id", "") or "").strip()
+
+
 def _schedule_queued_input_dispatch(runtime: Any, session_id: str, *, reason: str) -> None:
     normalized = str(session_id or "").strip()
     if not normalized:
@@ -874,7 +862,7 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
         if has_active_primary_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
             return None
         if next_item.input_policy == "auto":
-            admission = queued_input_admission_target(host, session_id=normalized)
+            admission = _queued_input_admission_target(runtime, session_id=normalized)
             if str(admission.get("input_policy") or "").strip().lower() == "steer":
                 retargeted = await asyncio.to_thread(
                     store.retarget_for_dispatch,
@@ -882,7 +870,7 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
                     next_item.queue_item_id,
                     input_policy="steer",
                     expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
-                    task_run_id=str(admission.get("task_run_id") or ""),
+                    task_environment_id=str(admission.get("task_environment_id") or ""),
                 )
                 if retargeted is None:
                     continue
@@ -943,7 +931,6 @@ def _request_from_queued_input(item: QueuedUserInput, *, reason: str) -> Harness
         permission_mode=str(item.permission_mode or ""),
         expected_active_turn_id=str(item.expected_active_turn_id or "") if item.input_policy == "steer" else "",
         active_turn_input_policy=str(item.input_policy or "auto"),
-        expected_task_run_id=str(item.task_run_id or "") if item.input_policy == "steer" else "",
         editor_context=dict(item.editor_context or {}),
     )
 
@@ -1152,7 +1139,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     except Exception as exc:
         logger.exception("Chat run failed before terminal event.", extra={"stream_run_id": run.stream_run_id})
         current = registry.get_run(run.stream_run_id) or current
-        if _bridge_context_requires_task_bridge_terminal(runtime, bridge_context) or _active_turn_requires_task_bridge_terminal(runtime, request.session_id):
+        if _bridge_context_requires_task_bridge_terminal(runtime, bridge_context):
             host.record_chat_turn_run_runtime_interruption_best_effort(
                 current,
                 code="projection_stream_exception",
@@ -1169,12 +1156,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
-        if _bridge_context_requires_task_bridge_terminal(runtime, bridge_context) or _active_turn_requires_task_bridge_terminal(runtime, request.session_id):
+        if _bridge_context_requires_task_bridge_terminal(runtime, bridge_context):
             host.record_chat_turn_run_runtime_interruption_best_effort(
                 current,
                 code="projection_stream_missing_task_bridge_terminal",
-                reason="Chat stream ended while the active turn still had a live bound task.",
-                orphaned_by="api.chat.run_chat_to_event_log.active_turn_task_missing_terminal",
+                reason="Chat stream ended before the explicit task bridge emitted a terminal event.",
+                orphaned_by="api.chat.run_chat_to_event_log.task_bridge_missing_terminal",
             )
             return
         host.record_chat_turn_run_runtime_interruption_best_effort(
@@ -1775,22 +1762,6 @@ def _bridge_context_requires_task_bridge_terminal(runtime: Any, bridge_context: 
     return _task_run_requires_task_bridge_terminal(task_run, runtime_host=host)
 
 
-def _active_turn_requires_task_bridge_terminal(runtime: Any, session_id: str) -> bool:
-    try:
-        host = runtime.harness_runtime.single_agent_runtime_host
-        active_turn = host.active_turn_registry.resolve_current(str(session_id or "").strip())
-    except Exception:
-        return False
-    task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip() if active_turn is not None else ""
-    if not task_run_id:
-        return False
-    try:
-        task_run = host.state_index.get_task_run(task_run_id)
-    except Exception:
-        return False
-    return _task_run_requires_task_bridge_terminal(task_run, runtime_host=host)
-
-
 def _task_run_requires_task_bridge_terminal(task_run: Any, *, runtime_host: Any) -> bool:
     if task_run is None or is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
         return False
@@ -1964,109 +1935,6 @@ def _validated_interrupt_mode(value: str) -> str:
     return mode
 
 
-def _validated_interrupt_cascade(value: str, *, mode: str) -> str:
-    cascade = str(value or "interrupt_for_resume").strip() or "interrupt_for_resume"
-    if cascade not in {"interrupt_for_resume", "hard_stop", "leave_running"}:
-        raise HTTPException(status_code=400, detail="unsupported_interrupt_cascade")
-    if cascade == "leave_running" and mode != "hard_stop":
-        raise HTTPException(status_code=400, detail="leave_running_cascade_not_allowed_for_chat_interrupt")
-    return cascade
-
-
-def _interrupt_root_task_run_id(
-    run: RuntimeRun,
-    *,
-    active_turn: Any | None,
-    expected_task_run_id: str = "",
-) -> str:
-    diagnostics = dict(run.diagnostics or {})
-    candidates = [
-        expected_task_run_id,
-        getattr(active_turn, "bound_task_run_id", "") if active_turn is not None else "",
-        diagnostics.get("runtime_task_run_id"),
-        diagnostics.get("task_run_id"),
-        diagnostics.get("public_anchor_task_run_id"),
-    ]
-    for candidate in candidates:
-        normalized = str(candidate or "").strip()
-        if normalized:
-            return normalized
-    return ""
-
-
-def _cascade_interrupted_subagents(
-    host: Any,
-    *,
-    root_task_run_id: str,
-    session_id: str,
-    mode: str,
-    cascade_policy: str,
-    reason: str,
-) -> list[dict[str, Any]]:
-    root_id = str(root_task_run_id or "").strip()
-    if not root_id or cascade_policy == "leave_running":
-        return []
-    controls: list[dict[str, Any]] = []
-    for child in _subagent_task_runs_for_parent(host, root_task_run_id=root_id, session_id=session_id):
-        child_id = str(getattr(child, "task_run_id", "") or "").strip()
-        if not child_id or child_id == root_id:
-            continue
-        controls.append(
-            {
-                "task_run_id": child_id,
-                "parent_task_run_id": root_id,
-                "control": {
-                    "ok": True,
-                    "applied": False,
-                    "mode": mode,
-                    "cascade_policy": cascade_policy,
-                    "reason": "legacy_task_run_control_removed",
-                    "detail": "subagent legacy TaskRun pause/stop cascade is no longer an execution authority.",
-                },
-                "authority": "api.chat.runtime_interruption.subagent_cascade_removed",
-            }
-        )
-    return controls
-
-
-def _subagent_task_runs_for_parent(host: Any, *, root_task_run_id: str, session_id: str) -> list[Any]:
-    state_index = getattr(host, "state_index", None)
-    list_session_task_runs = getattr(state_index, "list_session_task_runs", None)
-    if not callable(list_session_task_runs):
-        return []
-    try:
-        task_runs = list(list_session_task_runs(session_id) or [])
-    except Exception:
-        return []
-    root_id = str(root_task_run_id or "").strip()
-    children: list[Any] = []
-    for task_run in task_runs:
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "subagent_task":
-            continue
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        parent_ids = _subagent_parent_task_run_ids(diagnostics)
-        if root_id in parent_ids:
-            children.append(task_run)
-    return children
-
-
-def _subagent_parent_task_run_ids(diagnostics: dict[str, Any]) -> set[str]:
-    parent_ids: set[str] = set()
-    for key in ("parent_task_run_id", "root_task_run_id", "supervisor_task_run_id"):
-        value = str(diagnostics.get(key) or "").strip()
-        if value:
-            parent_ids.add(value)
-    for key in ("origin", "subagent_control", "agent_control", "parent_agent"):
-        payload = diagnostics.get(key)
-        if not isinstance(payload, dict):
-            continue
-        for nested_key in ("parent_task_run_id", "root_task_run_id", "supervisor_task_run_id"):
-            value = str(payload.get(nested_key) or "").strip()
-            if value:
-                parent_ids.add(value)
-    return parent_ids
-
-
 def _session_context_recovery_status(runtime: Any, session_id: str) -> dict[str, Any]:
     normalized_session_id = str(session_id or "").strip()
     session_manager = getattr(runtime, "session_manager", None)
@@ -2143,12 +2011,9 @@ def _publish_chat_interruption_fact_signal(
     host: Any,
     *,
     run: RuntimeRun,
-    root_task_run_id: str,
     mode: str,
     reason: str,
     stream_control: dict[str, Any],
-    task_control: dict[str, Any],
-    subagent_controls: list[dict[str, Any]],
     context_recovery_status: dict[str, Any],
     checkpoint: dict[str, Any],
 ) -> dict[str, Any]:
@@ -2162,7 +2027,6 @@ def _publish_chat_interruption_fact_signal(
         }
     diagnostics = dict(run.diagnostics or {})
     active_turn = getattr(getattr(host, "active_turn_registry", None), "snapshot", lambda _session_id: None)(run.session_id)
-    task_run_id = str(root_task_run_id or "").strip()
     turn_id = str(getattr(active_turn, "turn_id", "") or diagnostics.get("turn_id") or diagnostics.get("active_turn_id") or "")
     turn_run_id = str(getattr(active_turn, "turn_run_id", "") or diagnostics.get("turn_run_id") or "")
     payload = {
@@ -2171,12 +2035,9 @@ def _publish_chat_interruption_fact_signal(
         "reason": reason,
         "stream_run_id": run.stream_run_id,
         "session_id": run.session_id,
-        "task_run_id": task_run_id,
         "turn_id": turn_id,
         "turn_run_id": turn_run_id,
         "stream_control": dict(stream_control or {}),
-        "task_control": _control_fact(task_control),
-        "subagent_controls": [_control_fact(dict(item.get("control") or item)) for item in list(subagent_controls or [])],
         "context_recovery_status": dict(context_recovery_status or {}),
         "checkpoint": dict(checkpoint or {}),
         "contract": {
@@ -2188,11 +2049,10 @@ def _publish_chat_interruption_fact_signal(
     }
     try:
         event = publish(
-            task_run_id or run.event_log_id,
+            run.event_log_id,
             signal_type="runtime.interruption.fact",
             scope=RuntimeSignalScope(
                 session_id=run.session_id,
-                task_run_id=task_run_id,
                 turn_id=turn_id,
                 turn_run_id=turn_run_id,
             ),
@@ -2201,7 +2061,6 @@ def _publish_chat_interruption_fact_signal(
             visibility="model_visible",
             refs={
                 "stream_run_ref": run.stream_run_id,
-                **({"task_run_ref": task_run_id} if task_run_id else {}),
                 **({"turn_ref": turn_id} if turn_id else {}),
                 **({"turn_run_ref": turn_run_id} if turn_run_id else {}),
             },
@@ -2219,24 +2078,6 @@ def _publish_chat_interruption_fact_signal(
         "offset": int(getattr(event, "offset", -1) or -1),
         "signal_type": "runtime.interruption.fact",
         "authority": "api.chat.runtime_interruption.signal",
-    }
-
-
-def _control_fact(value: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(value or {})
-    return {
-        key: payload.get(key)
-        for key in (
-            "ok",
-            "accepted",
-            "task_run_id",
-            "error",
-            "reason",
-            "authority",
-            "control",
-            "recovery_state",
-        )
-        if key in payload
     }
 
 

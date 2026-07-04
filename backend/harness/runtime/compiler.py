@@ -1998,9 +1998,9 @@ def _active_work_ref_model_visible_payload(value: dict[str, Any] | None) -> dict
         {
             "work_ref": str(
                 payload.get("work_ref")
+                or payload.get("task_environment_ref")
+                or payload.get("task_environment_id")
                 or payload.get("task_ref")
-                or payload.get("task_run_ref")
-                or payload.get("task_run_id")
                 or ""
             ),
             "state": str(payload.get("state") or payload.get("status") or ""),
@@ -2597,6 +2597,8 @@ def _active_work_model_visible_payload(
     ] if controls_enabled else []
     payload = _drop_empty_payload(
         {
+            "task_environment_id": str(context.get("task_environment_id") or ""),
+            "environment_kind": str(context.get("environment_kind") or ""),
             "status": str(context.get("status") or ""),
             "control_state": str(context.get("control_state") or ""),
             "user_visible_goal": str(context.get("user_visible_goal") or ""),
@@ -2859,7 +2861,6 @@ _CONTROL_PROTOCOL_TOOL_CALL_NAMES = {
     "block",
     "request_task_run",
     "active_work_control",
-    "resume_task_recovery",
     "pause_for_user_steer",
     "task_run_request",
 }

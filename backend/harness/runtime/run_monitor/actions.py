@@ -68,14 +68,8 @@ class RunMonitorActionService:
             effects = self._clear_from_monitor(payload=payload, signal=signal)
         elif action == "restore_to_monitor":
             effects = self._restore_to_monitor(payload=payload, signal=signal)
-        elif action == "close_runtime":
-            effects = self._close_runtime(payload=payload, signal=signal)
         elif action == "delete_record":
             effects = await self._delete_record(payload=payload, signal=signal)
-        elif action == "pause_task":
-            effects = self._pause_task(payload=payload, signal=signal)
-        elif action == "stop_task":
-            effects = self._stop_task(payload=payload, signal=signal)
         elif action in {"preview_delete_record", "preview_delete_graph_run"}:
             effects = self._preview_effects(action=action, payload=payload, signal=signal)
         else:
@@ -105,16 +99,11 @@ class RunMonitorActionService:
         }
 
     def _action_check(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        if action in {"close_runtime", "pause_task", "stop_task"}:
-            return {"enabled": False, "disabled_reason": "legacy_task_run_control_removed"}
         if action in {"clear_from_monitor", "restore_to_monitor"} and not _signal_id(payload=payload, signal=signal):
             return {"enabled": False, "disabled_reason": "signal_id_required"}
         if action == "preview_delete_graph_run":
             return {"enabled": bool(_graph_run_id(payload=payload, signal=signal)), "disabled_reason": "" if _graph_run_id(payload=payload, signal=signal) else "graph_run_id_required"}
         task_run_required_actions = {
-            "close_runtime",
-            "pause_task",
-            "stop_task",
             "delete_record",
             "preview_delete_record",
         }
@@ -132,8 +121,6 @@ class RunMonitorActionService:
         return {"enabled": False, "disabled_reason": "action_not_available"}
 
     def _execution_check(self, *, action: str, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        if action in {"close_runtime", "pause_task", "stop_task"}:
-            return {"enabled": False, "disabled_reason": "legacy_task_run_control_removed"}
         if action in {"clear_from_monitor", "restore_to_monitor"}:
             if not _signal_id(payload=payload, signal=signal):
                 return {"enabled": False, "disabled_reason": "signal_id_required"}
@@ -143,9 +130,6 @@ class RunMonitorActionService:
                 return {"enabled": False, "disabled_reason": "graph_run_id_required"}
             return {"enabled": True, "disabled_reason": ""}
         task_run_required_actions = {
-            "close_runtime",
-            "pause_task",
-            "stop_task",
             "delete_record",
             "preview_delete_record",
         }
@@ -203,36 +187,6 @@ class RunMonitorActionService:
             reason=str(payload.get("reason") or "user_restored"),
         )
         return {"authority": "harness.run_monitor.actions.restore_to_monitor", "restored": row}
-
-    def _close_runtime(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        reason = str(payload.get("reason") or "harness.run_monitor_close_runtime")
-        stop_result = self._stop_task(
-            payload={**payload, "reason": reason},
-            signal=signal,
-        )
-        if stop_result.get("error") or stop_result.get("ok") is False:
-            return {
-                "authority": "harness.run_monitor.actions.close_runtime",
-                "task_run_id": task_run_id,
-                "stop": stop_result,
-                "error": str(stop_result.get("error") or "runtime_close_rejected"),
-            }
-        signal_id = _signal_id(payload=payload, signal=signal) or task_run_id
-        hidden = self.monitor_service.retention_store.hide_signal(
-            signal_id=signal_id,
-            task_run_id=task_run_id,
-            graph_run_id=_graph_run_id(payload=payload, signal=signal),
-            reason=reason,
-            hidden_by="user",
-            source_revision=str(payload.get("source_revision") or ""),
-        )
-        return {
-            "authority": "harness.run_monitor.actions.close_runtime",
-            "task_run_id": task_run_id,
-            "stop": stop_result,
-            "hidden": hidden,
-        }
 
     async def _delete_record(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
         task_run_id = _task_run_id(payload=payload, signal=signal)
@@ -296,24 +250,6 @@ class RunMonitorActionService:
                 close()
             raise RuntimeError("runtime monitor cleanup requires host.spawn_background_task")
         spawner(coro, name=name)
-
-    def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        return {
-            "ok": False,
-            "error": "legacy_task_run_control_removed",
-            "task_run_id": task_run_id,
-            "authority": "harness.run_monitor.actions.legacy_task_run_control_removed",
-        }
-
-    def _stop_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        return {
-            "ok": False,
-            "error": "legacy_task_run_control_removed",
-            "task_run_id": task_run_id,
-            "authority": "harness.run_monitor.actions.legacy_task_run_control_removed",
-        }
 
 
 def _action_name(payload: dict[str, Any]) -> str:
@@ -409,4 +345,3 @@ def _background_task_running(host: Any, name: str) -> bool:
     if not callable(checker):
         raise RuntimeError("runtime monitor cleanup requires host.background_task_running")
     return bool(checker(name))
-
