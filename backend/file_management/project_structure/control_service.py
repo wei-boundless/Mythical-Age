@@ -415,7 +415,16 @@ class ProjectNetworkControlService:
             ),
         ]
         deduped = {edge.edge_id: edge for edge in edges}.values()
-        return tuple(sorted(deduped, key=lambda edge: (-_edge_score(edge), edge.edge_kind, edge.edge_id)))
+        return tuple(
+            sorted(
+                deduped,
+                key=lambda edge: (
+                    -_edge_navigation_score(self.repository, edge, current_node_id=node_id, goal=session.goal),
+                    edge.edge_kind,
+                    edge.edge_id,
+                ),
+            )
+        )
 
     def _path_candidate_record(
         self,
@@ -437,6 +446,7 @@ class ProjectNetworkControlService:
         stable_refs = tuple(node.stable_ref for node in nodes if node.stable_ref)
         path_kind = _path_kind(edges)
         label = " -> ".join(node.display_name or node.stable_ref or node.node_id for node in nodes[:5])
+        score = _path_score(edges, semantic_overlay_count=len(overlays), target_node=target_node, goal=session.goal)
         return ProjectNetworkPathCandidateRecord(
             path_candidate_id=stable_project_structure_id("pnpath", session.navigation_session_id, edge_ids, node_ids),
             navigation_session_id=session.navigation_session_id,
@@ -449,7 +459,7 @@ class ProjectNetworkControlService:
             node_ids=node_ids,
             edge_ids=edge_ids,
             stable_refs=stable_refs,
-            score=_path_score(edges, semantic_overlay_count=len(overlays)),
+            score=score,
             reason=str(reason or "").strip(),
             status="available",
             evidence_refs=tuple(dict.fromkeys(ref for edge in edges for ref in edge.evidence_refs)),
@@ -511,13 +521,52 @@ def _path_kind(edges: tuple[SkeletonEdgeRecord, ...]) -> str:
     return "mixed_structure_path"
 
 
-def _path_score(edges: tuple[SkeletonEdgeRecord, ...], *, semantic_overlay_count: int) -> int:
+def _path_score(
+    edges: tuple[SkeletonEdgeRecord, ...],
+    *,
+    semantic_overlay_count: int,
+    target_node: SkeletonNodeRecord | None = None,
+    goal: str = "",
+) -> int:
     if not edges:
         return 1
     base = sum(_edge_score(edge) for edge in edges) // max(1, len(edges))
     length_penalty = max(0, len(edges) - 1) * 8
     semantic_bonus = min(12, semantic_overlay_count * 2)
-    return max(1, min(base - length_penalty + semantic_bonus, 100))
+    target_bonus = _target_navigation_bonus(target_node, goal=goal)
+    return max(1, min(base - length_penalty + semantic_bonus + target_bonus, 100))
+
+
+def _target_navigation_bonus(target_node: SkeletonNodeRecord | None, *, goal: str) -> int:
+    if target_node is None:
+        return 0
+    stable_ref = str(target_node.stable_ref or "")
+    node_kind = str(target_node.node_kind or "").lower()
+    goal_text = str(goal or "").lower()
+    architecture_goal = any(
+        item in goal_text
+        for item in (
+            "整体架构",
+            "系统架构",
+            "项目架构",
+            "项目总览",
+            "架构总览",
+            "architecture",
+            "overview",
+            "system map",
+        )
+    )
+    if not architecture_goal:
+        return 4 if "directory" in node_kind or stable_ref.startswith("folder://") else 0
+    depth = _stable_ref_depth(stable_ref)
+    if stable_ref.startswith("folder://") and depth == 1:
+        preferred = {"AGENT": 6, "CLIENT": 6, "TASK": 5, "MEMORY": 5, "FILE": 5, "README": 2}
+        return 10 + preferred.get(_stable_ref_top_segment(stable_ref), 0)
+    if stable_ref.startswith("folder://") and depth == 2:
+        return 6
+    if stable_ref.startswith("file://") and depth <= 1:
+        return -8
+    return 0
 
 
 def _edge_score(edge: SkeletonEdgeRecord) -> int:
@@ -531,6 +580,38 @@ def _edge_score(edge: SkeletonEdgeRecord) -> int:
     if edge.freshness == "stale":
         base -= 20
     return max(1, min(base, 100))
+
+
+def _edge_navigation_score(
+    repository: ProjectStructureRepository,
+    edge: SkeletonEdgeRecord,
+    *,
+    current_node_id: str,
+    goal: str,
+) -> int:
+    target_node_id = edge.dst_node_id if edge.src_node_id == current_node_id else edge.src_node_id
+    target_node = repository.get_skeleton_node(target_node_id) if target_node_id else None
+    return max(1, min(_edge_score(edge) + _target_navigation_bonus(target_node, goal=goal), 100))
+
+
+def _stable_ref_depth(stable_ref: str) -> int:
+    target = str(stable_ref or "")
+    if "://" in target:
+        target = target.split("://", 1)[1]
+    target = target.split("#", 1)[0].replace("\\", "/").strip("/")
+    if target in {"", "."}:
+        return 0
+    return len([part for part in target.split("/") if part])
+
+
+def _stable_ref_top_segment(stable_ref: str) -> str:
+    target = str(stable_ref or "")
+    if "://" in target:
+        target = target.split("://", 1)[1]
+    target = target.split("#", 1)[0].replace("\\", "/").strip("/")
+    if target in {"", "."}:
+        return "."
+    return target.split("/", 1)[0]
 
 
 def _decision_id(navigation_session_id: str, decision_kind: str) -> str:

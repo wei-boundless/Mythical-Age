@@ -20,7 +20,7 @@ from capability_system.tools.tool_units.project_structure_tools import (
 from core.project_layout import ProjectLayout
 from file_management.project_structure import ProjectNetworkControlService
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
-from task_system.project_network.service import ProjectNetworkBuildService
+from project_network_system.service import ProjectNetworkBuildService
 
 
 ProjectNetworkAction = Literal[
@@ -200,8 +200,13 @@ class ProjectNetworkTool(BaseTool):
         service = ProjectNetworkControlService.from_backend_dir(self._root_dir)
         try:
             if action == "start_navigation":
+                build_id = str(values.get("build_id") or "").strip()
+                if not build_id:
+                    latest_artifact_root = _artifact_root(self._root_dir, "")
+                    latest_bundle = _load_artifact_bundle(latest_artifact_root)
+                    build_id = _bundle_build_id(latest_bundle, artifact_root=latest_artifact_root)
                 projection = service.start_navigation(
-                    build_id=str(values.get("build_id") or ""),
+                    build_id=build_id,
                     goal=str(values.get("goal") or ""),
                     anchor_node_ids=list(values.get("anchor_node_ids") or []),
                     anchor_stable_refs=list(values.get("anchor_stable_refs") or []),
@@ -399,6 +404,16 @@ def _locate_from_artifacts(
     query = _query_profile(intent)
     node_lookup = _node_lookup(graph)
     edges_by_ref = _edges_by_ref(graph)
+    if _is_architecture_overview_intent(query):
+        return _locate_architecture_overview(
+            graph,
+            artifact_root=artifact_root,
+            build_id=build_id,
+            intent=intent,
+            query=query,
+            edges_by_ref=edges_by_ref,
+            limit=limit,
+        )
     candidates: list[dict[str, Any]] = []
     for node in list(graph.get("nodes") or []):
         if not isinstance(node, dict):
@@ -496,6 +511,87 @@ def _locate_from_artifacts(
         "chain_anchors": chain_anchors,
         "fallback_candidates": fallback_candidates,
         "matches": flattened,
+    }
+
+
+def _locate_architecture_overview(
+    graph: dict[str, Any],
+    *,
+    artifact_root: Path,
+    build_id: str,
+    intent: str,
+    query: dict[str, Any],
+    edges_by_ref: dict[str, list[dict[str, Any]]],
+    limit: int,
+) -> dict[str, Any]:
+    nodes = [dict(item) for item in list(graph.get("nodes") or []) if isinstance(item, dict)]
+    root_node = _resolve_graph_node(graph, "folder://.")
+    top_nodes = _top_level_architecture_nodes(nodes)
+    primary: list[dict[str, Any]] = []
+    if root_node:
+        primary.append(
+            _node_match_entry(
+                root_node,
+                connected_edges=edges_by_ref.get("folder://.", []),
+                score=120.0,
+                breakdown={"architecture": 120.0},
+                matched_terms=query["base_terms"][:16],
+            )
+        )
+    for index, node in enumerate(top_nodes[: max(1, min(limit, 20))], start=1):
+        ref = _node_ref(node)
+        primary.append(
+            _node_match_entry(
+                node,
+                connected_edges=edges_by_ref.get(ref, []),
+                score=max(80.0, 112.0 - index),
+                breakdown={"architecture": max(80.0, 112.0 - index)},
+                matched_terms=query["base_terms"][:16],
+            )
+        )
+    bridge_landings: list[dict[str, Any]] = []
+    node_lookup = _node_lookup(graph)
+    for edge in edges_by_ref.get("folder://.", []):
+        if not isinstance(edge, dict):
+            continue
+        identity = dict(edge.get("identity") or {})
+        semantic = dict(edge.get("semantic_facets") or {})
+        if str(semantic.get("edge_kind") or "") not in {"contains", "contains_directory", "contains_file", "owns", "ownership"}:
+            continue
+        source = node_lookup.get(str(identity.get("source_ref") or ""))
+        target = node_lookup.get(str(identity.get("target_ref") or ""))
+        bridge_landings.append(
+            _edge_match_entry(
+                edge,
+                source_node=source,
+                target_node=target,
+                score=70.0,
+                breakdown={"architecture": 70.0},
+                matched_terms=query["base_terms"][:16],
+            )
+        )
+    primary_landings = _dedupe_match_entries(primary, limit=max(1, min(limit, 100)))
+    bridge_landings = _dedupe_match_entries(bridge_landings, limit=max(1, min(limit, 100)))
+    return {
+        "action": "locate",
+        "artifact_root": str(artifact_root),
+        "build_id": build_id,
+        "intent": intent,
+        "query": query,
+        "architecture_overview_report": "PROJECT_ARCHITECTURE_OVERVIEW.md",
+        "summary": {
+            "intent_kind": "project_architecture_overview",
+            "node_candidate_count": len(primary_landings),
+            "bridge_candidate_count": len(bridge_landings),
+            "chain_candidate_count": 0,
+            "primary_count": len(primary_landings),
+            "fallback_count": 0,
+        },
+        "primary_landings": primary_landings,
+        "bridge_landings": bridge_landings,
+        "chain_anchors": [],
+        "fallback_candidates": [],
+        "matches": _dedupe_match_entries([*primary_landings, *bridge_landings], limit=max(1, min(limit, 100))),
     }
 
 
@@ -1003,7 +1099,7 @@ def _synthesize_unified_control_graph(
                     "recommended_next_action": str(route.get("recommended_next_action") or ""),
                     "audit_signals": [dict(item) for item in list(node_signal_map.get(ref) or [])],
                 },
-                "authority": "task_system.project_network.unified_control_graph.node.synthetic",
+                "authority": "project_network_system.unified_control_graph.node.synthetic",
             }
         )
 
@@ -1035,12 +1131,12 @@ def _synthesize_unified_control_graph(
                         "trace_priority": 90 if status == "accepted" else 60 if status == "candidate" else 40,
                         "audit_signals": [dict(item) for item in list(edge_signal_map.get(edge_id) or [])],
                     },
-                    "authority": "task_system.project_network.unified_control_graph.edge.synthetic",
+                    "authority": "project_network_system.unified_control_graph.edge.synthetic",
                 }
             )
 
     return {
-        "authority": "task_system.project_network.unified_control_graph.synthetic",
+        "authority": "project_network_system.unified_control_graph.synthetic",
         "control_plane": "unified_control_graph",
         "purpose": "single entity space for physical facts, semantic facets, and agent control surface",
         "build_id": build_id,
@@ -1436,6 +1532,45 @@ def _query_profile(value: str) -> dict[str, Any]:
     }
 
 
+def _is_architecture_overview_intent(query: dict[str, Any]) -> bool:
+    text = str(query.get("text") or "").strip().lower()
+    terms = set(str(item).lower() for item in list(query.get("base_terms") or []))
+    exact_phrases = {
+        "整体架构",
+        "系统架构",
+        "项目架构",
+        "项目总览",
+        "整体总览",
+        "架构总览",
+        "架构图",
+        "architecture overview",
+        "project overview",
+        "system overview",
+        "system map",
+        "project map",
+    }
+    if any(phrase in text for phrase in exact_phrases):
+        return True
+    if "架构" in terms and not (terms & {"文件系统", "操作系统"}):
+        return True
+    if "总览" in terms or "overview" in terms:
+        return True
+    return False
+
+
+def _top_level_architecture_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for node in nodes:
+        ref = _node_ref(node)
+        if not ref.startswith("folder://") or ref == "folder://.":
+            continue
+        raw = ref[len("folder://") :].replace("\\", "/").strip("/")
+        if raw and "/" not in raw:
+            result.append(node)
+    preferred = {"AGENT": 0, "CLIENT": 1, "TASK": 2, "MEMORY": 3, "FILE": 4, "README": 5}
+    return sorted(result, key=lambda item: (preferred.get(_ref_root_segment(_node_ref(item)), 50), _node_ref(item)))
+
+
 def _extract_terms(value: str) -> list[str]:
     text = str(value or "")
     results: list[str] = []
@@ -1586,6 +1721,27 @@ def _node_label(node: dict[str, Any] | None) -> str:
     return str(dict(node.get("semantic_facets") or {}).get("label") or _node_ref(node))
 
 
+def _format_node_line(prefix: str, item: dict[str, Any]) -> str:
+    return f"- {prefix} {item.get('score')} `{item.get('ref')}` [{item.get('layer') or item.get('node_kind') or '-'}] {item.get('label') or ''}"
+
+
+def _format_edge_line(prefix: str, item: dict[str, Any]) -> str:
+    audit_codes = ",".join(_strings(item.get("audit_codes")))
+    audit_text = f" audit={audit_codes}" if audit_codes else ""
+    status = str(item.get("status") or "")
+    return (
+        f"- {prefix} {item.get('score', '')} `{item.get('source_ref')}` -> `{item.get('target_ref')}` "
+        f"via `{item.get('edge_kind') or ''}` [{status}]{audit_text}"
+    )
+
+
+def _format_chain_line(prefix: str, item: dict[str, Any]) -> str:
+    return (
+        f"- {prefix} `{item.get('source_ref')}` accepted={item.get('accepted_count', 0)} "
+        f"candidate={item.get('candidate_count', 0)} outgoing={item.get('outgoing_count', 0)}"
+    )
+
+
 def _format_artifact_action(action: str, payload: dict[str, Any]) -> str:
     if action == "locate":
         primary = list(payload.get("primary_landings") or [])
@@ -1595,24 +1751,50 @@ def _format_artifact_action(action: str, payload: dict[str, Any]) -> str:
         lines = [
             f"Project network locate: primary={len(primary)}, bridge={len(bridges)}, chain={len(chains)}, fallback={len(fallback)}",
         ]
+        if payload.get("architecture_overview_report"):
+            lines.append(f"recommended_report=`{payload.get('architecture_overview_report')}`")
         for item in primary[:8]:
-            lines.append(f"- node {item.get('score')} `{item.get('ref')}` {item.get('label') or ''}")
+            lines.append(_format_node_line("node", item))
         for item in bridges[:4]:
-            lines.append(f"- edge {item.get('score')} `{item.get('source_ref')}` -> `{item.get('target_ref')}` {item.get('edge_kind') or ''}")
+            lines.append(_format_edge_line("edge", item))
+        for item in chains[:4]:
+            lines.append(_format_chain_line("chain", item))
         if not primary and fallback:
             for item in fallback[:4]:
-                lines.append(f"- fallback {item.get('score')} `{item.get('ref')}` {item.get('label') or ''}")
+                lines.append(_format_node_line("fallback", item))
         return "\n".join(lines)
     if action == "jump":
-        return (
+        related = list(payload.get("related_edges") or [])
+        nearby = list(payload.get("nearby_routes") or [])
+        chains = list(payload.get("chain_anchors") or [])
+        lines = [
             f"Project network jump: nearby={len(list(payload.get('nearby_routes') or []))}, "
             f"related_edges={len(list(payload.get('related_edges') or []))}, chains={len(list(payload.get('chain_anchors') or []))}"
-        )
+        ]
+        for item in related[:8]:
+            lines.append(_format_edge_line("edge", item))
+        for item in nearby[:4]:
+            lines.append(_format_node_line("nearby", item))
+        for item in chains[:4]:
+            lines.append(_format_chain_line("chain", item))
+        return "\n".join(lines)
     if action == "trace":
-        accepted = len(list(payload.get("accepted_edges") or []))
-        candidate = len(list(payload.get("candidate_edges") or []))
-        conflict = len(list(payload.get("conflict_edges") or []))
-        return f"Project network trace: accepted={accepted}, candidate={candidate}, conflict={conflict}"
+        accepted_edges = list(payload.get("accepted_edges") or [])
+        candidate_edges = list(payload.get("candidate_edges") or [])
+        conflict_edges = list(payload.get("conflict_edges") or [])
+        chains = list(payload.get("chain_anchors") or [])
+        lines = [
+            f"Project network trace: accepted={len(accepted_edges)}, candidate={len(candidate_edges)}, conflict={len(conflict_edges)}",
+        ]
+        for item in accepted_edges[:8]:
+            lines.append(_format_edge_line("accepted", item))
+        for item in candidate_edges[:8]:
+            lines.append(_format_edge_line("candidate", item))
+        for item in conflict_edges[:4]:
+            lines.append(_format_edge_line("conflict", item))
+        for item in chains[:4]:
+            lines.append(_format_chain_line("chain", item))
+        return "\n".join(lines)
     if action == "summarize_chain":
         return f"Project network chain summaries: {len(list(payload.get('summaries') or []))}"
     if action == "read_audit":

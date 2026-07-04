@@ -22,6 +22,7 @@ from task_system.runtime_semantics.chapter_progress import (
 from .models import ExecutableGraphConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id, stable_safe_id
 from .model_overrides import sanitize_runtime_overrides, work_order_with_model_overrides
 from .output_policy import resolve_output_policy
+from .adapter_registry import runtime_algorithm_structured_output_keys
 from .runtime_algorithm_adapters import postprocess_runtime_algorithm_outputs
 from .runtime_objects import node_result_summary, work_order_summary
 
@@ -649,11 +650,11 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
     final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
     allowed_keys = (
         "semantic_evidence",
-        "project_network_semantic_submissions",
         "monitor_verdict",
         "revision_route",
         "structured_output",
         "node_output",
+        *runtime_algorithm_structured_output_keys(),
     )
     outputs: dict[str, Any] = {}
     for key in allowed_keys:

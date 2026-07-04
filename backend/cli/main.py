@@ -817,7 +817,7 @@ def _graph_monitor_summary(monitor: dict[str, Any]) -> dict[str, Any]:
 
 
 def _directory_runtime_service_from_cli(args: argparse.Namespace):
-    from task_system.project_network import DirectoryRuntimeService
+    from project_network_tasks import DirectoryRuntimeService
 
     return DirectoryRuntimeService.from_backend_dir(
         _backend_dir_for_cli(str(getattr(args, "backend_dir", "") or "")),
@@ -826,7 +826,7 @@ def _directory_runtime_service_from_cli(args: argparse.Namespace):
 
 
 def _repair_runtime_service_from_cli(args: argparse.Namespace):
-    from task_system.project_network import ProjectNetworkRepairRuntimeService
+    from project_network_tasks import ProjectNetworkRepairRuntimeService
 
     return ProjectNetworkRepairRuntimeService.from_backend_dir(
         _backend_dir_for_cli(str(getattr(args, "backend_dir", "") or "")),

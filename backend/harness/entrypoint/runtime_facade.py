@@ -225,7 +225,7 @@ class HarnessRuntimeFacade:
         }
 
     def _ingest_project_network_work_product_effect(self, *, request: dict[str, Any], node_result: Any) -> dict[str, Any]:
-        from task_system.project_network import DirectoryRuntimeService, ProjectNetworkRepairRuntimeService
+        from project_network_tasks import DirectoryRuntimeService, ProjectNetworkRepairRuntimeService
 
         context = dict(request.get("context") or {})
         target_base_dir = _project_network_target_base_dir(context, default_base_dir=self.base_dir)
