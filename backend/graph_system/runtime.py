@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.shared.models import TaskRun
+from runtime.shared.models import RuntimeAnchor, TaskRun
 
 from .models import ExecutableGraphConfig, GraphRun, GraphRuntimeEnvelope, safe_id
 from .scheduler_view import build_scheduler_view
@@ -13,6 +13,7 @@ from .scheduler_view import build_scheduler_view
 @dataclass(frozen=True, slots=True)
 class GraphRuntimeStart:
     task_run: TaskRun
+    runtime_anchor: RuntimeAnchor
     graph_run: GraphRun
     envelope: GraphRuntimeEnvelope
     events: tuple[dict[str, Any], ...] = ()
@@ -48,6 +49,7 @@ class GraphRuntime:
         graph_run_id = f"grun:{safe_id(graph_config.graph_id)}:{int(now * 1000)}"
         task_run_id = f"taskrun:{safe_id(graph_config.graph_id)}:{int(now * 1000)}"
         root_task_ref = task_id.strip() or graph_config.root_task_ref or graph_config.graph_id
+        root_task_run_identity = _root_task_run_identity(task_run_id=task_run_id, root_task_ref=root_task_ref)
         origin = _graph_run_origin(diagnostics=dict(diagnostics or {}), graph_config=graph_config)
         runtime_scope = _graph_runtime_scope(
             graph_config=graph_config,
@@ -63,8 +65,8 @@ class GraphRuntime:
             task_id=root_task_ref,
             task_run_contract_ref="",
             owner_agent_seat_id="graph",
-            agent_id=str(dict(graph_config.agents or {}).get("coordinator_agent_id") or "agent:0"),
-            agent_profile_id=str(dict(graph_config.agents or {}).get("coordinator_agent_profile_id") or "task_graph_coordinator"),
+            agent_id=str(dict(graph_config.agents or {}).get("coordinator_agent_id") or ""),
+            agent_profile_id=str(dict(graph_config.agents or {}).get("coordinator_agent_profile_id") or ""),
             execution_runtime_kind="task_graph",
             status="running",
             created_at=now,
@@ -72,6 +74,7 @@ class GraphRuntime:
             diagnostics={
                 **run_diagnostics,
                 "graph_run_id": graph_run_id,
+                **root_task_run_identity,
                 "graph_id": graph_config.graph_id,
                 "graph_config_id": graph_config.config_id,
                 "graph_config_hash": graph_config.content_hash,
@@ -85,6 +88,26 @@ class GraphRuntime:
                 **_public_scope_fields(runtime_scope),
                 "origin": origin,
                 **origin,
+            },
+        )
+        runtime_anchor = RuntimeAnchor(
+            runtime_anchor_id=f"rtanchor:{safe_id(graph_run_id)}",
+            anchor_kind="graph_run",
+            session_id=session_id,
+            status="running",
+            legacy_task_run_id=task_run_id,
+            task_environment_id="",
+            graph_run_id=graph_run_id,
+            graph_config_id=graph_config.config_id,
+            control_state="running",
+            event_scope_ref=task_run_id,
+            created_at=now,
+            updated_at=now,
+            diagnostics={
+                "graph_id": graph_config.graph_id,
+                "root_task_ref": root_task_ref,
+                "legacy_runtime_anchor": "task_run_id",
+                "authority": "graph_system_runtime.runtime_anchor",
             },
         )
         graph_run = GraphRun(
@@ -115,6 +138,7 @@ class GraphRuntime:
                 "config_snapshot_hash": graph_config.content_hash,
                 "session_scope": session_scope,
                 "session_scope_key": _session_scope_key(session_scope),
+                **root_task_run_identity,
                 "root_task_ref": graph_config.root_task_ref,
                 "runtime_scope": runtime_scope,
                 **_public_scope_fields(runtime_scope),
@@ -178,6 +202,9 @@ class GraphRuntime:
             created_at=now,
         )
         self._services.state_index.upsert_task_run(task_run)
+        upsert_runtime_anchor = getattr(self._services.state_index, "upsert_runtime_anchor", None)
+        if callable(upsert_runtime_anchor):
+            upsert_runtime_anchor(runtime_anchor)
         self._services.runtime_objects.put_object("graph_run", safe_id(graph_run_id), graph_run.to_dict())
         memory_sync = self._sync_formal_memory_spec(
             graph_config=graph_config,
@@ -189,19 +216,23 @@ class GraphRuntime:
             "graph_run_created",
             payload={
                 "graph_run_id": graph_run_id,
+                "runtime_anchor_id": runtime_anchor.runtime_anchor_id,
                 "graph_run": graph_run.to_dict(),
-                "graph_runtime_envelope": envelope.to_dict(),
-                "static_topology_view": static_topology_view,
-                "contract_index": contract_index,
-                "formal_memory_sync": memory_sync,
+                "runtime_anchor": runtime_anchor.to_dict(),
+                "graph_runtime_envelope": _runtime_envelope_event_view(envelope),
+                "static_topology_view": _static_topology_event_view(static_topology_view),
+                "contract_index": _contract_index_event_view(contract_index),
+                "formal_memory_sync": _formal_memory_sync_event_view(memory_sync),
             },
             refs={
                 "graph_run_ref": graph_run_id,
+                "runtime_anchor_ref": runtime_anchor.runtime_anchor_id,
                 "graph_config_ref": graph_config.config_id,
             },
         )
         return GraphRuntimeStart(
             task_run=task_run,
+            runtime_anchor=runtime_anchor,
             graph_run=graph_run,
             envelope=envelope,
             events=(start_event.to_dict(),),
@@ -277,12 +308,159 @@ def _static_topology_view(graph_config: ExecutableGraphConfig) -> dict[str, Any]
     }
 
 
+def _runtime_envelope_event_view(envelope: GraphRuntimeEnvelope) -> dict[str, Any]:
+    memory_scope = dict(envelope.memory_scope or {})
+    return {
+        "envelope_id": envelope.envelope_id,
+        "graph_run_id": envelope.graph_run_id,
+        "task_run_id": envelope.task_run_id,
+        "root_task_run_id": envelope.task_run_id,
+        "graph_root_task_run_id": envelope.task_run_id,
+        "session_id": envelope.session_id,
+        "config_id": envelope.config_id,
+        "config_hash": envelope.config_hash,
+        "graph_id": envelope.graph_id,
+        "structure_hash": envelope.structure_hash,
+        "structure_version": envelope.structure_version,
+        "config_snapshot_id": envelope.config_snapshot_id,
+        "config_snapshot_hash": envelope.config_snapshot_hash,
+        "initial_input_keys": sorted(str(key) for key in dict(envelope.initial_inputs or {}).keys()),
+        "initial_input_count": len(dict(envelope.initial_inputs or {})),
+        "static_topology_view": _static_topology_event_view(envelope.static_topology_view),
+        "contract_index": _contract_index_event_view(envelope.contract_index),
+        "state_machine_spec": dict(envelope.state_machine_spec or {}),
+        "loop_control_spec": _loop_control_event_view(envelope.loop_control_spec),
+        "runtime_services_ref": envelope.runtime_services_ref,
+        "permission_scope_summary": _mapping_summary(envelope.permission_scope),
+        "file_scope_summary": _file_scope_event_view(envelope.file_scope),
+        "memory_scope_summary": _memory_scope_event_view(memory_scope),
+        "sandbox_scope_summary": _mapping_summary(envelope.sandbox_scope),
+        "memory_namespace_id": str(memory_scope.get("memory_namespace_id") or ""),
+        "created_at": envelope.created_at,
+        "authority": "graph_system_runtime_envelope.event_view",
+    }
+
+
+def _static_topology_event_view(view: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(view or {})
+    return {
+        "node_count": len(dict(payload.get("node_index") or {})),
+        "edge_count": len(dict(payload.get("edge_index") or {})),
+        "inbound_index_count": len(dict(payload.get("inbound_edges_by_node") or {})),
+        "outbound_index_count": len(dict(payload.get("outbound_edges_by_node") or {})),
+        "dependency_edge_count": len(list(payload.get("dependency_edge_ids") or [])),
+        "executable_node_count": len(list(payload.get("executable_node_ids") or [])),
+        "start_node_ids": list(payload.get("start_node_ids") or []),
+        "terminal_node_ids": list(payload.get("terminal_node_ids") or []),
+        "authority": "graph_system_runtime.static_topology_event_view",
+    }
+
+
+def _contract_index_event_view(index: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(index or {})
+    deployment_package = dict(payload.get("deployment_package") or {})
+    compile_report = dict(payload.get("compile_report") or {})
+    return {
+        "node_contract_count": len(dict(payload.get("node_contract_index") or {})),
+        "node_task_contract_count": len(dict(payload.get("node_task_contract_index") or {})),
+        "node_agent_binding_count": len(dict(payload.get("node_agent_binding_index") or {})),
+        "resource_contract_count": len(dict(payload.get("resource_contract_index") or {})),
+        "edge_contract_count": len(dict(payload.get("edge_contract_index") or {})),
+        "node_contract_manifest_count": len(list(payload.get("node_contracts") or [])),
+        "edge_contract_manifest_count": len(list(payload.get("edge_contracts") or [])),
+        "runtime_contract_count": len(list(payload.get("runtime_contracts") or [])),
+        "acceptance_contract_count": len(list(payload.get("acceptance_contracts") or [])),
+        "system_node_contract_count": len(dict(payload.get("system_node_contract_index") or {})),
+        "deployment_package_id": str(deployment_package.get("package_id") or ""),
+        "deployment_required_resource_count": len(list(deployment_package.get("required_resources") or [])),
+        "compile_report": _compile_report_event_view(compile_report),
+        "authority": "graph_system_runtime.contract_index_event_view",
+    }
+
+
+def _compile_report_event_view(report: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(report or {})
+    return {
+        "status": str(payload.get("status") or ""),
+        "issue_count": len(list(payload.get("issues") or [])),
+        "warning_count": len(list(payload.get("warnings") or [])),
+        "node_count": int(payload.get("node_count") or 0),
+        "edge_count": int(payload.get("edge_count") or 0),
+        "resource_count": int(payload.get("resource_count") or 0),
+        "authority": "graph_system_runtime.compile_report_event_view",
+    }
+
+
+def _loop_control_event_view(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(spec or {})
+    return {
+        "loop_frame_count": len(list(payload.get("loop_frames") or [])),
+        "has_runtime_settings": bool(payload.get("runtime_settings")),
+        "control_keys": sorted(str(key) for key in payload.keys()),
+        "authority": "graph_system_runtime.loop_control_event_view",
+    }
+
+
+def _file_scope_event_view(scope: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(scope or {})
+    storage_space = dict(payload.get("storage_space") or {})
+    graph_resource_policy = dict(payload.get("graph_resource_policy") or {})
+    return {
+        "node_default_task_environment_id": str(payload.get("node_default_task_environment_id") or ""),
+        "storage_namespace": str(storage_space.get("storage_namespace") or ""),
+        "workspace_root_present": bool(storage_space.get("workspace_root")),
+        "file_access_table_count": len(list(payload.get("file_access_tables") or [])),
+        "resource_node_count": len(list(graph_resource_policy.get("resource_nodes") or [])),
+        "authority": "graph_system_runtime.file_scope_event_view",
+    }
+
+
+def _memory_scope_event_view(scope: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(scope or {})
+    policy = dict(payload.get("graph_memory_policy") or {})
+    namespace = dict(payload.get("graph_task_memory_namespace") or {})
+    return {
+        "node_default_task_environment_id": str(payload.get("node_default_task_environment_id") or ""),
+        "memory_namespace_id": str(payload.get("memory_namespace_id") or ""),
+        "graph_task_memory_namespace": {
+            "namespace_id": str(namespace.get("namespace_id") or ""),
+            "scope_kind": str(namespace.get("scope_kind") or ""),
+            "isolation": str(namespace.get("isolation") or ""),
+        },
+        "working_memory_policy_profile_id": str(policy.get("working_memory_policy_profile_id") or ""),
+        "memory_read_rule_count": len(list(policy.get("read_rules") or [])),
+        "memory_matrix_key_count": len(dict(policy.get("memory_matrix") or {})),
+        "authority": "graph_system_runtime.memory_scope_event_view",
+    }
+
+
+def _formal_memory_sync_event_view(sync: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(sync or {})
+    return {
+        "synced": bool(payload.get("synced") is True),
+        "reason": str(payload.get("reason") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "repository_count": int(payload.get("repository_count") or len(list(payload.get("repositories") or []))),
+        "collection_count": int(payload.get("collection_count") or len(list(payload.get("collections") or []))),
+        "authority": "graph_system_runtime.formal_memory_sync_event_view",
+    }
+
+
+def _mapping_summary(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value or {})
+    return {
+        "key_count": len(payload),
+        "keys": sorted(str(key) for key in payload.keys()),
+        "authority": "graph_system_runtime.mapping_event_view",
+    }
+
+
 def _contract_index(graph_config: ExecutableGraphConfig) -> dict[str, Any]:
     contracts = dict(graph_config.contracts or {})
     return {
-        "node_protocol_index": dict(contracts.get("node_protocol_index") or {}),
-        "edge_protocol_index": dict(contracts.get("edge_protocol_index") or {}),
         "node_contract_index": dict(contracts.get("node_contract_index") or {}),
+        "node_task_contract_index": dict(contracts.get("node_task_contract_index") or {}),
+        "node_agent_binding_index": dict(contracts.get("node_agent_binding_index") or {}),
         "resource_contract_index": dict(contracts.get("resource_contract_index") or {}),
         "edge_contract_index": dict(contracts.get("edge_contract_index") or {}),
         "compile_report": dict(contracts.get("compile_report") or {}),
@@ -369,6 +547,8 @@ def _graph_runtime_scope(
         "graph_id": str(graph_config.graph_id or ""),
         "graph_run_id": str(graph_run_id or ""),
         "task_run_id": str(task_run_id or ""),
+        "root_task_run_id": str(task_run_id or ""),
+        "graph_root_task_run_id": str(task_run_id or ""),
     }
     project_id = _first_scope_value(
         binding_contract.get("project_id"),
@@ -465,6 +645,7 @@ def _graph_task_memory_namespace(
         "source": source,
         "graph_run_id": graph_run_id,
         "root_task_run_id": task_run_id,
+        "graph_root_task_run_id": task_run_id,
         "authority": "graph_system_runtime.graph_task_memory_namespace",
     }
 
@@ -475,8 +656,10 @@ def _format_namespace_template(template: str, *, graph_run_id: str, task_run_id:
         raw_graph_run_id=graph_run_id,
         task_run_id=safe_id(task_run_id),
         root_task_run_id=safe_id(task_run_id),
+        graph_root_task_run_id=safe_id(task_run_id),
         raw_task_run_id=task_run_id,
         raw_root_task_run_id=task_run_id,
+        raw_graph_root_task_run_id=task_run_id,
     )
 
 
@@ -487,6 +670,16 @@ def _public_scope_fields(runtime_scope: dict[str, Any]) -> dict[str, str]:
         if value:
             result[key] = value
     return result
+
+
+def _root_task_run_identity(*, task_run_id: str, root_task_ref: str) -> dict[str, str]:
+    root_id = str(task_run_id or "").strip()
+    return {
+        "root_task_run_id": root_id,
+        "graph_root_task_run_id": root_id,
+        "graph_root_task_ref": str(root_task_ref or "").strip(),
+        "root_task_run_authority": "graph_system_runtime.root_task_run_anchor",
+    }
 
 
 def _session_scope_from_runtime_scope(runtime_scope: dict[str, Any]) -> dict[str, str]:

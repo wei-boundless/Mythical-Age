@@ -17,7 +17,7 @@ from task_system.work_environments.models import (
     stable_task_environment_id,
 )
 from task_system.work_environments.repository import TaskEnvironmentRepository
-from task_system.work_environments.service import TaskWorkEnvironmentService
+from task_system.work_environments.service import TaskWorkEnvironmentService, build_task_state_context_for_episode
 from task_system.work_products import WorkProduct
 
 from .models import GraphNodeTaskBinding, binding_from_work_order_payload
@@ -63,6 +63,8 @@ class GraphNodeTaskResultProjection:
     episode_result: EpisodeResult
     work_products: tuple[WorkProduct, ...] = ()
     event: TaskEvent | None = None
+    checkpoint: Any | None = None
+    lease_release: Any | None = None
     authority: str = "task_system.graph_node_task_result_projection"
 
     def to_dict(self) -> dict[str, Any]:
@@ -73,6 +75,8 @@ class GraphNodeTaskResultProjection:
             "episode_result": self.episode_result.to_dict(),
             "work_products": [item.to_dict() for item in self.work_products],
             "event": self.event.to_dict() if self.event is not None else {},
+            "checkpoint": self.checkpoint.to_dict() if hasattr(self.checkpoint, "to_dict") else dict(self.checkpoint or {}),
+            "lease_release": self.lease_release.to_dict() if hasattr(self.lease_release, "to_dict") else dict(self.lease_release or {}),
         }
 
 
@@ -109,6 +113,16 @@ class GraphNodeTaskBindingService:
     def bind_work_order(self, work_order: Any) -> GraphNodeTaskBinding:
         payload = _work_order_payload(work_order)
         binding = binding_from_work_order_payload(payload, status="bound")
+        existing = self.repository.get_by_work_order(binding.graph_run_id, binding.work_order_id)
+        if existing is not None:
+            binding = replace(
+                binding,
+                status=_binding_status_without_regression(
+                    current=existing.status,
+                    requested=binding.status,
+                ),
+                metadata={**dict(existing.metadata or {}), **dict(binding.metadata or {})},
+            )
         return self.repository.upsert_binding(binding)
 
     def prepare_work_order(self, work_order: Any) -> GraphNodeTaskPreparation:
@@ -142,7 +156,7 @@ class GraphNodeTaskBindingService:
         result_payload = _node_result_payload(node_result)
         state = self._ensure_work_order_state(work_order_payload)
         binding_status = "completed" if str(result_payload.get("status") or "") == "completed" else "completed_with_failure"
-        binding = self.repository.upsert_binding(replace(state.binding, status=binding_status))
+        binding = replace(state.binding, status=binding_status)
         now = time.time()
         work_products = _work_products_from_result(
             binding=binding,
@@ -192,13 +206,33 @@ class GraphNodeTaskBindingService:
                 "source_authority": "task_system.graph_node_task_binding_service.record_work_order_result",
             },
             ended_at=now,
+            release_reason="graph_node_work_order_finished",
+            release_event_type="graph_node_execution_lease_released",
+            release_current_phase="graph_node_work_order",
+            release_current_step="lease_released",
+            release_progress_label="graph node execution lease released",
+            release_source_graph_run_id=binding.graph_run_id,
+            release_source_work_order_id=binding.work_order_id,
+            release_event_payload={
+                "graph_binding_id": binding.binding_id,
+                "node_id": binding.node_id,
+                "work_order_id": binding.work_order_id,
+            },
+            release_event_refs={
+                "graph_run_ref": binding.graph_run_id,
+                "work_order_ref": binding.work_order_id,
+                "graph_binding_ref": binding.binding_id,
+            },
         )
+        stored_binding = self.repository.upsert_binding(binding)
         return GraphNodeTaskResultProjection(
-            binding=binding,
+            binding=stored_binding,
             episode=reduction.episode,
             episode_result=reduction.episode_result,
             work_products=reduction.work_products,
             event=reduction.event,
+            checkpoint=reduction.checkpoint,
+            lease_release=reduction.lease_release,
         )
 
     def begin_work_order_execution(self, work_order: Any) -> GraphNodeTaskLeaseProjection:
@@ -229,8 +263,19 @@ class GraphNodeTaskBindingService:
                 "graph_binding_ref": preparation.binding.binding_id,
             },
         )
+        binding = self.repository.upsert_binding(
+            replace(
+                preparation.binding,
+                status=_binding_status_for_lease_acquired(preparation.binding.status),
+                metadata={
+                    **dict(preparation.binding.metadata or {}),
+                    "active_lease_id": projection.lease.lease_id,
+                    "lease_acquired_event_id": projection.event.event_id,
+                },
+            )
+        )
         return GraphNodeTaskLeaseProjection(
-            binding=preparation.binding,
+            binding=binding,
             task_environment=projection.task_environment,
             episode=projection.episode,
             lease=projection.lease,
@@ -267,8 +312,23 @@ class GraphNodeTaskBindingService:
                 "graph_binding_ref": state.binding.binding_id,
             },
         )
+        binding = self.repository.upsert_binding(
+            replace(
+                state.binding,
+                status=_binding_status_for_lease_release(
+                    current=state.binding.status,
+                    release_reason=release_reason,
+                ),
+                metadata={
+                    **dict(state.binding.metadata or {}),
+                    "released_lease_id": projection.lease.lease_id,
+                    "lease_release_event_id": projection.event.event_id,
+                    "lease_release_reason": str(release_reason or "graph_node_work_order_finished"),
+                },
+            )
+        )
         return GraphNodeTaskLeaseProjection(
-            binding=state.binding,
+            binding=binding,
             task_environment=projection.task_environment,
             episode=projection.episode,
             lease=projection.lease,
@@ -375,7 +435,22 @@ class GraphNodeTaskBindingService:
         work_order: dict[str, Any],
         episode: AgentExecutionEpisode,
     ) -> TaskContextPackage:
-        context_payload = _context_payload(binding=binding, work_order=work_order)
+        task_instance = self.task_repository.get_task_instance(binding.task_instance_id)
+        task_environment = self.task_repository.get_task_environment(binding.node_task_environment_id)
+        task_state_context = (
+            build_task_state_context_for_episode(
+                repository=self.task_repository,
+                task_instance=task_instance,
+                environment=task_environment,
+            )
+            if task_instance is not None and task_environment is not None
+            else {}
+        )
+        context_payload = _context_payload(
+            binding=binding,
+            work_order=work_order,
+            task_state_context=task_state_context,
+        )
         package = TaskContextPackage(
             package_id=stable_task_environment_id("taskctx", binding.node_task_environment_id, episode.episode_id, binding.idempotency_key),
             task_environment_id=binding.node_task_environment_id,
@@ -391,6 +466,7 @@ class GraphNodeTaskBindingService:
             artifact_refs=tuple(_artifact_refs(work_order)),
             resource_handles=dict(context_payload.get("resource_handles") or {}),
             graph_context=dict(context_payload.get("graph_context") or {}),
+            task_state_context=task_state_context,
             continuation_hint="graph node work order is prepared; execute through GraphSystem work order executor",
             output_contract=dict(work_order.get("expected_result_contract") or {}),
             packet_policy=dict(context_payload.get("packet_policy") or {}),
@@ -514,8 +590,45 @@ def _node_result_payload(node_result: Any) -> dict[str, Any]:
     else:
         payload = {}
     if not isinstance(payload, dict) or not payload:
-        raise ValueError("GraphNodeTaskBindingService requires NodeResultEnvelope payload")
+        raise ValueError("GraphNodeTaskBindingService requires graph node result payload")
     return dict(payload)
+
+
+def _binding_status_without_regression(*, current: str, requested: str) -> str:
+    normalized_current = str(current or "").strip() or "created"
+    normalized_requested = str(requested or "").strip() or "created"
+    if _binding_status_rank(normalized_current) > _binding_status_rank(normalized_requested):
+        return normalized_current
+    return normalized_requested
+
+
+def _binding_status_rank(status: str) -> int:
+    return {
+        "created": 0,
+        "bound": 1,
+        "leased": 2,
+        "waiting_resume": 3,
+        "completed": 4,
+        "completed_with_failure": 4,
+        "aborted": 4,
+    }.get(str(status or "").strip(), 0)
+
+
+def _binding_status_for_lease_acquired(current: str) -> str:
+    normalized = str(current or "").strip()
+    if normalized in {"completed", "completed_with_failure", "aborted"}:
+        return normalized
+    return "leased"
+
+
+def _binding_status_for_lease_release(*, current: str, release_reason: str) -> str:
+    normalized = str(current or "").strip()
+    if normalized in {"completed", "completed_with_failure", "aborted"}:
+        return normalized
+    reason = str(release_reason or "").strip().lower()
+    if "abort" in reason or "stop" in reason:
+        return "aborted"
+    return "waiting_resume"
 
 
 def _episode_status(node_result: dict[str, Any]) -> str:
@@ -660,7 +773,7 @@ def _work_products_from_result(
 def _result_has_product_payload(node_result: dict[str, Any]) -> bool:
     return bool(
         dict(node_result.get("outputs") or {})
-        or str(node_result.get("handoff_summary") or "").strip()
+        or dict(node_result.get("decisions") or {})
         or list(node_result.get("artifact_refs") or [])
         or list(node_result.get("progress_receipts") or [])
         or list(node_result.get("artifact_materialization_receipts") or [])
@@ -711,7 +824,12 @@ def _acceptance_claims(node_result: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _context_payload(*, binding: GraphNodeTaskBinding, work_order: dict[str, Any]) -> dict[str, Any]:
+def _context_payload(
+    *,
+    binding: GraphNodeTaskBinding,
+    work_order: dict[str, Any],
+    task_state_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     input_package = dict(work_order.get("input_package") or {})
     graph_slot = dict(work_order.get("graph_slot") or {})
     return {
@@ -733,7 +851,8 @@ def _context_payload(*, binding: GraphNodeTaskBinding, work_order: dict[str, Any
         },
         "graph_context": {
             "graph_identity": dict(graph_slot.get("graph_identity") or {}),
-            "node_contract": dict(graph_slot.get("node_contract") or {}),
+            "task_contract": dict(graph_slot.get("task_contract") or {}),
+            "agent_binding": dict(graph_slot.get("agent_binding") or {}),
             "edge_contracts": dict(graph_slot.get("edge_contracts") or {}),
             "memory_contract": dict(graph_slot.get("memory_contract") or {}),
             "loop_contract": dict(graph_slot.get("loop_contract") or {}),
@@ -744,6 +863,7 @@ def _context_payload(*, binding: GraphNodeTaskBinding, work_order: dict[str, Any
             "loop_context": dict(input_package.get("loop_context") or {}),
             "inbound_context": [dict(item) for item in list(input_package.get("inbound_context") or []) if isinstance(item, dict)],
         },
+        "task_state_context": dict(task_state_context or {}),
         "packet_policy": {
             "execution_boundary": dict(input_package.get("execution_boundary") or {}),
             "result_projection_policy": dict(binding.result_projection_policy or {}),
@@ -774,28 +894,22 @@ def _task_goal(*, work_order: dict[str, Any], node_identity: dict[str, Any]) -> 
 
 
 def _agent_id(work_order: dict[str, Any]) -> str:
-    node_identity = _node_identity(work_order)
     graph_slot = dict(work_order.get("graph_slot") or {})
-    node_contract = dict(graph_slot.get("node_contract") or {})
-    agent_assembly = dict(node_contract.get("agent_assembly") or {})
+    agent_binding = dict(graph_slot.get("agent_binding") or {})
     return str(
         work_order.get("agent_id")
-        or node_identity.get("agent_id")
-        or agent_assembly.get("agent_id")
+        or agent_binding.get("agent_id")
         or ""
     ).strip()
 
 
 def _agent_profile_id(work_order: dict[str, Any], *, binding: GraphNodeTaskBinding) -> str:
-    node_identity = _node_identity(work_order)
     graph_slot = dict(work_order.get("graph_slot") or {})
-    node_contract = dict(graph_slot.get("node_contract") or {})
-    agent_assembly = dict(node_contract.get("agent_assembly") or {})
+    agent_binding = dict(graph_slot.get("agent_binding") or {})
     return str(
         work_order.get("agent_profile_id")
         or binding.agent_profile_id
-        or node_identity.get("agent_profile_id")
-        or agent_assembly.get("agent_profile_id")
+        or agent_binding.get("agent_profile_id")
         or ""
     ).strip()
 

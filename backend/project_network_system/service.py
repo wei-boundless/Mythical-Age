@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from graph_system.models import NodeResultEnvelope
-
 from .build_contract_models import ProjectNetworkBuildContract
 from .layer_plan_models import GraphGenerationLineage
 from .projection import ProjectNetworkBuildProjection, build_project_network_store_projection
-from .repository import ProjectNetworkRepository, content_hash, stable_project_network_id
+from .repository import PUBLISH_AUTHORITY_KINDS, ProjectNetworkRepository, content_hash, stable_project_network_id
 from .semantic_artifact_materializer import ProjectNetworkSemanticArtifactMaterializer
 from .shard_models import ShardPlan
 from .store_models import (
@@ -38,6 +37,7 @@ class ProjectNetworkWorkProductIngestResult:
     candidates: tuple[ProjectNetworkCandidateRecord, ...] = ()
     layer_indexes: tuple[ProjectNetworkLayerIndexRecord, ...] = ()
     generations: tuple[ProjectNetworkGenerationRecord, ...] = ()
+    maintenance_signals: tuple[ProjectNetworkMaintenanceSignalRecord, ...] = ()
     trace: ProjectNetworkTraceRecord | None = None
     projection: ProjectNetworkBuildProjection | None = None
     semantic_artifact_set: dict[str, Any] = field(default_factory=dict)
@@ -56,10 +56,33 @@ class ProjectNetworkWorkProductIngestResult:
                 "candidates": [item.to_dict() for item in self.candidates],
                 "layer_indexes": [item.to_dict() for item in self.layer_indexes],
                 "generations": [item.to_dict() for item in self.generations],
+                "maintenance_signals": [item.to_dict() for item in self.maintenance_signals],
                 "trace": self.trace.to_dict() if self.trace is not None else {},
                 "projection": self.projection.to_dict() if self.projection is not None else {},
                 "semantic_artifact_set": self.semantic_artifact_set,
                 "metadata": self.metadata,
+                "authority": self.authority,
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectNetworkGenerationMaterializationResult:
+    build_id: str
+    graph_run_id: str = ""
+    generation: ProjectNetworkGenerationRecord | None = None
+    semantic_artifact_set: dict[str, Any] = field(default_factory=dict)
+    published: bool = False
+    authority: str = "project_network_system.generation_materialization_result"
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(
+            {
+                "build_id": self.build_id,
+                "graph_run_id": self.graph_run_id,
+                "generation": self.generation.to_dict() if self.generation is not None else {},
+                "semantic_artifact_set": self.semantic_artifact_set,
+                "published": self.published,
                 "authority": self.authority,
             }
         )
@@ -105,7 +128,7 @@ class ProjectNetworkBuildService:
 
     def accept_node_result(
         self,
-        node_result: NodeResultEnvelope | dict[str, Any],
+        node_result: Any,
         *,
         contract: ProjectNetworkBuildContract | None = None,
         build_id: str = "",
@@ -115,29 +138,33 @@ class ProjectNetworkBuildService:
         shard_plans: tuple[ShardPlan, ...] = (),
         lineages: tuple[GraphGenerationLineage, ...] = (),
     ) -> ProjectNetworkWorkProductIngestResult:
-        envelope = _node_result_envelope(node_result)
+        result_payload = _node_result_payload(node_result)
+        graph_run_id = str(result_payload.get("graph_run_id") or "").strip()
+        node_id = str(result_payload.get("node_id") or "").strip()
+        result_id = str(result_payload.get("result_id") or "").strip()
+        work_order_id = str(result_payload.get("work_order_id") or "").strip()
         if contract is not None:
             self.repository.upsert_build_contract(contract)
         resolved_build_id = (
             str(build_id or "").strip()
             or (contract.build_id if contract is not None else "")
-            or _result_build_id(envelope)
+            or _result_build_id(result_payload)
         )
         products = extract_graph_build_work_products(
-            envelope.to_dict(),
+            result_payload,
             default_build_id=resolved_build_id,
-            default_graph_run_id=envelope.graph_run_id,
-            default_node_id=envelope.node_id,
-            default_shard_id=default_shard_id or _result_shard_id(envelope),
-            default_layer_id=default_layer_id or _result_layer_id(envelope),
+            default_graph_run_id=graph_run_id,
+            default_node_id=node_id,
+            default_shard_id=default_shard_id or _result_shard_id(result_payload),
+            default_layer_id=default_layer_id or _result_layer_id(result_payload),
         )
         if not resolved_build_id and products:
             resolved_build_id = products[0].build_id
         if not resolved_build_id:
             return ProjectNetworkWorkProductIngestResult(
                 build_id="",
-                graph_run_id=envelope.graph_run_id,
-                node_id=envelope.node_id,
+                graph_run_id=graph_run_id,
+                node_id=node_id,
                 metadata={"reason": "project_network_build_id_missing"},
             )
         self.repository.upsert_work_products(products)
@@ -164,13 +191,13 @@ class ProjectNetworkBuildService:
             self.repository.upsert_generation(record)
         trace = self.repository.upsert_trace(
             ProjectNetworkTraceRecord(
-                trace_id=stable_project_network_id("pntrace", resolved_build_id, envelope.graph_run_id, envelope.node_id, envelope.result_id),
+                trace_id=stable_project_network_id("pntrace", resolved_build_id, graph_run_id, node_id, result_id),
                 build_id=resolved_build_id,
-                graph_run_id=envelope.graph_run_id,
-                node_id=envelope.node_id,
-                shard_id=default_shard_id or _result_shard_id(envelope),
-                work_order_id=envelope.work_order_id,
-                result_id=envelope.result_id,
+                graph_run_id=graph_run_id,
+                node_id=node_id,
+                shard_id=default_shard_id or _result_shard_id(result_payload),
+                work_order_id=work_order_id,
+                result_id=result_id,
                 event_kind="work_product_ingested",
                 status="accepted" if products else "no_work_products",
                 work_product_ids=tuple(product.work_product_id for product in products),
@@ -190,26 +217,166 @@ class ProjectNetworkBuildService:
             shard_plans=shard_plans,
             lineages=lineages,
         )
-        semantic_artifact_set = {}
         if products:
-            semantic_artifact_set = ProjectNetworkSemanticArtifactMaterializer(
-                base_dir=self.repository.root.parent.parent,
-                repository=self.repository,
-            ).materialize_build(resolved_build_id, graph_run_id=envelope.graph_run_id).to_dict()
+            maintenance_signals = self._queue_ingest_dirty_signals(
+                build_id=resolved_build_id,
+                graph_run_id=graph_run_id,
+                node_id=node_id,
+                work_product_ids=tuple(product.work_product_id for product in products),
+                product_kinds=tuple(product.product_kind for product in products),
+            )
+        else:
+            maintenance_signals = ()
         return ProjectNetworkWorkProductIngestResult(
             build_id=resolved_build_id,
-            graph_run_id=envelope.graph_run_id,
-            node_id=envelope.node_id,
+            graph_run_id=graph_run_id,
+            node_id=node_id,
             work_products=products,
             channel_states=channel_states,
             evidence=evidence_records,
             candidates=candidate_records,
             layer_indexes=layer_indexes,
             generations=generation_records,
+            maintenance_signals=maintenance_signals,
             trace=trace,
             projection=projection,
-            semantic_artifact_set=semantic_artifact_set,
-            metadata={"semantic_artifact_set": semantic_artifact_set} if semantic_artifact_set else {},
+            metadata={
+                "materialization_lifecycle": "dirty_signal_queued",
+                "maintenance_signal_ids": [item.signal_id for item in maintenance_signals],
+                "dirty_signal_codes": [item.signal_code for item in maintenance_signals],
+            }
+            if maintenance_signals
+            else {},
+        )
+
+    def materialize_generation_candidate(
+        self,
+        build_id: str,
+        *,
+        graph_run_id: str = "",
+        actor_kind: str = "system",
+        actor_ref: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ProjectNetworkGenerationMaterializationResult:
+        resolved_build_id = str(build_id or "").strip()
+        if not resolved_build_id:
+            raise ValueError("materialize_generation_candidate requires build_id")
+        artifact_set = ProjectNetworkSemanticArtifactMaterializer(
+            base_dir=self.repository.root.parent.parent,
+            repository=self.repository,
+        ).materialize_build(
+            resolved_build_id,
+            graph_run_id=graph_run_id,
+            publish_human_reports=False,
+        )
+        payload = _semantic_artifact_payload(artifact_set)
+        identity_payload = _semantic_artifact_identity_payload(resolved_build_id, payload)
+        generation_id = stable_project_network_id(
+            "pngen",
+            resolved_build_id,
+            "semantic_artifact_set",
+            content_hash(identity_payload),
+        )
+        existing = self.repository.get_generation(generation_id)
+        generation = self.repository.upsert_generation(
+            ProjectNetworkGenerationRecord(
+                generation_id=generation_id,
+                build_id=resolved_build_id,
+                generation=int(existing.generation or 0) if existing is not None else self.repository.next_generation_number(resolved_build_id),
+                generation_ref=str(payload.get("manifest_path") or ""),
+                status=str(existing.status if existing is not None else "candidate"),  # type: ignore[arg-type]
+                source_snapshot_ref=str(payload.get("unified_control_graph_path") or ""),
+                layer_index_refs=existing.layer_index_refs if existing is not None else (),
+                work_product_refs=existing.work_product_refs if existing is not None else (),
+                validation_refs=existing.validation_refs if existing is not None else (),
+                payload_ref=str(payload.get("manifest_path") or ""),
+                payload=payload,
+                published_at=existing.published_at if existing is not None else "",
+                supersedes_generation_id=existing.supersedes_generation_id if existing is not None else "",
+                created_at=existing.created_at if existing is not None else "",
+                metadata={
+                    **dict(existing.metadata if existing is not None else {}),
+                    **dict(metadata or {}),
+                    "materialization_actor_kind": str(actor_kind or ""),
+                    "materialization_actor_ref": str(actor_ref or ""),
+                    "publish_human_reports": False,
+                    "materialization_lifecycle": "candidate",
+                },
+            )
+        )
+        return ProjectNetworkGenerationMaterializationResult(
+            build_id=resolved_build_id,
+            graph_run_id=str(graph_run_id or ""),
+            generation=generation,
+            semantic_artifact_set=payload,
+            published=False,
+        )
+
+    def publish_materialized_generation(
+        self,
+        generation_id: str,
+        *,
+        graph_run_id: str = "",
+        actor_kind: str,
+        actor_ref: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ProjectNetworkGenerationMaterializationResult:
+        current = self.repository.get_generation(generation_id)
+        if current is None:
+            raise KeyError(f"project network generation not found: {generation_id}")
+        if str(actor_kind or "").strip() not in PUBLISH_AUTHORITY_KINDS:
+            raise PermissionError("generation publish requires curator or publish-gate authority")
+        if current.status not in {"candidate", "validating", "published"}:
+            raise ValueError(f"generation cannot be published from status: {current.status}")
+        artifact_set = ProjectNetworkSemanticArtifactMaterializer(
+            base_dir=self.repository.root.parent.parent,
+            repository=self.repository,
+        ).materialize_build(
+            current.build_id,
+            graph_run_id=graph_run_id,
+            publish_human_reports=True,
+        )
+        payload = _semantic_artifact_payload(artifact_set)
+        refreshed = self.repository.upsert_generation(
+            ProjectNetworkGenerationRecord(
+                generation_id=current.generation_id,
+                build_id=current.build_id,
+                generation=current.generation,
+                generation_ref=str(payload.get("manifest_path") or current.generation_ref),
+                status=current.status,
+                source_snapshot_ref=str(payload.get("unified_control_graph_path") or current.source_snapshot_ref),
+                layer_index_refs=current.layer_index_refs,
+                work_product_refs=current.work_product_refs,
+                validation_refs=current.validation_refs,
+                payload_ref=str(payload.get("manifest_path") or current.payload_ref),
+                payload=payload,
+                supersedes_generation_id=current.supersedes_generation_id,
+                created_at=current.created_at,
+                metadata={
+                    **dict(current.metadata or {}),
+                    **dict(metadata or {}),
+                    "publish_actor_kind": str(actor_kind or ""),
+                    "publish_actor_ref": str(actor_ref or ""),
+                    "publish_human_reports": True,
+                    "materialization_lifecycle": "published",
+                },
+            )
+        )
+        published = self.repository.publish_generation(
+            refreshed.generation_id,
+            actor_kind=actor_kind,
+            actor_ref=actor_ref,
+            metadata={
+                **dict(metadata or {}),
+                "semantic_artifact_set": payload,
+            },
+        )
+        return ProjectNetworkGenerationMaterializationResult(
+            build_id=published.build_id,
+            graph_run_id=str(graph_run_id or ""),
+            generation=published,
+            semantic_artifact_set=payload,
+            published=True,
         )
 
     def publish_generation(
@@ -413,6 +580,49 @@ class ProjectNetworkBuildService:
         )
         return ProjectNetworkGenerationRecord.from_work_product(product, generation_id=generation_id, generation=generation)
 
+    def _queue_ingest_dirty_signals(
+        self,
+        *,
+        build_id: str,
+        graph_run_id: str,
+        node_id: str,
+        work_product_ids: tuple[str, ...],
+        product_kinds: tuple[str, ...],
+    ) -> tuple[ProjectNetworkMaintenanceSignalRecord, ...]:
+        subject_ref = f"project-network://{build_id}"
+        payload = {
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "work_product_ids": list(work_product_ids),
+            "product_kinds": list(dict.fromkeys(product_kinds)),
+            "lifecycle": "ingest_dirty_signal",
+        }
+        signal_specs = (
+            ("semantic_facts_changed", ("semantic_coordinate", "semantic_file_module", "folder")),
+            ("route_index_dirty", ("relation_route",)),
+            ("signal_chain_dirty", ("signal_chain", "relation_route")),
+            ("link_audit_required", ("link_signal_audit", "relation_route")),
+        )
+        return tuple(
+            self.queue_maintenance_signal(
+                build_id=build_id,
+                signal_source="project_network_system.work_product_ingest",
+                signal_code=code,
+                severity="info",
+                subject_ref=subject_ref,
+                stable_ref=subject_ref,
+                scope_refs=(subject_ref, *work_product_ids),
+                requested_layers=layers,
+                payload=payload,
+                metadata={
+                    "materialization_lifecycle": "dirty",
+                    "materialize_command_kind": "materialize_project_network_generation",
+                    "publish_command_kind": "publish_project_network_generation",
+                },
+            )
+            for code, layers in signal_specs
+        )
+
     def _plan_repair_items(self, signal: ProjectNetworkMaintenanceSignalRecord) -> tuple[ProjectNetworkRepairWorkItemRecord, ...]:
         scope_refs = signal.scope_refs or _normalize_strings((signal.subject_ref, signal.stable_ref))
         requested_layers = signal.requested_layers or _normalize_requested_layers((), subject_ref=signal.subject_ref or signal.stable_ref, signal_code=signal.signal_code)
@@ -524,15 +734,28 @@ def _repair_priority(signal: ProjectNetworkMaintenanceSignalRecord) -> int:
     return base
 
 
-def _node_result_envelope(node_result: NodeResultEnvelope | dict[str, Any]) -> NodeResultEnvelope:
-    if isinstance(node_result, NodeResultEnvelope):
-        return node_result
-    return NodeResultEnvelope.from_dict(dict(node_result or {}))
+def _node_result_payload(node_result: Any) -> dict[str, Any]:
+    if hasattr(node_result, "to_dict"):
+        payload = dict(node_result.to_dict() or {})
+    elif isinstance(node_result, dict):
+        payload = dict(node_result)
+    else:
+        raise ValueError("ProjectNetworkBuildService requires node result payload")
+    missing = [
+        key
+        for key in ("result_id", "graph_run_id", "node_id", "work_order_id")
+        if not str(payload.get(key) or "").strip()
+    ]
+    if missing:
+        raise ValueError(f"ProjectNetworkBuildService node result missing required fields: {', '.join(missing)}")
+    payload["outputs"] = dict(payload.get("outputs") or {})
+    payload["diagnostics"] = dict(payload.get("diagnostics") or {})
+    return payload
 
 
-def _result_build_id(result: NodeResultEnvelope) -> str:
-    outputs = dict(result.outputs or {})
-    diagnostics = dict(result.diagnostics or {})
+def _result_build_id(result: dict[str, Any]) -> str:
+    outputs = dict(result.get("outputs") or {})
+    diagnostics = dict(result.get("diagnostics") or {})
     return str(
         outputs.get("project_network_build_id")
         or outputs.get("build_id")
@@ -542,9 +765,9 @@ def _result_build_id(result: NodeResultEnvelope) -> str:
     ).strip()
 
 
-def _result_shard_id(result: NodeResultEnvelope) -> str:
-    outputs = dict(result.outputs or {})
-    diagnostics = dict(result.diagnostics or {})
+def _result_shard_id(result: dict[str, Any]) -> str:
+    outputs = dict(result.get("outputs") or {})
+    diagnostics = dict(result.get("diagnostics") or {})
     return str(
         outputs.get("project_network_shard_id")
         or outputs.get("shard_id")
@@ -554,9 +777,9 @@ def _result_shard_id(result: NodeResultEnvelope) -> str:
     ).strip()
 
 
-def _result_layer_id(result: NodeResultEnvelope) -> str:
-    outputs = dict(result.outputs or {})
-    diagnostics = dict(result.diagnostics or {})
+def _result_layer_id(result: dict[str, Any]) -> str:
+    outputs = dict(result.get("outputs") or {})
+    diagnostics = dict(result.get("diagnostics") or {})
     return str(
         outputs.get("project_network_layer_id")
         or outputs.get("layer_id")
@@ -695,4 +918,48 @@ def _contract_from_snapshot(snapshot: ProjectNetworkStoreSnapshot) -> ProjectNet
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {}, ())}
+
+
+def _semantic_artifact_payload(artifact_set: Any) -> dict[str, Any]:
+    payload = dict(artifact_set.to_dict() if hasattr(artifact_set, "to_dict") else artifact_set or {})
+    manifest_path = Path(str(payload.get("manifest_path") or ""))
+    manifest: dict[str, Any] = {}
+    if manifest_path.exists():
+        try:
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                manifest = dict(loaded)
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+    artifact_hashes = {
+        key: str(manifest.get(key) or "")
+        for key in (
+            "unified_control_graph_hash",
+            "semantic_coordinates_hash",
+            "route_index_hash",
+            "signal_chain_index_hash",
+            "link_signal_audit_hash",
+        )
+        if str(manifest.get(key) or "").strip()
+    }
+    if manifest:
+        payload["manifest"] = manifest
+    if artifact_hashes:
+        payload["artifact_hashes"] = artifact_hashes
+    return payload
+
+
+def _semantic_artifact_identity_payload(build_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "build_id": build_id,
+            "artifact_hashes": dict(payload.get("artifact_hashes") or {}),
+            "source_work_product_count": payload.get("source_work_product_count"),
+            "semantic_coordinate_count": payload.get("semantic_coordinate_count"),
+            "reliable_route_count": payload.get("reliable_route_count"),
+            "unresolved_route_count": payload.get("unresolved_route_count"),
+            "signal_chain_count": payload.get("signal_chain_count"),
+            "audit_signal_count": payload.get("audit_signal_count"),
+        }
+    )
 

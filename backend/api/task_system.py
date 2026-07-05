@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,8 +46,7 @@ from task_system.node_configurations import (
 )
 from task_system.projects import ProjectFileService, ProjectLifecycleService
 from task_system.session_scope import normalize_session_scope, session_scope_matches
-from task_system.work_environments import TaskEnvironmentViewService, TaskWorkEnvironmentService
-from task_system.work_environments.control_signal_bridge import apply_task_environment_control_signal_bridge
+from task_system.work_environments import TaskEnvironmentViewService, TaskScheduler, TaskWorkEnvironmentService
 
 router = APIRouter()
 
@@ -262,30 +263,10 @@ class TaskEnvironmentSessionResolveRequest(BaseModel):
     startup_parameters: dict[str, object] = Field(default_factory=dict)
 
 
-class TaskEnvironmentControlSignalRequest(BaseModel):
-    signal_kind: str = Field(..., min_length=3, max_length=80)
-    reason: str = Field(default="", max_length=1000)
-    requested_by: str = Field(default="user", max_length=120)
-    payload: dict[str, object] = Field(default_factory=dict)
-    idempotency_key: str = Field(default="", max_length=240)
-    bridge_graph_control: bool = True
-
-
-class TaskEnvironmentRecoveryActionRequest(BaseModel):
-    action: str = Field(default="resume_graph_run", min_length=3, max_length=100)
-    reason: str = Field(default="", max_length=1000)
-    requested_by: str = Field(default="user", max_length=120)
-    idempotency_key: str = Field(default="", max_length=240)
-    start_node_ids: list[str] = Field(default_factory=list)
-    reset_downstream: bool = False
-    dispatch_ready: bool = True
-    max_dispatch_requests: int = Field(default=4, ge=0, le=100)
-    runtime_settings_patch: dict[str, object] = Field(default_factory=dict)
-
-
 class TaskEnvironmentStaleLeaseRecoveryRequest(BaseModel):
     limit: int = Field(default=200, ge=1, le=1000)
     reason: str = Field(default="task_environment_lease_expired", max_length=240)
+    idempotency_key: str = Field(default="", max_length=240)
 
 
 class TaskEnvironmentEpisodePrepareRequest(BaseModel):
@@ -307,6 +288,15 @@ class TaskEnvironmentEpisodePrepareRequest(BaseModel):
 
 class TaskEnvironmentEpisodeRunRequest(BaseModel):
     max_steps: int = Field(default=12, ge=1, le=100)
+    idempotency_key: str = Field(default="", max_length=240)
+
+
+class TaskEnvironmentCommandRequest(BaseModel):
+    command_kind: str = Field(..., min_length=3, max_length=120)
+    requested_by: str = Field(default="user", max_length=120)
+    payload: dict[str, object] = Field(default_factory=dict)
+    idempotency_key: str = Field(default="", max_length=240)
+    dispatch_now: bool = True
 
 
 class ProjectLifecycleRunStartRequest(BaseModel):
@@ -1554,6 +1544,45 @@ async def list_task_system_environment_projects(environment_id: str) -> dict[str
     }
 
 
+def _task_scheduler(runtime) -> TaskScheduler:
+    harness_runtime = getattr(runtime, "harness_runtime", None)
+    graph_system = getattr(harness_runtime, "graph_system", None)
+    return TaskScheduler(
+        runtime.base_dir,
+        harness_runtime=harness_runtime,
+        graph_system=graph_system,
+    )
+
+
+async def _submit_task_environment_command(
+    runtime,
+    *,
+    environment_id: str,
+    command_kind: str,
+    requested_by: str,
+    payload: dict[str, object],
+    idempotency_key: str,
+    dispatch_now: bool = True,
+) -> dict[str, object]:
+    scheduler = _task_scheduler(runtime)
+    submitted = scheduler.submit_command(
+        command_kind=command_kind,
+        task_environment_id=environment_id,
+        requested_by=requested_by,
+        payload=dict(payload or {}),
+        idempotency_key=idempotency_key,
+    )
+    dispatch: dict[str, object] = {}
+    if dispatch_now:
+        command = dict(submitted.get("command") or {})
+        dispatch = await scheduler.dispatch_command(str(command.get("command_id") or ""))
+    return {
+        "authority": "task_system.task_command_api.submit",
+        "submission": submitted,
+        "dispatch": dispatch,
+    }
+
+
 @router.get("/task-environments")
 async def list_task_work_environments(
     status: str = "",
@@ -1592,10 +1621,19 @@ async def recover_stale_task_environment_leases(
     payload: TaskEnvironmentStaleLeaseRecoveryRequest,
 ) -> dict[str, object]:
     runtime = require_runtime()
-    result = TaskWorkEnvironmentService(runtime.base_dir).recover_stale_leases(
-        limit=payload.limit,
-        reason=payload.reason,
+    scheduler = _task_scheduler(runtime)
+    submitted = scheduler.submit_command(
+        command_kind="recover_stale_lease",
+        task_environment_id="",
+        requested_by="system",
+        payload={
+            "limit": payload.limit,
+            "reason": payload.reason,
+        },
+        idempotency_key=payload.idempotency_key or f"recover-stale-lease:{time.time()}",
     )
+    dispatched = await scheduler.dispatch_command(str(dict(submitted.get("command") or {}).get("command_id") or ""))
+    result = dict(dict(dispatched.get("result") or {}).get("recovery") or {})
     recovered_items = []
     for item in list(result.get("recovered_leases") or []):
         row = dict(item or {})
@@ -1604,6 +1642,8 @@ async def recover_stale_task_environment_leases(
             row["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, recovery_projection)
         recovered_items.append(row)
     result["recovered_leases"] = recovered_items
+    result["command"] = dict(dispatched.get("command") or submitted.get("command") or {})
+    result["dispatch"] = dict(dispatched.get("dispatch") or {})
     return result
 
 
@@ -1644,30 +1684,90 @@ async def get_task_work_environment_graph_runtime(environment_id: str) -> dict[s
     return _task_environment_graph_runtime_projection(runtime, detail)
 
 
+@router.get("/task-environments/{environment_id}/commands")
+async def list_task_work_environment_commands(
+    environment_id: str,
+    status: str = "",
+    command_kind: str = "",
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    repository = TaskWorkEnvironmentService(runtime.base_dir).repository
+    if repository.get_task_environment(environment_id) is None:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    commands = repository.list_task_commands(
+        environment_id,
+        status=status,
+        command_kind=command_kind,
+        limit=limit,
+    )
+    dispatch_records = repository.list_task_dispatch_records(task_environment_id=environment_id, limit=limit)
+    return {
+        "authority": "task_system.task_command_api.list",
+        "task_environment_id": environment_id,
+        "commands": [item.to_dict() for item in commands],
+        "dispatch_records": [item.to_dict() for item in dispatch_records],
+        "summary": {
+            "command_count": len(commands),
+            "dispatch_record_count": len(dispatch_records),
+            "status": status,
+            "command_kind": command_kind,
+        },
+    }
+
+
+@router.post("/task-environments/{environment_id}/commands")
+async def submit_task_work_environment_command(
+    environment_id: str,
+    payload: TaskEnvironmentCommandRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return await _submit_task_environment_command(
+            runtime,
+            environment_id=environment_id,
+            command_kind=payload.command_kind,
+            requested_by=payload.requested_by,
+            payload=dict(payload.payload or {}),
+            idempotency_key=payload.idempotency_key,
+            dispatch_now=payload.dispatch_now,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/task-environments/{environment_id}/episodes/prepare")
 async def prepare_task_work_environment_episode(
     environment_id: str,
     payload: TaskEnvironmentEpisodePrepareRequest,
 ) -> dict[str, object]:
     runtime = require_runtime()
-    service = TaskWorkEnvironmentService(runtime.base_dir)
     try:
-        preparation = service.prepare_task_episode(
-            task_environment_id=environment_id,
-            agent_id=payload.agent_id,
-            agent_profile_id=payload.agent_profile_id,
-            invocation_kind=payload.invocation_kind,
-            caller_kind=payload.caller_kind,
-            role_contract=payload.role_contract,
-            scope=dict(payload.scope or {}),
-            acceptance=dict(payload.acceptance or {}),
-            resource_handles=dict(payload.resource_handles or {}),
-            graph_context=dict(payload.graph_context or {}),
-            project_network_handles=dict(payload.project_network_handles or {}),
-            output_contract=dict(payload.output_contract or {}),
-            packet_policy=dict(payload.packet_policy or {}),
-            continuation_hint=payload.continuation_hint,
+        return await _submit_task_environment_command(
+            runtime,
+            environment_id=environment_id,
+            command_kind="prepare_episode",
+            requested_by="user",
+            payload={
+                "agent_id": payload.agent_id,
+                "agent_profile_id": payload.agent_profile_id,
+                "invocation_kind": payload.invocation_kind,
+                "caller_kind": payload.caller_kind,
+                "role_contract": payload.role_contract,
+                "scope": dict(payload.scope or {}),
+                "acceptance": dict(payload.acceptance or {}),
+                "resource_handles": dict(payload.resource_handles or {}),
+                "graph_context": dict(payload.graph_context or {}),
+                "project_network_handles": dict(payload.project_network_handles or {}),
+                "output_contract": dict(payload.output_contract or {}),
+                "packet_policy": dict(payload.packet_policy or {}),
+                "continuation_hint": payload.continuation_hint,
+                "episode_idempotency_key": payload.idempotency_key,
+            },
             idempotency_key=payload.idempotency_key,
+            dispatch_now=True,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1675,7 +1775,6 @@ async def prepare_task_work_environment_episode(
         reason = str(exc)
         status_code = 409 if "active lease" in reason else 400
         raise HTTPException(status_code=status_code, detail=reason) from exc
-    return preparation.to_dict()
 
 
 @router.post("/task-environments/{environment_id}/episodes/{episode_id}/run")
@@ -1686,10 +1785,17 @@ async def run_task_work_environment_episode(
 ) -> dict[str, object]:
     runtime = require_runtime()
     try:
-        return await runtime.harness_runtime.execute_task_environment_episode(
-            task_environment_id=environment_id,
-            episode_id=episode_id,
-            max_steps=payload.max_steps,
+        return await _submit_task_environment_command(
+            runtime,
+            environment_id=environment_id,
+            command_kind="run_episode",
+            requested_by="user",
+            payload={
+                "episode_id": episode_id,
+                "max_steps": payload.max_steps,
+            },
+            idempotency_key=payload.idempotency_key or f"run-episode:{environment_id}:{episode_id}:{payload.max_steps}:{time.time()}",
+            dispatch_now=True,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1719,270 +1825,6 @@ async def list_task_work_environment_control_signals(
             "status": status,
         },
     }
-
-
-@router.post("/task-environments/{environment_id}/control-signals")
-async def request_task_work_environment_control_signal(
-    environment_id: str,
-    payload: TaskEnvironmentControlSignalRequest,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    service = TaskWorkEnvironmentService(runtime.base_dir)
-    try:
-        request_result = service.request_control_signal(
-            task_environment_id=environment_id,
-            signal_kind=payload.signal_kind,
-            requested_by=payload.requested_by,
-            reason=payload.reason,
-            payload=dict(payload.payload or {}),
-            idempotency_key=payload.idempotency_key,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    signal = dict(request_result.get("control_signal") or {})
-    bridge = apply_task_environment_control_signal_bridge(
-        base_dir=runtime.base_dir,
-        graph_system=getattr(getattr(runtime, "harness_runtime", None), "graph_system", None),
-        environment_id=environment_id,
-        signal=signal,
-        bridge_graph_control=payload.bridge_graph_control,
-    )
-    handling_result: dict[str, object] = {}
-    bridge_status = str(bridge.get("signal_status") or "")
-    if bridge_status in {"handled", "failed"}:
-        try:
-            handling_result = service.record_control_signal_handling(
-                signal_id=str(signal.get("signal_id") or ""),
-                status=bridge_status,
-                handling_result=bridge,
-            )
-        except (KeyError, ValueError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {
-        "authority": "task_system.task_environment_control_signal_api.request",
-        "request": request_result,
-        "bridge": bridge,
-        "handling": handling_result,
-    }
-
-
-@router.post("/task-environments/{environment_id}/recovery-actions")
-async def request_task_work_environment_recovery_action(
-    environment_id: str,
-    payload: TaskEnvironmentRecoveryActionRequest,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    service = TaskWorkEnvironmentService(runtime.base_dir)
-    action = _normalized_task_environment_recovery_action(payload.action)
-    if not action:
-        raise HTTPException(status_code=400, detail="unsupported task environment recovery action")
-    try:
-        request_result = service.request_control_signal(
-            task_environment_id=environment_id,
-            signal_kind=_recovery_action_signal_kind(action),
-            requested_by=payload.requested_by,
-            reason=payload.reason or action,
-            payload={
-                "recovery_action": action,
-                "start_node_ids": list(payload.start_node_ids or []),
-                "reset_downstream": bool(payload.reset_downstream),
-                "dispatch_ready": bool(payload.dispatch_ready),
-                "max_dispatch_requests": int(payload.max_dispatch_requests or 0),
-                "runtime_settings_patch": dict(payload.runtime_settings_patch or {}),
-            },
-            idempotency_key=payload.idempotency_key or f"recovery:{action}:{environment_id}",
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    signal = dict(request_result.get("control_signal") or {})
-    bridge = _apply_task_environment_recovery_action_bridge(
-        runtime,
-        environment_id=environment_id,
-        action=action,
-        signal=signal,
-        start_node_ids=tuple(str(item).strip() for item in payload.start_node_ids if str(item).strip()),
-        reset_downstream=payload.reset_downstream,
-        dispatch_ready=payload.dispatch_ready,
-        max_dispatch_requests=payload.max_dispatch_requests,
-        runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
-    )
-    handling_result: dict[str, object] = {}
-    bridge_status = str(bridge.get("signal_status") or "")
-    if bridge_status in {"handled", "failed"}:
-        try:
-            handling_result = service.record_control_signal_handling(
-                signal_id=str(signal.get("signal_id") or ""),
-                status=bridge_status,
-                handling_result=bridge,
-            )
-        except (KeyError, ValueError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {
-        "authority": "task_system.task_environment_recovery_action_api.request",
-        "request": request_result,
-        "bridge": bridge,
-        "handling": handling_result,
-    }
-
-
-def _apply_task_environment_recovery_action_bridge(
-    runtime,
-    *,
-    environment_id: str,
-    action: str,
-    signal: dict[str, object],
-    start_node_ids: tuple[str, ...],
-    reset_downstream: bool,
-    dispatch_ready: bool,
-    max_dispatch_requests: int,
-    runtime_settings_patch: dict[str, object],
-) -> dict[str, object]:
-    detail = TaskEnvironmentViewService(runtime.base_dir).task_environment_detail(
-        environment_id,
-        event_limit=1,
-        episode_limit=1,
-        context_package_limit=1,
-        work_product_limit=1,
-    )
-    binding = dict(detail.get("graph_node_binding") or {})
-    graph_run_id = str(binding.get("graph_run_id") or "").strip()
-    node_id = str(binding.get("node_id") or "").strip()
-    config_id = str(binding.get("config_id") or "").strip()
-    if not graph_run_id or not node_id or not config_id:
-        return {
-            "authority": "task_system.task_environment_recovery_action_bridge",
-            "applied": False,
-            "signal_status": "pending",
-            "reason": "graph_node_binding_incomplete",
-            "graph_run_id": graph_run_id,
-            "node_id": node_id,
-            "config_id": config_id,
-        }
-    graph_system = getattr(getattr(runtime, "harness_runtime", None), "graph_system", None)
-    if graph_system is None:
-        return {
-            "authority": "task_system.task_environment_recovery_action_bridge",
-            "applied": False,
-            "signal_status": "failed",
-            "reason": "graph_system_unavailable",
-            "graph_run_id": graph_run_id,
-        }
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(config_id)
-    if graph_config is None:
-        return {
-            "authority": "task_system.task_environment_recovery_action_bridge",
-            "applied": False,
-            "signal_status": "failed",
-            "reason": "graph_config_not_found",
-            "graph_run_id": graph_run_id,
-            "config_id": config_id,
-        }
-    try:
-        if action == "resume_graph_run":
-            result = graph_system.resume_run(
-                graph_config=graph_config,
-                graph_run_id=graph_run_id,
-                dispatch_ready=dispatch_ready,
-                max_requests=max_dispatch_requests,
-            )
-            return {
-                "authority": "task_system.task_environment_recovery_action_bridge",
-                "applied": True,
-                "signal_status": "handled",
-                "action": action,
-                "signal_id": str(signal.get("signal_id") or ""),
-                "graph_run_id": graph_run_id,
-                "graph_result": _compact_graph_action_result(result.to_dict() if hasattr(result, "to_dict") else dict(result or {})),
-            }
-        if action == "dispatch_ready_graph_nodes":
-            dispatch = graph_system.graph_loop.dispatch_ready_and_checkpoint(
-                graph_config=graph_config,
-                graph_run_id=graph_run_id,
-                max_requests=max_dispatch_requests,
-            )
-            return {
-                "authority": "task_system.task_environment_recovery_action_bridge",
-                "applied": True,
-                "signal_status": "handled",
-                "action": action,
-                "signal_id": str(signal.get("signal_id") or ""),
-                "graph_run_id": graph_run_id,
-                "dispatch": _compact_graph_loop_start(dispatch),
-            }
-        if action == "requeue_graph_node":
-            targets = start_node_ids or (node_id,)
-            requeue = graph_system.graph_loop.requeue_nodes_and_checkpoint(
-                graph_config=graph_config,
-                graph_run_id=graph_run_id,
-                start_node_ids=targets,
-                runtime_settings_patch=dict(runtime_settings_patch or {}),
-                reset_downstream=reset_downstream,
-            )
-            dispatch_payload: dict[str, object] = {}
-            if dispatch_ready:
-                dispatch = graph_system.graph_loop.dispatch_ready_and_checkpoint(
-                    graph_config=graph_config,
-                    graph_run_id=graph_run_id,
-                    max_requests=max_dispatch_requests,
-                )
-                dispatch_payload = _compact_graph_loop_start(dispatch)
-            return {
-                "authority": "task_system.task_environment_recovery_action_bridge",
-                "applied": True,
-                "signal_status": "handled",
-                "action": action,
-                "signal_id": str(signal.get("signal_id") or ""),
-                "graph_run_id": graph_run_id,
-                "node_ids": list(targets),
-                "requeue": _compact_graph_loop_start(requeue),
-                "dispatch": dispatch_payload,
-            }
-    except ValueError as exc:
-        return {
-            "authority": "task_system.task_environment_recovery_action_bridge",
-            "applied": False,
-            "signal_status": "failed",
-            "reason": str(exc),
-            "action": action,
-            "graph_run_id": graph_run_id,
-            "node_id": node_id,
-        }
-    return {
-        "authority": "task_system.task_environment_recovery_action_bridge",
-        "applied": False,
-        "signal_status": "failed",
-        "reason": "unsupported_recovery_action",
-        "action": action,
-        "graph_run_id": graph_run_id,
-    }
-
-
-def _normalized_task_environment_recovery_action(value: str) -> str:
-    action = str(value or "").strip()
-    aliases = {
-        "resume": "resume_graph_run",
-        "resume_graph": "resume_graph_run",
-        "requeue": "requeue_graph_node",
-        "requeue_node": "requeue_graph_node",
-        "dispatch": "dispatch_ready_graph_nodes",
-        "dispatch_ready": "dispatch_ready_graph_nodes",
-    }
-    action = aliases.get(action, action)
-    if action in {"resume_graph_run", "requeue_graph_node", "dispatch_ready_graph_nodes"}:
-        return action
-    return ""
-
-
-def _recovery_action_signal_kind(action: str) -> str:
-    if action == "requeue_graph_node":
-        return "replan_requested"
-    return "resume_requested"
 
 
 def _task_environment_graph_runtime_projection(runtime, detail: dict[str, object]) -> dict[str, object]:
@@ -2115,65 +1957,6 @@ def _compact_checkpoint(checkpoint: dict[str, object]) -> dict[str, object]:
 
 def _id_list(value: object) -> list[str]:
     return [str(item) for item in list(value or []) if str(item)]
-
-
-def _compact_graph_loop_start(value: object) -> dict[str, object]:
-    payload = value.to_dict() if hasattr(value, "to_dict") else dict(value or {}) if isinstance(value, dict) else {}
-    loop_state = dict(payload.get("graph_loop_state") or {})
-    if not loop_state and hasattr(value, "loop_state"):
-        state = getattr(value, "loop_state")
-        loop_state = state.to_dict() if hasattr(state, "to_dict") else {}
-    node_work_orders = list(payload.get("node_work_orders") or [])
-    if not node_work_orders and hasattr(value, "node_work_orders"):
-        node_work_orders = [
-            item.to_dict() if hasattr(item, "to_dict") else dict(item or {})
-            for item in list(getattr(value, "node_work_orders") or [])
-        ]
-    checkpoint = dict(payload.get("checkpoint") or getattr(value, "checkpoint", {}) or {})
-    events = list(payload.get("events") or getattr(value, "events", ()) or ())
-    return {
-        "authority": "task_system.task_environment_recovery_action_bridge.graph_loop_start_summary",
-        "graph_loop_state": _compact_graph_loop_state(loop_state),
-        "checkpoint_id": str(checkpoint.get("checkpoint_id") or checkpoint.get("id") or ""),
-        "node_work_orders": [_compact_work_order(item) for item in node_work_orders],
-        "work_order_count": len(node_work_orders),
-        "event_count": len(events),
-    }
-
-
-def _compact_graph_action_result(payload: dict[str, object]) -> dict[str, object]:
-    loop_state = dict(payload.get("graph_loop_state") or {})
-    return {
-        "authority": str(payload.get("authority") or "task_system.task_environment_recovery_action_bridge.graph_result_summary"),
-        "graph_run_id": str(payload.get("graph_run_id") or ""),
-        "resumed": bool(payload.get("resumed") is True),
-        "reason": str(payload.get("reason") or ""),
-        "graph_loop_state": _compact_graph_loop_state(loop_state),
-        "active_work_order_count": len(list(payload.get("active_work_orders") or [])),
-        "node_work_order_count": len(list(payload.get("node_work_orders") or [])),
-        "event_count": len(list(payload.get("events") or [])),
-    }
-
-
-def _compact_graph_loop_state(loop_state: dict[str, object]) -> dict[str, object]:
-    return {
-        "status": str(loop_state.get("status") or ""),
-        "terminal_reason": str(loop_state.get("terminal_reason") or ""),
-        "ready_node_ids": [str(item) for item in list(loop_state.get("ready_node_ids") or []) if str(item)],
-        "running_node_ids": [str(item) for item in list(loop_state.get("running_node_ids") or []) if str(item)],
-        "blocked_node_ids": [str(item) for item in list(loop_state.get("blocked_node_ids") or []) if str(item)],
-        "failed_node_ids": [str(item) for item in list(loop_state.get("failed_node_ids") or []) if str(item)],
-    }
-
-
-def _compact_work_order(value: object) -> dict[str, object]:
-    row = value if isinstance(value, dict) else value.to_dict() if hasattr(value, "to_dict") else {}
-    payload = dict(row or {})
-    return {
-        key: payload.get(key)
-        for key in ("work_order_id", "node_id", "graph_run_id", "task_run_id", "executor_type", "agent_profile_id")
-        if payload.get(key) not in (None, "", [], {})
-    }
 
 
 @router.get("/task-environments/{environment_id}/sessions")

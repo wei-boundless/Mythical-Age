@@ -28,13 +28,17 @@ from .semantic_artifact_materializer import (
     ProjectNetworkSemanticArtifactMaterializer,
     ProjectNetworkSemanticArtifactSet,
 )
-from .service import ProjectNetworkBuildService, ProjectNetworkRepairQueueResult, ProjectNetworkWorkProductIngestResult
+from .service import (
+    ProjectNetworkBuildService,
+    ProjectNetworkGenerationMaterializationResult,
+    ProjectNetworkRepairQueueResult,
+    ProjectNetworkWorkProductIngestResult,
+)
 from .shard_models import (
     SemanticShardSpec,
     ShardAssignment,
     ShardComplexity,
     ShardComplexityPolicy,
-    ShardExecutorPolicy,
     ShardPlan,
 )
 from .store_models import (
@@ -75,6 +79,7 @@ __all__ = [
     "ProjectNetworkChannelState",
     "ProjectNetworkEvidenceRecord",
     "ProjectNetworkGenerationRecord",
+    "ProjectNetworkGenerationMaterializationResult",
     "ProjectNetworkLayerIndexRecord",
     "ProjectNetworkMaintenanceSignalRecord",
     "ProjectNetworkPublicationPolicy",
@@ -92,7 +97,6 @@ __all__ = [
     "ShardAssignment",
     "ShardComplexity",
     "ShardComplexityPolicy",
-    "ShardExecutorPolicy",
     "ShardPlan",
     "WorkProductChannel",
     "WorkProductRef",

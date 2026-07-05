@@ -16,12 +16,8 @@ import {
   getTaskEnvironmentCatalog,
   getWorkspaceContext,
   getHarnessSessionLiveMonitor,
-  approveHarnessTaskRunLaunch,
-  approveHarnessTaskRunToolCall,
-  pauseHarnessTaskRun,
   pauseGraphRun,
   getPermissionMode,
-  resumeHarnessTaskRun,
   resumeGraphRun,
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
@@ -49,7 +45,7 @@ import {
   createProjectWorkspaceSession,
   selectManagedFileForOpen,
   selectProjectWorkspaceDirectory,
-  stopHarnessTaskRun,
+  stopGraphRun,
   clearChatStreamCursor,
   clearWorkbenchCurrentSession,
   readChatStreamCursor,
@@ -273,15 +269,6 @@ export class WorkspaceRuntime {
       },
       stopCurrentStream: () => {
         this.stopCurrentStream();
-      },
-      pauseActiveTaskRun: async () => {
-        await this.pauseActiveTaskRun();
-      },
-      resumeActiveTaskRun: async () => {
-        await this.resumeActiveTaskRun();
-      },
-      stopActiveTaskRun: async () => {
-        await this.stopActiveTaskRun();
       },
       resendEditedMessage: async (messageId, value) => {
         await this.resendEditedMessage(messageId, value);
@@ -4384,16 +4371,6 @@ export class WorkspaceRuntime {
     });
   }
 
-  private releasePausedChatStreamBoundary(
-    sessionId: string | null | undefined,
-    options: { abortStream?: boolean; taskRunId?: string; turnId?: string } = {},
-  ) {
-    return this.releaseControlledChatStreamBoundary(sessionId, "user_paused", {
-      ...options,
-      connectionState: "paused",
-    });
-  }
-
   private releaseControlledChatStreamBoundary(
     sessionId: string | null | undefined,
     reason: string,
@@ -4474,7 +4451,6 @@ export class WorkspaceRuntime {
         mode: "interrupt_for_resume",
         reason: "user_stop_from_chat_stream",
         expected_active_turn_id: expectedTurnId,
-        expected_task_run_id: taskRunId,
         cascade_subagents: "interrupt_for_resume",
       });
       await this.refreshActiveSessionMonitor();
@@ -4564,158 +4540,6 @@ export class WorkspaceRuntime {
     }));
   }
 
-  private async pauseActiveTaskRun() {
-    const taskRunId = this.activeControllableTaskRunId();
-    if (!taskRunId) {
-      return;
-    }
-    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    this.releasePausedChatStreamBoundary(this.store.getState().currentSessionId, {
-      taskRunId,
-      turnId: expectedTurnId,
-    });
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "running",
-      title: "正在暂停",
-      detail: "暂停请求已发送，当前输出流已断开。",
-      event: "active_task_pause_requested",
-    });
-    try {
-      await pauseHarnessTaskRun(taskRunId, "user_pause_from_chat", expectedTurnId);
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError("pause", taskRunId, error);
-    }
-  }
-
-  private async resumeActiveTaskRun() {
-    const taskRunId = this.activeControllableTaskRunId();
-    if (!taskRunId) {
-      return;
-    }
-    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    const approvalKind = this.activeTaskRunWaitingApprovalKind(taskRunId);
-    const approvingLaunchGate = approvalKind === "launch_gate";
-    const approvingToolCall = approvalKind === "tool_call";
-    const approving = approvingLaunchGate || approvingToolCall;
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "running",
-      title: approving ? "正在确认" : "正在继续",
-      detail: approvingLaunchGate
-        ? "启动确认已发送，等待任务进入执行。"
-        : approvingToolCall
-          ? "确认请求已发送，等待工具调用继续。"
-          : "继续请求已发送，等待当前任务恢复执行。",
-      event: approving ? "active_task_approval_requested" : "active_task_resume_requested",
-    });
-    try {
-      if (approvingLaunchGate) {
-        await approveHarnessTaskRunLaunch(taskRunId, "user_approve_launch_from_chat", 12, expectedTurnId);
-      } else if (approvingToolCall) {
-        await approveHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
-      } else {
-        await resumeHarnessTaskRun(taskRunId, 12, expectedTurnId);
-      }
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError(approving ? "approve" : "resume", taskRunId, error);
-    }
-  }
-
-  private async stopActiveTaskRun() {
-    const taskRunId = this.activeControllableTaskRunId();
-    if (!taskRunId) {
-      this.releaseStoppedChatStreamBoundary(this.store.getState().currentSessionId);
-      return;
-    }
-    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    this.releaseStoppedChatStreamBoundary(this.store.getState().currentSessionId, "user_stopped", { taskRunId, turnId: expectedTurnId });
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "running",
-      title: "正在停止",
-      detail: "停止请求已发送，当前步骤到达运行边界后会结束。",
-      event: "active_task_stop_requested",
-    });
-    try {
-      await stopHarnessTaskRun(taskRunId, "user_stop_from_chat", expectedTurnId);
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError("stop", taskRunId, error);
-    }
-  }
-
-  private setActiveTaskControlActivity(input: {
-    taskRunId: string;
-    level: StoreState["sessionActivity"]["level"];
-    title: string;
-    detail: string;
-    event: string;
-  }) {
-    const sessionId = this.store.getState().currentSessionId;
-    this.store.setState((prev) => ({
-      ...prev,
-      sessionActivity: sessionId
-        ? {
-            level: input.level,
-            title: input.title,
-            detail: input.detail,
-            event: input.event,
-            receipt: {
-              level: input.level,
-              title: input.title,
-              body: input.detail,
-              debug: {
-                event: input.event,
-                taskRunId: input.taskRunId,
-              },
-            },
-            updatedAt: Date.now(),
-          }
-        : prev.sessionActivity,
-      sessionActivitiesById: sessionId
-        ? {
-            ...prev.sessionActivitiesById,
-            [sessionId]: {
-              level: input.level,
-              title: input.title,
-              detail: input.detail,
-              event: input.event,
-              receipt: {
-                level: input.level,
-                title: input.title,
-                body: input.detail,
-                debug: {
-                  event: input.event,
-                  taskRunId: input.taskRunId,
-                },
-              },
-              updatedAt: Date.now(),
-            },
-          }
-        : prev.sessionActivitiesById,
-    }));
-  }
-
-  private setActiveTaskControlError(action: "approve" | "pause" | "resume" | "stop", taskRunId: string, error: unknown) {
-    const titles: Record<typeof action, string> = {
-      approve: "确认失败",
-      pause: "暂停失败",
-      resume: "继续失败",
-      stop: "停止失败",
-    };
-    const fallback = `${titles[action]}，请稍后重试或在运行监控里查看当前状态。`;
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "error",
-      title: titles[action],
-      detail: this.errorMessage(error, fallback),
-      event: `active_task_${action}_failed`,
-    });
-  }
-
   private activeControllableTaskRunId() {
     const state = this.store.getState();
     const monitor = state.taskGraphLiveMonitor;
@@ -4731,53 +4555,6 @@ export class WorkspaceRuntime {
         ? this.activeChatStreamBindings.get(state.currentSessionId)?.taskRunId ?? ""
         : ""
     ).trim();
-  }
-
-  private activeTaskRunStatus(taskRunId: string) {
-    const monitor = this.store.getState().taskGraphLiveMonitor;
-    if (!monitor) {
-      return "";
-    }
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const currentId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-    if (currentId !== taskRunId) {
-      return "";
-    }
-    return String(monitor.status ?? taskRun.status ?? "").trim();
-  }
-
-  private activeTaskRunWaitingApprovalKind(taskRunId: string) {
-    const monitor = this.store.getState().taskGraphLiveMonitor;
-    if (!monitor) {
-      return "";
-    }
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const monitorRecord = monitor as unknown as Record<string, unknown>;
-    const currentId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-    if (currentId !== taskRunId) {
-      return "";
-    }
-    const status = String(monitor.status ?? taskRun.status ?? "").trim();
-    if (status !== "waiting_approval") {
-      return "";
-    }
-    const diagnostics = recordValue(taskRun.diagnostics);
-    const pendingLaunchGate = {
-      ...recordValue(diagnostics.pending_launch_gate),
-      ...recordValue(monitorRecord.pending_launch_gate),
-    };
-    const waitReason = String(monitorRecord.wait_reason ?? diagnostics.wait_reason ?? "").trim();
-    if (String(pendingLaunchGate.status ?? "").trim() === "pending" || waitReason === "task_launch_supervision") {
-      return "launch_gate";
-    }
-    const pendingApproval = {
-      ...recordValue(diagnostics.pending_approval),
-      ...recordValue(monitorRecord.pending_approval),
-    };
-    if (String(pendingApproval.status ?? "").trim() === "pending" || waitReason === "tool_approval_required") {
-      return "tool_call";
-    }
-    return "tool_call";
   }
 
   private activeExpectedTurnIdForTaskRun(taskRunId: string) {
@@ -6423,11 +6200,14 @@ export class WorkspaceRuntime {
   }
 
   private async stopBoundTaskGraphRun() {
-    const taskRunId = this.boundTaskGraphRunTaskRunId();
-    if (!taskRunId) {
+    const state = this.store.getState();
+    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
+    const graphRunId = String(state.taskGraphMonitorBinding?.graph_run_id || monitor?.graph_run_id || "").trim();
+    const graphConfigId = String(state.taskGraphMonitorBinding?.graph_config_id || monitor?.graph_config_id || "").trim();
+    if (!graphRunId || !graphConfigId) {
       this.store.setState((prev) => ({
         ...prev,
-        taskGraphMonitorError: "当前 GraphRun 没有关联可停止的 TaskRun。",
+        taskGraphMonitorError: "当前 GraphRun 缺少可停止的图运行绑定。",
       }));
       return;
     }
@@ -6439,7 +6219,11 @@ export class WorkspaceRuntime {
       taskGraphMonitorError: "",
     }));
     try {
-      await stopHarnessTaskRun(taskRunId, "user_stop_graph_run", "");
+      await stopGraphRun(graphRunId, {
+        graph_config_id: graphConfigId,
+        session_scope: state.taskGraphMonitorBinding?.session_scope,
+        reason: "user_stop_graph_run",
+      });
       await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
       await this.refreshRunMonitor();
     } catch (error) {
@@ -6453,26 +6237,6 @@ export class WorkspaceRuntime {
         taskGraphMonitorActionLoading: false,
       }));
     }
-  }
-
-  private boundTaskGraphRunTaskRunId() {
-    const state = this.store.getState();
-    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
-    const taskRun = monitor?.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
-      ? monitor.task_run as Record<string, unknown>
-      : {};
-    const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
-      ? monitor.task_run_monitor
-      : monitor?.run_monitor && typeof monitor.run_monitor === "object" && !Array.isArray(monitor.run_monitor)
-        ? monitor.run_monitor
-        : {}) as Record<string, unknown>;
-    return String(
-      state.taskGraphMonitorBinding?.task_run_id
-      || monitor?.task_run_id
-      || taskRun.task_run_id
-      || taskRunMonitor.task_run_id
-      || ""
-    ).trim();
   }
 
   private boundTaskGraphRunControlState() {

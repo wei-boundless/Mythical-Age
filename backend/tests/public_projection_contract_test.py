@@ -8,7 +8,6 @@ from api.chat import (
     _allow_public_stream_flush,
     _append_chat_public_event,
     _append_task_bridge_terminal,
-    _is_task_executor_handoff_terminal,
     _project_task_runtime_event_to_chat,
     project_public_stream_event,
     _public_turn_status_for_task_status,
@@ -1150,18 +1149,6 @@ def test_runtime_status_is_always_hidden_trace() -> None:
         assert frame["main_visibility"] == "hidden"
         assert frame["retention"] == "trace"
         assert "status_kind" not in frame
-
-
-def test_task_handoff_uses_canonical_completion_state_not_localized_reason() -> None:
-    assert _is_task_executor_handoff_terminal(
-        TURN_COMPLETED_EVENT,
-        {
-            "task_run_id": "taskrun:turn:session:test:1:abcd",
-            "terminal_reason": "任务已进入执行流程",
-            "completion_state": "task_executor_scheduled",
-            "status": "completed",
-        },
-    ) is True
 
 
 def test_task_model_wait_heartbeat_is_not_public_projection_input() -> None:

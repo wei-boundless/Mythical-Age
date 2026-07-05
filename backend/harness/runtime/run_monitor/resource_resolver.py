@@ -23,6 +23,43 @@ class MonitorResourceResolver:
             available=resolved_available,
         )
 
+    def runtime_anchor_ref(
+        self,
+        runtime_anchor_id: str,
+        *,
+        label: str = "运行锚点",
+        available: bool | None = None,
+    ) -> dict[str, Any]:
+        resolved_available = self._runtime_anchor_exists(runtime_anchor_id) if available is None else bool(available)
+        return self._resource_ref(
+            kind="runtime_anchor",
+            resource_id=runtime_anchor_id,
+            label=label,
+            available=resolved_available,
+        )
+
+    def task_environment_ref(
+        self,
+        task_environment_id: str,
+        *,
+        label: str = "任务环境",
+        available: bool | None = None,
+    ) -> dict[str, Any]:
+        resolved_available = self._task_environment_exists(task_environment_id) if available is None else bool(available)
+        return {
+            **self._resource_ref(
+                kind="task_environment",
+                resource_id=task_environment_id,
+                label=label,
+                available=resolved_available,
+            ),
+            **(
+                {"api_endpoint": f"/api/task-environments/{task_environment_id}"}
+                if str(task_environment_id or "").strip()
+                else {}
+            ),
+        }
+
     def session_ref(self, session_id: str, *, label: str = "会话") -> dict[str, Any]:
         return self._resource_ref(kind="session", resource_id=session_id, label=label, available=bool(session_id))
 
@@ -92,6 +129,27 @@ class MonitorResourceResolver:
         except Exception:
             return False
 
+    def _runtime_anchor_exists(self, runtime_anchor_id: str) -> bool:
+        if not runtime_anchor_id:
+            return False
+        getter = getattr(getattr(self.runtime_host, "state_index", None), "get_runtime_anchor", None)
+        if not callable(getter):
+            return False
+        try:
+            return getter(runtime_anchor_id) is not None
+        except Exception:
+            return False
+
+    def _task_environment_exists(self, task_environment_id: str) -> bool:
+        if not str(task_environment_id or "").strip():
+            return False
+        try:
+            from task_system.work_environments import TaskEnvironmentRepository
+
+            return TaskEnvironmentRepository(self.base_dir).get_task_environment(task_environment_id) is not None
+        except Exception:
+            return False
+
     def _artifact_ref(self, ref: dict[str, Any], *, resolve_availability: bool) -> dict[str, Any]:
         path_text = _artifact_display_path(ref)
         absolute_path = str(ref.get("absolute_path") or "").strip()
@@ -143,4 +201,3 @@ def _artifact_display_path(ref: dict[str, Any]) -> str:
         if filename and "/" not in filename and filename not in {".", ".."}:
             return f"storage/generated/images/{filename}"
     return str(ref.get("absolute_path") or "").strip()
-

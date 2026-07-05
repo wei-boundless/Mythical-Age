@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from graph_system.edge_contracts import edge_contract_or_projection
+from graph_system.edge_contracts import edge_contract_for_edge
 from graph_system.models import ExecutableGraphConfig, GraphLoopState, safe_id
 from task_system import TaskFlowRegistry
 from task_system.graph_instances.decision_models import next_human_artifact_submission_id
@@ -242,7 +242,7 @@ def _edge_by_id(graph_config: ExecutableGraphConfig, edge_id: str) -> dict[str, 
 
 
 def _human_control_policy(*, graph_config: ExecutableGraphConfig, edge: dict[str, Any]) -> dict[str, Any]:
-    contract = edge_contract_or_projection(graph_config, edge)
+    contract = edge_contract_for_edge(graph_config, edge)
     return dict(contract.get("human_control") or {})
 
 

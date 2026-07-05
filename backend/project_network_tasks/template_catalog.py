@@ -43,7 +43,6 @@ class ProjectNetworkNodeTemplate:
             raise ValueError("ProjectNetworkNodeTemplate requires template_id")
 
     def materialize_node(self, shard: SemanticShardSpec, *, sequence_index: int = 0) -> TaskGraphNodeDefinition:
-        executor = shard.executor_policy
         metadata = {
             **dict(self.metadata or {}),
             "project_network_template_id": self.template_id,
@@ -54,9 +53,8 @@ class ProjectNetworkNodeTemplate:
             "required_anchor_refs": list(shard.required_anchor_refs),
             "work_product_contract_id": shard.expected_work_product_contract_id,
         }
-        agent_profile_id = executor.agent_profile_id or self.agent_profile_id
-        if agent_profile_id:
-            metadata["agent_profile_id"] = agent_profile_id
+        if self.agent_profile_id:
+            metadata["agent_profile_id"] = self.agent_profile_id
         node_config_overrides = {
             "assigned_scope": shard.assigned_scope,
             "input_refs": list(shard.input_refs),
@@ -79,17 +77,14 @@ class ProjectNetworkNodeTemplate:
                 key: value
                 for key, value in {
                     "node_contract_id": self.node_contract_id,
-                    "executor_policy": {
-                        **dict(self.executor_policy or {}),
-                        **executor.to_dict(),
-                    },
+                    "executor_policy": dict(self.executor_policy or {}),
                 }.items()
                 if value
             },
             "semantic": {
                 "layer_id": shard.layer_id,
                 "work_unit_kind": shard.work_unit_kind,
-                "work_posture": executor.work_posture or self.work_posture,
+                "work_posture": self.work_posture,
             },
         }
         return TaskGraphNodeDefinition(
@@ -98,14 +93,14 @@ class ProjectNetworkNodeTemplate:
             title=f"{self.title}: {shard.shard_id}",
             node_config_id=self.node_config_id,
             node_config_overrides=node_config_overrides,
-            agent_id=executor.agent_id or self.agent_id,
-            agent_group_id=executor.agent_group_id or self.agent_group_id,
-            work_posture=executor.work_posture or self.work_posture,
+            agent_id=self.agent_id,
+            agent_group_id=self.agent_group_id,
+            work_posture=self.work_posture,
             node_contract_id=self.node_contract_id,
             input_contract_id=self.input_contract_id,
             output_contract_id=output_contract_id,
             contract_bindings=contract_bindings,
-            executor_policy={**dict(self.executor_policy or {}), **executor.to_dict()},
+            executor_policy=dict(self.executor_policy or {}),
             memory_read_policy=dict(self.memory_read_policy or {}),
             memory_writeback_policy=dict(self.memory_writeback_policy or {}),
             dynamic_memory_read_policy=dict(self.dynamic_memory_read_policy or {}),
@@ -195,7 +190,7 @@ def build_project_network_template_catalog() -> dict[str, ProjectNetworkNodeTemp
                     "accepted_internal_edges 只收高信号且有直接证据的定义、注册、路由、配置等关系；普通函数调用不要展开成边，跨文件关系只能作为 relation_candidates 或 external_stubs，不能凭语义相似度补线。"
                 ),
                 output=(
-                    "完成时选择 respond，并在 respond 动作的 structured_output_json 机器输出槽提交且只提交一个 module_index 审查事实：JSON 对象必须包含 project_network_semantic_submissions，且数组内只有一个事实对象。"
+                    "完成时选择 respond，并在 respond 动作的 structured_output_json 机器输出槽直接提交且只提交一个 module_index 审查事实对象。"
                     "该提交不是自然语言报告，也不是系统内部 work product envelope；你只提交语义审查事实，系统会把它装配为 work product。"
                     "提交必须包含 submission_kind=module_index、physical_binding、semantic_coordinate、semantic_label、module_summary、module_review_report、control_nodes、io_surface、accepted_internal_edges、relation_candidates、external_stubs、coverage、limitations、uncovered_refs。"
                     "physical_binding 必须说明 file_ref、file_path、file_hash、skeleton/AST 可用性和证据来源。"
@@ -324,7 +319,7 @@ def build_project_network_template_catalog() -> dict[str, ProjectNetworkNodeTemp
                     "只有带 evidence_refs 或 anchor_refs 的节点和边可以进入 directory_control_routes 或 accepted_relation_candidates；证据不足的跨目录关系只能上交为候选或 blocker。"
                 ),
                 output=(
-                    "完成时选择 respond，并在 respond 动作的 structured_output_json 机器输出槽提交且只提交一个 directory_summary 审查事实：JSON 对象必须包含 project_network_semantic_submissions，且数组内只有一个事实对象。"
+                    "完成时选择 respond，并在 respond 动作的 structured_output_json 机器输出槽直接提交且只提交一个 directory_summary 审查事实对象。"
                     "该提交不是自然语言报告，也不是系统内部 work product envelope；你只提交目录级语义审查事实，系统会把它装配为 work product。"
                     "提交必须包含 submission_kind=directory_summary、physical_binding、semantic_coordinate、semantic_label、directory_summary、directory_review_report、child_coordinate_summary、directory_nodes、module_nodes、directory_control_routes、external_stubs、source_work_product_refs、direct_module_refs、child_summary_refs、accepted_relation_candidates、conflicts、coverage、uncovered_refs、parent_return_payload。"
                     "semantic_coordinate 必须包含 coordinate_ref、physical_ref、layer=directory、label、summary、tags、control_role、entry_refs、downstream_refs、evidence_refs、anchor_refs、confidence。"
@@ -515,13 +510,13 @@ def _directory_review_input_boundary_contract() -> dict[str, Any]:
 
 def _module_typed_submission_contract() -> dict[str, Any]:
     return {
-        "channel": "respond.structured_output_json.project_network_semantic_submissions",
+        "channel": "respond.structured_output_json",
         "cardinality": "exactly_one",
         "submission_kind": "module_index",
         "agent_owns": "bounded semantic overlay for one physical file layer: physical binding confirmation, semantic coordinate, high-signal control nodes, module-level IO surface, accepted internal edges, candidates, file report, coverage, limitations",
         "system_owns": "work_product_id, build_id, graph_run_id, node_id, shard_id, storage envelope, ingestion side effect",
         "submission_rule": (
-            "choose respond, put a JSON object with exactly one module_index fact object in structured_output_json.project_network_semantic_submissions, "
+            "choose respond, put exactly one module_index fact object in structured_output_json, "
             "and keep final_answer as a one-sentence receipt"
         ),
         "not_allowed": (
@@ -623,13 +618,13 @@ def _module_typed_submission_contract() -> dict[str, Any]:
 
 def _directory_typed_submission_contract() -> dict[str, Any]:
     return {
-        "channel": "respond.structured_output_json.project_network_semantic_submissions",
+        "channel": "respond.structured_output_json",
         "cardinality": "exactly_one",
         "submission_kind": "directory_summary",
         "agent_owns": "directory-level semantic coordinate, child coordinate summary, control-route merge, conflict preservation, parent return payload, and coverage judgment",
         "system_owns": "work_product_id, build_id, graph_run_id, node_id, shard_id, storage envelope, ingestion side effect",
         "submission_rule": (
-            "choose respond, put a JSON object with exactly one directory_summary fact object in structured_output_json.project_network_semantic_submissions, "
+            "choose respond, put exactly one directory_summary fact object in structured_output_json, "
             "and keep final_answer as a one-sentence receipt"
         ),
         "not_allowed": (

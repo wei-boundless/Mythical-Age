@@ -61,9 +61,7 @@ def handle_project_network_work_product_ingest(
         )
     work_products = tuple(getattr(ingest, "work_products", ()) or ())
     metadata = dict(getattr(ingest, "metadata", {}) or {})
-    semantic_artifact_set = dict(
-        getattr(ingest, "semantic_artifact_set", {}) or metadata.get("semantic_artifact_set") or {}
-    )
+    maintenance_signals = tuple(getattr(ingest, "maintenance_signals", ()) or ())
     return {
         "effect_kind": "project_network_work_product_ingest",
         "status": "completed" if work_products else "failed",
@@ -78,7 +76,9 @@ def handle_project_network_work_product_ingest(
         "directory_child_return_count": int(metadata.get("directory_child_return_count") or 0),
         "repair_batch_id": str(metadata.get("repair_batch_id") or context.get("repair_batch_id") or ""),
         "repair_item_count": int(metadata.get("repair_item_count") or len(repair_item_ids)),
-        "semantic_artifact_set": semantic_artifact_set,
+        "materialization_lifecycle": str(metadata.get("materialization_lifecycle") or ""),
+        "maintenance_signal_ids": [str(getattr(item, "signal_id", "") or "") for item in maintenance_signals],
+        "dirty_signal_codes": [str(getattr(item, "signal_code", "") or "") for item in maintenance_signals],
         "authority": "project_network_tasks.runtime_effect.project_network_work_product_ingest",
     }
 

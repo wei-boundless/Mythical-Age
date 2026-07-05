@@ -174,7 +174,7 @@ def build_graph_config_from_graph(
         "permissions": permissions,
         "tools": tools,
         "agents": {
-            "coordinator_agent_id": str(graph_runtime_policy.get("coordinator_agent_id") or graph_metadata.get("coordinator_agent_id") or "agent:0"),
+            "coordinator_agent_id": str(graph_runtime_policy.get("coordinator_agent_id") or graph_metadata.get("coordinator_agent_id") or ""),
             "coordinator_agent_profile_id": str(graph_runtime_policy.get("coordinator_agent_profile_id") or graph_metadata.get("coordinator_agent_profile_id") or ""),
             "agent_group_id": str(graph_runtime_policy.get("agent_group_id") or graph_metadata.get("agent_group_id") or ""),
         },
@@ -190,6 +190,8 @@ def build_graph_config_from_graph(
             "graph_compilation_unit": compilation_unit.to_dict(),
             "compile_report": compilation_unit.compile_report.to_dict(),
             "node_contract_index": dict(compilation_unit.node_contract_index),
+            "node_task_contract_index": dict(compilation_unit.node_task_contract_index),
+            "node_agent_binding_index": dict(compilation_unit.node_agent_binding_index),
             "resource_contract_index": dict(compilation_unit.resource_contract_index),
             "edge_contract_index": dict(compilation_unit.edge_contract_index),
             "configurator_write_contract": dict(compilation_unit.configurator_write_contract),
@@ -1003,6 +1005,12 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
     node_id = str(node.get("node_id") or "").strip()
     node_type = str(node.get("node_type") or "agent").strip() or "agent"
     task_ref = str(node.get("task_id") or metadata.get("task_ref") or f"task_graph.node.{graph_id}.{node_id}").strip()
+    agent_profile_id = str(
+        node.get("agent_profile_id")
+        or metadata.get("agent_profile_id")
+        or metadata.get("agent_profile_ref")
+        or ""
+    ).strip()
     return {
         "node_id": node_id,
         "title": str(node.get("title") or node_id),
@@ -1010,8 +1018,14 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         "node_class": "resource" if _is_resource_node_type(node_type=node_type, node_id=node_id) else "executable",
         "task_ref": task_ref,
         "agent_id": str(node.get("agent_id") or ""),
-        "agent_profile_id": str(metadata.get("agent_profile_id") or metadata.get("agent_profile_ref") or ""),
+        "agent_profile_id": agent_profile_id,
         "agent_group_id": str(node.get("agent_group_id") or metadata.get("agent_group_id") or dict(node.get("executor_policy") or {}).get("agent_group_id") or ""),
+        "agent_selection_policy": str(
+            node.get("agent_selection_policy")
+            or metadata.get("agent_selection_policy")
+            or dict(node.get("executor_policy") or {}).get("agent_selection_policy")
+            or ""
+        ),
         "executor": {
             "executor_type": _executor_type_for_node(node),
             "executor_policy": dict(node.get("executor_policy") or metadata.get("executor_policy") or {}),
@@ -1061,6 +1075,14 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
 
 def _published_node_metadata(*, node: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
     payload = dict(metadata or {})
+    agent_profile_id = str(
+        node.get("agent_profile_id")
+        or payload.get("agent_profile_id")
+        or payload.get("agent_profile_ref")
+        or ""
+    ).strip()
+    if agent_profile_id:
+        payload["agent_profile_id"] = agent_profile_id
     node_runtime_policy = _published_node_runtime_policy(node=node, metadata=metadata)
     if not node_runtime_policy:
         return payload

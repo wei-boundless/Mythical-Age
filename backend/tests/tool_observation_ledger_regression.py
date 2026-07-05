@@ -196,7 +196,7 @@ def test_collect_subagent_result_records_authoritative_final_answer_metadata() -
                         "result_ref": "rtobj:agent_run_result:child",
                         "final_answer": final_answer,
                         "summary": "short child summary",
-                        "evidence_refs": ["backend/harness/loop/task_executor.py:1"],
+                        "evidence_refs": ["backend/harness/loop/single_agent_turn.py:1"],
                     },
                 }
             },
@@ -215,7 +215,7 @@ def test_collect_subagent_result_records_authoritative_final_answer_metadata() -
     assert subagent_result["final_answer"] == final_answer
     assert subagent_result["result_ref"] == "rtobj:agent_run_result:child"
     assert subagent_result["subagent_run_ref"] == "agrun:taskrun:parent:child"
-    assert subagent_result["evidence_refs"] == ["backend/harness/loop/task_executor.py:1"]
+    assert subagent_result["evidence_refs"] == ["backend/harness/loop/single_agent_turn.py:1"]
 
 
 def test_tool_observation_ledger_hashes_real_side_effect_observations_stably() -> None:
@@ -579,4 +579,3 @@ def test_protocol_boundary_detects_command_tool_markup() -> None:
     assert result.detected is True
     assert "name=\"command\"" in result.markers
     assert strip_protocol_leak('正常回答\nname="command" pytest -q').strip() == "正常回答"
-

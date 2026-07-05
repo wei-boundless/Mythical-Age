@@ -16,6 +16,7 @@ from ..shared.models import (
     CANONICAL_TURN_RUN_STATUSES,
     ProjectProgressLedger,
     ProjectRuntimeStatus,
+    RuntimeAnchor,
     SupervisionRecord,
     TaskRun,
     TurnRun,
@@ -133,6 +134,10 @@ class RuntimeStateIndex:
         with _STATE_INDEX_WRITE_LOCK:
             self._upsert_task_run_unlocked(task_run)
 
+    def upsert_runtime_anchor(self, anchor: RuntimeAnchor) -> RuntimeAnchor | None:
+        with _STATE_INDEX_WRITE_LOCK:
+            return self._upsert_runtime_anchor_unlocked(anchor)
+
     def update_task_run(self, task_run_id: str, updater: Any) -> TaskRun | None:
         normalized_task_run_id = str(task_run_id or "").strip()
         if not normalized_task_run_id or not callable(updater):
@@ -195,6 +200,23 @@ class RuntimeStateIndex:
         self._sync_active_executor_task_run_id(task_run.task_run_id, payload)
         self._touch_meta()
         return _task_run_from_payload(payload)
+
+    def _upsert_runtime_anchor_unlocked(self, anchor: RuntimeAnchor) -> RuntimeAnchor | None:
+        if self._session_deleted_unlocked(anchor.session_id):
+            return None
+        if anchor.legacy_task_run_id and self._task_run_deleted_unlocked(anchor.legacy_task_run_id):
+            return None
+        payload = anchor.to_dict()
+        self._write_record("runtime_anchors", anchor.runtime_anchor_id, payload)
+        self._append_index_id("session_runtime_anchors", anchor.session_id, anchor.runtime_anchor_id)
+        if anchor.legacy_task_run_id:
+            self._write_index_value("runtime_anchor_by_legacy_task_run", anchor.legacy_task_run_id, anchor.runtime_anchor_id)
+        if anchor.graph_run_id:
+            self._write_index_value("runtime_anchor_by_graph_run", anchor.graph_run_id, anchor.runtime_anchor_id)
+        if anchor.task_environment_id:
+            self._append_index_id("task_environment_runtime_anchors", anchor.task_environment_id, anchor.runtime_anchor_id)
+        self._touch_meta(updated_at=float(anchor.updated_at or anchor.created_at or time.time()))
+        return _runtime_anchor_from_payload(payload)
 
     def upsert_agent_run(self, agent_run: AgentRun) -> None:
         with _STATE_INDEX_WRITE_LOCK:
@@ -273,6 +295,25 @@ class RuntimeStateIndex:
         if not task_run:
             return None
         return _task_run_from_payload(task_run)
+
+    def get_runtime_anchor(self, runtime_anchor_id: str) -> RuntimeAnchor | None:
+        payload = self._read_record("runtime_anchors", runtime_anchor_id)
+        if not payload:
+            return None
+        return _runtime_anchor_from_payload(payload)
+
+    def get_runtime_anchor_by_legacy_task_run(self, task_run_id: str) -> RuntimeAnchor | None:
+        anchor_id = str(self._read_index_value("runtime_anchor_by_legacy_task_run", task_run_id) or "")
+        return self.get_runtime_anchor(anchor_id) if anchor_id else None
+
+    def get_runtime_anchor_by_graph_run(self, graph_run_id: str) -> RuntimeAnchor | None:
+        anchor_id = str(self._read_index_value("runtime_anchor_by_graph_run", graph_run_id) or "")
+        return self.get_runtime_anchor(anchor_id) if anchor_id else None
+
+    def list_session_runtime_anchors(self, session_id: str) -> list[RuntimeAnchor]:
+        ids = self._read_index_ids("session_runtime_anchors", session_id)
+        anchors = self._read_selected_records("runtime_anchors", ids)
+        return [_runtime_anchor_from_payload(anchors[item]) for item in ids if item in anchors]
 
     def get_turn_run(self, turn_run_id: str) -> TurnRun | None:
         turn_run = self._read_record("turn_runs", turn_run_id)
@@ -1252,6 +1293,7 @@ class RuntimeStateIndex:
             "supervision_records": "supervision_record_id",
             "project_runtime_statuses": "project_id",
             "task_run_summaries": "task_run_id",
+            "runtime_anchors": "runtime_anchor_id",
         }
         field = key_field_by_bucket.get(bucket, "")
         return str(payload.get(field) or fallback)
@@ -1270,6 +1312,7 @@ class RuntimeStateIndex:
             "supervision_records",
             "project_runtime_statuses",
             "task_run_summaries",
+            "runtime_anchors",
         )
 
     @staticmethod
@@ -1288,6 +1331,8 @@ class RuntimeStateIndex:
             "active_executor_task_runs",
             "project_supervision_records",
             "task_supervision_records",
+            "session_runtime_anchors",
+            "task_environment_runtime_anchors",
         )
 
     @staticmethod
@@ -1298,6 +1343,8 @@ class RuntimeStateIndex:
             "graph_project_index",
             "session_active_project_status",
             "task_project_status",
+            "runtime_anchor_by_legacy_task_run",
+            "runtime_anchor_by_graph_run",
         )
 
     @classmethod
@@ -1326,16 +1373,21 @@ class RuntimeStateIndex:
             "supervision_records": {},
             "project_runtime_statuses": {},
             "task_run_summaries": {},
+            "runtime_anchors": {},
             "session_projects": {},
             "global_recent_task_runs": {},
             "active_executor_task_runs": {},
             "project_supervision_records": {},
             "task_supervision_records": {},
+            "session_runtime_anchors": {},
+            "task_environment_runtime_anchors": {},
             "session_latest_task_runs": {},
             "session_latest_turn_runs": {},
             "graph_project_index": {},
             "session_active_project_status": {},
             "task_project_status": {},
+            "runtime_anchor_by_legacy_task_run": {},
+            "runtime_anchor_by_graph_run": {},
             "updated_at": 0.0,
         }
 
@@ -1399,6 +1451,25 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         latest_event_offset=int(payload.get("latest_event_offset", -1)),
         latest_checkpoint_ref=str(payload.get("latest_checkpoint_ref") or ""),
         terminal_reason=payload.get("terminal_reason", ""),
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _runtime_anchor_from_payload(payload: dict[str, Any]) -> RuntimeAnchor:
+    return RuntimeAnchor(
+        runtime_anchor_id=str(payload.get("runtime_anchor_id") or ""),
+        anchor_kind=str(payload.get("anchor_kind") or "graph_run"),  # type: ignore[arg-type]
+        session_id=str(payload.get("session_id") or ""),
+        status=str(payload.get("status") or "created"),  # type: ignore[arg-type]
+        legacy_task_run_id=str(payload.get("legacy_task_run_id") or payload.get("task_run_id") or ""),
+        turn_run_id=str(payload.get("turn_run_id") or ""),
+        task_environment_id=str(payload.get("task_environment_id") or ""),
+        graph_run_id=str(payload.get("graph_run_id") or ""),
+        graph_config_id=str(payload.get("graph_config_id") or ""),
+        control_state=str(payload.get("control_state") or ""),
+        event_scope_ref=str(payload.get("event_scope_ref") or payload.get("legacy_task_run_id") or payload.get("task_run_id") or ""),
+        created_at=float(payload.get("created_at") or 0.0),
+        updated_at=float(payload.get("updated_at") or 0.0),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
 

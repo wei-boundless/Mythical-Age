@@ -1534,7 +1534,6 @@ class ProjectNetworkRepository:
                     ON project_network_directory_child_returns(build_id, parent_frame_id, status);
                 """
             )
-            _normalize_project_network_authorities(conn)
 
 
 def stable_project_network_id(prefix: str, *parts: Any) -> str:
@@ -1549,35 +1548,6 @@ def content_hash(payload: Any) -> str:
 
 def _authority(value: Any, fallback: str) -> str:
     return str(value or fallback).strip() or fallback
-
-
-def _normalize_project_network_authorities(conn: sqlite3.Connection) -> None:
-    legacy_prefix = "task_system.project_network."
-    current_prefix = "project_network_system."
-    authority_tables = (
-        "project_network_builds",
-        "project_network_work_products",
-        "project_network_channel_states",
-        "project_network_evidence",
-        "project_network_candidates",
-        "project_network_layer_indexes",
-        "project_network_generations",
-        "project_network_traces",
-        "project_network_maintenance_signals",
-        "project_network_repair_work_items",
-        "project_network_directory_frames",
-        "project_network_directory_manifests",
-        "project_network_directory_child_returns",
-    )
-    for table in authority_tables:
-        conn.execute(
-            f"""
-            UPDATE {table}
-            SET authority = ? || substr(authority, ?)
-            WHERE authority LIKE ?
-            """,
-            (current_prefix, len(legacy_prefix) + 1, f"{legacy_prefix}%"),
-        )
 
 
 def _build_from_row(row: sqlite3.Row) -> ProjectNetworkBuildRecord:

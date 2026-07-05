@@ -102,7 +102,12 @@ class RunMonitorManagementProjector:
         hidden_index: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
         signal_id = _signal_id(signal)
-        source = source_index.get(signal_id) or source_index.get(str(signal.get("task_run_id") or "")) or {}
+        source = (
+            source_index.get(signal_id)
+            or source_index.get(str(signal.get("runtime_anchor_id") or ""))
+            or source_index.get(str(signal.get("task_run_id") or ""))
+            or {}
+        )
         hidden = hidden_index.get(signal_id)
         lane = _lane_for_signal(signal)
         visibility = {
@@ -161,8 +166,11 @@ def _source_index(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for item in items:
         for key in (
+            str(item.get("monitor_item_id") or ""),
+            str(item.get("runtime_anchor_id") or ""),
             str(item.get("task_instance_id") or ""),
             str(item.get("task_run_id") or ""),
+            str(item.get("turn_run_id") or ""),
             str(item.get("graph_run_id") or ""),
         ):
             normalized = key.strip()
@@ -213,48 +221,30 @@ def _actions_for_signal(signal: dict[str, Any], *, source: dict[str, Any], hidde
     state = str(signal.get("state") or "")
     activity_state = str(signal.get("activity_state") or source.get("activity_state") or "")
     work_kind = str(signal.get("work_kind") or "")
+    runtime_anchor_id = str(signal.get("runtime_anchor_id") or dict(signal.get("runtime_anchor") or {}).get("runtime_anchor_id") or "").strip()
     task_run_id = str(signal.get("task_run_id") or "").strip()
+    turn_run_id = str(signal.get("turn_run_id") or dict(signal.get("detail_ref") or {}).get("turn_run_id") or "").strip()
     graph_run_id = str(signal.get("graph_run_id") or dict(signal.get("graph_ref") or {}).get("graph_run_id") or "").strip()
     terminal = activity_state in {"completed", "failed", "stopped"} or state in {"completed", "failed"} or bool(source.get("terminal") is True)
     lifecycle = str(signal.get("lifecycle") or source.get("lifecycle") or "")
     stale = activity_state == "stale" or lifecycle == "stale" or bool(signal.get("stale") is True or source.get("stale") is True)
     running = False if stale else bool(signal.get("is_running") is True or source.get("is_running") is True)
-    source_capability = dict(source.get("control_capability") or {})
-    signal_capability = dict(signal.get("control_capability") or {})
-    capability = {**source_capability, **signal_capability}
-    pause_allowed = bool(capability.get("can_pause_task", signal.get("is_interruptible") is True or source.get("is_interruptible") is True))
-    stop_allowed = bool(capability.get("can_stop_task", pause_allowed))
     graph_task = work_kind == "graph_task" or bool(graph_run_id)
     actions = [
         _action("open", "打开", True),
-        _action("inspect", "详情", bool(task_run_id or graph_run_id)),
+        _action("inspect", "详情", bool(runtime_anchor_id or task_run_id or turn_run_id or graph_run_id)),
     ]
     if hidden:
         actions.append(_action("restore_to_monitor", "恢复显示", True))
     else:
         clear_enabled = (terminal or stale) and not running
         actions.append(_action("clear_from_monitor", "清出", clear_enabled, "" if clear_enabled else "active_or_waiting_runtime"))
-    pause_enabled = bool(task_run_id) and pause_allowed and not terminal and not (stale and not running)
-    stop_enabled = bool(task_run_id) and stop_allowed and not terminal and not (stale and not running)
-    close_enabled = bool(task_run_id) and stop_allowed and not terminal and stale and not running
-    actions.extend(
-        [
-            _action("pause_task", "暂停", pause_enabled, "" if pause_enabled else "not_active_task"),
-            _action("stop_task", "停止", stop_enabled, "" if stop_enabled else "not_running_task"),
-            _action(
-                "close_runtime",
-                "关闭运行",
-                close_enabled,
-                "" if close_enabled else "not_closeable_runtime",
-            ),
-        ]
-    )
     if graph_task:
         actions.append(_action("preview_delete_graph_run", "删除预览", bool(graph_run_id), "" if graph_run_id else "missing_graph_run_id"))
         actions.append(_action("delete_record", "删除记录", False, "graph_run_requires_graph_lifecycle"))
     else:
-        delete_enabled = bool(task_run_id) and terminal and not running
-        actions.append(_action("preview_delete_record", "删除预览", bool(task_run_id) and not running, "" if task_run_id and not running else "active_or_missing_task_run"))
+        delete_enabled = bool(runtime_anchor_id or task_run_id) and terminal and not running
+        actions.append(_action("preview_delete_record", "删除预览", bool(runtime_anchor_id or task_run_id) and not running, "" if (runtime_anchor_id or task_run_id) and not running else "active_or_missing_runtime_anchor"))
         actions.append(_action("delete_record", "删除记录", delete_enabled, "" if delete_enabled else "active_or_non_terminal_runtime"))
     return actions
 
@@ -273,10 +263,17 @@ def _is_default_visible(signal: dict[str, Any]) -> bool:
 
 
 def _signal_id(signal: dict[str, Any]) -> str:
-    return str(signal.get("signal_id") or signal.get("task_instance_id") or signal.get("task_run_id") or "").strip()
+    return str(
+        signal.get("signal_id")
+        or signal.get("monitor_item_id")
+        or signal.get("runtime_anchor_id")
+        or signal.get("task_instance_id")
+        or signal.get("task_run_id")
+        or signal.get("turn_run_id")
+        or ""
+    ).strip()
 
 
 def _last_activity(signal: dict[str, Any]) -> float:
     timestamps = dict(signal.get("timestamps") or {})
     return float(timestamps.get("last_activity_at") or timestamps.get("updated_at") or 0.0)
-

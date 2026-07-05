@@ -8,12 +8,12 @@ import { selectRunMonitorTaskLane } from "@/lib/run-monitor/selectors";
 import type { RunMonitorSignal } from "@/lib/run-monitor/types";
 import { publicRuntimeStatusLabel, publicRuntimeStatusText } from "@/lib/runtimeStatusText";
 import { useAppStore } from "@/lib/store";
+import { TaskRuntimeWorkbench } from "./TaskRuntimeWorkbench";
 
-export type RunManagementSubpage = "queue" | "records" | "cleanup";
+export type RunManagementSubpage = "queue" | "records" | "tasks" | "cleanup";
 
 const HIDDEN_ACTIONS = new Set(["open", "inspect"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
-const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 
 export function RunManagementWorkbench({ activePage }: { activePage: RunManagementSubpage }) {
   const confirm = useConfirmDialog();
@@ -38,6 +38,10 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
   const queueRows = queue.length ? queue : fallbackTasks.filter((signal) => signal.state !== "completed");
   const recordRows = [...recent, ...hidden];
 
+  if (activePage === "tasks") {
+    return <TaskRuntimeWorkbench />;
+  }
+
   async function handleAction(payload: RunMonitorActionPayload) {
     if (payload.action === "delete_record") {
       const approved = await confirm({
@@ -48,29 +52,11 @@ export function RunManagementWorkbench({ activePage }: { activePage: RunManageme
       });
       if (!approved) return;
     }
-    if (payload.action === "stop_task") {
-      const approved = await confirm({
-        title: "停止运行",
-        body: "停止会让任务在运行边界结束，已产生的记录仍会保留。",
-        confirmLabel: "停止",
-        tone: "warning",
-      });
-      if (!approved) return;
-    }
-    if (payload.action === "close_runtime") {
-      const approved = await confirm({
-        title: "关闭运行",
-        body: "关闭会终止该任务的运行状态，并保留记录供健康系统追踪和清理。",
-        confirmLabel: "关闭运行",
-        tone: "warning",
-      });
-      if (!approved) return;
-    }
     await runMonitorAction(payload);
   }
 
   function openSignalLog(signal: RunMonitorSignal) {
-    const runId = String(signal.task_run_id || "").trim();
+    const runId = signalLogRunId(signal);
     if (!runId) return;
     openRuntimeLog({
       scope: signalLogScope(signal),
@@ -160,8 +146,8 @@ function RunManagementRows({
         <span>操作</span>
       </div>
       {rows.map((signal) => (
-        <div className="run-management-row" key={signal.signal_id || signal.task_run_id || signal.graph_run_id}>
-          <button className="run-management-row__main" onClick={() => onOpen(signal.signal_id)} type="button">
+        <div className="run-management-row" key={signalOpenId(signal)}>
+          <button className="run-management-row__main" onClick={() => onOpen(signalOpenId(signal))} type="button">
             <strong>{publicRuntimeStatusText(signal.title) || "运行"}</strong>
             <span>{publicRuntimeStatusText(signal.line)}</span>
           </button>
@@ -188,11 +174,11 @@ function RunManagementActions({
   signal: RunMonitorSignal;
 }) {
   const actions = (signal.actions ?? []).filter((item) => item.enabled && !HIDDEN_ACTIONS.has(item.action));
-  const hasLogAction = Boolean(signal.task_run_id);
+  const hasLogAction = Boolean(signalLogRunId(signal));
   if (!actions.length && !hasLogAction) {
     return <div className="run-management-row__actions" aria-label="无可用操作" />;
   }
-  const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
+  const signalId = signalOpenId(signal);
   return (
     <div className="run-management-row__actions" aria-label="运行操作">
       {hasLogAction ? (
@@ -209,6 +195,7 @@ function RunManagementActions({
             onAction({
               action: action.action,
               signal_id: signalId,
+              runtime_anchor_id: signal.runtime_anchor_id,
               task_run_id: signal.task_run_id,
               graph_run_id: signal.graph_run_id || signal.graph_ref?.graph_run_id || "",
             });
@@ -223,12 +210,14 @@ function RunManagementActions({
 }
 
 function titleForPage(page: RunManagementSubpage) {
+  if (page === "tasks") return "任务事实";
   if (page === "records") return "历史记录";
   if (page === "cleanup") return "清理预览";
   return "工作队列";
 }
 
 function subtitleForPage(page: RunManagementSubpage) {
+  if (page === "tasks") return "查看任务环境、命令账本、运行产物和检查点";
   if (page === "records") return "查看最近完成和已清出监控台的运行记录";
   if (page === "cleanup") return "只展示可预览的删除候选，真实删除仍由后端保护";
   return "当前运行、等待、停滞和失败任务";
@@ -252,13 +241,22 @@ function actionButtonClassName(action: string) {
   if (DANGER_ACTIONS.has(action)) {
     return "run-management-row__action run-management-row__action--danger";
   }
-  if (WARNING_ACTIONS.has(action)) {
-    return "run-management-row__action run-management-row__action--warning";
-  }
   return "run-management-row__action";
 }
 
 function signalLogScope(signal: RunMonitorSignal) {
   const kind = String(signal.detail_ref?.kind || signal.source_kind || "").trim();
   return kind === "turn_run" ? "turn_run" : "task_run";
+}
+
+function signalLogRunId(signal: RunMonitorSignal) {
+  const kind = signalLogScope(signal);
+  if (kind === "turn_run") {
+    return String(signal.detail_ref?.turn_run_id || signal.turn_run_id || "").trim();
+  }
+  return String(signal.task_run_id || signal.detail_ref?.task_run_id || "").trim();
+}
+
+function signalOpenId(signal: RunMonitorSignal) {
+  return signal.signal_id || signal.runtime_anchor_id || signal.monitor_item_id || signal.task_instance_id || signal.task_run_id || signal.turn_run_id || signal.graph_run_id || "";
 }

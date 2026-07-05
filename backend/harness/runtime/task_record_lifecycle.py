@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from graph_system.lifecycle_manager import GraphTaskLifecycleManager
+from graph_system.models import resolve_graph_root_task_run_id
 from harness.loop.runtime_cell_control import runtime_cell_control_signal_effect, request_runtime_cell_control_signal
 
 
@@ -169,10 +170,9 @@ class TaskRecordLifecycleManager:
         if self.graph_system is None:
             return False
         graph_run = dict(self.graph_system.get_graph_run(graph_run_id) or {})
-        root_task_run_id = str(graph_run.get("task_run_id") or "").strip()
-        if root_task_run_id:
-            return root_task_run_id == task_run_id
-        return str(dict(self.graph_system.get_checkpoint_state(graph_run_id) or {}).get("task_run_id") or "").strip() == task_run_id
+        state = dict(self.graph_system.get_checkpoint_state(graph_run_id) or {})
+        root_task_run_id = resolve_graph_root_task_run_id(graph_run, state)
+        return bool(root_task_run_id) and root_task_run_id == task_run_id
 
     def _request_runtime_cell_stop(self, task_run_ids: set[str], *, reason: str) -> dict[str, Any]:
         accepted: list[str] = []

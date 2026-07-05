@@ -9,7 +9,6 @@ from project_network_system.shard_models import (
     ShardAssignment,
     ShardComplexity,
     ShardComplexityPolicy,
-    ShardExecutorPolicy,
     ShardPlan,
 )
 
@@ -124,7 +123,6 @@ def _shards_for_layer(
                 ),
                 expected_work_product_contract_id=output_contract_id,
                 output_contract_id=output_contract_id,
-                executor_policy=ShardExecutorPolicy.from_dict(layer.metadata.get("executor_policy") if isinstance(layer.metadata.get("executor_policy"), dict) else {}),
                 complexity=ShardComplexity(score=len(refs), estimated_files=_estimated_files(layer.layer_kind, refs)),
                 dependencies=tuple(layer.upstream_layer_refs),
                 metadata={

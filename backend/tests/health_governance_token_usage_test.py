@@ -751,7 +751,7 @@ def test_health_governance_does_not_treat_waiting_executor_as_resumable_without_
         updated_at=now - 1600,
         diagnostics={
             "recoverable_error": {"retryable": True},
-            "recovery_action": "rerun_task_executor",
+            "recovery_action": "resume_task_run",
         },
     )
     state_index = StateIndexStub([stopped_terminal, missing_rollout, failed_terminal])

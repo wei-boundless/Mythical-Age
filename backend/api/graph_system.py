@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from graph_system.lifecycle_manager import GraphTaskLifecycleManager
 from graph_system.models import GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from graph_system.runtime_objects import node_result_summary, work_order_summary
 from sessions import InvalidSessionId, SessionTaskBindingConflict, SessionTaskBindingMissing, validate_session_id
 from task_system import TaskFlowRegistry
 from task_system.graph_instances import GraphTaskInstanceRepository
@@ -172,8 +173,8 @@ async def start_task_graph_system_run(
     except ValueError as exc:
         _delete_graph_run_session(runtime=runtime, graph_session_id=graph_session_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    events = [dict(item) for item in start.events]
-    node_work_orders = [item.to_dict() for item in tuple(start.node_work_orders or ())]
+    events = [_graph_api_event_view(dict(item)) for item in start.events]
+    node_work_orders = [_graph_api_work_order_view(item) for item in tuple(start.node_work_orders or ())]
     response_loop_state = start.loop_state.to_dict()
     response_checkpoint = dict(start.checkpoint)
     if payload.dispatch_ready:
@@ -184,10 +185,10 @@ async def start_task_graph_system_run(
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        node_work_orders = [item.to_dict() for item in tuple(dispatch.node_work_orders or ())]
+        node_work_orders = [_graph_api_work_order_view(item) for item in tuple(dispatch.node_work_orders or ())]
         response_loop_state = dispatch.loop_state.to_dict()
         response_checkpoint = dict(dispatch.checkpoint)
-        events.extend(dict(item) for item in dispatch.events)
+        events.extend(_graph_api_event_view(dict(item)) for item in dispatch.events)
     if payload.runtime_settings_patch and run_mode != "auto_run":
         try:
             patched = graph_system.apply_runtime_settings_patch(
@@ -198,7 +199,7 @@ async def start_task_graph_system_run(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         response_loop_state = dict(patched.get("graph_loop_state") or response_loop_state)
         response_checkpoint = dict(patched.get("checkpoint") or response_checkpoint)
-        events.extend(dict(item) for item in list(patched.get("events") or []) if isinstance(item, dict))
+        events.extend(_graph_api_event_view(dict(item)) for item in list(patched.get("events") or []) if isinstance(item, dict))
     runner_result = None
     background_submission = None
     if run_mode == "auto_run":
@@ -233,27 +234,29 @@ async def start_task_graph_system_run(
         if latest_graph_run:
             response_graph_run = latest_graph_run.to_dict() if hasattr(latest_graph_run, "to_dict") else dict(latest_graph_run)
         monitor = graph_system.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
-        node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
+        node_work_orders = [_graph_api_work_order_view(dict(item)) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
     elif background_submission is not None:
         latest_state = graph_system.graph_loop.get_state(start.graph_run.graph_run_id)
         if latest_state is not None:
             response_loop_state = latest_state.to_dict() if hasattr(latest_state, "to_dict") else dict(latest_state)
         response_checkpoint = graph_system.get_latest_checkpoint(start.graph_run.graph_run_id)
         monitor = graph_system.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
-        node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
+        node_work_orders = [_graph_api_work_order_view(dict(item)) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
     trace = graph_system.get_trace(start.task_run.task_run_id) if payload.include_trace else None
     return {
         "authority": "graph_system.api.task_graph_run_start",
         "graph_id": graph_config.graph_id,
         "graph_run_id": start.graph_run.graph_run_id,
+        "runtime_anchor_id": start.runtime_anchor.runtime_anchor_id,
         "graph_config_id": graph_config.config_id,
         "launch_session_id": launch_session_id,
         "graph_session_id": graph_session_id,
         "task_run_id": start.task_run.task_run_id,
+        "runtime_anchor": start.runtime_anchor.to_dict(),
         "task_run": response_task_run,
         "graph_run": response_graph_run,
-        "checkpoint": response_checkpoint,
-        "graph_loop_state": response_loop_state,
+        "checkpoint": _graph_api_checkpoint_view(response_checkpoint),
+        "graph_loop_state": _graph_api_loop_state_view(response_loop_state),
         "graph_config": _graph_config_api_view(graph_config, include_config=payload.include_graph_config),
         "node_work_orders": node_work_orders,
         "runner_result": runner_result.to_dict() if runner_result is not None else None,
@@ -362,11 +365,11 @@ async def dispatch_graph_run_ready_nodes(
         "authority": "graph_system.api.graph_run_dispatch_ready",
         "graph_run_id": graph_run_id,
         "graph_config_id": graph_config.config_id,
-        "graph_loop_state": dispatch.loop_state.to_dict(),
-        "checkpoint": dict(dispatch.checkpoint),
-        "node_work_orders": [item.to_dict() for item in dispatch.node_work_orders],
+        "graph_loop_state": _graph_api_loop_state_view(dispatch.loop_state),
+        "checkpoint": _graph_api_checkpoint_view(dispatch.checkpoint),
+        "node_work_orders": [_graph_api_work_order_view(item) for item in dispatch.node_work_orders],
         "work_order_count": len(dispatch.node_work_orders),
-        "events": [dict(item) for item in dispatch.events],
+        "events": [_graph_api_event_view(dict(item)) for item in dispatch.events],
     }
 
 
@@ -401,9 +404,9 @@ async def requeue_graph_run_nodes(
         "graph_run_id": graph_run_id,
         "graph_config_id": graph_config.config_id,
         "graph_structure_hash": requeue.loop_state.structure_hash,
-        "graph_loop_state": requeue.loop_state.to_dict(),
-        "checkpoint": dict(requeue.checkpoint),
-        "events": [dict(item) for item in requeue.events],
+        "graph_loop_state": _graph_api_loop_state_view(requeue.loop_state),
+        "checkpoint": _graph_api_checkpoint_view(requeue.checkpoint),
+        "events": [_graph_api_event_view(dict(item)) for item in requeue.events],
     }
 
 
@@ -439,12 +442,12 @@ async def accept_graph_node_result(
         "authority": "graph_system.api.graph_node_result_accept",
         "graph_run_id": graph_run_id,
         "graph_config_id": graph_config.config_id,
-        "accepted_result": advance.accepted_result.to_dict() if advance.accepted_result is not None else None,
-        "graph_result": advance.graph_result.to_dict() if advance.graph_result is not None else None,
-        "graph_loop_state": advance.loop_state.to_dict(),
-        "checkpoint": dict(advance.checkpoint),
-        "node_work_orders": [item.to_dict() for item in advance.node_work_orders],
-        "events": [dict(item) for item in advance.events],
+        "accepted_result": _graph_api_node_result_view(advance.accepted_result),
+        "graph_result": _graph_api_graph_result_view(advance.graph_result),
+        "graph_loop_state": _graph_api_loop_state_view(advance.loop_state),
+        "checkpoint": _graph_api_checkpoint_view(advance.checkpoint),
+        "node_work_orders": [_graph_api_work_order_view(item) for item in advance.node_work_orders],
+        "events": [_graph_api_event_view(dict(item)) for item in advance.events],
     }
 
 
@@ -611,6 +614,35 @@ async def resume_graph_run(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not bool(result.get("accepted", False)):
         raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_resume_rejected"))
+    return result
+
+
+@router.post("/graph-system/graph-runs/{graph_run_id}/stop")
+async def stop_graph_run(
+    graph_run_id: str,
+    payload: GraphRunControlRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
+    _assert_graph_run_scope(
+        runtime=runtime,
+        graph_run_id=graph_run_id,
+        graph_config_id=graph_config.config_id,
+        graph_config=graph_config,
+        session_scope=payload.session_scope,
+    )
+    try:
+        result = runtime.harness_runtime.graph_system.request_graph_run_stop(
+            graph_run_id,
+            reason=payload.reason,
+            requested_by="user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not bool(result.get("accepted", False)):
+        raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_stop_rejected"))
     return result
 
 
@@ -850,6 +882,202 @@ def _graph_config_requires_project(graph_config: Any) -> bool:
     if project_policy and project_policy not in {"none", "disabled", "conversation_only"}:
         return True
     return bool(file_management.get("required_repository_kinds") or storage_space.get("required_repository_kinds"))
+
+
+def _graph_api_work_order_view(order: Any) -> dict[str, Any]:
+    if isinstance(order, GraphNodeWorkOrder):
+        return work_order_summary(order)
+    payload = order.to_dict() if hasattr(order, "to_dict") else (dict(order) if isinstance(order, dict) else {})
+    input_package = dict(payload.get("input_package") or {})
+    dispatch_context = dict(payload.get("dispatch_context") or {})
+    return {
+        "authority": str(payload.get("authority") or "graph_system_node_work_order_summary"),
+        "work_order_id": str(payload.get("work_order_id") or ""),
+        "work_order_ref": str(payload.get("work_order_ref") or ""),
+        "work_kind": str(payload.get("work_kind") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or ""),
+        "executor_type": str(payload.get("executor_type") or ""),
+        "node_session_id": str(payload.get("node_session_id") or ""),
+        "node_session_policy": dict(payload.get("node_session_policy") or {}),
+        "agent_id": str(payload.get("agent_id") or ""),
+        "agent_profile_id": str(payload.get("agent_profile_id") or ""),
+        "idempotency_key": str(payload.get("idempotency_key") or ""),
+        "input_package_ref": str(payload.get("input_package_ref") or input_package.get("package_id") or ""),
+        "graph_node_task_binding_hint": dict(
+            payload.get("graph_node_task_binding_hint")
+            or dispatch_context.get("graph_node_task_binding_hint")
+            or {}
+        ),
+        "inbound_context_count": int(payload.get("inbound_context_count") or len(list(input_package.get("inbound_context") or []))),
+        "artifact_space_ref": str(payload.get("artifact_space_ref") or ""),
+        "memory_space_ref": str(payload.get("memory_space_ref") or ""),
+    }
+
+
+def _graph_api_checkpoint_view(checkpoint: Any) -> dict[str, Any]:
+    payload = checkpoint.to_dict() if hasattr(checkpoint, "to_dict") else (dict(checkpoint) if isinstance(checkpoint, dict) else {})
+    state = dict(payload.get("state") or payload.get("graph_loop_state") or {})
+    return {
+        "checkpoint_id": str(payload.get("checkpoint_id") or ""),
+        "thread_id": str(payload.get("thread_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or state.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or state.get("task_run_id") or ""),
+        "config_id": str(payload.get("config_id") or state.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or state.get("config_hash") or ""),
+        "event_cursor": payload.get("event_cursor", state.get("event_cursor", -1)),
+        "created_at": payload.get("created_at", 0.0),
+        "state": _graph_api_loop_state_view(state),
+    }
+
+
+def _graph_api_loop_state_view(state: Any) -> dict[str, Any]:
+    payload = state.to_dict() if hasattr(state, "to_dict") else (dict(state) if isinstance(state, dict) else {})
+    node_states = {
+        str(node_id): _graph_api_node_state_view(dict(node_state or {}))
+        for node_id, node_state in dict(payload.get("node_states") or {}).items()
+    }
+    return {
+        "authority": str(payload.get("authority") or "graph_system_loop_state"),
+        "state_id": str(payload.get("state_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "structure_hash": str(payload.get("structure_hash") or ""),
+        "structure_version": str(payload.get("structure_version") or ""),
+        "config_snapshot_id": str(payload.get("config_snapshot_id") or ""),
+        "config_snapshot_hash": str(payload.get("config_snapshot_hash") or ""),
+        "status": str(payload.get("status") or ""),
+        "ready_node_ids": list(payload.get("ready_node_ids") or []),
+        "running_node_ids": list(payload.get("running_node_ids") or []),
+        "completed_node_ids": list(payload.get("completed_node_ids") or []),
+        "failed_node_ids": list(payload.get("failed_node_ids") or []),
+        "blocked_node_ids": list(payload.get("blocked_node_ids") or []),
+        "active_node_ids": list(payload.get("running_node_ids") or []),
+        "active_work_order_node_ids": list(dict(payload.get("active_work_orders") or {}).keys()),
+        "node_states": node_states,
+        "node_state_count": len(node_states),
+        "edge_state_count": len(dict(payload.get("edge_states") or {})),
+        "result_count": len(dict(payload.get("result_index") or {})),
+        "event_cursor": payload.get("event_cursor", -1),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _graph_api_node_state_view(node_state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_id": str(node_state.get("node_id") or ""),
+        "status": str(node_state.get("status") or ""),
+        "executor_type": str(node_state.get("executor_type") or ""),
+        "created_at": node_state.get("created_at", 0.0),
+        "updated_at": node_state.get("updated_at", 0.0),
+        "work_order_id": str(node_state.get("work_order_id") or ""),
+        "result_ref": str(node_state.get("result_ref") or ""),
+        "blocked_reason": str(node_state.get("blocked_reason") or ""),
+        "terminal_reason": str(node_state.get("terminal_reason") or ""),
+    }
+
+
+def _graph_api_node_result_view(result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    if isinstance(result, NodeResultEnvelope):
+        return node_result_summary(result)
+    payload = result.to_dict() if hasattr(result, "to_dict") else (dict(result) if isinstance(result, dict) else {})
+    return {
+        "authority": str(payload.get("authority") or "graph_system_node_result_summary"),
+        "result_id": str(payload.get("result_id") or ""),
+        "result_ref": str(payload.get("result_ref") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "work_order_id": str(payload.get("work_order_id") or ""),
+        "executor_type": str(payload.get("executor_type") or ""),
+        "status": str(payload.get("status") or ""),
+        "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
+        "handoff_summary": str(payload.get("handoff_summary") or "")[:1200],
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "error": dict(payload.get("error") or {}),
+    }
+
+
+def _graph_api_graph_result_view(result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    payload = result.to_dict() if hasattr(result, "to_dict") else (dict(result) if isinstance(result, dict) else {})
+    return {
+        "authority": str(payload.get("authority") or "graph_system_result_summary"),
+        "result_id": str(payload.get("result_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _graph_api_event_view(event: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(event.get("payload") or {})
+    return {
+        "event_id": str(event.get("event_id") or ""),
+        "run_id": str(event.get("run_id") or ""),
+        "event_type": str(event.get("event_type") or ""),
+        "offset": event.get("offset", -1),
+        "created_at": event.get("created_at", 0.0),
+        "payload": _graph_api_event_payload_view(payload),
+        "refs": dict(event.get("refs") or {}),
+        "authority": str(event.get("authority") or ""),
+    }
+
+
+def _graph_api_event_payload_view(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_scalars = {
+        "authority",
+        "graph_run_id",
+        "graph_config_id",
+        "node_id",
+        "work_order_id",
+        "status",
+        "terminal_reason",
+        "blocked_reason",
+        "reason",
+        "budget_exhausted",
+        "executed_work_order_count",
+        "accepted_result_count",
+        "dispatch_count",
+    }
+    public: dict[str, Any] = {
+        key: value
+        for key, value in payload.items()
+        if key in allowed_scalars and (isinstance(value, (str, int, float, bool)) or value is None)
+    }
+    if isinstance(payload.get("work_order"), dict):
+        public["work_order"] = _graph_api_work_order_view(dict(payload["work_order"]))
+    if isinstance(payload.get("node_work_orders"), list):
+        public["node_work_orders"] = [
+            _graph_api_work_order_view(dict(item))
+            for item in payload["node_work_orders"]
+            if isinstance(item, dict)
+        ]
+    if isinstance(payload.get("graph_loop_state"), dict):
+        public["graph_loop_state"] = _graph_api_loop_state_view(dict(payload["graph_loop_state"]))
+    if isinstance(payload.get("graph_result"), dict):
+        public["graph_result"] = {
+            "result_id": str(dict(payload["graph_result"]).get("result_id") or ""),
+            "graph_run_id": str(dict(payload["graph_result"]).get("graph_run_id") or ""),
+            "task_run_id": str(dict(payload["graph_result"]).get("task_run_id") or ""),
+            "status": str(dict(payload["graph_result"]).get("status") or ""),
+            "terminal_reason": str(dict(payload["graph_result"]).get("terminal_reason") or ""),
+        }
+    return public
 
 
 def _graph_config_api_view(graph_config: Any, *, include_config: bool = False) -> dict[str, Any]:

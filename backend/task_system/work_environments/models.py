@@ -10,7 +10,16 @@ TaskInstanceStatus = Literal["draft", "active", "paused", "waiting_user", "waiti
 TaskEnvironmentStatus = Literal["created", "ready", "leased", "paused", "blocked", "completed", "failed", "aborted", "archived"]
 TaskPlanStatus = Literal["proposed", "active", "revised", "superseded", "completed"]
 TaskTodoStatus = Literal["pending", "active", "blocked", "done", "canceled"]
+TaskStateProposalStatus = Literal["recorded", "accepted", "rejected", "applied"]
 TaskLeaseStatus = Literal["active", "released", "expired", "revoked"]
+TaskCheckpointKind = Literal[
+    "context_checkpoint",
+    "episode_checkpoint",
+    "work_product_checkpoint",
+    "graph_binding_checkpoint",
+    "pause_boundary",
+    "reducer_commit",
+]
 TaskControlSignalKind = Literal[
     "pause_requested",
     "stop_requested",
@@ -20,6 +29,24 @@ TaskControlSignalKind = Literal[
     "instruction_appended",
 ]
 TaskControlSignalStatus = Literal["pending", "handled", "canceled", "failed"]
+TaskCommandKind = Literal[
+    "prepare_episode",
+    "run_episode",
+    "request_control_signal",
+    "request_pause",
+    "request_resume",
+    "request_stop",
+    "recover_stale_lease",
+    "run_graph_node_work_order",
+    "resume_graph_run",
+    "requeue_graph_node",
+    "dispatch_ready_graph_nodes",
+    "materialize_project_network_generation",
+    "publish_project_network_generation",
+    "repair_project_network_refs",
+]
+TaskCommandStatus = Literal["queued", "running", "succeeded", "failed", "canceled", "dead_letter"]
+TaskDispatchStatus = Literal["running", "succeeded", "failed", "canceled"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +231,63 @@ class TaskEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskCheckpoint:
+    checkpoint_id: str
+    task_environment_id: str
+    task_instance_id: str
+    checkpoint_kind: TaskCheckpointKind
+    episode_id: str = ""
+    event_id: str = ""
+    event_seq: int = -1
+    context_package_id: str = ""
+    latest_work_product_ids: tuple[str, ...] = ()
+    latest_artifact_refs: tuple[str, ...] = ()
+    continuation_hint: str = ""
+    summary: str = ""
+    hashes: dict[str, Any] = field(default_factory=dict)
+    payload_ref: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: float = 0.0
+    authority: str = "task_system.task_checkpoint"
+
+    def __post_init__(self) -> None:
+        _require_authority(self.authority, "task_system.task_checkpoint", "TaskCheckpoint")
+        _require_text(self.checkpoint_id, "TaskCheckpoint requires checkpoint_id")
+        _require_text(self.task_environment_id, "TaskCheckpoint requires task_environment_id")
+        _require_text(self.task_instance_id, "TaskCheckpoint requires task_instance_id")
+        _require_text(self.checkpoint_kind, "TaskCheckpoint requires checkpoint_kind")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["latest_work_product_ids"] = list(self.latest_work_product_ids)
+        payload["latest_artifact_refs"] = list(self.latest_artifact_refs)
+        return _drop_empty(payload)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "TaskCheckpoint":
+        data = dict(payload or {})
+        return cls(
+            checkpoint_id=str(data.get("checkpoint_id") or ""),
+            task_environment_id=str(data.get("task_environment_id") or ""),
+            task_instance_id=str(data.get("task_instance_id") or ""),
+            checkpoint_kind=str(data.get("checkpoint_kind") or ""),  # type: ignore[arg-type]
+            episode_id=str(data.get("episode_id") or ""),
+            event_id=str(data.get("event_id") or ""),
+            event_seq=_int(data.get("event_seq"), default=-1),
+            context_package_id=str(data.get("context_package_id") or ""),
+            latest_work_product_ids=_tuple_of_strings(data.get("latest_work_product_ids")),
+            latest_artifact_refs=_tuple_of_strings(data.get("latest_artifact_refs")),
+            continuation_hint=str(data.get("continuation_hint") or ""),
+            summary=str(data.get("summary") or ""),
+            hashes=dict(data.get("hashes") or {}),
+            payload_ref=str(data.get("payload_ref") or ""),
+            metadata=dict(data.get("metadata") or {}),
+            created_at=_float(data.get("created_at")),
+            authority=str(data.get("authority") or "task_system.task_checkpoint"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class TaskPlan:
     plan_id: str
     task_environment_id: str
@@ -255,6 +339,41 @@ class TaskTodoItem:
         _require_text(self.todo_id, "TaskTodoItem requires todo_id")
         _require_text(self.task_environment_id, "TaskTodoItem requires task_environment_id")
         _require_text(self.title, "TaskTodoItem requires title")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["evidence_refs"] = list(self.evidence_refs)
+        return _drop_empty(payload)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskStateProposal:
+    proposal_id: str
+    task_environment_id: str
+    task_instance_id: str
+    source_episode_id: str
+    source_result_id: str
+    proposal_kind: str
+    state_path: str = ""
+    operation: str = "set"
+    value: Any = None
+    evidence_refs: tuple[str, ...] = ()
+    confidence: str = "agent_proposed"
+    status: TaskStateProposalStatus = "recorded"
+    rejection_reason: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.task_state_proposal"
+
+    def __post_init__(self) -> None:
+        _require_authority(self.authority, "task_system.task_state_proposal", "TaskStateProposal")
+        _require_text(self.proposal_id, "TaskStateProposal requires proposal_id")
+        _require_text(self.task_environment_id, "TaskStateProposal requires task_environment_id")
+        _require_text(self.task_instance_id, "TaskStateProposal requires task_instance_id")
+        _require_text(self.source_episode_id, "TaskStateProposal requires source_episode_id")
+        _require_text(self.source_result_id, "TaskStateProposal requires source_result_id")
+        _require_text(self.proposal_kind, "TaskStateProposal requires proposal_kind")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -340,6 +459,7 @@ class TaskContextPackage:
     resource_handles: dict[str, Any] = field(default_factory=dict)
     graph_context: dict[str, Any] = field(default_factory=dict)
     project_network_handles: dict[str, Any] = field(default_factory=dict)
+    task_state_context: dict[str, Any] = field(default_factory=dict)
     continuation_hint: str = ""
     output_contract: dict[str, Any] = field(default_factory=dict)
     packet_policy: dict[str, Any] = field(default_factory=dict)
@@ -379,6 +499,7 @@ class TaskContextPackage:
             resource_handles=dict(data.get("resource_handles") or {}),
             graph_context=dict(data.get("graph_context") or {}),
             project_network_handles=dict(data.get("project_network_handles") or {}),
+            task_state_context=dict(data.get("task_state_context") or {}),
             continuation_hint=str(data.get("continuation_hint") or ""),
             output_contract=dict(data.get("output_contract") or {}),
             packet_policy=dict(data.get("packet_policy") or {}),
@@ -410,6 +531,65 @@ class TaskControlSignal:
         _require_text(self.signal_kind, "TaskControlSignal requires signal_kind")
         _require_text(self.requested_by, "TaskControlSignal requires requested_by")
         _require_text(self.idempotency_key, "TaskControlSignal requires idempotency_key")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCommand:
+    command_id: str
+    command_kind: TaskCommandKind
+    requested_by: str
+    idempotency_key: str
+    task_environment_id: str = ""
+    status: TaskCommandStatus = "queued"
+    payload: dict[str, Any] = field(default_factory=dict)
+    result: dict[str, Any] = field(default_factory=dict)
+    error: dict[str, Any] = field(default_factory=dict)
+    attempt_count: int = 0
+    lease_ref: str = ""
+    dispatch_ref: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    authority: str = "task_system.task_command"
+
+    def __post_init__(self) -> None:
+        _require_authority(self.authority, "task_system.task_command", "TaskCommand")
+        _require_text(self.command_id, "TaskCommand requires command_id")
+        _require_text(self.command_kind, "TaskCommand requires command_kind")
+        _require_text(self.requested_by, "TaskCommand requires requested_by")
+        _require_text(self.idempotency_key, "TaskCommand requires idempotency_key")
+        if self.command_kind != "recover_stale_lease":
+            _require_text(self.task_environment_id, "TaskCommand requires task_environment_id")
+        if self.attempt_count < 0:
+            raise ValueError("TaskCommand attempt_count must be non-negative")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class TaskDispatchRecord:
+    dispatch_id: str
+    command_id: str
+    status: TaskDispatchStatus
+    task_environment_id: str = ""
+    episode_id: str = ""
+    runtime_anchor_id: str = ""
+    graph_run_id: str = ""
+    work_order_id: str = ""
+    result: dict[str, Any] = field(default_factory=dict)
+    error: dict[str, Any] = field(default_factory=dict)
+    started_at: float = 0.0
+    finished_at: float = 0.0
+    authority: str = "task_system.task_dispatch_record"
+
+    def __post_init__(self) -> None:
+        _require_authority(self.authority, "task_system.task_dispatch_record", "TaskDispatchRecord")
+        _require_text(self.dispatch_id, "TaskDispatchRecord requires dispatch_id")
+        _require_text(self.command_id, "TaskDispatchRecord requires command_id")
+        _require_text(self.status, "TaskDispatchRecord requires status")
 
     def to_dict(self) -> dict[str, Any]:
         return _drop_empty(asdict(self))

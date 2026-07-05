@@ -10,7 +10,7 @@ from runtime.shared.models import TaskRun
 
 from .checkpoint_store import checkpoint_store_from_services
 from .context_materializer import GraphContextMaterializer
-from .edge_contracts import edge_contract_or_projection
+from .edge_contracts import edge_contract_for_edge
 from .flow_edges import build_outbound_flow_edges
 from .language import REVISION_EDGE_TYPES
 from .memory_context import GraphMemoryContextResolutionError
@@ -1180,6 +1180,11 @@ class GraphLoop:
 
     def _update_formal_runs(self, state: GraphLoopState, *, graph_result: GraphResultEnvelope | None) -> None:
         now = time.time()
+        if not state.task_run_id:
+            raise ValueError("GraphLoopState root TaskRun id is missing")
+        current_task = self._services.state_index.get_task_run(state.task_run_id)
+        if current_task is None:
+            raise ValueError(f"GraphLoop root TaskRun not found: {state.task_run_id}")
         if graph_result is not None:
             self._services.runtime_objects.put_object(
                 "graph_result",
@@ -1190,25 +1195,23 @@ class GraphLoop:
         task_run_status = _formal_task_run_status(graph_status)
         terminal_reason = (graph_result.terminal_reason or graph_result.status) if graph_result is not None else state.terminal_reason
         audit = _state_identity_audit(state)
-        current_task = self._services.state_index.get_task_run(state.task_run_id)
-        if current_task is not None:
-            diagnostics = {
-                **dict(current_task.diagnostics or {}),
-                **audit,
-            }
-            if graph_result is not None:
-                diagnostics["graph_result"] = graph_result.to_dict()
-            self._services.state_index.upsert_task_run(
-                TaskRun(
-                    **{
-                        **current_task.to_dict(),
-                        "status": task_run_status,
-                        "updated_at": now,
-                        "terminal_reason": terminal_reason,
-                        "diagnostics": diagnostics,
-                    }
-                )
+        diagnostics = {
+            **dict(current_task.diagnostics or {}),
+            **audit,
+        }
+        if graph_result is not None:
+            diagnostics["graph_result"] = graph_result.to_dict()
+        self._services.state_index.upsert_task_run(
+            TaskRun(
+                **{
+                    **current_task.to_dict(),
+                    "status": task_run_status,
+                    "updated_at": now,
+                    "terminal_reason": terminal_reason,
+                    "diagnostics": diagnostics,
+                }
             )
+        )
         graph_run = self._services.runtime_objects.get_object(f"rtobj:graph_run:{safe_id(state.graph_run_id)}")
         if graph_run:
             diagnostics = {
@@ -3605,7 +3608,7 @@ def _human_gate_route_edge(
 
 
 def _assert_human_edge_decision_allowed(*, graph_config: ExecutableGraphConfig, edge: dict[str, Any], action: str) -> None:
-    contract = edge_contract_or_projection(graph_config, edge)
+    contract = edge_contract_for_edge(graph_config, edge)
     policy = dict(contract.get("human_control") or {})
     if not policy or policy.get("enabled") is False:
         raise ValueError(f"Human edge control is not enabled for edge: {edge.get('edge_id')}")

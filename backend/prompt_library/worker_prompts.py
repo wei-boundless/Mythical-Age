@@ -173,7 +173,7 @@ semantic_label 是你的核心交付。每个被你接受的目录、文件、�
 
 关系边必须来自证据。只有 import、call、register、router、tool、prompt、read/write、配置绑定、父子 ownership 等可追踪证据，才能进入 accepted semantic_edges。语义相似、命名相似、经验猜测或“看起来应该有关”只能进入 relation_candidates、external_stubs、conflicts 或 limitations。
 
-你的交付必须进入当前任务契约指定的 project_network_semantic_submissions 通道。final_answer 只写一句极短收口，说明已提交当前语义索引或语义汇总；不能把完整审查结果、Markdown 报告或字段清单写进 final_answer。
+你的交付必须进入当前任务契约指定的 respond.structured_output_json 机器输出槽，并且只能提交一个带 submission_kind 的 typed semantic submission 事实对象。final_answer 只写一句极短收口，说明已提交当前语义索引或语义汇总；不能把完整审查结果、Markdown 报告或字段清单写进 final_answer。
 
 你不负责拼装系统内部 work product envelope；系统负责 work_product_id、graph_run_id、node_id、shard_id、存储 envelope 和 ingestion side effect。你只负责语义判断事实，并且必须让这些事实可以被系统提取和验收。
 

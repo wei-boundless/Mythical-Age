@@ -462,13 +462,13 @@ async def get_latest_session_continuation(session_id: str):
         active_work_present=active_work_present,
         context_recovery_status=context_status,
     )
-    record = selection.record.to_dict() if selection.record is not None else {}
     return {
         "session_id": validated_session_id,
-        "available": bool(record),
-        "record": record,
+        "available": False,
         "context_recovery_status": context_status,
         "reason": selection.reason,
+        "task_continuation_authority": "task_system.task_work_environment",
+        "legacy_task_run_selector": "removed",
         "authority": "api.chat.session_continuation_projection",
     }
 
@@ -2139,7 +2139,7 @@ def _run_restore_contract(
                 context_recovery_status=context_status,
             )
             continuation_ref = selection.to_dict()
-            continuation_available = bool(selection.record is not None)
+            continuation_available = False
         except Exception:
             logger.debug(
                 "Failed to project chat run continuation contract.",

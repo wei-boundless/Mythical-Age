@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 import logging
 import time
@@ -54,23 +53,24 @@ from harness.loop.execution_kernel import (
 from harness.loop.presentation import error_event, final_answer_event, turn_completed_event
 from harness.loop.single_agent_turn import run_single_agent_turn
 from harness.entrypoint.task_mode_slash_command import TaskModeSlashSignal, task_mode_slash_signal_from_message
+from harness.entrypoint.graph_node_work_order_bridge import GraphNodeWorkOrderBridge
+from harness.entrypoint.task_environment_episode_bridge import TaskEnvironmentEpisodeBridge
 from harness.loop.task_lifecycle import (
     TaskRunContract,
     contract_from_action_request,
 )
-from task_system.episodes import AgentExecutionEpisode, EpisodeRepository, EpisodeResult
-from task_system.reducer import TaskReducer
-from task_system.work_environments.models import SessionTaskBinding, TaskContextPackage, TaskEvent, stable_task_environment_id
+from task_system.work_environments.models import SessionTaskBinding, stable_task_environment_id
 from task_system.work_environments.repository import TaskEnvironmentRepository
-from task_system.work_environments.control_signal_bridge import apply_task_environment_control_signal_bridge
+from task_system.work_environments.scheduler import TaskScheduler
 from task_system.work_environments.service import TaskWorkEnvironmentService
 from task_system.work_environments.view_service import TaskEnvironmentViewService
-from task_system.work_products import WorkProduct
 from graph_system.runtime_effect_registry import handle_runtime_algorithm_effects
 from memory_system.runtime_context_provider import RuntimeMemoryContextProvider, should_inject_session_emphasis
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_INTERACTIVE_AGENT_PROFILE_ID = "main_interactive_agent"
 
 class HarnessRuntimeFacade:
     """Thin API adapter for the agent runtime chain.
@@ -162,6 +162,7 @@ class HarnessRuntimeFacade:
             "graph_system": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "task_environment_episode_bridge": "active",
+            "graph_node_work_order_bridge": "active",
         }
 
     def _handle_runtime_algorithm_effects(
@@ -187,319 +188,10 @@ class HarnessRuntimeFacade:
         episode_id: str = "",
         max_steps: int = 12,
     ) -> dict[str, Any]:
-        """Execute one prepared TaskWorkEnvironment episode through the harness.
-
-        TaskSystem owns the task environment, episode ledger, lease, and result
-        reduction. This method only bridges an already prepared context package
-        into the single-agent runtime and projects the terminal output back into
-        TaskReducer.
-        """
-
-        service = TaskWorkEnvironmentService(self.base_dir)
-        episode_repository = EpisodeRepository(self.base_dir)
-        environment = service.repository.get_task_environment(task_environment_id)
-        if environment is None:
-            raise KeyError(f"TaskWorkEnvironment not found: {task_environment_id}")
-        episode = _task_episode_for_execution(
-            episode_repository=episode_repository,
-            task_environment_id=environment.task_environment_id,
+        return await TaskEnvironmentEpisodeBridge(self).execute(
+            task_environment_id=task_environment_id,
             episode_id=episode_id,
-        )
-        if episode.task_environment_id != environment.task_environment_id:
-            raise ValueError("episode does not belong to task environment")
-        context_package = _task_episode_context_package(
-            repository=service.repository,
-            environment=environment,
-            episode=episode,
-        )
-        agent_profile_resolution = self._resolve_task_episode_agent_profile(episode)
-        if not agent_profile_resolution.get("ok"):
-            executor_result = _task_episode_executor_blocked_result(
-                reason=str(agent_profile_resolution.get("reason") or "task_episode_agent_profile_unresolved"),
-                environment=environment.to_dict(),
-                episode=episode,
-                context_package=context_package,
-                diagnostics=dict(agent_profile_resolution.get("diagnostics") or {}),
-            )
-            reduction = _record_task_episode_execution_result(
-                base_dir=self.base_dir,
-                environment=environment.to_dict(),
-                episode=episode,
-                context_package=context_package,
-                executor_result=executor_result,
-            )
-            return {
-                "ok": False,
-                "status": "blocked",
-                "executor_result": executor_result,
-                "reduction": reduction.to_dict(),
-                "task_environment_view": TaskEnvironmentViewService(self.base_dir).task_environment_detail(environment.task_environment_id),
-                "lease": {},
-                "lease_release": {},
-                "authority": "harness.task_environment_episode_bridge",
-            }
-
-        agent_runtime_profile = agent_profile_resolution["profile"]
-        agent_profile_id = str(agent_profile_resolution.get("agent_profile_id") or "").strip()
-        agent_id = str(agent_profile_resolution.get("agent_id") or "").strip()
-        session_id = _task_episode_session_id(environment.to_dict(), episode=episode, context_package=context_package)
-        self._ensure_task_episode_execution_session(
-            session_id=session_id,
-            environment=environment.to_dict(),
-            episode=episode,
-            context_package=context_package,
-        )
-        turn_id = stable_task_environment_id(
-            "turn",
-            "task-environment-episode",
-            environment.task_environment_id,
-            episode.episode_id,
-            context_package.package_hash,
-        )
-        message = _task_episode_user_message(
-            environment=environment.to_dict(),
-            episode=episode,
-            context_package=context_package,
-        )
-        self._commit_user_message(
-            session_id=session_id,
-            content=message,
-            provider_protocol_content=message,
-            turn_id=turn_id,
-            message_id=stable_task_environment_id("user", "task-episode", episode.episode_id),
-            source="harness.task_environment_episode_bridge",
-        )
-        lease_projection = service.acquire_episode_lease(
-            task_environment_id=environment.task_environment_id,
-            episode_id=episode.episode_id,
-            lease_kind="task_episode_execution",
-            holder_kind="harness_runtime",
-            holder_id=f"task_episode:{episode.episode_id}",
-            ttl_seconds=_task_episode_lease_ttl_seconds(context_package),
-            idempotency_key=stable_task_environment_id("leasekey", "task-episode", episode.episode_id, context_package.package_hash),
-            event_type="task_episode_execution_started",
-            current_phase="task_episode",
-            current_step="running",
-            progress_label="task episode executing through harness",
-        )
-        runtime_contract = _task_episode_runtime_contract(
-            environment=environment.to_dict(),
-            episode=episode,
-            context_package=context_package,
-            agent_profile_id=agent_profile_id,
-            agent_id=agent_id,
-            turn_id=turn_id,
-        )
-        environment_binding = _task_episode_environment_binding(environment.to_dict(), context_package=context_package)
-        model_selection = _task_episode_model_selection(context_package)
-        workspace_root = _task_episode_workspace_root(environment.to_dict(), context_package=context_package)
-        permission_mode = _graph_node_permission_mode(self.single_agent_runtime_host)
-        runtime_assembly = assemble_runtime(
-            backend_dir=self.base_dir,
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_invocation_id=f"aginvoke:{turn_id}:task_episode",
-            runtime_contract=runtime_contract,
-            model_selection=model_selection,
-            environment_binding=environment_binding,
-            agent_runtime_profile=agent_runtime_profile,
-            tool_instances=self._all_tool_instances(),
-            definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
-            permission_mode=permission_mode,
-            workspace_root=workspace_root,
-        )
-        self._record_turn_environment_snapshot(
-            session_id=session_id,
-            turn_id=turn_id,
-            runtime_assembly=runtime_assembly,
-            execution_scope={
-                "execution_scope_kind": "task_environment_episode",
-                "task_environment_id": environment.task_environment_id,
-                "task_instance_id": episode.task_instance_id,
-                "episode_id": episode.episode_id,
-                "context_package_id": context_package.package_id,
-                "authority": "harness.task_environment_episode_bridge.execution_scope",
-            },
-        )
-        session_context = _task_episode_session_context(
-            environment=environment.to_dict(),
-            episode=episode,
-            context_package=context_package,
-            runtime_contract=runtime_contract,
-            workspace_root=workspace_root,
-        )
-        events: list[dict[str, Any]] = []
-        done_event: dict[str, Any] = {}
-        terminal_event: dict[str, Any] = {}
-        error_payload: dict[str, Any] = {}
-        executor_result: dict[str, Any] = {}
-        reduction_payload: dict[str, Any] = {}
-        release_payload: dict[str, Any] = {}
-        try:
-            try:
-                async for event in self._run_single_agent_turn(
-                    request=HarnessRuntimeRequest(
-                        session_id=session_id,
-                        message=message,
-                        runtime_profile={
-                            "agent_id": agent_id,
-                            "agent_profile_id": agent_profile_id,
-                            "task_environment_episode": True,
-                        },
-                        environment_binding=environment_binding,
-                        runtime_contract=runtime_contract,
-                        model_selection=model_selection,
-                        permission_mode=permission_mode,
-                    ),
-                    turn_id=turn_id,
-                    history=[],
-                    session_context=session_context,
-                    agent_invocation_id=f"aginvoke:{turn_id}:task_episode",
-                    agent_runtime_profile=agent_runtime_profile,
-                    runtime_assembly=runtime_assembly,
-                    runtime_branch={
-                        "branch_kind": "single_agent_turn",
-                        "invocation_kind": "task_environment_episode",
-                        "branch_id": stable_task_environment_id("branch", episode.episode_id, turn_id),
-                        "task_environment_id": environment.task_environment_id,
-                        "episode_id": episode.episode_id,
-                        "authority": "harness.task_environment_episode_bridge",
-                    },
-                    active_work_context=None,
-                    current_work_boundary_receipt=_task_episode_current_work_boundary_receipt(
-                        environment.to_dict(),
-                        episode=episode,
-                        turn_id=turn_id,
-                    ),
-                    max_steps=max_steps,
-                ):
-                    compact_event = _compact_graph_node_harness_event(event)
-                    if compact_event:
-                        events.append(compact_event)
-                    event_type = str(dict(event or {}).get("type") or "").strip()
-                    if event_type == "done":
-                        done_event = dict(event or {})
-                    elif event_type == "agent_turn_terminal":
-                        terminal_event = dict(event or {})
-                    elif event_type == "error":
-                        error_payload = dict(event or {})
-                executor_result = _task_episode_executor_result_from_events(
-                    environment=environment.to_dict(),
-                    episode=episode,
-                    context_package=context_package,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    agent_id=agent_id,
-                    agent_profile_id=agent_profile_id,
-                    done_event=done_event,
-                    terminal_event=terminal_event,
-                    error_payload=error_payload,
-                    events=tuple(events),
-                    runtime_contract=runtime_contract,
-                    model_selection=model_selection,
-                )
-            except Exception as exc:
-                executor_result = _task_episode_exception_executor_result(
-                    environment=environment.to_dict(),
-                    episode=episode,
-                    context_package=context_package,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    agent_id=agent_id,
-                    agent_profile_id=agent_profile_id,
-                    exc=exc,
-                    events=tuple(events),
-                )
-            reduction = _record_task_episode_execution_result(
-                base_dir=self.base_dir,
-                environment=environment.to_dict(),
-                episode=episode,
-                context_package=context_package,
-                executor_result=executor_result,
-            )
-            reduction_payload = reduction.to_dict()
-        finally:
-            try:
-                release_projection = service.release_episode_lease(
-                    task_environment_id=environment.task_environment_id,
-                    lease_id=lease_projection.lease.lease_id,
-                    release_reason="task_episode_execution_finished",
-                    event_type="task_episode_execution_finished",
-                    current_phase="task_episode",
-                    current_step="lease_released",
-                    progress_label="task episode execution lease released",
-                )
-                release_payload = release_projection.to_dict()
-            except Exception as exc:
-                release_payload = {
-                    "authority": "harness.task_environment_episode_bridge.lease_release_error",
-                    "error": str(exc) or exc.__class__.__name__,
-                    "error_type": exc.__class__.__name__,
-                    "lease_id": lease_projection.lease.lease_id,
-                }
-        task_environment_view = TaskEnvironmentViewService(self.base_dir).task_environment_detail(environment.task_environment_id)
-        return {
-            "ok": bool(executor_result.get("ok") is True),
-            "status": str(executor_result.get("status") or ""),
-            "executor_result": executor_result,
-            "reduction": reduction_payload,
-            "task_environment_view": task_environment_view,
-            "lease": lease_projection.to_dict(),
-            "lease_release": release_payload,
-            "authority": "harness.task_environment_episode_bridge",
-        }
-
-    def _resolve_task_episode_agent_profile(self, episode: AgentExecutionEpisode) -> dict[str, Any]:
-        profile_ref = str(episode.agent_profile_id or "").strip()
-        if not profile_ref:
-            return {
-                "ok": False,
-                "reason": "task_episode_agent_profile_missing",
-                "diagnostics": {
-                    "required_source": "AgentExecutionEpisode.agent_profile_id",
-                    "authority": "harness.task_environment_episode_bridge.agent_profile_resolution",
-                },
-            }
-        profile = self.agent_runtime_registry.get_profile_by_profile_id(profile_ref)
-        if profile is None:
-            return {
-                "ok": False,
-                "reason": "task_episode_agent_profile_not_registered",
-                "agent_profile_id": profile_ref,
-                "diagnostics": {
-                    "authority": "harness.task_environment_episode_bridge.agent_profile_resolution",
-                },
-            }
-        return {
-            "ok": True,
-            "profile": profile,
-            "agent_profile_id": profile_ref,
-            "agent_id": str(episode.agent_id or getattr(profile, "agent_id", "") or "").strip(),
-            "authority": "harness.task_environment_episode_bridge.agent_profile_resolution",
-        }
-
-    def _ensure_task_episode_execution_session(
-        self,
-        *,
-        session_id: str,
-        environment: dict[str, Any],
-        episode: AgentExecutionEpisode,
-        context_package: TaskContextPackage,
-    ) -> None:
-        try:
-            self.session_manager.load_session_record(session_id)
-            return
-        except Exception:
-            pass
-        self.session_manager.create_session(
-            session_id=session_id,
-            title=_task_episode_session_title(environment, episode=episode, context_package=context_package),
-            scope={
-                "task_environment_id": str(environment.get("task_environment_id") or ""),
-                "task_instance_id": str(environment.get("task_instance_id") or ""),
-                "episode_id": episode.episode_id,
-                "scope_kind": "task_environment_episode",
-            },
+            max_steps=max_steps,
         )
 
     async def _execute_graph_agent_work_order(
@@ -509,248 +201,10 @@ class HarnessRuntimeFacade:
         work_order: Any,
         max_steps: int = 12,
     ) -> dict[str, Any]:
-        """Execute one graph node through the single-agent harness authority.
-
-        GraphSystem owns scheduling and result acceptance. TaskSystem owns the
-        task environment/episode ledger. This bridge only turns the already
-        materialized graph node work order into a harness invocation and returns
-        an executor projection for GraphSystem to reduce.
-        """
-
-        work_order_payload = _object_payload(work_order)
-        preparation_payload = self._graph_node_task_preparation_payload(work_order)
-        context_package = dict(preparation_payload.get("context_package") or {})
-        task_environment = dict(preparation_payload.get("task_environment") or {})
-        episode = dict(preparation_payload.get("episode") or {})
-        agent_profile_resolution = self._resolve_graph_node_agent_profile(work_order_payload)
-        if not agent_profile_resolution.get("ok"):
-            return _graph_node_executor_blocked_result(
-                reason=str(agent_profile_resolution.get("reason") or "graph_node_agent_profile_unresolved"),
-                graph_config=graph_config,
-                work_order_payload=work_order_payload,
-                preparation_payload=preparation_payload,
-                diagnostics=dict(agent_profile_resolution.get("diagnostics") or {}),
-            )
-        agent_runtime_profile = agent_profile_resolution["profile"]
-        agent_profile_id = str(agent_profile_resolution.get("agent_profile_id") or "").strip()
-        agent_id = str(agent_profile_resolution.get("agent_id") or "").strip()
-        session_id = _graph_node_session_id(work_order_payload)
-        if not session_id:
-            return _graph_node_executor_blocked_result(
-                reason="graph_node_session_id_missing",
-                graph_config=graph_config,
-                work_order_payload=work_order_payload,
-                preparation_payload=preparation_payload,
-                diagnostics={
-                    "expected_source": "GraphNodeWorkOrder.node_session_id",
-                    "node_session_policy": dict(work_order_payload.get("node_session_policy") or {}),
-                },
-            )
-        turn_id = stable_task_environment_id(
-            "turn",
-            "graph-node-work-order",
-            work_order_payload.get("graph_run_id"),
-            work_order_payload.get("node_id"),
-            work_order_payload.get("work_order_id"),
-            context_package.get("package_hash"),
-        )
-        self._ensure_graph_node_execution_session(
-            session_id=session_id,
+        return await GraphNodeWorkOrderBridge(self).execute(
             graph_config=graph_config,
-            work_order_payload=work_order_payload,
-            task_environment=task_environment,
-        )
-        message = _graph_node_work_order_user_message(
-            work_order_payload=work_order_payload,
-            context_package=context_package,
-            episode=episode,
-            task_environment=task_environment,
-        )
-        self._commit_user_message(
-            session_id=session_id,
-            content=message,
-            provider_protocol_content=message,
-            turn_id=turn_id,
-            message_id=stable_task_environment_id("user", "graph-node-work-order", work_order_payload.get("work_order_id")),
-            source="harness.graph_node_work_order_bridge",
-        )
-        runtime_contract = _graph_node_runtime_contract(
-            work_order_payload=work_order_payload,
-            context_package=context_package,
-            agent_profile_id=agent_profile_id,
-            agent_id=agent_id,
-            turn_id=turn_id,
-        )
-        environment_binding = _graph_node_environment_binding(work_order_payload, context_package=context_package)
-        model_selection = _graph_node_model_selection(work_order_payload)
-        workspace_root = _graph_node_workspace_root(work_order_payload, context_package=context_package)
-        permission_mode = _graph_node_permission_mode(self.single_agent_runtime_host)
-        runtime_assembly = assemble_runtime(
-            backend_dir=self.base_dir,
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_invocation_id=f"aginvoke:{turn_id}:graph_node",
-            runtime_contract=runtime_contract,
-            model_selection=model_selection,
-            environment_binding=environment_binding,
-            agent_runtime_profile=agent_runtime_profile,
-            tool_instances=self._all_tool_instances(),
-            definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
-            permission_mode=permission_mode,
-            workspace_root=workspace_root,
-        )
-        self._record_turn_environment_snapshot(
-            session_id=session_id,
-            turn_id=turn_id,
-            runtime_assembly=runtime_assembly,
-            execution_scope={
-                "execution_scope_kind": "graph_node_work_order",
-                "task_environment_id": str(task_environment.get("task_environment_id") or context_package.get("task_environment_id") or ""),
-                "task_instance_id": str(task_environment.get("task_instance_id") or ""),
-                "episode_id": str(episode.get("episode_id") or ""),
-                "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-                "task_run_id": str(work_order_payload.get("task_run_id") or ""),
-                "node_id": str(work_order_payload.get("node_id") or ""),
-                "work_order_id": str(work_order_payload.get("work_order_id") or ""),
-                "context_package_id": str(context_package.get("package_id") or ""),
-                "authority": "harness.graph_node_work_order_bridge.execution_scope",
-            },
-        )
-        session_context = _graph_node_session_context(
-            work_order_payload=work_order_payload,
-            context_package=context_package,
-            episode=episode,
-            task_environment=task_environment,
-            runtime_contract=runtime_contract,
-            workspace_root=workspace_root,
-        )
-        events: list[dict[str, Any]] = []
-        done_event: dict[str, Any] = {}
-        terminal_event: dict[str, Any] = {}
-        error_payload: dict[str, Any] = {}
-        async for event in self._run_single_agent_turn(
-            request=HarnessRuntimeRequest(
-                session_id=session_id,
-                message=message,
-                runtime_profile={
-                    "agent_id": agent_id,
-                    "agent_profile_id": agent_profile_id,
-                    "graph_node_work_order": True,
-                },
-                environment_binding=environment_binding,
-                runtime_contract=runtime_contract,
-                model_selection=model_selection,
-                permission_mode=permission_mode,
-            ),
-            turn_id=turn_id,
-            history=[],
-            session_context=session_context,
-            agent_invocation_id=f"aginvoke:{turn_id}:graph_node",
-            agent_runtime_profile=agent_runtime_profile,
-            runtime_assembly=runtime_assembly,
-            runtime_branch={
-                "branch_kind": "single_agent_turn",
-                "invocation_kind": "graph_node_work_order",
-                "branch_id": stable_task_environment_id("branch", work_order_payload.get("work_order_id"), turn_id),
-                "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-                "node_id": str(work_order_payload.get("node_id") or ""),
-                "work_order_id": str(work_order_payload.get("work_order_id") or ""),
-                "authority": "harness.graph_node_work_order_bridge",
-            },
-            active_work_context=None,
-            current_work_boundary_receipt=_graph_node_current_work_boundary_receipt(work_order_payload, turn_id=turn_id),
+            work_order=work_order,
             max_steps=max_steps,
-        ):
-            compact_event = _compact_graph_node_harness_event(event)
-            if compact_event:
-                events.append(compact_event)
-            event_type = str(dict(event or {}).get("type") or "").strip()
-            if event_type == "done":
-                done_event = dict(event or {})
-            elif event_type == "agent_turn_terminal":
-                terminal_event = dict(event or {})
-            elif event_type == "error":
-                error_payload = dict(event or {})
-        return _graph_node_executor_result_from_events(
-            graph_config=graph_config,
-            work_order_payload=work_order_payload,
-            preparation_payload=preparation_payload,
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_profile_id=agent_profile_id,
-            agent_id=agent_id,
-            done_event=done_event,
-            terminal_event=terminal_event,
-            error_payload=error_payload,
-            events=tuple(events),
-            runtime_contract=runtime_contract,
-            model_selection=model_selection,
-        )
-
-    def _graph_node_task_preparation_payload(self, work_order: Any) -> dict[str, Any]:
-        sink = getattr(self.agent_runtime_services, "graph_node_task_preparation_sink", None)
-        prepare = getattr(sink, "prepare_work_order", None)
-        if not callable(prepare):
-            return {}
-        projection = prepare(work_order)
-        return _object_payload(projection)
-
-    def _resolve_graph_node_agent_profile(self, work_order_payload: dict[str, Any]) -> dict[str, Any]:
-        profile_ref = _explicit_graph_node_agent_profile_id(work_order_payload)
-        if not profile_ref:
-            return {
-                "ok": False,
-                "reason": "graph_node_agent_profile_missing",
-                "diagnostics": {
-                    "required_sources": [
-                        "GraphNodeWorkOrder.agent_profile_id",
-                        "input_package.node_identity.agent_profile_id",
-                        "graph_slot.node_contract.agent_assembly.agent_profile_id",
-                    ],
-                    "authority": "harness.graph_node_work_order_bridge.agent_profile_resolution",
-                },
-            }
-        profile = self.agent_runtime_registry.get_profile_by_profile_id(profile_ref)
-        if profile is None:
-            return {
-                "ok": False,
-                "reason": "graph_node_agent_profile_not_registered",
-                "agent_profile_id": profile_ref,
-                "diagnostics": {
-                    "authority": "harness.graph_node_work_order_bridge.agent_profile_resolution",
-                },
-            }
-        return {
-            "ok": True,
-            "profile": profile,
-            "agent_profile_id": profile_ref,
-            "agent_id": _explicit_graph_node_agent_id(work_order_payload, profile=profile),
-            "authority": "harness.graph_node_work_order_bridge.agent_profile_resolution",
-        }
-
-    def _ensure_graph_node_execution_session(
-        self,
-        *,
-        session_id: str,
-        graph_config: Any,
-        work_order_payload: dict[str, Any],
-        task_environment: dict[str, Any],
-    ) -> None:
-        try:
-            self.session_manager.load_session_record(session_id)
-            return
-        except Exception:
-            pass
-        runtime_scope = dict(dict(work_order_payload.get("input_package") or {}).get("runtime_scope") or {})
-        project_id = str(runtime_scope.get("project_id") or getattr(graph_config, "graph_id", "") or "").strip()
-        self.session_manager.create_session(
-            session_id=session_id,
-            title=_graph_node_session_title(work_order_payload),
-            scope={
-                "workspace_view": "graph_node",
-                "task_environment_id": str(task_environment.get("task_environment_id") or ""),
-                "project_id": project_id,
-            },
         )
 
     @property
@@ -1226,7 +680,6 @@ class HarnessRuntimeFacade:
                     session_id=request.session_id,
                     active_work_present=active_work_context is not None,
                 )
-                continuation_record = continuation_selection.record
                 turn_memory_recovery_context = build_turn_memory_recovery_context(
                     self.single_agent_runtime_host.turn_memory_store,
                     session_id=request.session_id,
@@ -1239,29 +692,21 @@ class HarnessRuntimeFacade:
                     if active_work_context is None
                     else {}
                 )
-                if (
-                    continuation_record is not None
-                    or turn_memory_recovery_context
-                ):
+                if turn_memory_recovery_context:
                     selection_payload = continuation_selection.to_dict()
-                    if turn_memory_recovery_context:
-                        selection_payload["turn_memory_recovery"] = {
-                            "selected_turn_id": str(turn_memory_recovery_context.get("previous_turn_id") or ""),
-                            "decision": dict(turn_memory_recovery_context.get("recovery_decision") or {}),
-                            "authority": str(turn_memory_recovery_context.get("authority") or ""),
-                        }
+                    selection_payload["turn_memory_recovery"] = {
+                        "selected_turn_id": str(turn_memory_recovery_context.get("previous_turn_id") or ""),
+                        "decision": dict(turn_memory_recovery_context.get("recovery_decision") or {}),
+                        "authority": str(turn_memory_recovery_context.get("authority") or ""),
+                    }
                     session_context["continuation_selection"] = selection_payload
                 if turn_memory_recovery_context:
                     session_context["turn_memory_recovery"] = turn_memory_recovery_context
                 if prior_work_memory_context:
                     session_context["prior_work_memory_context"] = prior_work_memory_context
                 recent_work_outcome: dict[str, Any] = {}
-                if continuation_record is not None and continuation_record.state == "terminal_read_only":
-                    recent_work_outcome = self._recent_work_outcome_from_continuation_record(continuation_record.to_dict())
-                    if recent_work_outcome:
-                        session_context["recent_work_outcome"] = recent_work_outcome
-                elif active_work_context is None:
-                    recent_work_outcome = self._recent_work_outcome_from_latest_task(request.session_id)
+                if active_work_context is None:
+                    recent_work_outcome = self._recent_work_outcome_from_latest_task_environment(request.session_id)
                     if recent_work_outcome:
                         session_context["recent_work_outcome"] = recent_work_outcome
                 turn_input_facts = build_turn_input_facts(
@@ -1801,7 +1246,6 @@ class HarnessRuntimeFacade:
             queued_user_instruction_count=len(pending_signals),
             execution_runtime_kind="task_work_environment",
             continuation_kind="task_environment",
-            same_run_allowed=False,
             control_capabilities=_task_environment_active_work_capabilities(
                 environment=environment.to_dict(),
                 running=running,
@@ -1880,45 +1324,52 @@ class HarnessRuntimeFacade:
             }
             return
         try:
-            service = TaskWorkEnvironmentService(self.base_dir)
-            request_result = service.request_control_signal(
+            scheduler = TaskScheduler(
+                self.base_dir,
+                harness_runtime=self,
+                graph_system=self.graph_system,
+            )
+            submitted = scheduler.submit_command(
+                command_kind="request_control_signal",
                 task_environment_id=active_work_context.task_environment_id,
-                signal_kind=signal_kind,
                 requested_by="user",
-                reason=decision.reason or decision.action,
                 payload={
+                    "signal_kind": signal_kind,
+                    "requested_by": "user",
+                    "reason": decision.reason or decision.action,
                     "active_work_action": decision.action,
-                    "appended_instruction": decision.appended_instruction,
-                    "relation_to_current_work": decision.relation_to_current_work,
-                    "evidence": decision.evidence,
-                    "turn_id": turn_id,
-                    "request_id": action_request.request_id,
-                    "session_id": request.session_id,
+                    "payload": {
+                        "active_work_action": decision.action,
+                        "appended_instruction": decision.appended_instruction,
+                        "relation_to_current_work": decision.relation_to_current_work,
+                        "evidence": decision.evidence,
+                        "turn_id": turn_id,
+                        "request_id": action_request.request_id,
+                        "session_id": request.session_id,
+                    },
+                    "bridge_graph_control": True,
+                    "signal_idempotency_key": stable_task_environment_id(
+                        "controlkey",
+                        active_work_context.task_environment_id,
+                        turn_id,
+                        action_request.request_id,
+                        signal_kind,
+                    ),
                 },
                 idempotency_key=stable_task_environment_id(
-                    "controlkey",
+                    "taskcmdkey",
                     active_work_context.task_environment_id,
                     turn_id,
                     action_request.request_id,
                     signal_kind,
                 ),
             )
+            dispatched = await scheduler.dispatch_command(str(dict(submitted.get("command") or {}).get("command_id") or ""))
+            command_result = dict(dispatched.get("result") or {})
+            request_result = dict(command_result.get("request") or {})
             signal = dict(request_result.get("control_signal") or {})
-            bridge = apply_task_environment_control_signal_bridge(
-                base_dir=self.base_dir,
-                graph_system=self.graph_system,
-                environment_id=active_work_context.task_environment_id,
-                signal=signal,
-                bridge_graph_control=True,
-            )
-            handling: dict[str, Any] = {}
-            bridge_status = str(bridge.get("signal_status") or "")
-            if bridge_status in {"handled", "failed"}:
-                handling = service.record_control_signal_handling(
-                    signal_id=str(signal.get("signal_id") or ""),
-                    status=bridge_status,
-                    handling_result=bridge,
-                )
+            bridge = dict(command_result.get("bridge") or {})
+            handling = dict(command_result.get("handling") or {})
         except Exception as exc:
             yield {
                 "type": "active_work_control_observation",
@@ -1942,6 +1393,8 @@ class HarnessRuntimeFacade:
                 "task_environment_ref": active_work_context.task_environment_id,
                 "active_work_ref": active_work_context.active_work_id,
                 "control_signal_ref": str(signal.get("signal_id") or ""),
+                "task_command_ref": str(dict(submitted.get("command") or {}).get("command_id") or ""),
+                "task_dispatch_ref": str(dict(dispatched.get("dispatch") or {}).get("dispatch_id") or ""),
             },
         )
         yield {
@@ -1951,6 +1404,8 @@ class HarnessRuntimeFacade:
             "request": dict(request_result or {}),
             "bridge": dict(bridge or {}),
             "handling": dict(handling or {}),
+            "task_command": dict(submitted.get("command") or {}),
+            "task_dispatch": dict(dispatched.get("dispatch") or {}),
             "decision": decision.to_dict(),
             "authority": "harness.entrypoint.task_environment_active_work_control",
         }
@@ -1963,6 +1418,7 @@ class HarnessRuntimeFacade:
             extra={
                 "task_environment_id": active_work_context.task_environment_id,
                 "control_signal_id": str(signal.get("signal_id") or ""),
+                "task_command_id": str(dict(submitted.get("command") or {}).get("command_id") or ""),
                 "runtime_branch": dict(runtime_branch or {}),
             },
         )
@@ -1980,111 +1436,100 @@ class HarnessRuntimeFacade:
         except Exception:
             logger.debug("failed to release transient active turn", exc_info=True)
 
-    def _recent_work_outcome_from_latest_task(self, session_id: str) -> dict[str, Any]:
-        """Return a read-only status fact for the latest non-active formal task.
-
-        This is context, not routing. The model still decides how to answer the
-        current user turn, but it no longer has to rediscover why the last task
-        stopped.
-        """
-        task_runs = [
-            item
-            for item in list(self.single_agent_runtime_host.state_index.list_session_task_runs(session_id) or [])
-            if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_task"
-        ]
-        if not task_runs:
+    def _recent_work_outcome_from_latest_task_environment(self, session_id: str) -> dict[str, Any]:
+        """Return a read-only status fact for the latest terminal TaskWorkEnvironment."""
+        repository = TaskEnvironmentRepository(self.base_dir)
+        bindings = repository.list_session_bindings(
+            session_id,
+            visibility="foreground",
+            control_role="controller",
+            limit=20,
+        )
+        if not bindings:
+            bindings = repository.list_session_bindings(
+                session_id,
+                control_role="controller",
+                limit=20,
+            )
+        candidates: list[tuple[float, Any, Any, Any | None]] = []
+        for binding in bindings:
+            environment = repository.get_task_environment(binding.task_environment_id)
+            if environment is None:
+                continue
+            candidate_status = str(environment.status or "").strip()
+            candidate_reason = str(environment.blocked_reason or environment.continuation_hint or "").strip()
+            if not _recent_work_outcome_status(status=candidate_status, terminal_reason=candidate_reason):
+                continue
+            instance = repository.get_task_instance(environment.task_instance_id)
+            recency = max(
+                float(environment.updated_at or 0.0),
+                float(getattr(binding, "updated_at", 0.0) or 0.0),
+                float(getattr(binding, "last_focused_at", 0.0) or 0.0),
+            )
+            candidates.append((recency, binding, environment, instance))
+        if not candidates:
             return {}
-        formal = [item for item in task_runs if _looks_like_chat_task_run(item)]
-        candidates = formal or task_runs
-        latest = sorted(candidates, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)[0]
-        status = str(getattr(latest, "status", "") or "").strip()
-        terminal_reason = str(getattr(latest, "terminal_reason", "") or "").strip()
+        _, binding, latest, task_instance = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+        status = str(latest.status or "").strip()
+        terminal_reason = str(latest.blocked_reason or latest.continuation_hint or status).strip()
         if not _recent_work_outcome_status(status=status, terminal_reason=terminal_reason):
             return {}
-        diagnostics = dict(getattr(latest, "diagnostics", {}) or {})
-        monitor = {}
-        try:
-            monitor = dict(self.single_agent_runtime_host.monitor_projector.project_task_run(latest, now=time.time()))
-        except Exception:
-            monitor = {}
-        contract = {}
-        contract_ref = str(getattr(latest, "task_run_contract_ref", "") or "").strip()
-        if contract_ref:
-            try:
-                contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(contract_ref) or {})
-            except Exception:
-                contract = {}
+        metadata = dict(latest.metadata or {})
+        contract = dict(metadata.get("contract") or {})
+        latest_events = list(repository.list_events(latest.task_environment_id, limit=80))
+        latest_event = latest_events[-1] if latest_events else None
+        latest_event_payload = dict(getattr(latest_event, "payload", {}) or {}) if latest_event is not None else {}
         goal = _public_status_text(
-            diagnostics.get("goal")
+            contract.get("goal")
             or contract.get("user_visible_goal")
             or contract.get("task_run_goal")
-            or monitor.get("title")
-            or getattr(latest, "task_id", "")
+            or getattr(task_instance, "goal", "")
+            or getattr(task_instance, "title", "")
+            or latest.task_environment_id
         )
-        latest_step = dict(monitor.get("latest_step") or {})
         latest_progress = _public_status_text(
-            diagnostics.get("latest_public_progress_note")
-            or latest_step.get("public_progress_note")
-            or monitor.get("latest_public_progress_note")
-            or diagnostics.get("latest_step_summary")
-            or monitor.get("latest_step_summary")
-            or diagnostics.get("summary")
-            or monitor.get("summary")
+            latest.progress_label
+            or latest_event_payload.get("public_progress_note")
+            or latest_event_payload.get("latest_step_summary")
+            or latest_event_payload.get("summary")
+            or latest.blocked_reason
+            or latest.continuation_hint
             or terminal_reason
             or status
         )
         agent_brief = _public_status_text(
-            monitor.get("agent_brief_output")
-            or latest_step.get("agent_brief_output")
-            or diagnostics.get("agent_brief_output")
+            latest_event_payload.get("agent_brief_output")
+            or metadata.get("agent_brief_output")
         )
         return _drop_empty_entrypoint_payload(
             {
-                "task_run_id": str(getattr(latest, "task_run_id", "") or ""),
-                "task_id": str(getattr(latest, "task_id", "") or ""),
+                "task_environment_id": latest.task_environment_id,
+                "task_instance_id": latest.task_instance_id,
+                "session_task_binding_id": str(getattr(binding, "binding_id", "") or ""),
+                "task_kind": str(getattr(task_instance, "task_kind", "") or ""),
                 "status": status,
                 "terminal_reason": terminal_reason,
-                "lifecycle": str(monitor.get("lifecycle") or ""),
-                "bucket": str(monitor.get("bucket") or ""),
+                "lifecycle": "task_work_environment",
+                "bucket": "task_environment",
                 "user_visible_goal": goal,
                 "latest_progress": latest_progress,
-                "latest_step_name": str(monitor.get("latest_step_name") or latest_step.get("step") or diagnostics.get("latest_step") or ""),
-                "latest_step_status": str(monitor.get("latest_step_status") or latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
-                "latest_event_type": str(monitor.get("latest_event_type") or ""),
+                "latest_step_name": str(latest.current_step or latest.current_phase or ""),
+                "latest_step_status": status,
+                "latest_event_type": str(getattr(latest_event, "event_type", "") or ""),
                 "agent_brief_output": agent_brief,
-                "artifact_refs": list(monitor.get("artifact_refs") or diagnostics.get("artifact_refs") or [])[:6],
-                "updated_at": float(getattr(latest, "updated_at", 0.0) or 0.0),
-                "continuation_state": "terminal_or_interrupted_task_record",
-                "decision_boundary": (
-                    "只读事实：这是最近一个已结束、受阻或中断任务的结果记录。"
-                    "你可以用它回答状态或失败原因问题，但不能把它当成 active work，"
-                    "也不能基于这条记录直接续跑任务。"
+                "work_product_refs": (
+                    [{"work_product_id": latest.latest_work_product_id}]
+                    if latest.latest_work_product_id
+                    else []
                 ),
-                "authority": "harness.runtime.recent_work_outcome",
-            }
-        )
-
-    def _recent_work_outcome_from_continuation_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(record or {})
-        if str(payload.get("state") or "") != "terminal_read_only":
-            return {}
-        return _drop_empty_entrypoint_payload(
-            {
-                "task_run_id": str(payload.get("task_run_id") or ""),
-                "status": str(payload.get("task_status") or ""),
-                "terminal_reason": str(dict(payload.get("diagnostics") or {}).get("terminal_reason") or ""),
-                "user_visible_goal": _public_status_text(payload.get("user_visible_goal")),
-                "latest_progress": _public_status_text(payload.get("latest_progress") or payload.get("model_visible_summary")),
-                "latest_step_name": str(payload.get("last_completed_step") or ""),
-                "artifact_refs": list(payload.get("artifact_refs") or [])[:6],
-                "updated_at": float(payload.get("updated_at") or 0.0),
-                "continuation_state": "terminal_read_only",
+                "updated_at": float(latest.updated_at or 0.0),
+                "continuation_state": "terminal_or_interrupted_task_environment",
                 "decision_boundary": (
-                    "只读事实：这是最近一个已结束任务的结果记录。"
+                    "只读事实：这是最近一个已结束、受阻或中断 TaskWorkEnvironment 的结果记录。"
                     "你可以用它回答状态或失败原因问题，但不能把它当成 active work，"
-                    "也不能基于这条记录直接续跑任务。"
+                    "也不能基于这条记录直接续跑任务；恢复或控制必须走 TaskWorkEnvironment 控制面。"
                 ),
-                "authority": "harness.continuation.recent_work_outcome",
+                "authority": "task_system.task_environment.recent_work_outcome",
             }
         )
 
@@ -2105,14 +1550,31 @@ class HarnessRuntimeFacade:
         )
         if profile_id:
             profile = self.agent_runtime_registry.get_profile_by_profile_id(profile_id)
-            if profile is not None:
-                return profile
+            if profile is None:
+                raise ValueError(f"request_agent_profile_not_registered:{profile_id}")
+            explicit_agent_id = _first_non_empty_string(
+                request_profile.get("agent_id"),
+                contract_profile.get("agent_id"),
+            )
+            if explicit_agent_id and str(getattr(profile, "agent_id", "") or "").strip() != explicit_agent_id:
+                raise ValueError(
+                    "request_agent_profile_agent_mismatch:"
+                    f"{profile_id}:{explicit_agent_id}:{str(getattr(profile, 'agent_id', '') or '').strip()}"
+                )
+            return profile
         agent_id = _first_non_empty_string(
             request_profile.get("agent_id"),
             contract_profile.get("agent_id"),
         )
-        profile = self.agent_runtime_registry.get_profile(agent_id or "agent:0")
-        return profile or self.agent_runtime_registry.get_profile("agent:0")
+        if agent_id:
+            profile = self.agent_runtime_registry.get_profile(agent_id)
+            if profile is None:
+                raise ValueError(f"request_agent_id_not_registered:{agent_id}")
+            return profile
+        profile = self.agent_runtime_registry.get_profile_by_profile_id(DEFAULT_INTERACTIVE_AGENT_PROFILE_ID)
+        if profile is None:
+            raise ValueError(f"default_interactive_agent_profile_missing:{DEFAULT_INTERACTIVE_AGENT_PROFILE_ID}")
+        return profile
 
     def _commit_user_message(
         self,
@@ -2976,12 +2438,6 @@ def _runtime_branch_projection(*, runtime_assembly: Any) -> dict[str, Any]:
     }
 
 
-def _looks_like_chat_task_run(task_run: Any) -> bool:
-    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-    task_id = str(getattr(task_run, "task_id", "") or "")
-    return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
-
-
 def _task_environment_status_is_terminal(status: str) -> bool:
     return str(status or "").strip() in {"completed", "failed", "aborted", "archived"}
 
@@ -3269,1244 +2725,6 @@ def _task_environment_caller_kind(source: str) -> str:
         return "system_contract"
     return "session_turn"
 
-
-def _object_payload(value: Any) -> dict[str, Any]:
-    if hasattr(value, "to_dict"):
-        return dict(value.to_dict())
-    return dict(value or {}) if isinstance(value, dict) else {}
-
-
-def _task_episode_for_execution(
-    *,
-    episode_repository: EpisodeRepository,
-    task_environment_id: str,
-    episode_id: str = "",
-) -> AgentExecutionEpisode:
-    target = str(episode_id or "").strip()
-    if target:
-        episode = episode_repository.get_episode(target)
-        if episode is None:
-            raise KeyError(f"AgentExecutionEpisode not found: {target}")
-        return episode
-    candidates = episode_repository.list_episodes(task_environment_id, limit=20)
-    for episode in candidates:
-        if episode.status in {"scheduled", "interrupted", "waiting_user", "waiting_tool"}:
-            return episode
-    if candidates:
-        return candidates[0]
-    raise KeyError(f"No AgentExecutionEpisode found for task environment: {task_environment_id}")
-
-
-def _task_episode_context_package(
-    *,
-    repository: TaskEnvironmentRepository,
-    environment: Any,
-    episode: AgentExecutionEpisode,
-) -> TaskContextPackage:
-    environment_payload = environment.to_dict() if hasattr(environment, "to_dict") else dict(environment or {})
-    package_id = _first_non_empty_string(
-        episode.input_context_package_id,
-        environment_payload.get("latest_context_package_id"),
-    )
-    if not package_id:
-        raise KeyError(f"TaskContextPackage missing for episode: {episode.episode_id}")
-    package = repository.get_context_package(package_id)
-    if package is None:
-        raise KeyError(f"TaskContextPackage not found: {package_id}")
-    if package.task_environment_id != episode.task_environment_id:
-        raise ValueError("TaskContextPackage task_environment_id does not match episode")
-    if package.episode_id != episode.episode_id:
-        raise ValueError("TaskContextPackage episode_id does not match episode")
-    return package
-
-
-def _task_episode_session_id(
-    environment: dict[str, Any],
-    *,
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-) -> str:
-    packet_policy = dict(context_package.packet_policy or {})
-    scope = dict(context_package.scope or {})
-    return _first_non_empty_string(
-        packet_policy.get("session_id"),
-        scope.get("session_id"),
-        dict(environment.get("metadata") or {}).get("session_id"),
-        stable_task_environment_id("tsess", environment.get("task_environment_id"), episode.episode_id),
-    )
-
-
-def _task_episode_session_title(
-    environment: dict[str, Any],
-    *,
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-) -> str:
-    scope = dict(context_package.scope or {})
-    task_title = str(scope.get("task_title") or scope.get("title") or "").strip()
-    return f"Task episode: {task_title or environment.get('task_environment_id') or episode.episode_id}"
-
-
-def _task_episode_environment_binding(
-    environment: dict[str, Any],
-    *,
-    context_package: TaskContextPackage,
-) -> dict[str, Any]:
-    task_environment_id = _first_non_empty_string(
-        context_package.task_environment_id,
-        environment.get("task_environment_id"),
-    )
-    return _drop_empty_entrypoint_payload(
-        {
-            "task_environment_id": task_environment_id,
-            "environment_id": task_environment_id,
-            "source": "task_environment_episode",
-            "authority": "harness.task_environment_episode_bridge.environment_binding",
-        }
-    )
-
-
-def _task_episode_runtime_contract(
-    *,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    agent_profile_id: str,
-    agent_id: str,
-    turn_id: str,
-) -> dict[str, Any]:
-    runtime_policy = dict(dict(context_package.packet_policy or {}).get("runtime_policy") or {})
-    runtime_policy["task_lifecycle_policy"] = {
-        **dict(runtime_policy.get("task_lifecycle_policy") or {}),
-        "request_task_run": False,
-    }
-    runtime_policy["context_policy"] = {
-        **dict(runtime_policy.get("context_policy") or {}),
-        "active_work_context": "disabled",
-        "history_scope": "task_context_package",
-    }
-    return _drop_empty_entrypoint_payload(
-        {
-            "turn_id": turn_id,
-            "task_environment_id": context_package.task_environment_id,
-            "runtime_profile": {
-                "agent_id": agent_id,
-                "agent_profile_id": agent_profile_id,
-                "runtime_policy": runtime_policy,
-                "control_capabilities": {
-                    "may_request_task_run": False,
-                    "may_control_active_work": False,
-                    "requires_json_action_protocol": False,
-                },
-            },
-            "control_capabilities": {
-                "may_request_task_run": False,
-                "may_control_active_work": False,
-                "requires_json_action_protocol": False,
-            },
-            "task_environment_episode_execution": {
-                "task_environment_id": context_package.task_environment_id,
-                "task_instance_id": episode.task_instance_id,
-                "episode_id": episode.episode_id,
-                "context_package_id": context_package.package_id,
-                "task_environment_owner": "task_system",
-                "authority": "harness.task_environment_episode_bridge.runtime_contract",
-            },
-            "authority": "harness.task_environment_episode_bridge.runtime_contract",
-        }
-    )
-
-
-def _task_episode_model_selection(context_package: TaskContextPackage) -> dict[str, Any]:
-    packet_policy = dict(context_package.packet_policy or {})
-    model_requirement = dict(packet_policy.get("model_selection") or packet_policy.get("model_requirement") or {})
-    allowed = {
-        "provider",
-        "provider_family",
-        "model",
-        "model_family",
-        "credential_ref",
-        "max_output_tokens",
-        "preferred_output_tokens",
-        "min_output_tokens",
-        "action_max_output_tokens",
-        "action_timeout_seconds",
-        "action_long_output_timeout_seconds",
-        "action_thinking_mode",
-        "action_reasoning_effort",
-        "timeout_seconds",
-        "long_output_timeout_seconds",
-        "max_retries",
-        "temperature",
-        "thinking_mode",
-        "reasoning_effort",
-        "stream_policy",
-        "response_format",
-        "structured_output",
-        "streaming_required",
-        "fallback_allowed",
-    }
-    return {
-        key: value
-        for key, value in model_requirement.items()
-        if str(key or "").strip() in allowed and value not in ("", None, [], {})
-    }
-
-
-def _task_episode_workspace_root(
-    environment: dict[str, Any],
-    *,
-    context_package: TaskContextPackage,
-) -> str:
-    scope = dict(context_package.scope or {})
-    resources = dict(context_package.resource_handles or {})
-    metadata = dict(environment.get("metadata") or {})
-    project_binding = dict(metadata.get("project_binding") or {})
-    return _first_non_empty_string(
-        resources.get("workspace_root"),
-        scope.get("workspace_root"),
-        scope.get("project_root"),
-        project_binding.get("workspace_root"),
-    )
-
-
-def _task_episode_session_context(
-    *,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    runtime_contract: dict[str, Any],
-    workspace_root: str,
-) -> dict[str, Any]:
-    return _drop_empty_entrypoint_payload(
-        {
-            "compressed_context": "",
-            "provider_protocol_timeline": [],
-            "compaction_generation": "0",
-            "task_context_package": context_package.to_dict(),
-            "task_execution_episode": episode.to_dict(),
-            "task_work_environment": dict(environment or {}),
-            "task_episode_execution_boundary": {
-                "task_environment_owner": "task_system",
-                "forbidden_actions": [
-                    "rewrite_task_goal",
-                    "bypass_acceptance_contract",
-                    "control_parent_active_work",
-                    "create_unrequested_task_run",
-                ],
-                "authority": "harness.task_environment_episode_bridge.execution_boundary",
-            },
-            "runtime_contract": runtime_contract,
-            "project_binding": (
-                {
-                    "workspace_root": workspace_root,
-                    "authority": "harness.task_environment_episode_bridge.project_binding",
-                }
-                if workspace_root
-                else {}
-            ),
-        }
-    )
-
-
-def _task_episode_current_work_boundary_receipt(
-    environment: dict[str, Any],
-    *,
-    episode: AgentExecutionEpisode,
-    turn_id: str,
-) -> dict[str, Any]:
-    return {
-        "receipt_id": stable_task_environment_id("cwreceipt", "task-episode", environment.get("task_environment_id"), episode.episode_id, turn_id),
-        "decision": "isolated_task_environment_episode_execution",
-        "active_work_control_available": False,
-        "reason": "task episode workers cannot control parent active work; TaskSystem owns task environment state",
-        "authority": "harness.task_environment_episode_bridge.current_work_boundary",
-    }
-
-
-def _task_episode_user_message(
-    *,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-) -> str:
-    role_contract = str(context_package.role_contract or "").strip()
-    goal = str(context_package.goal or "").strip()
-    payload = {
-        "task_identity": {
-            "task_environment_id": context_package.task_environment_id,
-            "task_instance_id": episode.task_instance_id,
-            "episode_id": episode.episode_id,
-            "environment_kind": str(environment.get("environment_kind") or ""),
-        },
-        "scope": dict(context_package.scope or {}),
-        "acceptance": dict(context_package.acceptance or {}),
-        "resource_handles": dict(context_package.resource_handles or {}),
-        "project_network_handles": dict(context_package.project_network_handles or {}),
-        "graph_context": dict(context_package.graph_context or {}),
-        "output_contract": dict(context_package.output_contract or {}),
-        "continuation_hint": str(context_package.continuation_hint or episode.continuation_hint or ""),
-        "tool_authority": {
-            "source": "agent_runtime_profile",
-            "agent_profile_id": episode.agent_profile_id,
-            "rule": "任务环境不授予工具；只能使用运行时已经展示给当前 agent profile 的工具。",
-        },
-    }
-    return (
-        "你是一名任务环境执行员。\n"
-        "你只负责完成本次分派给你的工作：推进目标、整理证据、产出可归并结果，或在信息不足时给出清楚的阻塞说明。\n"
-        "你不能改写任务目标，不能绕过验收边界，不能控制父级当前工作，也不能自行启动新任务。\n"
-        "你只能使用运行时已经展示给你的工具；如果没有相关工具，就只基于输入上下文完成判断和交付。\n"
-        "如果输入足够，请直接交付结果；如果输入不足，请说明缺少什么、为什么阻塞、下一步应由谁补充。\n\n"
-        f"你的职责契约：\n{role_contract or '依据任务环境上下文推进本次 episode，并输出清晰、可归并的结果。'}\n\n"
-        f"当前目标：\n{goal or '推进当前任务环境。'}\n\n"
-        "你收到的任务输入、资源和输出契约如下：\n"
-        f"```json\n{_json_for_prompt(payload, limit=30000)}\n```"
-    )
-
-
-def _task_episode_lease_ttl_seconds(context_package: TaskContextPackage) -> float:
-    policy = dict(context_package.packet_policy or {})
-    for key in ("lease_ttl_seconds", "ttl_seconds", "timeout_seconds", "max_runtime_seconds"):
-        try:
-            value = float(policy.get(key) or 0.0)
-        except (TypeError, ValueError):
-            value = 0.0
-        if value > 0:
-            return max(1.0, value)
-    return 2 * 60 * 60
-
-
-def _task_episode_executor_result_from_events(
-    *,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    session_id: str,
-    turn_id: str,
-    agent_id: str,
-    agent_profile_id: str,
-    done_event: dict[str, Any],
-    terminal_event: dict[str, Any],
-    error_payload: dict[str, Any],
-    events: tuple[dict[str, Any], ...],
-    runtime_contract: dict[str, Any],
-    model_selection: dict[str, Any],
-) -> dict[str, Any]:
-    terminal_reason = _first_non_empty_string(
-        done_event.get("terminal_reason"),
-        dict(dict(terminal_event.get("event") or {}).get("payload") or {}).get("terminal_reason"),
-        error_payload.get("code"),
-        "completed" if done_event else "task_episode_harness_no_terminal_event",
-    )
-    final_answer = str(done_event.get("content") or error_payload.get("content") or error_payload.get("error") or "").strip()
-    answer_channel = str(done_event.get("answer_channel") or "").strip()
-    done_status = str(done_event.get("status") or "").strip()
-    blocked = bool(answer_channel in {"blocked", "ask_user"} or terminal_reason in {"blocked", "ask_user"})
-    failed = bool(error_payload or (done_event and done_status == "failed") or not done_event)
-    status = "completed" if done_event and not blocked and not failed else ("blocked" if blocked or done_event else "failed")
-    final_action_diagnostics = _final_action_diagnostics_from_done_event(done_event)
-    structured_output = _structured_output_from_final_action_diagnostics(final_action_diagnostics)
-    turn_run_id = _first_event_value(events, "turn_run_id")
-    return {
-        "ok": status == "completed",
-        "status": status,
-        "error": "" if status == "completed" else terminal_reason,
-        "final_answer": final_answer,
-        "structured_output": structured_output,
-        "artifact_refs": list(structured_output.get("artifact_refs") or []) if isinstance(structured_output, dict) else [],
-        "task_environment_id": context_package.task_environment_id,
-        "episode_id": episode.episode_id,
-        "session_id": session_id,
-        "event": {"turn_id": turn_id, "turn_run_id": turn_run_id, "terminal_reason": terminal_reason},
-        "diagnostics": {
-            "origin_kind": "task_environment_episode",
-            "task_environment_id": context_package.task_environment_id,
-            "task_instance_id": episode.task_instance_id,
-            "episode_id": episode.episode_id,
-            "context_package_id": context_package.package_id,
-            "turn_id": turn_id,
-            "turn_run_id": turn_run_id,
-            "agent_id": agent_id,
-            "agent_profile_id": agent_profile_id,
-            "environment_kind": str(environment.get("environment_kind") or ""),
-            "final_action_diagnostics": final_action_diagnostics,
-            "event_count": len(events),
-            "harness_events": [dict(item) for item in events[:40]],
-            "runtime_contract": {
-                "control_capabilities": dict(runtime_contract.get("control_capabilities") or {}),
-                "task_environment_episode_execution": dict(runtime_contract.get("task_environment_episode_execution") or {}),
-                "tool_authority": "agent_runtime_profile_runtime_assembly",
-            },
-            "model_selection": dict(model_selection or {}),
-            "authority": "harness.task_environment_episode_bridge.executor_result",
-        },
-        "authority": "harness.task_environment_episode_bridge",
-    }
-
-
-def _task_episode_exception_executor_result(
-    *,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    session_id: str,
-    turn_id: str,
-    agent_id: str,
-    agent_profile_id: str,
-    exc: Exception,
-    events: tuple[dict[str, Any], ...],
-) -> dict[str, Any]:
-    reason = str(exc) or exc.__class__.__name__
-    return {
-        "ok": False,
-        "status": "failed",
-        "error": reason,
-        "final_answer": "",
-        "structured_output": {},
-        "artifact_refs": [],
-        "task_environment_id": context_package.task_environment_id,
-        "episode_id": episode.episode_id,
-        "session_id": session_id,
-        "event": {"turn_id": turn_id, "terminal_reason": "task_episode_harness_exception"},
-        "diagnostics": {
-            "origin_kind": "task_environment_episode",
-            "task_environment_id": context_package.task_environment_id,
-            "task_instance_id": episode.task_instance_id,
-            "episode_id": episode.episode_id,
-            "context_package_id": context_package.package_id,
-            "turn_id": turn_id,
-            "agent_id": agent_id,
-            "agent_profile_id": agent_profile_id,
-            "environment_kind": str(environment.get("environment_kind") or ""),
-            "event_count": len(events),
-            "harness_events": [dict(item) for item in events[:40]],
-            "exception": {"type": exc.__class__.__name__, "message": reason},
-            "authority": "harness.task_environment_episode_bridge.executor_exception",
-        },
-        "authority": "harness.task_environment_episode_bridge",
-    }
-
-
-def _task_episode_executor_blocked_result(
-    *,
-    reason: str,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    diagnostics: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "ok": False,
-        "status": "blocked",
-        "error": str(reason or "task_episode_executor_blocked"),
-        "final_answer": "",
-        "structured_output": {},
-        "artifact_refs": [],
-        "task_environment_id": context_package.task_environment_id,
-        "episode_id": episode.episode_id,
-        "session_id": "",
-        "event": {"terminal_reason": str(reason or "task_episode_executor_blocked")},
-        "diagnostics": {
-            "origin_kind": "task_environment_episode",
-            "task_environment_id": context_package.task_environment_id,
-            "task_instance_id": episode.task_instance_id,
-            "episode_id": episode.episode_id,
-            "context_package_id": context_package.package_id,
-            "environment_kind": str(environment.get("environment_kind") or ""),
-            "recoverable_error": {
-                "retryable": True,
-                "error_code": str(reason or "task_episode_executor_blocked"),
-            },
-            **dict(diagnostics or {}),
-            "authority": "harness.task_environment_episode_bridge.blocked_result",
-        },
-        "authority": "harness.task_environment_episode_bridge",
-    }
-
-
-def _record_task_episode_execution_result(
-    *,
-    base_dir: Path,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    executor_result: dict[str, Any],
-) -> Any:
-    status = str(executor_result.get("status") or "failed")
-    final_answer = str(executor_result.get("final_answer") or "").strip()
-    terminal_reason = str(dict(executor_result.get("event") or {}).get("terminal_reason") or executor_result.get("error") or status)
-    structured_output = dict(executor_result.get("structured_output") or {})
-    summary = _first_non_empty_string(
-        structured_output.get("summary"),
-        structured_output.get("handoff_summary"),
-        final_answer[:4000],
-        terminal_reason,
-    )
-    episode_result_status = "completed" if status == "completed" else ("blocked" if status == "blocked" else "failed")
-    work_products = _task_episode_work_products(
-        environment=environment,
-        episode=episode,
-        context_package=context_package,
-        executor_result=executor_result,
-        summary=summary,
-    )
-    result = EpisodeResult(
-        result_id=stable_task_environment_id("epresult", episode.task_environment_id, episode.episode_id, status, context_package.package_hash),
-        episode_id=episode.episode_id,
-        task_environment_id=episode.task_environment_id,
-        status=episode_result_status,  # type: ignore[arg-type]
-        summary=summary if episode_result_status == "completed" else "",
-        state_update_proposals=tuple(dict(item) for item in list(structured_output.get("state_update_proposals") or []) if isinstance(item, dict)),
-        plan_patch=dict(structured_output.get("plan_patch") or {}),
-        todo_patch=dict(structured_output.get("todo_patch") or {}),
-        memory_candidates=tuple(dict(item) for item in list(structured_output.get("memory_candidates") or []) if isinstance(item, dict)),
-        artifact_refs=tuple(str(item) for item in list(executor_result.get("artifact_refs") or structured_output.get("artifact_refs") or []) if str(item)),
-        evidence_refs=tuple(str(item) for item in list(structured_output.get("evidence_refs") or []) if str(item)),
-        blocker=terminal_reason if episode_result_status == "blocked" else "",
-        continuation_hint=str(structured_output.get("continuation_hint") or ""),
-        output_contract_version=str(dict(context_package.output_contract or {}).get("version") or ""),
-        diagnostics={
-            "executor_result": _public_task_episode_executor_projection(executor_result),
-            "structured_output": structured_output,
-            "context_package_id": context_package.package_id,
-            "authority": "harness.task_environment_episode_bridge.episode_result",
-        },
-    )
-    event = TaskEvent(
-        event_id=stable_task_environment_id("taskevent", episode.task_environment_id, "task_episode_result_recorded", result.result_id),
-        task_environment_id=episode.task_environment_id,
-        task_instance_id=episode.task_instance_id,
-        event_seq=0,
-        event_type="task_episode_result_recorded",
-        actor_kind="system",
-        source_episode_id=episode.episode_id,
-        idempotency_key=f"task-episode-result:{result.result_id}",
-        payload={
-            "episode_result_id": result.result_id,
-            "episode_result_status": result.status,
-            "executor_status": status,
-            "work_product_ids": [item.work_product_id for item in work_products],
-        },
-        refs={
-            "task_environment_ref": episode.task_environment_id,
-            "episode_ref": episode.episode_id,
-            "context_package_ref": context_package.package_id,
-        },
-    )
-    snapshot_patch = _task_episode_result_snapshot_patch(
-        status=status,
-        summary=summary,
-        terminal_reason=terminal_reason,
-        work_products=work_products,
-    )
-    return TaskReducer(base_dir).reduce_episode_result(
-        episode=episode,
-        episode_status="completed" if status == "completed" else ("interrupted" if status == "blocked" else "failed"),
-        terminal_reason=terminal_reason,
-        episode_result=result,
-        work_product_candidates=tuple(work_products),
-        event=event,
-        snapshot_patch=snapshot_patch,
-        episode_diagnostics_patch={
-            "executor_status": status,
-            "executor_authority": str(executor_result.get("authority") or ""),
-        },
-    )
-
-
-def _task_episode_work_products(
-    *,
-    environment: dict[str, Any],
-    episode: AgentExecutionEpisode,
-    context_package: TaskContextPackage,
-    executor_result: dict[str, Any],
-    summary: str,
-) -> tuple[WorkProduct, ...]:
-    if str(executor_result.get("status") or "") != "completed":
-        return ()
-    final_answer = str(executor_result.get("final_answer") or "").strip()
-    structured_output = dict(executor_result.get("structured_output") or {})
-    if not final_answer and not structured_output:
-        return ()
-    output_contract = dict(context_package.output_contract or {})
-    product_kind = str(output_contract.get("product_kind") or output_contract.get("kind") or "episode_output").strip()
-    return (
-        WorkProduct(
-            work_product_id=stable_task_environment_id("workproduct", episode.task_environment_id, episode.episode_id, context_package.package_hash),
-            task_environment_id=episode.task_environment_id,
-            task_instance_id=episode.task_instance_id,
-            source_episode_id=episode.episode_id,
-            product_domain=str(output_contract.get("product_domain") or "task_episode"),
-            product_kind=product_kind,
-            confidence="derived",
-            status="candidate",
-            stable_ref=f"{episode.task_environment_id}:{episode.episode_id}:{product_kind}",
-            payload={
-                "summary": summary,
-                "final_answer": final_answer,
-                "structured_output": structured_output,
-                "context_package_id": context_package.package_id,
-            },
-            artifact_refs=tuple(str(item) for item in list(executor_result.get("artifact_refs") or []) if str(item)),
-            evidence_refs=tuple(str(item) for item in list(structured_output.get("evidence_refs") or []) if str(item)),
-            downstream_refs={
-                "task_environment_id": episode.task_environment_id,
-                "episode_id": episode.episode_id,
-            },
-            metadata={
-                "source_authority": "harness.task_environment_episode_bridge",
-                "environment_kind": str(environment.get("environment_kind") or ""),
-            },
-        ),
-    )
-
-
-def _task_episode_result_snapshot_patch(
-    *,
-    status: str,
-    summary: str,
-    terminal_reason: str,
-    work_products: tuple[WorkProduct, ...],
-) -> dict[str, Any]:
-    if status == "completed":
-        return _drop_empty_entrypoint_payload(
-            {
-                "status": "ready",
-                "current_phase": "task_episode",
-                "current_step": "episode_completed",
-                "progress_label": summary[:240],
-                "blocked_reason": "",
-                "continuation_hint": "Episode completed; prepare another episode if the task still needs work.",
-                "latest_work_product_id": work_products[0].work_product_id if work_products else "",
-            }
-        )
-    if status == "blocked":
-        return {
-            "status": "blocked",
-            "current_phase": "task_episode",
-            "current_step": "episode_blocked",
-            "progress_label": summary[:240] or terminal_reason[:240],
-            "blocked_reason": terminal_reason[:1200],
-            "recovery_action": "prepare_task_episode",
-        }
-    return {
-        "status": "failed",
-        "current_phase": "task_episode",
-        "current_step": "episode_failed",
-        "progress_label": summary[:240] or terminal_reason[:240],
-        "blocked_reason": terminal_reason[:1200],
-        "recovery_action": "inspect_task_episode_failure",
-    }
-
-
-def _public_task_episode_executor_projection(executor_result: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = dict(executor_result.get("diagnostics") or {})
-    return {
-        "ok": bool(executor_result.get("ok") is True),
-        "status": str(executor_result.get("status") or ""),
-        "authority": str(executor_result.get("authority") or ""),
-        "event": dict(executor_result.get("event") or {}),
-        "diagnostics": {
-            "origin_kind": str(diagnostics.get("origin_kind") or ""),
-            "turn_id": str(diagnostics.get("turn_id") or ""),
-            "turn_run_id": str(diagnostics.get("turn_run_id") or ""),
-            "agent_profile_id": str(diagnostics.get("agent_profile_id") or ""),
-            "context_package_id": str(diagnostics.get("context_package_id") or ""),
-        },
-    }
-
-
-def _explicit_graph_node_agent_profile_id(work_order_payload: dict[str, Any]) -> str:
-    input_package = dict(work_order_payload.get("input_package") or {})
-    node_identity = dict(input_package.get("node_identity") or {})
-    graph_slot = dict(work_order_payload.get("graph_slot") or {})
-    node_contract = dict(graph_slot.get("node_contract") or {})
-    agent_assembly = dict(node_contract.get("agent_assembly") or {})
-    return _first_non_empty_string(
-        work_order_payload.get("agent_profile_id"),
-        node_identity.get("agent_profile_id"),
-        agent_assembly.get("agent_profile_id"),
-    )
-
-
-def _explicit_graph_node_agent_id(work_order_payload: dict[str, Any], *, profile: Any) -> str:
-    input_package = dict(work_order_payload.get("input_package") or {})
-    node_identity = dict(input_package.get("node_identity") or {})
-    graph_slot = dict(work_order_payload.get("graph_slot") or {})
-    node_contract = dict(graph_slot.get("node_contract") or {})
-    agent_assembly = dict(node_contract.get("agent_assembly") or {})
-    return _first_non_empty_string(
-        work_order_payload.get("agent_id"),
-        node_identity.get("agent_id"),
-        agent_assembly.get("agent_id"),
-        getattr(profile, "agent_id", ""),
-    )
-
-
-def _graph_node_session_id(work_order_payload: dict[str, Any]) -> str:
-    return str(work_order_payload.get("node_session_id") or "").strip()
-
-
-def _graph_node_session_title(work_order_payload: dict[str, Any]) -> str:
-    input_package = dict(work_order_payload.get("input_package") or {})
-    node_identity = dict(input_package.get("node_identity") or {})
-    title = str(node_identity.get("title") or "").strip()
-    node_id = str(work_order_payload.get("node_id") or node_identity.get("node_id") or "").strip()
-    return f"Graph node: {title or node_id or 'work order'}"
-
-
-def _graph_node_environment_binding(
-    work_order_payload: dict[str, Any],
-    *,
-    context_package: dict[str, Any],
-) -> dict[str, Any]:
-    input_package = dict(work_order_payload.get("input_package") or {})
-    graph_context = dict(context_package.get("graph_context") or {})
-    node_contract = dict(dict(work_order_payload.get("graph_slot") or {}).get("node_contract") or {})
-    environment_lock = dict(node_contract.get("environment_lock") or {})
-    environment_id = _first_non_empty_string(
-        input_package.get("task_environment_id"),
-        environment_lock.get("environment_id"),
-        environment_lock.get("task_environment_id"),
-        context_package.get("task_environment_ref"),
-        graph_context.get("task_environment_id"),
-    )
-    return _drop_empty_entrypoint_payload(
-        {
-            "task_environment_id": environment_id,
-            "environment_id": environment_id,
-            "source": "graph_node_work_order",
-            "authority": "harness.graph_node_work_order_bridge.environment_binding",
-        }
-    )
-
-
-def _graph_node_model_selection(work_order_payload: dict[str, Any]) -> dict[str, Any]:
-    node_contract = dict(dict(work_order_payload.get("graph_slot") or {}).get("node_contract") or {})
-    model_requirement = dict(node_contract.get("model_requirement") or {})
-    allowed = {
-        "provider",
-        "provider_family",
-        "model",
-        "model_family",
-        "credential_ref",
-        "max_output_tokens",
-        "preferred_output_tokens",
-        "min_output_tokens",
-        "action_max_output_tokens",
-        "action_timeout_seconds",
-        "action_long_output_timeout_seconds",
-        "action_thinking_mode",
-        "action_reasoning_effort",
-        "timeout_seconds",
-        "long_output_timeout_seconds",
-        "max_retries",
-        "temperature",
-        "thinking_mode",
-        "reasoning_effort",
-        "stream_policy",
-        "response_format",
-        "structured_output",
-        "streaming_required",
-        "fallback_allowed",
-    }
-    return {
-        key: value
-        for key, value in model_requirement.items()
-        if str(key or "").strip() in allowed and value not in ("", None, [], {})
-    }
-
-
-def _graph_node_runtime_contract(
-    *,
-    work_order_payload: dict[str, Any],
-    context_package: dict[str, Any],
-    agent_profile_id: str,
-    agent_id: str,
-    turn_id: str,
-) -> dict[str, Any]:
-    node_contract = dict(dict(work_order_payload.get("graph_slot") or {}).get("node_contract") or {})
-    runtime_policy = dict(node_contract.get("runtime_policy") or {})
-    tool_policy = dict(node_contract.get("tool_policy") or {})
-    runtime_policy["task_lifecycle_policy"] = {
-        **dict(runtime_policy.get("task_lifecycle_policy") or {}),
-        "request_task_run": False,
-    }
-    runtime_policy["context_policy"] = {
-        **dict(runtime_policy.get("context_policy") or {}),
-        "active_work_context": "disabled",
-        "history_scope": "graph_node_context_package",
-    }
-    return _drop_empty_entrypoint_payload(
-        {
-            "turn_id": turn_id,
-            "task_environment_id": str(dict(work_order_payload.get("input_package") or {}).get("task_environment_id") or ""),
-            "runtime_profile": {
-                "agent_id": agent_id,
-                "agent_profile_id": agent_profile_id,
-                "runtime_policy": runtime_policy,
-                "tool_policy": tool_policy,
-                "tool_exposure_policy": tool_policy,
-                "control_capabilities": {
-                    "may_request_task_run": False,
-                    "may_control_active_work": False,
-                    "requires_json_action_protocol": False,
-                },
-            },
-            "tool_policy": tool_policy,
-            "tool_exposure_policy": tool_policy,
-            "control_capabilities": {
-                "may_request_task_run": False,
-                "may_control_active_work": False,
-                "requires_json_action_protocol": False,
-            },
-            "graph_node_execution": {
-                "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-                "node_id": str(work_order_payload.get("node_id") or ""),
-                "work_order_id": str(work_order_payload.get("work_order_id") or ""),
-                "context_package_id": str(context_package.get("package_id") or ""),
-                "node_worker_only": True,
-                "graph_state_owner": "graph_system_loop",
-                "authority": "harness.graph_node_work_order_bridge.runtime_contract",
-            },
-            "authority": "harness.graph_node_work_order_bridge.runtime_contract",
-        }
-    )
-
-
-def _graph_node_permission_mode(runtime_host: Any | None) -> str:
-    provider = getattr(runtime_host, "_current_permission_mode", None)
-    if callable(provider):
-        return normalize_permission_mode(str(provider() or "full_access"))
-    return "full_access"
-
-
-def _graph_node_workspace_root(
-    work_order_payload: dict[str, Any],
-    *,
-    context_package: dict[str, Any],
-) -> str:
-    node_contract = dict(dict(work_order_payload.get("graph_slot") or {}).get("node_contract") or {})
-    project_binding = dict(node_contract.get("project_binding") or {})
-    scope = dict(context_package.get("scope") or {})
-    runtime_scope = dict(scope.get("runtime_scope") or dict(work_order_payload.get("graph_state") or {}).get("runtime_scope") or {})
-    return _first_non_empty_string(
-        project_binding.get("workspace_root"),
-        runtime_scope.get("workspace_root"),
-        runtime_scope.get("project_root"),
-    )
-
-
-def _graph_node_session_context(
-    *,
-    work_order_payload: dict[str, Any],
-    context_package: dict[str, Any],
-    episode: dict[str, Any],
-    task_environment: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    workspace_root: str,
-) -> dict[str, Any]:
-    return _drop_empty_entrypoint_payload(
-        {
-            "compressed_context": "",
-            "provider_protocol_timeline": [],
-            "compaction_generation": "0",
-            "task_context_package": context_package,
-            "task_execution_episode": episode,
-            "task_work_environment": task_environment,
-            "graph_node_work_order": _public_graph_node_work_order_payload(work_order_payload),
-            "graph_node_execution_boundary": {
-                "node_worker_only": True,
-                "graph_state_owner": "graph_system_loop",
-                "forbidden_actions": [
-                    "advance_graph_state",
-                    "dispatch_downstream_node",
-                    "write_graph_checkpoint",
-                    "request_new_task_run",
-                    "control_parent_active_work",
-                ],
-                "authority": "harness.graph_node_work_order_bridge.execution_boundary",
-            },
-            "runtime_contract": runtime_contract,
-            "project_binding": (
-                {
-                    "workspace_root": workspace_root,
-                    "authority": "harness.graph_node_work_order_bridge.project_binding",
-                }
-                if workspace_root
-                else {}
-            ),
-        }
-    )
-
-
-def _graph_node_current_work_boundary_receipt(work_order_payload: dict[str, Any], *, turn_id: str) -> dict[str, Any]:
-    return {
-        "receipt_id": stable_task_environment_id("cwreceipt", "graph-node", work_order_payload.get("work_order_id"), turn_id),
-        "decision": "isolated_graph_node_execution",
-        "active_work_control_available": False,
-        "reason": "graph node workers cannot control parent active work or graph loop state",
-        "authority": "harness.graph_node_work_order_bridge.current_work_boundary",
-    }
-
-
-def _graph_node_work_order_user_message(
-    *,
-    work_order_payload: dict[str, Any],
-    context_package: dict[str, Any],
-    episode: dict[str, Any],
-    task_environment: dict[str, Any],
-) -> str:
-    role_contract = str(context_package.get("role_contract") or work_order_payload.get("message") or "").strip()
-    goal = str(context_package.get("goal") or role_contract or "完成当前图任务节点。").strip()
-    payload = {
-        "graph_identity": {
-            "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-            "node_id": str(work_order_payload.get("node_id") or ""),
-            "work_order_id": str(work_order_payload.get("work_order_id") or ""),
-            "task_ref": str(work_order_payload.get("task_ref") or ""),
-        },
-        "task_environment": {
-            "task_environment_id": str(task_environment.get("task_environment_id") or ""),
-            "episode_id": str(episode.get("episode_id") or ""),
-            "context_package_id": str(context_package.get("package_id") or ""),
-        },
-        "scope": dict(context_package.get("scope") or {}),
-        "acceptance": dict(context_package.get("acceptance") or {}),
-        "resource_handles": _graph_node_agent_visible_resource_handles(context_package),
-        "graph_context": _graph_node_agent_visible_graph_context(context_package),
-        "output_contract": dict(context_package.get("output_contract") or {}),
-        "tool_authority": {
-            "source": "agent_runtime_profile",
-            "agent_profile_id": str(work_order_payload.get("agent_profile_id") or ""),
-            "rule": "节点契约不授予工具；只能使用运行时已经展示给当前 agent profile 的工具。",
-        },
-    }
-    return (
-        "你是一名图任务节点执行员。\n"
-        "你只负责当前节点的职责、判断和产物，不负责推进整张图、调度下游节点、写入图检查点或启动新任务。\n"
-        "你需要严格依据节点契约、上游上下文、验收要求和输出契约完成工作。\n"
-        "你只能使用运行时已经展示给你的工具；如果没有相关工具，就只基于当前输入完成判断和交付。\n"
-        "如果节点信息足够，请直接完成节点产物；如果缺少必要输入，请说明阻塞原因、缺失项和建议的回传信息。\n\n"
-        f"你的节点职责：\n{role_contract or goal}\n\n"
-        f"当前目标：\n{goal}\n\n"
-        "你收到的节点输入、上游上下文和输出契约如下：\n"
-        f"```json\n{_json_for_prompt(payload, limit=28000)}\n```"
-    )
-
-
-def _graph_node_agent_visible_resource_handles(context_package: dict[str, Any]) -> dict[str, Any]:
-    handles = dict(context_package.get("resource_handles") or {})
-    return _drop_empty_entrypoint_payload(
-        {
-            "artifact_space_ref": str(handles.get("artifact_space_ref") or ""),
-            "memory_space_ref": str(handles.get("memory_space_ref") or ""),
-            "file_access_table_refs": list(handles.get("file_access_table_refs") or []),
-            "artifact_repository_targets": [dict(item) for item in list(handles.get("artifact_repository_targets") or []) if isinstance(item, dict)],
-            "memory_repository_targets": [dict(item) for item in list(handles.get("memory_repository_targets") or []) if isinstance(item, dict)],
-        }
-    )
-
-
-def _graph_node_agent_visible_graph_context(context_package: dict[str, Any]) -> dict[str, Any]:
-    graph_context = dict(context_package.get("graph_context") or {})
-    return _drop_empty_entrypoint_payload(
-        {
-            "graph_identity": dict(graph_context.get("graph_identity") or {}),
-            "node_contract": _graph_node_agent_visible_node_contract(graph_context.get("node_contract")),
-            "edge_contracts": dict(graph_context.get("edge_contracts") or {}),
-            "memory_contract": dict(graph_context.get("memory_contract") or {}),
-            "loop_contract": dict(graph_context.get("loop_contract") or {}),
-            "output_contract": dict(graph_context.get("output_contract") or {}),
-            "node_identity": dict(graph_context.get("node_identity") or {}),
-            "initial_inputs": dict(graph_context.get("initial_inputs") or {}),
-            "loop_context": dict(graph_context.get("loop_context") or {}),
-            "inbound_context": [dict(item) for item in list(graph_context.get("inbound_context") or []) if isinstance(item, dict)],
-        }
-    )
-
-
-def _graph_node_agent_visible_node_contract(value: Any) -> dict[str, Any]:
-    contract = dict(value or {})
-    return _drop_empty_entrypoint_payload(
-        {
-            "contract_id": str(contract.get("contract_id") or ""),
-            "compiled_contract_id": str(contract.get("compiled_contract_id") or ""),
-            "node_id": str(contract.get("node_id") or ""),
-            "node_kind": str(contract.get("node_kind") or ""),
-            "node_class": str(contract.get("node_class") or ""),
-            "node_identity": dict(contract.get("node_identity") or {}),
-            "agent_assembly": dict(contract.get("agent_assembly") or {}),
-            "prompt_contract": dict(contract.get("prompt_contract") or {}),
-            "input_contract": dict(contract.get("input_contract") or {}),
-            "acceptance_policy": dict(contract.get("acceptance_policy") or {}),
-            "environment_lock": dict(contract.get("environment_lock") or {}),
-            "project_binding": dict(contract.get("project_binding") or {}),
-            "authority": "harness.graph_node_work_order_bridge.agent_visible_node_contract",
-        }
-    )
-
-
-def _public_graph_node_work_order_payload(work_order_payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-        "node_id": str(work_order_payload.get("node_id") or ""),
-        "work_order_id": str(work_order_payload.get("work_order_id") or ""),
-        "task_run_id": str(work_order_payload.get("task_run_id") or ""),
-        "node_session_id": str(work_order_payload.get("node_session_id") or ""),
-        "node_session_policy": dict(work_order_payload.get("node_session_policy") or {}),
-        "agent_id": str(work_order_payload.get("agent_id") or ""),
-        "agent_profile_id": str(work_order_payload.get("agent_profile_id") or ""),
-        "expected_result_contract": dict(work_order_payload.get("expected_result_contract") or {}),
-    }
-
-
-def _compact_graph_node_harness_event(event: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(event or {})
-    event_type = str(payload.get("type") or "").strip()
-    if not event_type:
-        return {}
-    if event_type == "done":
-        final_action_diagnostics = dict(payload.get("final_action_diagnostics") or {}) if isinstance(payload.get("final_action_diagnostics"), dict) else {}
-        return {
-            "type": "done",
-            "status": str(payload.get("status") or ""),
-            "terminal_reason": str(payload.get("terminal_reason") or ""),
-            "answer_channel": str(payload.get("answer_channel") or ""),
-            "answer_source": str(payload.get("answer_source") or ""),
-            "content_chars": len(str(payload.get("content") or "")),
-            "final_action_diagnostic_keys": sorted(str(key) for key in final_action_diagnostics.keys()),
-        }
-    if event_type == "error":
-        return {
-            "type": "error",
-            "code": str(payload.get("code") or ""),
-            "content": str(payload.get("content") or payload.get("error") or "")[:500],
-        }
-    if event_type == "agent_turn_terminal":
-        raw_event = dict(payload.get("event") or {})
-        terminal_payload = dict(raw_event.get("payload") or {})
-        return {
-            "type": "agent_turn_terminal",
-            "event_id": str(raw_event.get("event_id") or ""),
-            "turn_run_id": str(raw_event.get("run_id") or raw_event.get("stream_id") or ""),
-            "status": str(terminal_payload.get("status") or ""),
-            "terminal_reason": str(terminal_payload.get("terminal_reason") or ""),
-        }
-    if event_type == "harness_run_started":
-        turn_run = dict(payload.get("turn_run") or {})
-        return {
-            "type": "harness_run_started",
-            "turn_run_id": str(turn_run.get("turn_run_id") or ""),
-            "status": str(turn_run.get("status") or ""),
-        }
-    if event_type == "turn_runtime_control_signal_observed":
-        raw_event = dict(payload.get("event") or {})
-        signal = dict(dict(raw_event.get("payload") or {}).get("runtime_control_signal") or {})
-        return {
-            "type": "turn_runtime_control_signal_observed",
-            "signal_kind": str(signal.get("signal_kind") or ""),
-            "runtime_control_state": str(signal.get("runtime_control_state") or ""),
-            "used_tool_iterations": signal.get("used_tool_iterations"),
-            "max_tool_iterations": signal.get("max_tool_iterations"),
-            "runtime_control_signal_ref": str(signal.get("runtime_control_signal_ref") or ""),
-        }
-    if event_type in {
-        "single_agent_turn_started",
-        "runtime_branch_decided",
-        "tool_batch_planned",
-        "tool_batch_group_completed",
-        "tool_observation",
-        "model_action_admission",
-    }:
-        return {"type": event_type}
-    return {}
-
-
-def _graph_node_executor_result_from_events(
-    *,
-    graph_config: Any,
-    work_order_payload: dict[str, Any],
-    preparation_payload: dict[str, Any],
-    session_id: str,
-    turn_id: str,
-    agent_profile_id: str,
-    agent_id: str,
-    done_event: dict[str, Any],
-    terminal_event: dict[str, Any],
-    error_payload: dict[str, Any],
-    events: tuple[dict[str, Any], ...],
-    runtime_contract: dict[str, Any],
-    model_selection: dict[str, Any],
-) -> dict[str, Any]:
-    terminal_reason = _first_non_empty_string(
-        done_event.get("terminal_reason"),
-        dict(dict(terminal_event.get("event") or {}).get("payload") or {}).get("terminal_reason"),
-        error_payload.get("code"),
-        "completed" if done_event else "graph_node_harness_no_terminal_event",
-    )
-    final_answer = str(done_event.get("content") or error_payload.get("content") or error_payload.get("error") or "").strip()
-    answer_channel = str(done_event.get("answer_channel") or "").strip()
-    done_status = str(done_event.get("status") or "").strip()
-    blocked = bool(answer_channel in {"blocked", "ask_user"} or terminal_reason in {"blocked", "ask_user"})
-    failed = bool(error_payload or (done_event and done_status == "failed") or not done_event)
-    status = "completed" if done_event and not blocked and not failed else ("blocked" if blocked or done_event else "failed")
-    final_action_diagnostics = _final_action_diagnostics_from_done_event(done_event)
-    episode = dict(preparation_payload.get("episode") or {})
-    task_environment = dict(preparation_payload.get("task_environment") or {})
-    node_execution_id = str(episode.get("episode_id") or "") or stable_task_environment_id(
-        "nodeexec",
-        work_order_payload.get("graph_run_id"),
-        work_order_payload.get("node_id"),
-        work_order_payload.get("work_order_id"),
-    )
-    turn_run_id = _first_event_value(events, "turn_run_id")
-    task_execution_payload = {
-        "execution_id": node_execution_id,
-        "episode_id": str(episode.get("episode_id") or ""),
-        "task_environment_id": str(task_environment.get("task_environment_id") or ""),
-        "session_id": session_id,
-        "task_ref": str(work_order_payload.get("task_ref") or work_order_payload.get("node_id") or ""),
-        "status": status,
-        "terminal_reason": terminal_reason,
-        "diagnostics": {
-            "origin": {"origin_kind": "graph_node_assigned"},
-            "origin_kind": "graph_node_assigned",
-            "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-            "graph_config_id": str(getattr(graph_config, "config_id", "") or work_order_payload.get("config_id") or ""),
-            "graph_work_order_id": str(work_order_payload.get("work_order_id") or ""),
-            "graph_node_id": str(work_order_payload.get("node_id") or ""),
-            "runtime_scope": dict(dict(work_order_payload.get("input_package") or {}).get("runtime_scope") or {}),
-            "task_environment_id": str(task_environment.get("task_environment_id") or ""),
-            "episode_id": str(episode.get("episode_id") or ""),
-            "turn_id": turn_id,
-            "turn_run_id": turn_run_id,
-            "agent_id": agent_id,
-            "agent_profile_id": agent_profile_id,
-            "final_answer": final_answer,
-            "final_action_diagnostics": final_action_diagnostics,
-            "event_count": len(events),
-            "harness_events": [dict(item) for item in events[:40]],
-            "runtime_contract": {
-                "control_capabilities": dict(runtime_contract.get("control_capabilities") or {}),
-                "graph_node_execution": dict(runtime_contract.get("graph_node_execution") or {}),
-                "tool_authority": "agent_runtime_profile_runtime_assembly",
-            },
-            "model_selection": dict(model_selection or {}),
-            "authority": "harness.graph_node_work_order_bridge.executor_result",
-        },
-    }
-    return {
-        "ok": status == "completed",
-        "status": status,
-        "error": "" if status == "completed" else terminal_reason,
-        "final_answer": final_answer,
-        "artifact_refs": [],
-        "task_execution": task_execution_payload,
-        "event": {"turn_id": turn_id, "turn_run_id": turn_run_id, "terminal_reason": terminal_reason},
-        "lifecycle": {
-            "executor": "harness.graph_node_work_order_bridge",
-            "status": status,
-            "event_count": len(events),
-        },
-        "authority": "harness.graph_node_work_order_bridge",
-    }
-
-
-def _graph_node_executor_blocked_result(
-    *,
-    reason: str,
-    graph_config: Any,
-    work_order_payload: dict[str, Any],
-    preparation_payload: dict[str, Any],
-    diagnostics: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    episode = dict(preparation_payload.get("episode") or {})
-    node_execution_id = str(episode.get("episode_id") or "") or stable_task_environment_id(
-        "nodeexec",
-        work_order_payload.get("graph_run_id"),
-        work_order_payload.get("node_id"),
-        work_order_payload.get("work_order_id"),
-    )
-    task_environment = dict(preparation_payload.get("task_environment") or {})
-    return {
-        "ok": False,
-        "status": "blocked",
-        "error": str(reason or "graph_node_executor_blocked"),
-        "final_answer": "",
-        "artifact_refs": [],
-        "task_execution": {
-            "execution_id": node_execution_id,
-            "episode_id": str(episode.get("episode_id") or ""),
-            "task_environment_id": str(task_environment.get("task_environment_id") or ""),
-            "session_id": str(work_order_payload.get("node_session_id") or ""),
-            "task_ref": str(work_order_payload.get("task_ref") or work_order_payload.get("node_id") or ""),
-            "status": "blocked",
-            "terminal_reason": str(reason or "graph_node_executor_blocked"),
-            "diagnostics": {
-                "origin": {"origin_kind": "graph_node_assigned"},
-                "origin_kind": "graph_node_assigned",
-                "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
-                "graph_config_id": str(getattr(graph_config, "config_id", "") or work_order_payload.get("config_id") or ""),
-                "graph_work_order_id": str(work_order_payload.get("work_order_id") or ""),
-                "graph_node_id": str(work_order_payload.get("node_id") or ""),
-                "recoverable_error": {
-                    "retryable": True,
-                    "error_code": str(reason or "graph_node_executor_blocked"),
-                },
-                **dict(diagnostics or {}),
-                "authority": "harness.graph_node_work_order_bridge.blocked_result",
-            },
-        },
-        "event": {"terminal_reason": str(reason or "graph_node_executor_blocked")},
-        "lifecycle": {"executor": "harness.graph_node_work_order_bridge", "status": "blocked"},
-        "authority": "harness.graph_node_work_order_bridge",
-    }
-
-
-def _final_action_diagnostics_from_done_event(done_event: dict[str, Any]) -> dict[str, Any]:
-    value = dict(done_event or {}).get("final_action_diagnostics")
-    if not isinstance(value, dict):
-        return {}
-    payload = {
-        str(key): item
-        for key, item in dict(value or {}).items()
-        if str(key).strip() and item not in ("", [], {}, None)
-    }
-    structured_output = payload.get("structured_output")
-    node_output = payload.get("node_output")
-    if isinstance(structured_output, dict) and not isinstance(node_output, dict):
-        payload["node_output"] = dict(structured_output)
-    if isinstance(node_output, dict) and not isinstance(structured_output, dict):
-        payload["structured_output"] = dict(node_output)
-    return payload
-
-
-def _structured_output_from_final_action_diagnostics(final_action_diagnostics: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(final_action_diagnostics or {})
-    for key in ("structured_output", "node_output"):
-        value = payload.get(key)
-        if isinstance(value, dict):
-            return dict(value)
-    return {}
-
-
-def _first_event_value(events: tuple[dict[str, Any], ...], key: str) -> str:
-    target = str(key or "").strip()
-    for event in events:
-        value = str(dict(event or {}).get(target) or "").strip()
-        if value:
-            return value
-    return ""
-
-
-def _json_for_prompt(payload: Any, *, limit: int) -> str:
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, default=str)
-    max_chars = max(1000, int(limit or 1000))
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "\n...<truncated>"
 
 
 def _task_environment_project_id(contract: TaskRunContract) -> str:

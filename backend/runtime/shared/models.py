@@ -113,10 +113,61 @@ ProjectRuntimeHealth = Literal[
     "completed",
 ]
 
+RuntimeAnchorKind = Literal["graph_run", "single_turn", "task_episode", "background"]
+RuntimeAnchorStatus = Literal["created", "running", "waiting", "paused", "blocked", "completed", "failed", "aborted", "stopped"]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeAnchor:
+    """Canonical runtime anchor for new runtime projections.
+
+    RuntimeAnchor is the migration target for runtime identity. During the
+    migration, legacy_task_run_id remains the event-log and retention scope, but
+    new projections can name the runtime unit without treating TaskRun as task
+    truth.
+    """
+
+    runtime_anchor_id: str
+    anchor_kind: RuntimeAnchorKind
+    session_id: str
+    status: RuntimeAnchorStatus = "created"
+    legacy_task_run_id: str = ""
+    turn_run_id: str = ""
+    task_environment_id: str = ""
+    graph_run_id: str = ""
+    graph_config_id: str = ""
+    control_state: str = ""
+    event_scope_ref: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "runtime.runtime_anchor"
+
+    def __post_init__(self) -> None:
+        if self.authority != "runtime.runtime_anchor":
+            raise ValueError("RuntimeAnchor authority must be runtime.runtime_anchor")
+        if not self.runtime_anchor_id:
+            raise ValueError("RuntimeAnchor requires runtime_anchor_id")
+        if not self.anchor_kind:
+            raise ValueError("RuntimeAnchor requires anchor_kind")
+        if not self.session_id:
+            raise ValueError("RuntimeAnchor requires session_id")
+        if not self.event_scope_ref:
+            raise ValueError("RuntimeAnchor requires event_scope_ref")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class TaskRun:
-    """A durable single-agent task run owned by Harness."""
+    """Legacy runtime anchor payload for harness and graph execution.
+
+    TaskRun remains in the runtime layer as the event-log, monitor, graph-root,
+    and retention scope until RuntimeAnchor migration is complete. It is not the
+    canonical task truth for new task-system work. New durable task state belongs
+    to TaskWorkEnvironment, AgentExecutionEpisode, WorkProduct, and TaskReducer.
+    """
 
     task_run_id: str
     session_id: str

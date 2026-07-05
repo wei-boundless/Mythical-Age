@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,11 +15,13 @@ if str(BACKEND_DIR) not in sys.path:
 from agent_system.models.model_profile_models import AgentModelProfile, parse_agent_model_profile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
-from core.project_layout import ProjectLayout
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
-from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
+from task_system.compiler.executable_graph_config_publisher import (
+    publish_graph_config_for_graph as publish_graph_harness_config_for_graph,
+)
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
+from task_system.repositories.task_graph_repository import TaskGraphRepository
 from task_system.storage import TaskSystemStorage
 
 
@@ -59,6 +60,14 @@ AGENT_CREDENTIAL_REFS = {
     MONITOR_AGENT_ID: REVIEW_GROUP_CREDENTIAL_REF,
     MEMORY_AGENT_ID: MEMORY_GROUP_CREDENTIAL_REF,
 }
+
+
+def _agent_profile_id_for_agent(agent_id: str) -> str:
+    raw = str(agent_id or "").strip()
+    if not raw:
+        return ""
+    return f"{raw.removeprefix('agent:').replace(':', '_')}_runtime"
+
 
 TARGET_VOLUMES = 2
 CHAPTERS_PER_VOLUME = 100
@@ -510,7 +519,7 @@ def _length_budget_contract(scope: str, target_units: int, min_units: int, max_u
             "max_repair_rounds": 4,
             "repair_instruction": repair_instruction,
         },
-        "acceptance_policy": {"require_continuity": True, "require_formal_headings": True, "require_artifact_ref": True, "metric_tool_operation": "op.text_metric"},
+        "acceptance_policy": {"require_continuity": True, "require_formal_headings": True, "require_artifact_ref": True},
         "source": source,
     }
 
@@ -1564,28 +1573,43 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
 
 def _delete_managed_graph_runtime_records(backend_dir: Path) -> None:
     storage = TaskSystemStorage(backend_dir)
+    graph_repository = TaskGraphRepository(backend_dir)
     graph_ids = set(WRITING_GRAPH_IDS)
-    protected_config_ids = _active_writing_graph_config_ids(backend_dir)
 
-    graph_payload = storage.read_object("task_graphs.json", {"task_graphs": []})
-    graph_records = [item for item in list(graph_payload.get("task_graphs") or []) if isinstance(item, dict)]
-    retained_graphs = [
-        item
-        for item in graph_records
-        if not _is_managed_writing_graph_record(item)
-    ]
-    if retained_graphs != graph_records:
-        storage.write_object("task_graphs.json", {"task_graphs": retained_graphs})
+    for graph in graph_repository.list():
+        if _is_managed_writing_graph_record(graph.to_dict()):
+            graph_repository.delete(graph.graph_id)
 
-    config_payload = storage.read_object("graph_harness_configs.json", {"configs": [], "published_bindings": {}})
+    _delete_managed_graph_config_store(
+        storage=storage,
+        storage_name="graph_configs.json",
+        graph_ids=graph_ids,
+    )
+    _delete_managed_graph_config_store(
+        storage=storage,
+        storage_name="graph_harness_configs.json",
+        graph_ids=graph_ids,
+    )
+
+
+def _delete_managed_graph_config_store(
+    *,
+    storage: TaskSystemStorage,
+    storage_name: str,
+    graph_ids: set[str],
+) -> None:
+    config_payload = storage.read_object(storage_name, {"configs": [], "published_bindings": {}})
     config_records = [item for item in list(config_payload.get("configs") or []) if isinstance(item, dict)]
     retained_configs = [
         item
         for item in config_records
         if not _is_managed_writing_graph_harness_config(item)
-        or str(item.get("config_id") or "").strip() in protected_config_ids
     ]
-    retained_config_ids = {str(item.get("config_id") or "").strip() for item in retained_configs if str(item.get("config_id") or "").strip()}
+    retained_config_ids = {
+        str(item.get("config_id") or "").strip()
+        for item in retained_configs
+        if str(item.get("config_id") or "").strip()
+    }
     published_bindings = {
         str(key): str(value)
         for key, value in dict(config_payload.get("published_bindings") or {}).items()
@@ -1598,7 +1622,7 @@ def _delete_managed_graph_runtime_records(backend_dir: Path) -> None:
     }
     if retained_configs != config_records or published_bindings != dict(config_payload.get("published_bindings") or {}):
         storage.write_object(
-            "graph_harness_configs.json",
+            storage_name,
             {"configs": retained_configs, "published_bindings": published_bindings},
         )
 
@@ -1618,86 +1642,6 @@ def _is_managed_writing_graph_record(payload: dict[str, Any]) -> bool:
     graph_id = str(payload.get("graph_id") or "").strip()
     metadata = dict(payload.get("metadata") or {})
     return graph_id.startswith(WRITING_GRAPH_ID_PREFIX) or metadata.get("managed_by") == MANAGED_BY
-
-
-def _active_writing_graph_config_ids(backend_dir: Path) -> set[str]:
-    runtime_root = ProjectLayout.from_backend_dir(backend_dir).runtime_state_dir
-    refs: set[str] = set()
-    for graph_run in _iter_runtime_payloads(runtime_root / "runtime_objects" / "graph_run"):
-        payload = dict(graph_run.get("payload") or graph_run)
-        if not _is_active_writing_graph_runtime_record(payload):
-            continue
-        refs.update(_runtime_config_refs(payload))
-    for task_run in _iter_runtime_payloads(runtime_root / "state_index" / "task_runs"):
-        payload = dict(task_run.get("payload") or task_run)
-        if not _is_active_writing_graph_runtime_record(payload):
-            continue
-        refs.update(_runtime_config_refs(payload))
-    return {item for item in refs if item}
-
-
-def _iter_runtime_payloads(root: Path) -> list[dict[str, Any]]:
-    if not root.exists():
-        return []
-    payloads: list[dict[str, Any]] = []
-    for path in sorted(root.glob("*.json")):
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if isinstance(loaded, dict):
-            payloads.append(loaded)
-    return payloads
-
-
-def _is_active_writing_graph_runtime_record(payload: dict[str, Any]) -> bool:
-    diagnostics = dict(payload.get("diagnostics") or {})
-    runtime_scope = dict(diagnostics.get("runtime_scope") or {})
-    graph_id = str(
-        payload.get("graph_id")
-        or diagnostics.get("graph_id")
-        or runtime_scope.get("graph_id")
-        or ""
-    ).strip()
-    if graph_id not in set(WRITING_GRAPH_IDS):
-        if not graph_id.startswith(WRITING_GRAPH_ID_PREFIX):
-            return False
-    if not graph_id:
-        return False
-    status = str(payload.get("status") or diagnostics.get("status") or "").strip().lower()
-    terminal_reason = str(
-        payload.get("terminal_reason")
-        or diagnostics.get("runner_terminal_reason")
-        or diagnostics.get("terminal_reason")
-        or ""
-    ).strip().lower()
-    terminal_values = {
-        "completed",
-        "success",
-        "failed",
-        "aborted",
-        "cancelled",
-        "canceled",
-        "deleted",
-        "stopped",
-        "orphaned",
-        "idle",
-        "budget_exhausted",
-        "max_runtime_seconds_exhausted",
-        "max_dispatches_exhausted",
-    }
-    return status not in terminal_values and terminal_reason not in terminal_values
-
-
-def _runtime_config_refs(payload: dict[str, Any]) -> set[str]:
-    diagnostics = dict(payload.get("diagnostics") or {})
-    values = {
-        str(payload.get("config_id") or "").strip(),
-        str(payload.get("config_snapshot_id") or "").strip(),
-        str(diagnostics.get("graph_harness_config_id") or "").strip(),
-        str(diagnostics.get("config_snapshot_id") or "").strip(),
-    }
-    return {item for item in values if item}
 
 
 def _writing_graph_config_id_prefix() -> str:
@@ -1745,36 +1689,31 @@ def _upsert_agents(backend_dir: Path) -> None:
         )
 
     runtime_registry = AgentRuntimeRegistry(backend_dir)
-    for agent_id, template_id, contexts, extra_ops in (
+    for agent_id, template_id, contexts in (
         (
             WORKER_AGENT_ID,
             "task_graph.writing.modular_novel.worker",
-            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
-            ("op.text_metric",),
+            ("task", "runtime_contracts", "artifact_refs"),
         ),
         (
             CREATOR_AGENT_ID,
             "task_graph.writing.modular_novel.creator",
-            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
-            ("op.text_metric",),
+            ("task", "runtime_contracts", "artifact_refs"),
         ),
         (
             REVIEWER_AGENT_ID,
             "task_graph.writing.modular_novel.reviewer",
-            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
-            (),
+            ("task", "runtime_contracts", "artifact_refs"),
         ),
         (
             MEMORY_AGENT_ID,
             "task_graph.writing.modular_novel.memory_steward",
-            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
-            (),
+            ("task", "runtime_contracts", "artifact_refs"),
         ),
         (
             MONITOR_AGENT_ID,
             "task_graph.writing.modular_novel.runtime_monitor",
-            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view", "task_graph_monitor"),
-            (),
+            ("task", "runtime_contracts", "artifact_refs", "task_graph_monitor"),
         ),
     ):
         current = runtime_registry.get_profile(agent_id)
@@ -1802,10 +1741,11 @@ def _upsert_agents(backend_dir: Path) -> None:
         )
         runtime_registry.upsert_profile(
             agent_id=agent_id,
-            agent_profile_id=str(getattr(current, "agent_profile_id", "") or f"{agent_id.removeprefix('agent:')}_runtime"),
-            allowed_operations=tuple(dict.fromkeys(("op.model_response", *extra_ops))),
+            agent_profile_id=_agent_profile_id_for_agent(agent_id),
+            allowed_operations=("op.model_response",),
             blocked_operations=(
                 "op.memory_read",
+                "op.text_metric",
                 "op.read_file",
                 "op.search_files",
                 "op.search_text",
@@ -1818,7 +1758,7 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "op.web_search",
                 "op.fetch_url",
             ),
-            allowed_memory_scopes=("writing_modular_novel", "state_readonly"),
+            allowed_memory_scopes=(),
             allowed_context_sections=contexts,
             subagent_policy={
                 "enabled": False,
@@ -1860,7 +1800,7 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "agent_side_memory_read_allowed": False,
                 "agent_side_memory_read_tool": "",
                 "memory_access_model": "graph_protocol_preloaded_memory_pack",
-                "generic_length_metric_tool_enabled": bool(extra_ops),
+                "generic_length_metric_tool_enabled": False,
             },
         )
 
@@ -2424,6 +2364,7 @@ def _upsert_imported_module_graph(
 
 def _node_payload(node: NodeSpec) -> dict[str, Any]:
     agent_id = _node_agent_id(node)
+    agent_profile_id = _agent_profile_id_for_agent(agent_id)
     artifact_policy = _artifact_policy(node)
     node_subagent_policy = dict(node.extra_runtime.get("subagent_policy") or {})
     runtime_bindings = {
@@ -2463,7 +2404,11 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "prompt_policy": dict(WRITING_GRAPH_NODE_PROMPT_POLICY),
         "subagent_policy": node_subagent_policy,
         "control_capabilities": {
-            "may_use_subagents": bool(node_subagent_policy.get("enabled") is True),
+            "may_call_tools": False,
+            "may_request_task_run": False,
+            "may_control_active_work": False,
+            "may_use_subagents": False,
+            "requires_json_action_protocol": False,
         },
     }
     contract_bindings = _node_contract_bindings(
@@ -2481,6 +2426,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "title": node.title,
         "task_id": _node_task_id(node.node_id),
         "agent_id": agent_id,
+        "agent_profile_id": agent_profile_id,
         "agent_group_id": AGENT_GROUP_ID,
         "work_posture": node.role,
         "interaction_mode": "role_mode",
@@ -2519,6 +2465,8 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "prompt_contract": prompt_contract,
             "role_prompt": node.prompt,
             "resolved_agent_id": agent_id,
+            "resolved_agent_profile_id": agent_profile_id,
+            "agent_profile_id": agent_profile_id,
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
@@ -2668,6 +2616,8 @@ def _node_contract_bindings(
     governance_policy: dict[str, Any] | None = None,
     memory_write_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    agent_id = _node_agent_id(node)
+    agent_profile_id = _agent_profile_id_for_agent(agent_id)
     resolved_artifact_policy = dict(artifact_policy or _artifact_policy(node))
     resolved_runtime = dict(runtime_bindings or {"model_requirement": _model_requirement(node.node_id), **dict(node.extra_runtime)})
     resolved_unit_batch = dict(unit_batch_bindings or _node_unit_batch_contract(node))
@@ -2690,7 +2640,13 @@ def _node_contract_bindings(
                 **dict(binding["execution"]),
                 "node_contract_id": node.output_contract_id,
                 "workflow_role": node.role,
-                "agent_id": _node_agent_id(node),
+                "agent_id": agent_id,
+                "agent_profile_id": agent_profile_id,
+            },
+            "agent": {
+                "agent_id": agent_id,
+                "agent_profile_id": agent_profile_id,
+                "agent_group_id": AGENT_GROUP_ID,
             },
             "output": resolved_output_policy,
             "artifact": {
@@ -3748,10 +3704,8 @@ def _executor_policy(node: NodeSpec) -> dict[str, Any]:
 def _node_operation_policy(*, node_id: str) -> dict[str, Any]:
     allowed = ["op.model_response"]
     optional: list[str] = []
-    if node_id in {"chapter_draft", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
-        allowed.append("op.text_metric")
-        optional.append("op.text_metric")
     denied_operations = [
+        "op.text_metric",
         "op.read_file",
         "op.search_files",
         "op.search_text",

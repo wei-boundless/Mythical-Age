@@ -59,6 +59,7 @@ _RUN_MONITOR_SNAPSHOT_COALESCER = _RunMonitorSnapshotCoalescer()
 class RunMonitorActionRequest(BaseModel):
     action: str = Field(default="", max_length=80)
     signal_id: str = Field(default="", max_length=300)
+    runtime_anchor_id: str = Field(default="", max_length=300)
     task_run_id: str = Field(default="", max_length=300)
     graph_run_id: str = Field(default="", max_length=300)
     reason: str = Field(default="", max_length=500)
@@ -254,6 +255,14 @@ async def get_run_monitor_task_run(task_run_id: str) -> dict[str, Any]:
     monitor = await asyncio.to_thread(_service().get_task_run_live_monitor, task_run_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
+    return monitor
+
+
+@router.get("/harness/run-monitor/runtime-anchors/{runtime_anchor_id}")
+async def get_run_monitor_runtime_anchor(runtime_anchor_id: str) -> dict[str, Any]:
+    monitor = await asyncio.to_thread(_service().get_runtime_anchor_live_monitor, runtime_anchor_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="RuntimeAnchor live monitor not found")
     return monitor
 
 

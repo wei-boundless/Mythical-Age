@@ -78,7 +78,13 @@ class ProjectNetworkSemanticArtifactMaterializer:
     def from_backend_dir(cls, base_dir: str | Path) -> "ProjectNetworkSemanticArtifactMaterializer":
         return cls(base_dir=base_dir)
 
-    def materialize_build(self, build_id: str, *, graph_run_id: str = "") -> ProjectNetworkSemanticArtifactSet:
+    def materialize_build(
+        self,
+        build_id: str,
+        *,
+        graph_run_id: str = "",
+        publish_human_reports: bool = False,
+    ) -> ProjectNetworkSemanticArtifactSet:
         target_build_id = str(build_id or "").strip()
         if not target_build_id:
             raise ValueError("ProjectNetworkSemanticArtifactMaterializer requires build_id")
@@ -97,13 +103,19 @@ class ProjectNetworkSemanticArtifactMaterializer:
         artifact_files_root = artifact_root / "files"
         artifact_dirs_root = artifact_root / "directories"
         artifact_layers_root = artifact_root / "layers"
-        human_files_root = self.human_reports_root / "files"
-        human_dirs_root = self.human_reports_root / "directories"
-        human_layers_root = self.human_reports_root / "layers"
-        for path in (human_files_root, human_dirs_root, human_layers_root):
-            _reset_report_subtree(path)
-        for path in (artifact_reports_root, artifact_files_root, artifact_dirs_root, artifact_layers_root, human_files_root, human_dirs_root, human_layers_root):
+        human_files_root = self.human_reports_root / "files" if publish_human_reports else None
+        human_dirs_root = self.human_reports_root / "directories" if publish_human_reports else None
+        human_layers_root = self.human_reports_root / "layers" if publish_human_reports else None
+        if publish_human_reports:
+            for path in (human_files_root, human_dirs_root, human_layers_root):
+                if path is not None:
+                    _reset_report_subtree(path)
+        for path in (artifact_reports_root, artifact_files_root, artifact_dirs_root, artifact_layers_root):
             path.mkdir(parents=True, exist_ok=True)
+        if publish_human_reports:
+            for path in (self.human_reports_root, human_files_root, human_dirs_root, human_layers_root):
+                if path is not None:
+                    path.mkdir(parents=True, exist_ok=True)
 
         semantic_coordinates_path = artifact_root / "semantic_coordinates.json"
         route_index_path = artifact_root / "deep_network_route_index.json"
@@ -112,12 +124,38 @@ class ProjectNetworkSemanticArtifactMaterializer:
         unified_control_graph_path = artifact_root / "unified_control_graph.json"
         manifest_path = artifact_root / "manifest.json"
 
-        project_review_path = self.layout.project_root / "PROJECT_NETWORK_REVIEW.md"
-        architecture_overview_path = self.layout.project_root / "PROJECT_ARCHITECTURE_OVERVIEW.md"
-        semantic_report_path = self.layout.project_root / "PROJECT_SEMANTIC_COORDINATES.md"
-        signal_report_path = self.layout.project_root / "PROJECT_SIGNAL_CHAIN_REVIEW.md"
-        unified_report_path = self.layout.project_root / "PROJECT_UNIFIED_CONTROL_GRAPH.md"
-        reports_index_path = self.human_reports_root / "README.md"
+        artifact_project_review_path = artifact_reports_root / "PROJECT_NETWORK_REVIEW.md"
+        artifact_architecture_overview_path = artifact_reports_root / "PROJECT_ARCHITECTURE_OVERVIEW.md"
+        artifact_semantic_report_path = artifact_reports_root / "PROJECT_SEMANTIC_COORDINATES.md"
+        artifact_signal_report_path = artifact_reports_root / "PROJECT_SIGNAL_CHAIN_REVIEW.md"
+        artifact_unified_report_path = artifact_reports_root / "PROJECT_UNIFIED_CONTROL_GRAPH.md"
+        artifact_reports_index_path = artifact_reports_root / "README.md"
+        project_review_path = (
+            self.layout.project_root / "PROJECT_NETWORK_REVIEW.md"
+            if publish_human_reports
+            else artifact_project_review_path
+        )
+        architecture_overview_path = (
+            self.layout.project_root / "PROJECT_ARCHITECTURE_OVERVIEW.md"
+            if publish_human_reports
+            else artifact_architecture_overview_path
+        )
+        semantic_report_path = (
+            self.layout.project_root / "PROJECT_SEMANTIC_COORDINATES.md"
+            if publish_human_reports
+            else artifact_semantic_report_path
+        )
+        signal_report_path = (
+            self.layout.project_root / "PROJECT_SIGNAL_CHAIN_REVIEW.md"
+            if publish_human_reports
+            else artifact_signal_report_path
+        )
+        unified_report_path = (
+            self.layout.project_root / "PROJECT_UNIFIED_CONTROL_GRAPH.md"
+            if publish_human_reports
+            else artifact_unified_report_path
+        )
+        reports_index_path = self.human_reports_root / "README.md" if publish_human_reports else artifact_reports_index_path
 
         file_reports = _write_file_reports(
             module_cards=model["module_cards"],
@@ -153,24 +191,45 @@ class ProjectNetworkSemanticArtifactMaterializer:
         _write_json(signal_chain_index_path, signal_chain_index)
         _write_json(link_audit_path, link_audit)
 
-        _write_text(project_review_path, _render_project_network_review(model, file_reports=file_reports, directory_reports=directory_reports, link_audit=link_audit))
-        _write_text(architecture_overview_path, _render_project_architecture_overview(model, unified_control_graph=unified_control_graph, link_audit=link_audit))
-        _write_text(semantic_report_path, _render_semantic_coordinates_report(coordinates))
-        _write_text(signal_report_path, _render_signal_chain_review(signal_chain_index, link_audit))
-        _write_text(unified_report_path, _render_unified_control_graph_report(unified_control_graph, layer_reports=layer_reports, file_reports=file_reports, directory_reports=directory_reports))
-        _write_text(reports_index_path, _render_reports_index(model, file_reports=file_reports, directory_reports=directory_reports, layer_reports=layer_reports, root_reports={
+        project_review_text = _render_project_network_review(
+            model,
+            file_reports=file_reports,
+            directory_reports=directory_reports,
+            link_audit=link_audit,
+        )
+        architecture_overview_text = _render_project_architecture_overview(
+            model,
+            unified_control_graph=unified_control_graph,
+            link_audit=link_audit,
+        )
+        semantic_report_text = _render_semantic_coordinates_report(coordinates)
+        signal_report_text = _render_signal_chain_review(signal_chain_index, link_audit)
+        unified_report_text = _render_unified_control_graph_report(
+            unified_control_graph,
+            layer_reports=layer_reports,
+            file_reports=file_reports,
+            directory_reports=directory_reports,
+        )
+        reports_index_text = _render_reports_index(model, file_reports=file_reports, directory_reports=directory_reports, layer_reports=layer_reports, root_reports={
             "architecture_overview": architecture_overview_path,
             "project_network_review": project_review_path,
             "semantic_coordinates": semantic_report_path,
             "signal_chain_review": signal_report_path,
             "unified_control_graph": unified_report_path,
-        }))
-        _write_text(artifact_reports_root / "PROJECT_NETWORK_REVIEW.md", project_review_path.read_text(encoding="utf-8"))
-        _write_text(artifact_reports_root / "PROJECT_ARCHITECTURE_OVERVIEW.md", architecture_overview_path.read_text(encoding="utf-8"))
-        _write_text(artifact_reports_root / "PROJECT_SEMANTIC_COORDINATES.md", semantic_report_path.read_text(encoding="utf-8"))
-        _write_text(artifact_reports_root / "PROJECT_SIGNAL_CHAIN_REVIEW.md", signal_report_path.read_text(encoding="utf-8"))
-        _write_text(artifact_reports_root / "PROJECT_UNIFIED_CONTROL_GRAPH.md", unified_report_path.read_text(encoding="utf-8"))
-        _write_text(artifact_reports_root / "README.md", reports_index_path.read_text(encoding="utf-8"))
+        })
+        _write_text(artifact_project_review_path, project_review_text)
+        _write_text(artifact_architecture_overview_path, architecture_overview_text)
+        _write_text(artifact_semantic_report_path, semantic_report_text)
+        _write_text(artifact_signal_report_path, signal_report_text)
+        _write_text(artifact_unified_report_path, unified_report_text)
+        _write_text(artifact_reports_index_path, reports_index_text)
+        if publish_human_reports:
+            _write_text(project_review_path, project_review_text)
+            _write_text(architecture_overview_path, architecture_overview_text)
+            _write_text(semantic_report_path, semantic_report_text)
+            _write_text(signal_report_path, signal_report_text)
+            _write_text(unified_report_path, unified_report_text)
+            _write_text(reports_index_path, reports_index_text)
 
         artifact_set = ProjectNetworkSemanticArtifactSet(
             build_id=target_build_id,
@@ -186,7 +245,7 @@ class ProjectNetworkSemanticArtifactMaterializer:
             project_network_review_path=str(project_review_path),
             project_semantic_coordinates_report_path=str(semantic_report_path),
             project_signal_chain_review_path=str(signal_report_path),
-            project_network_reports_root=str(self.human_reports_root),
+            project_network_reports_root=str(self.human_reports_root if publish_human_reports else artifact_reports_root),
             project_network_reports_index_path=str(reports_index_path),
             source_work_product_count=len(products),
             semantic_coordinate_count=len(list(coordinates.get("coordinates") or [])),
@@ -782,37 +841,53 @@ def _build_link_signal_audit(model: dict[str, Any], *, route_index: dict[str, An
     }
 
 
-def _write_file_reports(*, module_cards: list[dict[str, Any]], artifact_root: Path, human_root: Path) -> list[dict[str, Any]]:
+def _write_file_reports(*, module_cards: list[dict[str, Any]], artifact_root: Path, human_root: Path | None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for card in module_cards:
         name = _safe_segment(str(card.get("stable_ref") or card.get("file_path") or "file"))
         text = _render_file_report(card)
         artifact_md = artifact_root / f"{name}.review.md"
         artifact_json = artifact_root / f"{name}.semantic.json"
-        human_md = human_root / f"{name}.review.md"
         _write_text(artifact_md, text)
         _write_json(artifact_json, card)
-        _write_text(human_md, text)
-        result.append({"stable_ref": card.get("stable_ref"), "artifact_report_path": str(artifact_md), "artifact_semantic_path": str(artifact_json), "human_report_path": str(human_md)})
+        human_md = human_root / f"{name}.review.md" if human_root is not None else None
+        if human_md is not None:
+            _write_text(human_md, text)
+        result.append(
+            {
+                "stable_ref": card.get("stable_ref"),
+                "artifact_report_path": str(artifact_md),
+                "artifact_semantic_path": str(artifact_json),
+                "human_report_path": str(human_md or artifact_md),
+            }
+        )
     return result
 
 
-def _write_directory_reports(*, directory_cards: list[dict[str, Any]], artifact_root: Path, human_root: Path) -> list[dict[str, Any]]:
+def _write_directory_reports(*, directory_cards: list[dict[str, Any]], artifact_root: Path, human_root: Path | None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for card in directory_cards:
         name = _safe_segment(str(card.get("stable_ref") or "directory"))
         text = _render_directory_report(card)
         artifact_md = artifact_root / f"{name}.summary.md"
         artifact_json = artifact_root / f"{name}.semantic.json"
-        human_md = human_root / f"{name}.summary.md"
         _write_text(artifact_md, text)
         _write_json(artifact_json, card)
-        _write_text(human_md, text)
-        result.append({"stable_ref": card.get("stable_ref"), "artifact_report_path": str(artifact_md), "artifact_semantic_path": str(artifact_json), "human_report_path": str(human_md)})
+        human_md = human_root / f"{name}.summary.md" if human_root is not None else None
+        if human_md is not None:
+            _write_text(human_md, text)
+        result.append(
+            {
+                "stable_ref": card.get("stable_ref"),
+                "artifact_report_path": str(artifact_md),
+                "artifact_semantic_path": str(artifact_json),
+                "human_report_path": str(human_md or artifact_md),
+            }
+        )
     return result
 
 
-def _write_layer_reports(*, unified_control_graph: dict[str, Any], artifact_root: Path, human_root: Path) -> list[dict[str, Any]]:
+def _write_layer_reports(*, unified_control_graph: dict[str, Any], artifact_root: Path, human_root: Path | None) -> list[dict[str, Any]]:
     nodes = [dict(item) for item in list(unified_control_graph.get("nodes") or []) if isinstance(item, dict)]
     edges = [dict(item) for item in list(unified_control_graph.get("edges") or []) if isinstance(item, dict)]
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -826,7 +901,6 @@ def _write_layer_reports(*, unified_control_graph: dict[str, Any], artifact_root
         name = _safe_segment(f"layer-{layer}")
         artifact_md = artifact_root / f"{name}.md"
         artifact_json = artifact_root / f"{name}.json"
-        human_md = human_root / f"{name}.md"
         _write_text(artifact_md, text)
         _write_json(
             artifact_json,
@@ -837,7 +911,9 @@ def _write_layer_reports(*, unified_control_graph: dict[str, Any], artifact_root
                 "authority": "project_network_system.layer_report_payload",
             },
         )
-        _write_text(human_md, text)
+        human_md = human_root / f"{name}.md" if human_root is not None else None
+        if human_md is not None:
+            _write_text(human_md, text)
         result.append(
             {
                 "layer": layer,
@@ -845,7 +921,7 @@ def _write_layer_reports(*, unified_control_graph: dict[str, Any], artifact_root
                 "edge_count": len(layer_edges),
                 "artifact_report_path": str(artifact_md),
                 "artifact_semantic_path": str(artifact_json),
-                "human_report_path": str(human_md),
+                "human_report_path": str(human_md or artifact_md),
             }
         )
     return result

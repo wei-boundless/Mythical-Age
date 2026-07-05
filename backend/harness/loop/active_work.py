@@ -56,7 +56,6 @@ class ActiveWorkContext:
     queued_user_instruction_count: int = 0
     execution_runtime_kind: str = ""
     continuation_kind: str = "active"
-    same_run_allowed: bool = False
     control_capabilities: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.runtime.task_environment_active_work_context"
 
@@ -232,7 +231,7 @@ def _normalize_answer_obligation(value: Any, *, user_turn_kind: str, turn_respon
 
 def _normalize_continuation_strategy(value: Any) -> str:
     strategy = str(value or "").strip().lower()
-    if strategy in {"same_run_resume", "already_running", "defer", "none"}:
+    if strategy in {"already_running", "task_environment_control", "defer", "none"}:
         return strategy
     return ""
 

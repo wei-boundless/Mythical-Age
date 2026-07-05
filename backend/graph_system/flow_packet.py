@@ -7,41 +7,12 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
 
-from .edge_contracts import edge_contract_or_projection
+from .edge_contracts import edge_contract_for_edge
 from .models import ExecutableGraphConfig, GraphLoopState, NodeResultEnvelope, safe_id, stable_safe_id
 
 
 FLOW_PACKET_AUTHORITY = "graph_system_flow_packet"
 FLOW_PACKET_STATUSES = {"candidate", "accepted", "committed", "rejected", "failed"}
-FLOW_PACKET_EDGE_TYPES = {
-    "handoff",
-    "structured_handoff",
-    "memory_handoff",
-    "memory_read",
-    "memory_write",
-    "memory_write_candidate",
-    "memory_commit",
-    "artifact_read",
-    "artifact_write",
-    "artifact_context",
-    "artifact_commit",
-    "file_read",
-    "file_write",
-    "file_context",
-    "file_commit",
-    "revision_request",
-    "review_feedback",
-    "repair_feedback",
-    "conditional_feedback",
-    "repair_route",
-    "event",
-    "event_emit",
-    "event_subscribe",
-    "event_notify",
-    "audit",
-    "audit_report",
-    "audit_observation",
-}
 FLOW_PACKET_PROTOCOL_KINDS = {
     "node_handoff",
     "resource_read",
@@ -149,43 +120,27 @@ class FlowPacket:
         )
 
 
-def edge_delivers_flow_packet(edge: dict[str, Any], *, graph_config: ExecutableGraphConfig | None = None) -> bool:
-    if graph_config is not None:
-        edge_contract = edge_contract_or_projection(graph_config, edge)
-        trace = dict(edge_contract.get("trace") or {})
-        if "persist_packet" in trace:
-            return bool(trace.get("persist_packet"))
-        protocol = dict(edge_contract.get("protocol") or {})
-        produces_flow_packet = protocol.get("produces_flow_packet")
-        if produces_flow_packet is not None:
-            return bool(produces_flow_packet)
-        protocol_kind = str(protocol.get("kind") or "").strip()
-        if protocol_kind:
-            return _protocol_delivers_flow_packet(protocol_kind)
-    return _legacy_edge_delivers_flow_packet(edge)
+def edge_delivers_flow_packet(edge: dict[str, Any], *, graph_config: ExecutableGraphConfig) -> bool:
+    edge_contract = edge_contract_for_edge(graph_config, edge)
+    trace = dict(edge_contract.get("trace") or {})
+    if "persist_packet" in trace:
+        return bool(trace.get("persist_packet"))
+    protocol = dict(edge_contract.get("protocol") or {})
+    produces_flow_packet = protocol.get("produces_flow_packet")
+    if produces_flow_packet is not None:
+        return bool(produces_flow_packet)
+    protocol_kind = str(protocol.get("kind") or "").strip()
+    if not protocol_kind:
+        raise ValueError(f"Compiled edge contract missing protocol.kind: {edge.get('edge_id')}")
+    return _protocol_delivers_flow_packet(protocol_kind)
 
 
 def _protocol_delivers_flow_packet(protocol_kind: str) -> bool:
     if protocol_kind in STATE_ONLY_PROTOCOL_KINDS:
         return False
-    if protocol_kind in FLOW_PACKET_PROTOCOL_KINDS or protocol_kind in FLOW_PACKET_EDGE_TYPES:
+    if protocol_kind in FLOW_PACKET_PROTOCOL_KINDS:
         return True
     return protocol_kind.startswith("resource_") or protocol_kind.endswith("_signal") or protocol_kind.endswith("_observation")
-
-
-def _legacy_edge_delivers_flow_packet(edge: dict[str, Any]) -> bool:
-    edge_type = str(edge.get("edge_type") or "").strip()
-    semantic_role = str(edge.get("semantic_role") or "").strip()
-    scheduler_role = str(edge.get("scheduler_role") or "").strip()
-    if edge_type in FLOW_PACKET_EDGE_TYPES:
-        return True
-    if scheduler_role == "context":
-        return True
-    if semantic_role in {"memory", "artifact", "file", "revision"} and scheduler_role != "commit":
-        return True
-    if str(edge.get("payload_contract_id") or "").strip() and scheduler_role in {"dependency", "conditional_dependency", "context"}:
-        return True
-    return False
 
 
 def build_flow_packet(
@@ -200,8 +155,21 @@ def build_flow_packet(
     edge_id = str(edge.get("edge_id") or "")
     target_node_id = str(edge.get("target_node_id") or "")
     result_payload = result.to_dict()
-    visible_payload = _visible_payload_for_edge(edge=edge, result=result_payload)
-    artifact_refs = tuple(_artifact_ref_summaries(list(result_payload.get("artifact_refs") or []), edge=edge))
+    edge_contract = edge_contract_for_edge(graph_config, edge)
+    contract_packet = dict(edge_contract.get("packet") or {})
+    contract_reliability = dict(edge_contract.get("reliability") or {})
+    contract_protocol = dict(edge_contract.get("protocol") or {})
+    contract_visibility = dict(contract_packet.get("visibility") or {})
+    delivery_policy = str(contract_packet.get("delivery_policy") or "contract_payload_and_refs")
+    artifact_policy = dict(contract_visibility.get("artifact_ref_policy") or {})
+    context_filter_policy = dict(contract_visibility.get("context_filter_policy") or {})
+    visible_payload = _visible_payload_for_edge(
+        result=result_payload,
+        delivery_policy=delivery_policy,
+        context_filter_policy=context_filter_policy,
+        artifact_ref_policy=artifact_policy,
+    )
+    artifact_refs = tuple(_artifact_ref_summaries(list(result_payload.get("artifact_refs") or []), artifact_ref_policy=artifact_policy))
     receipt_refs = tuple(_receipt_ref_summaries(result_payload))
     result_refs = (
         {
@@ -213,15 +181,9 @@ def build_flow_packet(
         },
     )
     metadata = dict(edge.get("metadata") or {})
-    delivery_policy = _delivery_policy(edge)
-    edge_contract = edge_contract_or_projection(graph_config, edge)
-    contract_packet = dict(edge_contract.get("packet") or {})
-    contract_reliability = dict(edge_contract.get("reliability") or {})
-    contract_protocol = dict(edge_contract.get("protocol") or {})
-    contract_delivery_policy = str(contract_packet.get("delivery_policy") or delivery_policy)
     return FlowPacket(
         packet_id=f"flowpkt:{stable_safe_id(state.graph_run_id)}:{stable_safe_id(edge_id)}:{stable_safe_id(result.result_id)}",
-        packet_type=str(contract_packet.get("packet_type") or _packet_type(edge, protocol_kind=str(contract_protocol.get("kind") or ""))),
+        packet_type=str(contract_packet.get("packet_type") or _packet_type(protocol_kind=str(contract_protocol.get("kind") or ""))),
         graph_run_id=state.graph_run_id,
         task_run_id=state.task_run_id,
         source_unit_id=result.node_id,
@@ -230,10 +192,10 @@ def build_flow_packet(
         target_port_id=str(edge.get("target_port_id") or metadata.get("target_port_id") or ""),
         edge_id=edge_id,
         scope_id=str(edge.get("scope_id") or metadata.get("scope_id") or ""),
-        contract_id=str(contract_packet.get("payload_contract_id") or _contract_id(edge)),
-        packet_contract_id=str(contract_packet.get("packet_contract_id") or _packet_contract_id(edge)),
-        target_context_key=str(contract_packet.get("target_context_key") or _target_context_key(edge)),
-        target_input_slot=str(contract_packet.get("target_input_slot") or _target_input_slot(edge)),
+        contract_id=str(contract_packet.get("payload_contract_id") or ""),
+        packet_contract_id=str(contract_packet.get("packet_contract_id") or contract_packet.get("payload_contract_id") or ""),
+        target_context_key=str(contract_packet.get("target_context_key") or ""),
+        target_input_slot=str(contract_packet.get("target_input_slot") or ""),
         a2a_message_type=str(edge.get("a2a_message_type") or ""),
         payload_summary=str(result.handoff_summary or "")[:1200],
         payload_refs=(
@@ -249,11 +211,11 @@ def build_flow_packet(
         receipt_refs=receipt_refs,
         visible_payload=visible_payload,
         visibility={
-            "delivery_policy": contract_delivery_policy,
-            "ack_required": bool(contract_reliability.get("ack_required", edge.get("ack_required", True))),
-            "include_output_keys": sorted(_included_output_keys(dict(edge.get("context_filter_policy") or {}))),
-            "max_chars": _int_value(dict(edge.get("context_filter_policy") or {}).get("max_chars") or dict(edge.get("context_filter_policy") or {}).get("max_output_chars"), 0),
-            "artifact_ref_policy": dict(edge.get("artifact_ref_policy") or {}),
+            "delivery_policy": delivery_policy,
+            "ack_required": bool(contract_reliability.get("ack_required", True)),
+            "include_output_keys": sorted(_included_output_keys(context_filter_policy)),
+            "max_chars": _int_value(context_filter_policy.get("max_chars") or context_filter_policy.get("max_output_chars"), 0),
+            "artifact_ref_policy": artifact_policy,
             "edge_contract_id": str(edge_contract.get("contract_id") or ""),
             "protocol_kind": str(contract_protocol.get("kind") or ""),
         },
@@ -301,61 +263,23 @@ def flow_packet_inbound_projection(packet: FlowPacket, *, packet_ref: str = "") 
     }
 
 
-def _packet_type(edge: dict[str, Any], *, protocol_kind: str = "") -> str:
-    explicit = str(edge.get("packet_type") or "").strip()
-    if explicit:
-        return explicit
+def _packet_type(*, protocol_kind: str = "") -> str:
     if protocol_kind:
         return f"flow_packet.{protocol_kind}"
-    edge_type = str(edge.get("edge_type") or "handoff").strip() or "handoff"
-    return f"flow_packet.{edge_type}"
+    raise ValueError("Compiled edge contract missing packet_type and protocol.kind for flow packet edge")
 
 
-def _contract_id(edge: dict[str, Any]) -> str:
-    bindings = dict(edge.get("contract_bindings") or {})
-    schema = dict(bindings.get("schema") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(edge.get("payload_contract_id") or schema.get("payload_contract_id") or handoff.get("packet_contract_id") or "").strip()
-
-
-def _packet_contract_id(edge: dict[str, Any]) -> str:
-    bindings = dict(edge.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(edge.get("packet_contract_id") or handoff.get("packet_contract_id") or _contract_id(edge)).strip()
-
-
-def _target_context_key(edge: dict[str, Any]) -> str:
-    metadata = dict(edge.get("metadata") or {})
-    artifact_policy = dict(edge.get("artifact_ref_policy") or {})
-    bindings = dict(edge.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(
-        edge.get("target_context_key")
-        or handoff.get("target_context_key")
-        or metadata.get("target_context_key")
-        or metadata.get("target_input_key")
-        or artifact_policy.get("target_input_key")
-        or ""
-    ).strip()
-
-
-def _target_input_slot(edge: dict[str, Any]) -> str:
-    metadata = dict(edge.get("metadata") or {})
-    bindings = dict(edge.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(edge.get("target_input_slot") or handoff.get("target_input_slot") or metadata.get("target_input_slot") or metadata.get("input_alias") or "").strip()
-
-
-def _delivery_policy(edge: dict[str, Any]) -> str:
-    return str(edge.get("result_delivery_policy") or "summary_and_refs").strip() or "summary_and_refs"
-
-
-def _visible_payload_for_edge(*, edge: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    delivery_policy = _delivery_policy(edge)
+def _visible_payload_for_edge(
+    *,
+    result: dict[str, Any],
+    delivery_policy: str,
+    context_filter_policy: dict[str, Any],
+    artifact_ref_policy: dict[str, Any],
+) -> dict[str, Any]:
     handoff_summary = str(result.get("handoff_summary") or "")
     artifact_refs = _filter_artifact_ref_values(
         list(result.get("artifact_refs") or []),
-        artifact_ref_policy=dict(edge.get("artifact_ref_policy") or {}),
+        artifact_ref_policy=artifact_ref_policy,
     )
     base_refs = {
         "artifact_refs": artifact_refs,
@@ -370,9 +294,9 @@ def _visible_payload_for_edge(*, edge: dict[str, Any], result: dict[str, Any]) -
     if delivery_policy in {"summary_and_refs", "contract_payload_and_refs"}:
         output_payload = _filter_outputs(
             dict(result.get("outputs") or {}),
-            context_filter_policy=dict(edge.get("context_filter_policy") or {}),
+            context_filter_policy=context_filter_policy,
         )
-        artifact_payload = _artifact_text_payload(artifact_refs, edge=edge)
+        artifact_payload = _artifact_text_payload(artifact_refs, artifact_ref_policy=artifact_ref_policy, delivery_policy=delivery_policy)
         if artifact_payload:
             base_refs = {**base_refs, "artifact_payloads": artifact_payload}
         if output_payload:
@@ -397,11 +321,11 @@ def _source_quality_payload(result: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _artifact_text_payload(refs: list[str], *, edge: dict[str, Any]) -> list[dict[str, Any]]:
-    policy = dict(edge.get("artifact_ref_policy") or {})
+def _artifact_text_payload(refs: list[str], *, artifact_ref_policy: dict[str, Any], delivery_policy: str) -> list[dict[str, Any]]:
+    policy = dict(artifact_ref_policy or {})
     if policy.get("include_text") is False or policy.get("expand_text") is False:
         return []
-    if str(edge.get("result_delivery_policy") or "") == "refs_only":
+    if delivery_policy == "refs_only":
         return []
     max_refs = _int_value(policy.get("max_text_refs") or policy.get("max_refs") or 2, 2)
     max_chars = _int_value(policy.get("max_text_chars") or policy.get("max_chars") or 30000, 30000)
@@ -483,10 +407,10 @@ def _filter_artifact_ref_values(refs: list[Any], *, artifact_ref_policy: dict[st
     return result
 
 
-def _artifact_ref_summaries(refs: list[Any], *, edge: dict[str, Any]) -> list[dict[str, Any]]:
+def _artifact_ref_summaries(refs: list[Any], *, artifact_ref_policy: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {"ref_kind": "artifact", "artifact_ref": ref}
-        for ref in _filter_artifact_ref_values(refs, artifact_ref_policy=dict(edge.get("artifact_ref_policy") or {}))
+        for ref in _filter_artifact_ref_values(refs, artifact_ref_policy=artifact_ref_policy)
     ]
 
 

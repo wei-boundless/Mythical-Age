@@ -203,7 +203,6 @@ import type {
   ChatRunInterruptPayload,
   ChatRunInterruptResult,
   SessionContinuationProjection,
-  SessionContinuationRecord,
   SessionHistory,
   SessionProjectBinding,
   SessionRuntimeAttachment,

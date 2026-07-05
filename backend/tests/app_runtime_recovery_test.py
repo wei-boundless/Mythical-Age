@@ -32,7 +32,7 @@ def _ready_app_runtime(harness_runtime: _HarnessRuntimeStub) -> AppRuntime:
     return app
 
 
-def test_background_services_do_not_auto_start_recovered_task_executors():
+def test_background_services_do_not_auto_start_recovered_task_runs():
     harness_runtime = _HarnessRuntimeStub()
     app = _ready_app_runtime(harness_runtime)
 

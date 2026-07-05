@@ -1058,10 +1058,10 @@ def _editor_evidence_delta_origin_ref(payload: Any) -> str:
 
 def _recent_work_outcome_origin_ref(payload: dict[str, Any]) -> str:
     data = dict(dict(payload or {}).get("recent_work_outcome") or {})
-    task_run_id = str(data.get("task_run_id") or "").strip()
+    work_ref = str(data.get("task_environment_id") or data.get("task_run_id") or "").strip()
     status = str(data.get("status") or "").strip()
     content_hash = _stable_json_hash(payload).removeprefix("sha256:")[:16]
-    return ":".join(item for item in ("recent_work_outcome", task_run_id, status, content_hash) if item)
+    return ":".join(item for item in ("recent_work_outcome", work_ref, status, content_hash) if item)
 
 
 def _recent_work_outcome_context_payload(clean_payload: dict[str, Any]) -> dict[str, Any]:

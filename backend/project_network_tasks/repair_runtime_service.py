@@ -7,7 +7,6 @@ from typing import Any
 from core.project_layout import ProjectLayout
 from file_management.project_structure.repository import ProjectStructureRepository
 from file_management.project_structure.skeleton_refs import file_ref, folder_ref, normalize_rel_path
-from graph_system.models import NodeResultEnvelope
 from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -128,6 +127,7 @@ class ProjectNetworkRepairRuntimeService:
             limit=limit,
             max_active_nodes=max_active_nodes,
         )
+        child_returns = self._child_returns_for_frame(plan.frame.frame_id)
         package = DirectoryFrameMaterializationPackage(
             package_id=stable_project_network_id(
                 "pnrepairpkg",
@@ -140,11 +140,7 @@ class ProjectNetworkRepairRuntimeService:
             build_id=plan.build_id,
             frame=plan.frame,
             manifest=plan.manifest,
-            child_returns=tuple(
-                child
-                for ref in plan.child_return_refs
-                for child in (self.repository.list_directory_child_returns(build_id=plan.build_id, parent_frame_id=plan.frame.frame_id, limit=2048),)
-            ),
+            child_returns=child_returns,
             graph_id=f"graph.project_network.repair.{_slug(plan.build_id)}.{_slug(plan.repair_batch_id)}",
             source_work_product_refs=plan.source_work_product_refs,
             metadata={
@@ -155,9 +151,6 @@ class ProjectNetworkRepairRuntimeService:
                 "repair_item_ids": [item.repair_item_id for item in plan.repair_items],
             },
         )
-        # The tuple-comprehension above materializes child returns twice in one line; replace with stable filtered list.
-        child_returns = self._child_returns_for_frame(plan.frame.frame_id)
-        package = replace(package, child_returns=child_returns)
         task_graph = self.graph_builder.build_directory_frame_graph(package)
         task_graph = self._decorate_repair_graph(
             task_graph,
@@ -207,7 +200,7 @@ class ProjectNetworkRepairRuntimeService:
             start_initial_inputs=start_initial_inputs,
             metadata={
                 "source_work_product_refs": list(plan.source_work_product_refs),
-                "child_return_ref_count": len(plan.child_return_refs),
+                "child_return_ref_count": len(child_returns),
                 "selected_repair_count": len(plan.repair_items),
                 "deferred_repair_count": len(plan.deferred_repair_item_ids),
                 "authority": self.authority,
@@ -287,7 +280,7 @@ class ProjectNetworkRepairRuntimeService:
 
     def accept_repair_node_result(
         self,
-        node_result: NodeResultEnvelope | dict[str, Any],
+        node_result: Any,
         *,
         repair_item_ids: tuple[str, ...] | list[str] = (),
         repair_batch_id: str = "",

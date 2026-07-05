@@ -19,16 +19,79 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+
+function Test-WritingProjectBriefContent {
+    param(
+        [string]$Content,
+        [string]$ProjectTitle
+    )
+
+    $text = ""
+    if ($null -ne $Content) {
+        $text = $Content.Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $false
+    }
+
+    $agentProjectMarkers = @(
+        "Agent 平台",
+        "AI Agent 平台",
+        "FastAPI",
+        "Next.js",
+        "GraphSystem",
+        "langchain-agent/",
+        "后端 Python 包"
+    )
+    foreach ($marker in $agentProjectMarkers) {
+        if ($text.Contains($marker)) {
+            return $false
+        }
+    }
+
+    $hasTitle = $text.Contains($ProjectTitle)
+    $hasScale = ($text.Contains("200章") -or $text.Contains("总章节数"))
+    $hasWritingContract = (
+        ($text.Contains("创作禁区") -or $text.Contains("硬设定")) -and
+        ($text.Contains("作品类型") -or $text.Contains("题材约束") -or $text.Contains("项目定位"))
+    )
+    return ($hasTitle -and $hasScale -and $hasWritingContract)
+}
+
 if ([string]::IsNullOrWhiteSpace($SessionId)) {
     $SessionId = "writing-modular-novel-honghuang-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
 }
 
 $BriefPath = Join-Path $RepoRoot $ProjectBriefFile
-if (-not (Test-Path $BriefPath)) {
-    throw "Project brief file not found: $BriefPath"
+$ProjectBrief = ""
+if (Test-Path $BriefPath) {
+    $CandidateBrief = (Get-Content -Raw -Path $BriefPath -Encoding UTF8).Trim()
+    if (Test-WritingProjectBriefContent -Content $CandidateBrief -ProjectTitle $ProjectTitle) {
+        $ProjectBrief = $CandidateBrief
+    }
 }
 
-$ProjectBrief = (Get-Content -Raw -Path $BriefPath -Encoding UTF8).Trim()
+if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
+    $ProjectStorageSlug = [Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '_').Trim('_').ToLower()
+    $ProjectInstanceRoot = Join-Path $RepoRoot "storage/graph_task_instances/$ProjectStorageSlug"
+    $FallbackBrief = $null
+    if (Test-Path $ProjectInstanceRoot) {
+        $FallbackBrief = Get-ChildItem -LiteralPath $ProjectInstanceRoot -Recurse -File -Filter "project_brief.md" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like "*\artifacts\$ProjectId\project_brief.md" } |
+            Where-Object {
+                $candidateText = (Get-Content -Raw -LiteralPath $_.FullName -Encoding UTF8 -ErrorAction SilentlyContinue).Trim()
+                Test-WritingProjectBriefContent -Content $candidateText -ProjectTitle $ProjectTitle
+            } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+    }
+    if ($null -eq $FallbackBrief) {
+        throw "Valid writing project brief file not found. Checked primary path and run-scoped fallbacks for project '$ProjectId'. Primary path: $BriefPath"
+    }
+    $BriefPath = $FallbackBrief.FullName
+    $ProjectBrief = (Get-Content -Raw -Path $BriefPath -Encoding UTF8).Trim()
+}
+
 if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
     throw "Project brief file is empty: $BriefPath"
 }
@@ -114,7 +177,7 @@ $Payload = @{
 
 $Response = Invoke-RestMethod `
     -Method Post `
-    -Uri "$BaseUrl/orchestration/harness/task-graphs/$GraphId/start" `
+    -Uri "$BaseUrl/graph-system/task-graphs/$GraphId/start" `
     -ContentType "application/json; charset=utf-8" `
     -Body ($Payload | ConvertTo-Json -Depth 8)
 
@@ -126,10 +189,11 @@ $Result = [pscustomobject]@{
     task_id = $TaskId
     task_run_id = [string]$Response.task_run_id
     graph_run_id = [string]$Response.graph_run_id
-    graph_harness_config_id = [string]$Response.graph_harness_config_id
+    graph_config_id = [string]$Response.graph_config_id
     node_work_order_count = @($Response.node_work_orders).Count
     first_node_id = if (@($Response.node_work_orders).Count -gt 0) { [string]$Response.node_work_orders[0].node_id } else { "" }
     artifact_root = $ArtifactRoot
+    project_brief_file = [string]$BriefPath
     graph_status = [string]$Response.graph_loop_state.status
     source = "scripts.start_writing_project_run"
 }

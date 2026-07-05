@@ -21,12 +21,12 @@ def test_runtime_trace_api_returns_compact_trace_detail_without_raw_payload(tmp_
     runtime = SimpleNamespace(harness_runtime=SimpleNamespace(single_agent_runtime_host=host))
     monkeypatch.setattr(runtime_trace_api, "require_runtime", lambda: runtime)
     trace = host.trace_service.start_trace(
-        run_kind="task_executor",
+        run_kind="task_run",
         root_run_id="taskrun:trace-api",
         scope={"session_id": "session:trace-api", "task_run_id": "taskrun:trace-api"},
         refs={"task_run_id": "taskrun:trace-api"},
         attributes={"prompt": "must not leak"},
-        idempotency_key="task-executor:trace-api",
+        idempotency_key="task-run:trace-api",
         started_at=10.0,
     )
     span = host.trace_service.start_span(
@@ -52,7 +52,7 @@ def test_runtime_trace_api_returns_compact_trace_detail_without_raw_payload(tmp_
     detail = runtime_trace_api.get_runtime_trace(trace.trace_id, include_spans=True, include_events=True, limit=20)
 
     assert detail["authority"] == "runtime_trace.api.trace_detail"
-    assert detail["summary"]["run"]["run_kind"] == "task_executor"
+    assert detail["summary"]["run"]["run_kind"] == "task_run"
     assert detail["summary"]["span_count"] == 1
     assert detail["summary"]["event_count"] == 1
     assert detail["spans"][0]["name"] == "model.invoke"

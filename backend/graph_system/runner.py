@@ -463,10 +463,10 @@ def _root_control_boundary(services: Any, state: Any | None) -> dict[str, Any]:
         return {}
     task_run_id = str(getattr(state, "task_run_id", "") or "").strip()
     if not task_run_id:
-        return {}
+        raise ValueError("GraphLoopState root TaskRun id is missing")
     task_run = services.state_index.get_task_run(task_run_id)
     if task_run is None:
-        return {}
+        raise ValueError(f"GraphRun root TaskRun not found: {task_run_id}")
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = diagnostics.get(_GRAPH_RUN_CONTROL_KEY)
     if not isinstance(control, dict):

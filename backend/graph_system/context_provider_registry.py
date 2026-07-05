@@ -33,19 +33,31 @@ class GraphContextProvider:
 
 
 _PROVIDERS: dict[str, GraphContextProvider] = {}
-_DEFAULT_MODULES_LOADED = False
-_DEFAULT_MODULES = (
-    'project_network_tasks.context_providers',
-    'task_system.writing_graphs.context_providers',
-)
+_LOADED_MODULES: set[str] = set()
+
+
+def snapshot_graph_context_provider_registry() -> dict[str, Any]:
+    return {
+        "providers": dict(_PROVIDERS),
+        "loaded_modules": set(_LOADED_MODULES),
+    }
+
+
+def restore_graph_context_provider_registry(snapshot: dict[str, Any]) -> None:
+    _PROVIDERS.clear()
+    _PROVIDERS.update(dict(snapshot.get("providers") or {}))
+    _LOADED_MODULES.clear()
+    _LOADED_MODULES.update(str(item) for item in set(snapshot.get("loaded_modules") or set()) if str(item))
 
 
 def register_graph_context_provider(provider: GraphContextProvider) -> None:
-    _PROVIDERS[provider.provider_id] = provider
+    provider_id = str(provider.provider_id or "").strip()
+    if provider_id in _PROVIDERS:
+        raise ValueError(f"duplicate graph context provider id: {provider_id}")
+    _PROVIDERS[provider_id] = provider
 
 
 def iter_graph_context_providers() -> tuple[GraphContextProvider, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_PROVIDERS.values(), key=lambda provider: (provider.priority, provider.provider_id)))
 
 
@@ -91,7 +103,7 @@ def apply_context_providers(
             inbound_context=list(next_inbound_context),
         )
         if not isinstance(contribution, GraphContextProviderContribution):
-            continue
+            raise ValueError(f"graph context provider returned invalid contribution: {provider.provider_id}")
         if contribution.initial_inputs:
             next_initial_inputs.update(dict(contribution.initial_inputs))
         if contribution.inbound_context is not None:
@@ -103,13 +115,26 @@ def apply_context_providers(
     return next_initial_inputs, next_inbound_context
 
 
-def _ensure_default_modules_loaded() -> None:
-    global _DEFAULT_MODULES_LOADED
-    if _DEFAULT_MODULES_LOADED:
+def load_graph_context_provider_module(module_name: str) -> None:
+    normalized = str(module_name or "").strip()
+    if not normalized or normalized in _LOADED_MODULES:
         return
-    _DEFAULT_MODULES_LOADED = True
-    for module_name in _DEFAULT_MODULES:
-        module = importlib.import_module(module_name)
-        register = getattr(module, 'register_context_providers', None)
-        if callable(register):
-            register(register_graph_context_provider)
+    module = importlib.import_module(normalized)
+    register = getattr(module, "register_context_providers", None)
+    if not callable(register):
+        raise ValueError(f"graph context provider module has no register_context_providers(): {normalized}")
+    before = dict(_PROVIDERS)
+    try:
+        register(register_graph_context_provider)
+    except Exception:
+        _PROVIDERS.clear()
+        _PROVIDERS.update(before)
+        raise
+    if _PROVIDERS == before:
+        raise ValueError(f"graph context provider module registered no providers: {normalized}")
+    _LOADED_MODULES.add(normalized)
+
+
+def load_graph_context_provider_modules(module_names: tuple[str, ...] | list[str]) -> None:
+    for module_name in list(module_names or ()):
+        load_graph_context_provider_module(str(module_name or ""))

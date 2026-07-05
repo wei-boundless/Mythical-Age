@@ -23,6 +23,7 @@ from sessions import SessionManager
 from runtime import ModelRuntime
 from runtime.prompt_accounting import PromptAccountingLedger, build_provider_cache_log_view
 from core.project_layout import ProjectLayout
+from bootstrap.graph_extensions import ensure_app_graph_extensions_loaded
 
 
 class AppRuntime:
@@ -49,6 +50,7 @@ class AppRuntime:
         self.settings = AppSettingsService(base_dir)
         refresh_snapshot(base_dir)
         refresh_tool_registry(base_dir)
+        ensure_app_graph_extensions_loaded()
         self.session_manager = SessionManager(base_dir)
         self.skill_registry = SkillRegistry(base_dir)
         self.tool_runtime = ToolRuntime(base_dir)

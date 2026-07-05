@@ -119,6 +119,23 @@ export async function resumeGraphRun(
   );
 }
 
+export async function stopGraphRun(
+  graphRunId: string,
+  payload: {
+    graph_config_id: string;
+    session_scope?: Partial<SessionScope>;
+    reason?: string;
+  }
+) {
+  return request<GraphRunControlResult>(
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/stop`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function getGraphRunMonitor(
   graphRunId: string,
   graphConfigId = "",
@@ -326,4 +343,3 @@ export async function dispatchGraphRunReadyNodes(
     }
   );
 }
-

@@ -1,7 +1,7 @@
 # 项目控制网络与任务底座重构实施索引
 
-状态：重构入口索引，作为后续实施的当前权威入口  
-日期：2026-07-04  
+状态：重构总入口索引；当前连续推进计划见 `21_authority_audit_and_continuous_refactor_plan.md`；图任务母体架构见 `23_graph_task_programmed_agent_spacetime_architecture.md`；图任务时空算法修复见 `22_graph_task_spacetime_outcome_algorithm_repair_plan.md`
+日期：2026-07-05
 适用范围：`graph_system`、`task_system`、`project_network_system`、`project_network_tasks`、`file_management`、`harness`、`capability_system/tools`
 
 ## 1. 本索引解决什么
@@ -12,10 +12,19 @@
 
 ```text
 先按本文确定阅读顺序和实施权威
+再按 21 固定本轮代码审查后的漏洞、旧结构和连续推进顺序
 再按 16 / 19 / 18 / 17 固定任务底座
-再按 13 / 14 固定系统边界和图任务运行底座
+再按 13 / 14 / 23 / 22 固定系统边界、图任务母体架构、时空运行底座和 Outcome 算法修复
 再按 10 / 11 / 12 固定项目控制网络资产与维护闭环
 最后按 01-08 / 04 / 06 落地 AST 与语义审查生产线
+```
+
+当前执行裁决：
+
+```text
+21 号文档接替零散阶段推进。
+后续先收束 TaskCommand / TaskScheduler / RuntimeAnchor / ProjectNetwork generation lifecycle，
+再继续具体项目网络、前端和工具面优化。
 ```
 
 ## 2. 当前重构总目标
@@ -66,15 +75,18 @@ task_system = 持久任务环境，不保存项目网络领域资产
 
 | 顺序 | 文档 | 作用 |
 | --- | --- | --- |
-| 1 | `16_unified_agent_task_project_control_overall_plan.md` | 总体目标架构，固定 harness / task / graph / project network / file management 的分层 |
-| 2 | `19_task_framework_canonical_definition_and_agent_system_contract.md` | 固定 Task、Plan、Todo、Episode、WorkProduct，以及 agent/system 推进协议 |
-| 3 | `18_task_environment_runtime_mechanics_plan.md` | 固定任务环境存储、事件、snapshot、lease、checkpoint、reducer、query、repair |
-| 4 | `17_task_graph_runtime_interface_detail_alignment.md` | 固定任务环境与图节点运行接口，尤其 GraphNodeTaskBinding / NodeResultEnvelope |
-| 5 | `13_graph_task_task_system_file_system_boundary_optimization_plan.md` | 固定 graph/task/file/project network 边界和代码迁移方向 |
-| 6 | `14_graph_task_spacetime_runtime_architecture_plan.md` | 固定图任务的时空运行体系、checkpoint、resume、fork、repair 语义 |
-| 7 | `10_project_control_system_three_layer_network_contract_rewrite_plan.md` | 固定物理层、语义层、agent 神经控制层的三层网络 |
-| 8 | `11_deep_index_repair_and_maintenance_unification_plan.md` | 固定深度索引、断链修复和维护同源闭环 |
-| 9 | `12_apix_project_network_status_and_optimization_report.md` | 记录 Apix 实测问题，作为项目控制网络成熟度验收参照 |
+| 1 | `21_authority_audit_and_continuous_refactor_plan.md` | 当前连续推进计划，固定本轮代码审查后的漏洞、旧结构、TaskCommand/Scheduler、RuntimeAnchor、ProjectNetwork generation 和前端工作台推进顺序 |
+| 2 | `16_unified_agent_task_project_control_overall_plan.md` | 总体目标架构，固定 harness / task / graph / project network / file management 的分层 |
+| 3 | `19_task_framework_canonical_definition_and_agent_system_contract.md` | 固定 Task、Plan、Todo、Episode、WorkProduct，以及 agent/system 推进协议 |
+| 4 | `18_task_environment_runtime_mechanics_plan.md` | 固定任务环境存储、事件、snapshot、lease、checkpoint、reducer、query、repair |
+| 5 | `17_task_graph_runtime_interface_detail_alignment.md` | 固定任务环境与图节点运行接口，尤其 GraphNodeTaskBinding / NodeResultEnvelope |
+| 6 | `13_graph_task_task_system_file_system_boundary_optimization_plan.md` | 固定 graph/task/file/project network 边界和代码迁移方向 |
+| 7 | `14_graph_task_spacetime_runtime_architecture_plan.md` | 固定图任务的时空运行体系、checkpoint、resume、fork、repair 语义 |
+| 8 | `23_graph_task_programmed_agent_spacetime_architecture.md` | 固定图任务母体架构：图任务是程序化节点时空调控系统，节点是图任务空间里的物理单位，agent 只是其中一种执行节点；算法层统一 readiness/transition/frame/invalidation/tree_reduce/repair，具体任务只是算法结构实例；ExecutionTraceBinding 负责连接外层 GraphTime 与内层 HarnessTurnTime |
+| 9 | `22_graph_task_spacetime_outcome_algorithm_repair_plan.md` | 固定图任务 Outcome 算法修复：执行状态与业务 outcome 分离、TransitionPolicy 按 outcome 选边、ControlFrame 管理返修/重试和 replay、提交类节点 precommit/commit 两阶段 |
+| 10 | `10_project_control_system_three_layer_network_contract_rewrite_plan.md` | 固定物理层、语义层、agent 神经控制层的三层网络 |
+| 11 | `11_deep_index_repair_and_maintenance_unification_plan.md` | 固定深度索引、断链修复和维护同源闭环 |
+| 12 | `12_apix_project_network_status_and_optimization_report.md` | 记录 Apix 实测问题，作为项目控制网络成熟度验收参照 |
 
 ### 3.2 背景和设计来源
 
@@ -266,15 +278,15 @@ backend:  http://127.0.0.1:8003
 
 ## 8. 当前执行建议
 
-下一步代码重构建议从 Phase 1 开始：
+下一步代码重构必须先执行 `21_authority_audit_and_continuous_refactor_plan.md` 的 Phase 1：
 
 ```text
-1. 检查所有 task_system.project_network 引用是否已经迁移。
-2. 确认 project_network_system 只保存资产和服务，不调度 agent。
-3. 确认 project_network_tasks 只保存图任务适配和模板。
-4. 清理旧包和旧 import。
-5. 编译相关后端文件。
-6. 用 CLI 路径真实跑一次 project network 轻量命令。
+1. 冻结旧 TaskRunLedger / TaskResult 主链。
+2. 建 TaskCommand / TaskScheduler。
+3. 抽出 Harness task episode bridge。
+4. 让 graph node 通过 TaskCommand 执行。
+5. 再做 RuntimeAnchor 迁移。
+6. 最后收束 ProjectNetwork generation / repair / frontend workbench。
 ```
 
-完成 Phase 1 后，再进入 GraphSystem adapter/context provider 收口；不要同时开始 TaskFramework 的完整存储层，否则改动面会过大，状态不容易稳定。
+旧 `task_system.project_network` 搬家与 GraphSystem 领域硬编码收口已经进入进度日志，后续不再把这些已完成阶段作为当前起点。

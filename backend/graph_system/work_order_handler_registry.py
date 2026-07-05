@@ -30,18 +30,31 @@ class DeterministicWorkOrderHandler:
 
 
 _HANDLERS: dict[str, DeterministicWorkOrderHandler] = {}
-_DEFAULT_MODULES_LOADED = False
-_DEFAULT_MODULES = (
-    "task_system.writing_graphs.work_order_handlers",
-)
+_LOADED_MODULES: set[str] = set()
+
+
+def snapshot_deterministic_work_order_handler_registry() -> dict[str, Any]:
+    return {
+        "handlers": dict(_HANDLERS),
+        "loaded_modules": set(_LOADED_MODULES),
+    }
+
+
+def restore_deterministic_work_order_handler_registry(snapshot: dict[str, Any]) -> None:
+    _HANDLERS.clear()
+    _HANDLERS.update(dict(snapshot.get("handlers") or {}))
+    _LOADED_MODULES.clear()
+    _LOADED_MODULES.update(str(item) for item in set(snapshot.get("loaded_modules") or set()) if str(item))
 
 
 def register_deterministic_work_order_handler(handler: DeterministicWorkOrderHandler) -> None:
-    _HANDLERS[handler.handler_id] = handler
+    handler_id = str(handler.handler_id or "").strip()
+    if handler_id in _HANDLERS:
+        raise ValueError(f"duplicate deterministic work order handler id: {handler_id}")
+    _HANDLERS[handler_id] = handler
 
 
 def iter_deterministic_work_order_handlers() -> tuple[DeterministicWorkOrderHandler, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_HANDLERS.values(), key=lambda handler: (handler.priority, handler.handler_id)))
 
 
@@ -57,13 +70,26 @@ def handle_deterministic_work_order(
     return None
 
 
-def _ensure_default_modules_loaded() -> None:
-    global _DEFAULT_MODULES_LOADED
-    if _DEFAULT_MODULES_LOADED:
+def load_deterministic_work_order_handler_module(module_name: str) -> None:
+    normalized = str(module_name or "").strip()
+    if not normalized or normalized in _LOADED_MODULES:
         return
-    _DEFAULT_MODULES_LOADED = True
-    for module_name in _DEFAULT_MODULES:
-        module = importlib.import_module(module_name)
-        register = getattr(module, "register_deterministic_work_order_handlers", None)
-        if callable(register):
-            register(register_deterministic_work_order_handler)
+    module = importlib.import_module(normalized)
+    register = getattr(module, "register_deterministic_work_order_handlers", None)
+    if not callable(register):
+        raise ValueError(f"deterministic work order handler module has no register_deterministic_work_order_handlers(): {normalized}")
+    before = dict(_HANDLERS)
+    try:
+        register(register_deterministic_work_order_handler)
+    except Exception:
+        _HANDLERS.clear()
+        _HANDLERS.update(before)
+        raise
+    if _HANDLERS == before:
+        raise ValueError(f"deterministic work order handler module registered no handlers: {normalized}")
+    _LOADED_MODULES.add(normalized)
+
+
+def load_deterministic_work_order_handler_modules(module_names: tuple[str, ...] | list[str]) -> None:
+    for module_name in list(module_names or ()):
+        load_deterministic_work_order_handler_module(str(module_name or ""))

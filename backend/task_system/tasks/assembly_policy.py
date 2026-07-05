@@ -11,7 +11,7 @@ RuntimeShape = Literal["single_agent", "task_graph", "human_gate", "graph_module
 
 @dataclass(frozen=True, slots=True)
 class AgentSelectionPolicy:
-    default_agent_id: str = "agent:0"
+    default_agent_id: str = ""
     agent_profile_ref: str = ""
     worker_blueprint_id: str = ""
     allow_worker_spawn: bool = False

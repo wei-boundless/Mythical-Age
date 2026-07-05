@@ -292,17 +292,22 @@ class TaskWorkEnvironmentService:
         task_instance = self.repository.get_task_instance(environment.task_instance_id)
         if task_instance is None:
             raise KeyError(f"task instance not found: {environment.task_instance_id}")
+        resolved_agent_id = str(agent_id or task_instance.owner_agent_id or "").strip()
+        resolved_agent_profile_id = str(agent_profile_id or "").strip()
+        if not resolved_agent_id:
+            raise ValueError("prepare_task_episode requires agent_id or task owner_agent_id")
+        if not resolved_agent_profile_id:
+            raise ValueError("prepare_task_episode requires explicit agent_profile_id")
         key = str(idempotency_key or "").strip() or stable_task_environment_id(
             "episodekey",
             environment.task_environment_id,
             environment.revision,
             environment.latest_context_package_id,
             invocation_kind,
-            agent_profile_id or task_instance.owner_agent_id,
+            resolved_agent_id,
+            resolved_agent_profile_id,
         )
         episode_id = stable_task_environment_id("episode", environment.task_environment_id, key)
-        resolved_agent_id = str(agent_id or task_instance.owner_agent_id or "task_environment_worker")
-        resolved_agent_profile_id = str(agent_profile_id or task_instance.owner_agent_id or "task_environment_worker")
         episode = self.episode_repository.upsert_episode(
             AgentExecutionEpisode(
                 episode_id=episode_id,
@@ -323,6 +328,7 @@ class TaskWorkEnvironmentService:
             )
         )
         context_payload = _context_payload_for_episode(
+            repository=self.repository,
             task_instance=task_instance,
             environment=environment,
             role_contract=role_contract,
@@ -352,6 +358,7 @@ class TaskWorkEnvironmentService:
                 resource_handles=dict(context_payload.get("resource_handles") or {}),
                 graph_context=dict(context_payload.get("graph_context") or {}),
                 project_network_handles=dict(context_payload.get("project_network_handles") or {}),
+                task_state_context=dict(context_payload.get("task_state_context") or {}),
                 continuation_hint=str(context_payload.get("continuation_hint") or ""),
                 output_contract=dict(context_payload.get("output_contract") or {}),
                 packet_policy=dict(context_payload.get("packet_policy") or {}),
@@ -594,7 +601,11 @@ class TaskWorkEnvironmentService:
                     },
                 )
             )
-        snapshot_patch = {"active_lease_id": ""}
+        snapshot_patch: dict[str, Any] = {}
+        if environment.active_lease_id == lease.lease_id:
+            snapshot_patch["active_lease_id"] = ""
+            if environment.active_episode_id == lease.episode_id:
+                snapshot_patch["active_episode_id"] = ""
         if environment.status == "leased" and environment.active_lease_id == lease.lease_id:
             snapshot_patch.update(
                 {
@@ -687,7 +698,11 @@ class TaskWorkEnvironmentService:
                     )
                 )
                 episode_payload = episode.to_dict()
-            snapshot_patch = {"active_lease_id": ""}
+            snapshot_patch: dict[str, Any] = {}
+            if environment.active_lease_id == lease.lease_id:
+                snapshot_patch["active_lease_id"] = ""
+                if environment.active_episode_id == lease.episode_id:
+                    snapshot_patch["active_episode_id"] = ""
             if environment.status == "leased" and environment.active_lease_id == lease.lease_id:
                 snapshot_patch.update(
                     {
@@ -798,6 +813,7 @@ def _control_signal_snapshot_patch(signal_kind: str, status: str) -> dict[str, A
 
 def _context_payload_for_episode(
     *,
+    repository: TaskEnvironmentRepository,
     task_instance: TaskInstance,
     environment: TaskWorkEnvironment,
     role_contract: str,
@@ -830,6 +846,11 @@ def _context_payload_for_episode(
         **acceptance_contract,
         **dict(acceptance or {}),
     }
+    task_state_context = build_task_state_context_for_episode(
+        repository=repository,
+        task_instance=task_instance,
+        environment=environment,
+    )
     return {
         "role_contract": str(role_contract or _default_role_contract(task_instance, environment)),
         "goal": str(task_instance.goal or environment.continuation_hint or ""),
@@ -851,6 +872,7 @@ def _context_payload_for_episode(
             **dict(metadata.get("project_network_handles") or {}),
             **dict(project_network_handles or {}),
         },
+        "task_state_context": task_state_context,
         "continuation_hint": str(continuation_hint or environment.continuation_hint or ""),
         "output_contract": {
             **dict(contract.get("output_contract") or {}),
@@ -875,6 +897,114 @@ def _default_role_contract(task_instance: TaskInstance, environment: TaskWorkEnv
             "你必须输出清晰的进度、阻塞项、证据引用和可归并的结果；如果无法继续，说明缺失的资源或需要的用户决策。",
             f"当前任务环境：{environment.task_environment_id}。",
         ]
+    )
+
+
+def build_task_state_context_for_episode(
+    *,
+    repository: TaskEnvironmentRepository,
+    task_instance: TaskInstance,
+    environment: TaskWorkEnvironment,
+) -> dict[str, Any]:
+    active_plans = repository.list_task_plans(environment.task_environment_id, status="active", limit=1)
+    latest_plans = active_plans or repository.list_task_plans(environment.task_environment_id, limit=1)
+    focus_todos: list[dict[str, Any]] = []
+    for status in ("active", "blocked", "pending"):
+        remaining = 12 - len(focus_todos)
+        if remaining <= 0:
+            break
+        focus_todos.extend(
+            _compact_todo_item(item)
+            for item in repository.list_todo_items(environment.task_environment_id, status=status, limit=remaining)
+        )
+    state_proposals = repository.list_state_proposals(environment.task_environment_id, status="recorded", limit=8)
+    checkpoints = repository.list_checkpoints(environment.task_environment_id, checkpoint_kind="reducer_commit", limit=3)
+    return _drop_empty_context(
+        {
+            "authority": "task_system.task_context_package.state_context",
+            "task_environment_id": environment.task_environment_id,
+            "task_instance_id": task_instance.task_instance_id,
+            "status": environment.status,
+            "progress": _drop_empty_context(
+                {
+                    "current_phase": environment.current_phase,
+                    "current_step": environment.current_step,
+                    "progress_current": environment.progress_current,
+                    "progress_total": environment.progress_total,
+                    "progress_label": environment.progress_label,
+                    "blocked_reason": environment.blocked_reason,
+                    "recovery_action": environment.recovery_action,
+                }
+            ),
+            "active_plan": _compact_plan(latest_plans[0]) if latest_plans else {},
+            "focus_todos": focus_todos,
+            "recorded_state_proposals": [_compact_state_proposal(item) for item in state_proposals],
+            "latest_refs": _drop_empty_context(
+                {
+                    "latest_event_id": environment.latest_event_id,
+                    "latest_checkpoint_id": environment.latest_checkpoint_id,
+                    "latest_context_package_id": environment.latest_context_package_id,
+                    "latest_work_product_id": environment.latest_work_product_id,
+                    "continuation_hint": environment.continuation_hint,
+                }
+            ),
+            "reducer_checkpoints": [_compact_checkpoint(item) for item in checkpoints],
+        }
+    )
+
+
+def _compact_plan(plan: Any) -> dict[str, Any]:
+    return _drop_empty_context(
+        {
+            "plan_id": str(plan.plan_id or ""),
+            "version": plan.version,
+            "status": str(plan.status or ""),
+            "strategy_summary": str(plan.strategy_summary or ""),
+            "phases": [dict(item) for item in plan.phases],
+            "acceptance_mapping": dict(plan.acceptance_mapping or {}),
+            "risk_notes": list(plan.risk_notes),
+        }
+    )
+
+
+def _compact_todo_item(todo: Any) -> dict[str, Any]:
+    return _drop_empty_context(
+        {
+            "todo_id": str(todo.todo_id or ""),
+            "title": str(todo.title or ""),
+            "status": str(todo.status or ""),
+            "plan_id": str(todo.plan_id or ""),
+            "evidence_refs": list(todo.evidence_refs),
+            "blocker": str(todo.blocker or ""),
+        }
+    )
+
+
+def _compact_state_proposal(proposal: Any) -> dict[str, Any]:
+    return _drop_empty_context(
+        {
+            "proposal_id": str(proposal.proposal_id or ""),
+            "proposal_kind": str(proposal.proposal_kind or ""),
+            "state_path": str(proposal.state_path or ""),
+            "operation": str(proposal.operation or ""),
+            "value": proposal.value,
+            "evidence_refs": list(proposal.evidence_refs),
+            "confidence": str(proposal.confidence or ""),
+            "status": str(proposal.status or ""),
+        }
+    )
+
+
+def _compact_checkpoint(checkpoint: Any) -> dict[str, Any]:
+    return _drop_empty_context(
+        {
+            "checkpoint_id": str(checkpoint.checkpoint_id or ""),
+            "checkpoint_kind": str(checkpoint.checkpoint_kind or ""),
+            "episode_id": str(checkpoint.episode_id or ""),
+            "event_id": str(checkpoint.event_id or ""),
+            "event_seq": checkpoint.event_seq,
+            "summary": str(checkpoint.summary or ""),
+        }
     )
 
 

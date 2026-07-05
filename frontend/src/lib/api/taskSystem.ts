@@ -26,10 +26,15 @@ import type {
   TaskEnvironmentGroupUpsertPayload,
   TaskEnvironmentKindTemplate,
   TaskEnvironmentKindTemplateUpsertPayload,
+  TaskEnvironmentCommandListResponse,
+  TaskEnvironmentCommandSubmitPayload,
+  TaskEnvironmentCommandSubmitResponse,
   TaskEnvironmentSessionResolvePayload,
   TaskEnvironmentSessionResolveResponse,
   TaskEnvironmentTasksPayload,
   TaskEnvironmentUpsertPayload,
+  TaskWorkEnvironmentDetailResponse,
+  TaskWorkEnvironmentListResponse,
   TaskExecutionPolicyUpsertPayload,
   TaskFlowContractBindingUpsertPayload,
   TaskGraphContractPreview,
@@ -227,6 +232,68 @@ export async function getTaskSystemEnvironmentTasks(environmentId: string) {
 
 export async function getTaskEnvironmentCatalog() {
   return request<TaskEnvironmentCatalog>("/tasks/environments/catalog");
+}
+
+export async function listTaskWorkEnvironments(options: {
+  status?: string;
+  taskKind?: string;
+  projectId?: string;
+  callerKind?: string;
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.status) params.set("status", options.status);
+  if (options.taskKind) params.set("task_kind", options.taskKind);
+  if (options.projectId) params.set("project_id", options.projectId);
+  if (options.callerKind) params.set("caller_kind", options.callerKind);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return request<TaskWorkEnvironmentListResponse>(`/task-environments${query ? `?${query}` : ""}`);
+}
+
+export async function getTaskWorkEnvironmentDetail(environmentId: string, options: {
+  eventLimit?: number;
+  episodeLimit?: number;
+  contextPackageLimit?: number;
+  workProductLimit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.eventLimit) params.set("event_limit", String(options.eventLimit));
+  if (options.episodeLimit) params.set("episode_limit", String(options.episodeLimit));
+  if (options.contextPackageLimit) params.set("context_package_limit", String(options.contextPackageLimit));
+  if (options.workProductLimit) params.set("work_product_limit", String(options.workProductLimit));
+  const query = params.toString();
+  return request<TaskWorkEnvironmentDetailResponse>(
+    `/task-environments/${encodeURIComponent(environmentId)}${query ? `?${query}` : ""}`
+  );
+}
+
+export async function listTaskWorkEnvironmentCommands(environmentId: string, options: {
+  status?: string;
+  commandKind?: string;
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.status) params.set("status", options.status);
+  if (options.commandKind) params.set("command_kind", options.commandKind);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return request<TaskEnvironmentCommandListResponse>(
+    `/task-environments/${encodeURIComponent(environmentId)}/commands${query ? `?${query}` : ""}`
+  );
+}
+
+export async function submitTaskWorkEnvironmentCommand(
+  environmentId: string,
+  payload: TaskEnvironmentCommandSubmitPayload
+) {
+  return request<TaskEnvironmentCommandSubmitResponse>(
+    `/task-environments/${encodeURIComponent(environmentId)}/commands`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
 }
 
 export async function getTaskSystemProject(projectId: string) {

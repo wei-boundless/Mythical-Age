@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from permissions.policy import normalize_permission_mode
-
 
 @dataclass(frozen=True, slots=True)
 class OperationAuthorizationDecision:
@@ -54,7 +52,7 @@ def project_operation_authorization(
     operation_ceiling: tuple[str, ...] | list[str] | None = None,
 ) -> OperationAuthorizationProjection:
     definitions = dict(definitions_by_name or {})
-    mode = normalize_permission_mode(permission_mode)
+    _ = permission_mode
     known_operations = {
         operation_id
         for definition in definitions.values()
@@ -65,7 +63,6 @@ def project_operation_authorization(
     task_requested = _operation_set(task_requested_operations)
     ceiling = _operation_set(operation_ceiling or ())
     has_ceiling = operation_ceiling is not None
-    full_access_mode = mode in {"full_access", "bypass"}
     candidate_operations = sorted(known_operations | agent_allowed | agent_blocked | task_requested | ceiling)
     decisions: list[OperationAuthorizationDecision] = []
     for operation_id in candidate_operations:
@@ -73,10 +70,7 @@ def project_operation_authorization(
             continue
         allowed_by_agent = operation_id in agent_allowed
         blocked_by_agent = operation_id in agent_blocked
-        if full_access_mode:
-            final_decision = "allow"
-            reason = "permission_mode_full_access"
-        elif not allowed_by_agent:
+        if not allowed_by_agent:
             final_decision = "deny"
             reason = "agent_permission_missing"
         elif blocked_by_agent:
@@ -87,7 +81,7 @@ def project_operation_authorization(
             reason = "operation_ceiling_excluded"
         else:
             final_decision = "allow"
-            reason = "permission_mode_full_access" if full_access_mode else "agent_allowed"
+            reason = "agent_allowed"
         decisions.append(
             OperationAuthorizationDecision(
                 operation_id=operation_id,

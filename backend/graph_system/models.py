@@ -32,6 +32,27 @@ def _session_scope_key(*, workspace_view: str, task_environment_id: str, project
     )
 
 
+def _payload_dict(payload: Any) -> dict[str, Any]:
+    if hasattr(payload, "to_dict"):
+        return dict(payload.to_dict() or {})
+    if isinstance(payload, dict):
+        return dict(payload)
+    return {}
+
+
+def resolve_graph_root_task_run_id(*payloads: Any) -> str:
+    """Resolve the graph root TaskRun anchor from explicit aliases first."""
+    for payload in payloads:
+        data = _payload_dict(payload)
+        diagnostics = dict(data.get("diagnostics") or {})
+        for source in (data, diagnostics):
+            for key in ("root_task_run_id", "graph_root_task_run_id", "task_run_id"):
+                value = str(source.get(key) or "").strip()
+                if value:
+                    return value
+    return ""
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutableGraphConfig:
     config_id: str
@@ -124,6 +145,8 @@ class ExecutableGraphConfig:
                 include_keys={
                     "node_protocol_index",
                     "node_contract_index",
+                    "node_task_contract_index",
+                    "node_agent_binding_index",
                     "resource_contract_index",
                     "edge_contract_index",
                     "graph_binding_contract",
@@ -183,7 +206,10 @@ class GraphRuntimeEnvelope:
     authority: str = "graph_system_runtime_envelope"
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["root_task_run_id"] = self.task_run_id
+        payload["graph_root_task_run_id"] = self.task_run_id
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +247,8 @@ class GraphRun:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["root_task_run_id"] = self.task_run_id
+        payload["graph_root_task_run_id"] = self.task_run_id
         if not payload.get("session_scope_key"):
             payload["session_scope_key"] = _session_scope_key(
                 workspace_view=self.workspace_view,
@@ -233,7 +261,7 @@ class GraphRun:
     def from_dict(cls, payload: dict[str, Any]) -> "GraphRun":
         return cls(
             graph_run_id=str(payload.get("graph_run_id") or ""),
-            task_run_id=str(payload.get("task_run_id") or ""),
+            task_run_id=resolve_graph_root_task_run_id(payload),
             session_id=str(payload.get("session_id") or ""),
             graph_id=str(payload.get("graph_id") or ""),
             config_id=str(payload.get("config_id") or ""),
@@ -289,6 +317,8 @@ class GraphLoopState:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["root_task_run_id"] = self.task_run_id
+        payload["graph_root_task_run_id"] = self.task_run_id
         payload["ready_node_ids"] = list(self.ready_node_ids)
         payload["running_node_ids"] = list(self.running_node_ids)
         payload["completed_node_ids"] = list(self.completed_node_ids)
@@ -305,7 +335,7 @@ class GraphLoopState:
         return cls(
             state_id=str(payload.get("state_id") or ""),
             graph_run_id=str(payload.get("graph_run_id") or ""),
-            task_run_id=str(payload.get("task_run_id") or ""),
+            task_run_id=resolve_graph_root_task_run_id(payload),
             session_id=str(payload.get("session_id") or ""),
             config_id=str(payload.get("config_id") or ""),
             config_hash=str(payload.get("config_hash") or ""),
@@ -454,7 +484,8 @@ class GraphReadinessDecision:
 class GraphNodeExecutionSlot:
     slot_id: str
     graph_identity: dict[str, Any] = field(default_factory=dict)
-    node_contract: dict[str, Any] = field(default_factory=dict)
+    task_contract: dict[str, Any] = field(default_factory=dict)
+    agent_binding: dict[str, Any] = field(default_factory=dict)
     edge_contracts: dict[str, Any] = field(default_factory=dict)
     memory_contract: dict[str, Any] = field(default_factory=dict)
     loop_contract: dict[str, Any] = field(default_factory=dict)
@@ -478,7 +509,8 @@ class GraphNodeExecutionSlot:
         return cls(
             slot_id=str(payload.get("slot_id") or ""),
             graph_identity=dict(payload.get("graph_identity") or {}),
-            node_contract=dict(payload.get("node_contract") or {}),
+            task_contract=dict(payload.get("task_contract") or {}),
+            agent_binding=dict(payload.get("agent_binding") or {}),
             edge_contracts=dict(payload.get("edge_contracts") or {}),
             memory_contract=dict(payload.get("memory_contract") or {}),
             loop_contract=dict(payload.get("loop_contract") or {}),
@@ -538,8 +570,15 @@ class GraphNodeWorkOrder:
             raise ValueError("GraphNodeWorkOrder requires work_order_id")
         if self.work_kind not in {"agent", "tool", "human_gate"}:
             raise ValueError("GraphNodeWorkOrder work_kind is not supported")
-        if self.work_kind == "agent" and not self.agent_profile_id:
-            raise ValueError("Agent GraphNodeWorkOrder requires explicit agent_profile_id")
+        agent_binding = dict(self.graph_slot.get("agent_binding") or {})
+        if self.work_kind == "agent" and not (
+            self.agent_profile_id
+            or self.agent_id
+            or str(agent_binding.get("agent_profile_id") or "").strip()
+            or str(agent_binding.get("agent_id") or "").strip()
+            or str(agent_binding.get("agent_group_id") or "").strip()
+        ):
+            raise ValueError("Agent GraphNodeWorkOrder requires agent_binding with agent_profile_id, agent_id, or agent_group_id")
         if not self.graph_run_id:
             raise ValueError("GraphNodeWorkOrder requires graph_run_id")
         if not self.task_run_id:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from graph_system.models import ExecutableGraphConfig, GraphNodeWorkOrder, stable_safe_id
@@ -154,7 +153,6 @@ def _deterministic_progress_receipt_final_answer(*, work_order: GraphNodeWorkOrd
     batch_start = _int_template_value(receipt.get("batch_start_index"), chapter)
     batch_end = _int_template_value(receipt.get("batch_end_index"), chapter)
     state = "当前批次已完成" if bool(receipt.get("batch_complete")) else f"继续到第{next_chapter:03d}章"
-    payload = {"chapter_progress_receipt": dict(receipt)}
     return "\n".join(
         [
             "# 【节点交付内容】",
@@ -162,10 +160,7 @@ def _deterministic_progress_receipt_final_answer(*, work_order: GraphNodeWorkOrd
             f"第{chapter:03d}章正文候选已由上游节点完成并进入单章路由验收。",
             f"当前批次范围：第{batch_start:03d}章至第{batch_end:03d}章；路由裁决：{state}。",
             f"节点：{work_order.node_id}",
-            "",
-            "```json",
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            "```",
+            "结构化进度回执已通过节点输出通道交付。",
         ]
     )
 

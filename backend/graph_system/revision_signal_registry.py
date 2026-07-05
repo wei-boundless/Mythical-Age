@@ -37,27 +37,45 @@ class RevisionRequeuePatchHandler:
 
 _HANDLERS: dict[str, RevisionRejectionSignalHandler] = {}
 _PATCH_HANDLERS: dict[str, RevisionRequeuePatchHandler] = {}
-_DEFAULT_MODULES_LOADED = False
-_DEFAULT_MODULES = (
-    "task_system.writing_graphs.revision_signal_handlers",
-)
+_LOADED_MODULES: set[str] = set()
+
+
+def snapshot_revision_signal_handler_registry() -> dict[str, Any]:
+    return {
+        "handlers": dict(_HANDLERS),
+        "patch_handlers": dict(_PATCH_HANDLERS),
+        "loaded_modules": set(_LOADED_MODULES),
+    }
+
+
+def restore_revision_signal_handler_registry(snapshot: dict[str, Any]) -> None:
+    _HANDLERS.clear()
+    _HANDLERS.update(dict(snapshot.get("handlers") or {}))
+    _PATCH_HANDLERS.clear()
+    _PATCH_HANDLERS.update(dict(snapshot.get("patch_handlers") or {}))
+    _LOADED_MODULES.clear()
+    _LOADED_MODULES.update(str(item) for item in set(snapshot.get("loaded_modules") or set()) if str(item))
 
 
 def register_revision_rejection_signal_handler(handler: RevisionRejectionSignalHandler) -> None:
-    _HANDLERS[handler.handler_id] = handler
+    handler_id = str(handler.handler_id or "").strip()
+    if handler_id in _HANDLERS:
+        raise ValueError(f"duplicate revision rejection signal handler id: {handler_id}")
+    _HANDLERS[handler_id] = handler
 
 
 def register_revision_requeue_patch_handler(handler: RevisionRequeuePatchHandler) -> None:
-    _PATCH_HANDLERS[handler.handler_id] = handler
+    handler_id = str(handler.handler_id or "").strip()
+    if handler_id in _PATCH_HANDLERS:
+        raise ValueError(f"duplicate revision requeue patch handler id: {handler_id}")
+    _PATCH_HANDLERS[handler_id] = handler
 
 
 def iter_revision_rejection_signal_handlers() -> tuple[RevisionRejectionSignalHandler, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_HANDLERS.values(), key=lambda handler: (handler.priority, handler.handler_id)))
 
 
 def iter_revision_requeue_patch_handlers() -> tuple[RevisionRequeuePatchHandler, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_PATCH_HANDLERS.values(), key=lambda handler: (handler.priority, handler.handler_id)))
 
 
@@ -106,16 +124,36 @@ def build_revision_requeue_patch(
     return {}
 
 
-def _ensure_default_modules_loaded() -> None:
-    global _DEFAULT_MODULES_LOADED
-    if _DEFAULT_MODULES_LOADED:
+def load_revision_signal_handler_module(module_name: str) -> None:
+    normalized = str(module_name or "").strip()
+    if not normalized or normalized in _LOADED_MODULES:
         return
-    _DEFAULT_MODULES_LOADED = True
-    for module_name in _DEFAULT_MODULES:
-        module = importlib.import_module(module_name)
-        register = getattr(module, "register_revision_rejection_signal_handlers", None)
+    module = importlib.import_module(normalized)
+    register = getattr(module, "register_revision_rejection_signal_handlers", None)
+    patch_register = getattr(module, "register_revision_requeue_patch_handlers", None)
+    if not callable(register) and not callable(patch_register):
+        raise ValueError(
+            "revision signal handler module has no register_revision_rejection_signal_handlers() "
+            f"or register_revision_requeue_patch_handlers(): {normalized}"
+        )
+    before_handlers = dict(_HANDLERS)
+    before_patch_handlers = dict(_PATCH_HANDLERS)
+    try:
         if callable(register):
             register(register_revision_rejection_signal_handler)
-        patch_register = getattr(module, "register_revision_requeue_patch_handlers", None)
         if callable(patch_register):
             patch_register(register_revision_requeue_patch_handler)
+    except Exception:
+        _HANDLERS.clear()
+        _HANDLERS.update(before_handlers)
+        _PATCH_HANDLERS.clear()
+        _PATCH_HANDLERS.update(before_patch_handlers)
+        raise
+    if _HANDLERS == before_handlers and _PATCH_HANDLERS == before_patch_handlers:
+        raise ValueError(f"revision signal handler module registered no handlers: {normalized}")
+    _LOADED_MODULES.add(normalized)
+
+
+def load_revision_signal_handler_modules(module_names: tuple[str, ...] | list[str]) -> None:
+    for module_name in list(module_names or ()):
+        load_revision_signal_handler_module(str(module_name or ""))

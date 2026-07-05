@@ -919,7 +919,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "default_task_environment_id": "env.coding.vibe_workspace",
                 "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace", ast_mode="deep_ast"),
                 "output_contract": {
-                    "required_fields": ("project_network_semantic_submissions", "semantic_label", "coverage", "limitations"),
+                    "required_fields": ("submission_kind", "semantic_label", "coverage", "limitations"),
                     "forbidden_actions": ("file_read", "workspace_search", "memory_read", "file_write", "source_edit", "generation_publish"),
                 },
             },
@@ -959,7 +959,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "default_task_environment_id": "env.coding.vibe_workspace",
                 "runtime_policy": _worker_agent_runtime_policy("env.coding.vibe_workspace"),
                 "output_contract": {
-                    "required_fields": ("project_network_semantic_submissions", "semantic_label", "coverage", "limitations"),
+                    "required_fields": ("submission_kind", "semantic_label", "coverage", "limitations"),
                     "forbidden_actions": ("file_read", "workspace_search", "memory_read", "file_write", "source_edit", "generation_publish"),
                 },
             },

@@ -23,18 +23,31 @@ class RuntimeAlgorithmEffectHandler:
 
 
 _HANDLERS: dict[str, RuntimeAlgorithmEffectHandler] = {}
-_DEFAULT_MODULES_LOADED = False
-_DEFAULT_MODULES = (
-    "project_network_tasks.runtime_effects",
-)
+_LOADED_MODULES: set[str] = set()
+
+
+def snapshot_runtime_algorithm_effect_registry() -> dict[str, Any]:
+    return {
+        "handlers": dict(_HANDLERS),
+        "loaded_modules": set(_LOADED_MODULES),
+    }
+
+
+def restore_runtime_algorithm_effect_registry(snapshot: dict[str, Any]) -> None:
+    _HANDLERS.clear()
+    _HANDLERS.update(dict(snapshot.get("handlers") or {}))
+    _LOADED_MODULES.clear()
+    _LOADED_MODULES.update(str(item) for item in set(snapshot.get("loaded_modules") or set()) if str(item))
 
 
 def register_runtime_algorithm_effect_handler(handler: RuntimeAlgorithmEffectHandler) -> None:
-    _HANDLERS[handler.effect_kind] = handler
+    effect_kind = str(handler.effect_kind or "").strip()
+    if effect_kind in _HANDLERS:
+        raise ValueError(f"duplicate runtime algorithm effect handler kind: {effect_kind}")
+    _HANDLERS[effect_kind] = handler
 
 
 def iter_runtime_algorithm_effect_handlers() -> tuple[RuntimeAlgorithmEffectHandler, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_HANDLERS.values(), key=lambda handler: (handler.priority, handler.effect_kind)))
 
 
@@ -78,16 +91,29 @@ def handle_runtime_algorithm_effects(
     }
 
 
-def _ensure_default_modules_loaded() -> None:
-    global _DEFAULT_MODULES_LOADED
-    if _DEFAULT_MODULES_LOADED:
+def load_runtime_algorithm_effect_module(module_name: str) -> None:
+    normalized = str(module_name or "").strip()
+    if not normalized or normalized in _LOADED_MODULES:
         return
-    _DEFAULT_MODULES_LOADED = True
-    for module_name in _DEFAULT_MODULES:
-        module = importlib.import_module(module_name)
-        register = getattr(module, "register_runtime_algorithm_effect_handlers", None)
-        if callable(register):
-            register(register_runtime_algorithm_effect_handler)
+    module = importlib.import_module(normalized)
+    register = getattr(module, "register_runtime_algorithm_effect_handlers", None)
+    if not callable(register):
+        raise ValueError(f"runtime algorithm effect module has no register_runtime_algorithm_effect_handlers(): {normalized}")
+    before = dict(_HANDLERS)
+    try:
+        register(register_runtime_algorithm_effect_handler)
+    except Exception:
+        _HANDLERS.clear()
+        _HANDLERS.update(before)
+        raise
+    if _HANDLERS == before:
+        raise ValueError(f"runtime algorithm effect module registered no handlers: {normalized}")
+    _LOADED_MODULES.add(normalized)
+
+
+def load_runtime_algorithm_effect_modules(module_names: tuple[str, ...] | list[str]) -> None:
+    for module_name in list(module_names or ()):
+        load_runtime_algorithm_effect_module(str(module_name or ""))
 
 
 def _unsupported_effect_receipt(request: dict[str, Any]) -> dict[str, Any]:

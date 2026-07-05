@@ -11,7 +11,7 @@ from task_system.graphs.task_graph_models import (
 
 from project_network_system.directory_render_models import DirectoryFrameMaterializationPackage
 from project_network_system.layer_plan_models import NextGraphMaterializationPackage, ProjectNetworkBuildPlan, StaticGraphMaterializationPackage
-from project_network_system.shard_models import SemanticShardSpec, ShardAssignment, ShardComplexity, ShardExecutorPolicy, ShardPlan
+from project_network_system.shard_models import SemanticShardSpec, ShardAssignment, ShardComplexity, ShardPlan
 
 from .template_catalog import ProjectNetworkNodeTemplate, build_project_network_template_catalog, resolve_project_network_node_template
 
@@ -435,13 +435,6 @@ def _directory_file_shard(
         ),
         expected_work_product_contract_id="project_network.module_index.v1",
         output_contract_id="project_network.module_index.v1",
-        executor_policy=ShardExecutorPolicy(
-            agent_id="agent:project_network_file_reviewer",
-            agent_profile_id="project_network_file_reviewer_agent",
-            agent_group_id="group.project_network_reviewers",
-            work_posture="index",
-            metadata={"low_config_single_file_review": True},
-        ),
         complexity=ShardComplexity(
             estimated_files=1,
             risk_flags=tuple("large_file" for size in (dict(file_card.get("payload") or {}).get("size_bytes"),) if _int_value(size, 0) > 250_000),

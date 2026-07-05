@@ -70,6 +70,8 @@ class RunMonitorProjector:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         session_id = str(getattr(task_run, "session_id", "") or "")
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        runtime_anchor = self._runtime_anchor_for_task_run(task_run_id=task_run_id, diagnostics=diagnostics)
+        runtime_anchor_id = str(runtime_anchor.get("runtime_anchor_id") or "")
         events = list_runtime_events(self.event_log, task_run_id, limit=240, prefer_window=False) if include_runtime_details else []
         session_output_commit = project_session_output_commit_state(
             events,
@@ -164,9 +166,11 @@ class RunMonitorProjector:
         summary = diagnostic_summary or agent_brief or public_step_summary or diagnostic_public_progress
         latest_public_progress_note = diagnostic_summary or public_step_note or diagnostic_public_progress or summary
         task_instance_id = graph_run_id if kind == "task_graph" and graph_run_id else task_run_id
+        task_environment_id = str(session_scope.get("task_environment_id") or "").strip()
         resource_refs = self._resource_refs(
             task_run_id=task_run_id,
             session_id=session_id,
+            task_environment_id=task_environment_id,
             graph_run_id=graph_run_id,
             graph_config_id=graph_config_id,
             artifact_refs=artifact_refs,
@@ -220,12 +224,15 @@ class RunMonitorProjector:
         )
         has_graph_run = bool(graph_run_id or graph_config_id)
         item = {
+            "runtime_anchor_id": runtime_anchor_id,
+            "runtime_anchor": runtime_anchor,
             "task_run_id": task_run_id,
             "session_id": session_id,
             "task_id": str(getattr(task_run, "task_id", "") or ""),
             "execution_runtime_kind": str(getattr(task_run, "execution_runtime_kind", "") or ""),
             "task_instance_id": task_instance_id,
             "root_task_run_id": task_run_id,
+            "task_environment_id": task_environment_id,
             "kind": kind,
             "title": title,
             "status": status,
@@ -382,8 +389,9 @@ class RunMonitorProjector:
         turn_id = str(getattr(active_turn, "turn_id", "") or "")
         turn_run_id = str(getattr(active_turn, "turn_run_id", "") or "")
         stream_run_id = str(getattr(active_turn, "stream_run_id", "") or "")
-        task_run_id = turn_run_id
-        task_instance_id = turn_run_id
+        monitor_item_id = turn_run_id or stream_run_id or turn_id
+        task_run_id = ""
+        task_instance_id = monitor_item_id
         active_state = str(getattr(active_turn, "state", "") or "model_turn")
         started_at = float(
             getattr(active_turn, "started_at", 0.0)
@@ -415,21 +423,24 @@ class RunMonitorProjector:
             "summary": summary,
             "agent_brief": "",
         }
-        fact_summary = self._fact_summary(task_run_id=task_run_id, session_id=session_id, graph_run_id="")
+        fact_summary = self._fact_summary(task_run_id="", turn_run_id=turn_run_id, session_id=session_id, graph_run_id="")
         trace_summary = self._trace_summary(
-            task_run_id=task_run_id,
+            task_run_id="",
+            turn_run_id=turn_run_id,
             session_id=session_id,
             graph_run_id="",
             hydrate=True,
         )
         diagnostic_signal_refs = self._diagnostic_signal_refs(
-            task_run_id=task_run_id,
+            task_run_id="",
+            turn_run_id=turn_run_id,
             session_id=session_id,
             graph_run_id="",
             fact_summary=fact_summary,
             trace_summary=trace_summary,
         )
         item = {
+            "monitor_item_id": monitor_item_id,
             "task_run_id": task_run_id,
             "active_turn_id": turn_id,
             "turn_id": turn_id,
@@ -437,10 +448,10 @@ class RunMonitorProjector:
             "stream_run_id": stream_run_id,
             "source_kind": "turn_run",
             "session_id": session_id,
-            "task_id": turn_id or task_run_id,
+            "task_id": turn_id or turn_run_id,
             "execution_runtime_kind": "single_agent_turn",
             "task_instance_id": task_instance_id,
-            "root_task_run_id": task_run_id,
+            "root_task_run_id": "",
             "kind": "agent_run",
             "title": "持续处理",
             "status": status,
@@ -591,13 +602,19 @@ class RunMonitorProjector:
                 selected_by_graph_scope[key] = item
         return [*passthrough, *selected_by_graph_scope.values()]
 
-    def _fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
-        scope_ref = _fact_scope_ref(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+    def _fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str, turn_run_id: str = "") -> dict[str, Any]:
+        scope_ref = _fact_scope_ref(
+            task_run_id=task_run_id,
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            graph_run_id=graph_run_id,
+        )
         if self.fact_ledger is None or not scope_ref.get("scope_key"):
             return {
                 "authority": "harness.run_monitor.fact_summary",
                 "available": False,
                 "task_run_id": task_run_id,
+                "turn_run_id": turn_run_id,
                 "session_id": session_id,
                 "graph_run_id": graph_run_id,
                 "fact_count": 0,
@@ -608,6 +625,7 @@ class RunMonitorProjector:
         try:
             records = self._fact_records_for_scope(
                 task_run_id=task_run_id,
+                turn_run_id=turn_run_id,
                 session_id=session_id,
                 graph_run_id=graph_run_id,
                 limit=5000,
@@ -618,6 +636,7 @@ class RunMonitorProjector:
             "authority": "harness.run_monitor.fact_summary",
             "available": True,
             "task_run_id": task_run_id,
+            "turn_run_id": turn_run_id,
             "session_id": session_id,
             "graph_run_id": graph_run_id,
             "fact_count": len(records),
@@ -626,23 +645,37 @@ class RunMonitorProjector:
             "scope_ref": scope_ref,
         }
 
-    def _deferred_fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
+    def _deferred_fact_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str, turn_run_id: str = "") -> dict[str, Any]:
         return {
             "authority": "harness.run_monitor.fact_summary",
             "available": False,
             "deferred": True,
             "task_run_id": task_run_id,
+            "turn_run_id": turn_run_id,
             "session_id": session_id,
             "graph_run_id": graph_run_id,
             "fact_count": 0,
             "fact_type_counts": {},
             "retention_class_counts": {},
-            "scope_ref": _fact_scope_ref(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id),
+            "scope_ref": _fact_scope_ref(
+                task_run_id=task_run_id,
+                turn_run_id=turn_run_id,
+                session_id=session_id,
+                graph_run_id=graph_run_id,
+            ),
         }
 
-    def _trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str, hydrate: bool) -> dict[str, Any]:
+    def _trace_summary(
+        self,
+        *,
+        task_run_id: str,
+        session_id: str,
+        graph_run_id: str,
+        hydrate: bool,
+        turn_run_id: str = "",
+    ) -> dict[str, Any]:
         query = getattr(self.observability_query, "trace_summary", None)
-        if callable(query):
+        if callable(query) and not str(turn_run_id or "").strip():
             try:
                 summary = dict(
                     query(
@@ -661,7 +694,12 @@ class RunMonitorProjector:
                     "authority": "harness.run_monitor.trace_summary",
                     "source_authority": str(summary.get("authority") or ""),
                 }
-        trace_fact = self._latest_trace_run_fact(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id)
+        trace_fact = self._latest_trace_run_fact(
+            task_run_id=task_run_id,
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            graph_run_id=graph_run_id,
+        )
         trace_id = _record_ref(trace_fact, "trace_id") if trace_fact is not None else ""
         base = {
             "authority": "harness.run_monitor.trace_summary",
@@ -669,6 +707,7 @@ class RunMonitorProjector:
             "hydrated": False,
             "trace_id": trace_id,
             "task_run_id": task_run_id,
+            "turn_run_id": turn_run_id,
             "session_id": session_id,
             "graph_run_id": graph_run_id,
             "source_fact_id": _record_field(trace_fact, "fact_id") if trace_fact is not None else "",
@@ -696,7 +735,7 @@ class RunMonitorProjector:
             "latest_span": _compact_trace_span(dict(raw.get("latest_span") or {})),
         }
 
-    def _deferred_trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, Any]:
+    def _deferred_trace_summary(self, *, task_run_id: str, session_id: str, graph_run_id: str, turn_run_id: str = "") -> dict[str, Any]:
         return {
             "authority": "harness.run_monitor.trace_summary",
             "available": False,
@@ -704,6 +743,7 @@ class RunMonitorProjector:
             "hydrated": False,
             "trace_id": "",
             "task_run_id": task_run_id,
+            "turn_run_id": turn_run_id,
             "session_id": session_id,
             "graph_run_id": graph_run_id,
             "source_fact_id": "",
@@ -718,6 +758,7 @@ class RunMonitorProjector:
         graph_run_id: str,
         fact_summary: dict[str, Any],
         trace_summary: dict[str, Any],
+        turn_run_id: str = "",
     ) -> list[dict[str, Any]]:
         refs: list[dict[str, Any]] = []
         trace_id = str(trace_summary.get("trace_id") or "").strip()
@@ -728,6 +769,7 @@ class RunMonitorProjector:
                     "ref": f"trace:{trace_id}",
                     "trace_id": trace_id,
                     "task_run_id": task_run_id,
+                    "turn_run_id": turn_run_id,
                     "session_id": session_id,
                     "graph_run_id": graph_run_id,
                     "error_span_count": int(trace_summary.get("error_span_count") or 0),
@@ -741,13 +783,19 @@ class RunMonitorProjector:
                     "kind": "fact_scope",
                     "ref": str(scope_ref.get("scope_key") or ""),
                     "task_run_id": task_run_id,
+                    "turn_run_id": turn_run_id,
                     "session_id": session_id,
                     "graph_run_id": graph_run_id,
                     "fact_count": fact_count,
                     "fact_type_counts": dict(fact_summary.get("fact_type_counts") or {}),
                 }
             )
-        for fact in self._recent_diagnostic_facts(task_run_id=task_run_id, session_id=session_id, graph_run_id=graph_run_id):
+        for fact in self._recent_diagnostic_facts(
+            task_run_id=task_run_id,
+            turn_run_id=turn_run_id,
+            session_id=session_id,
+            graph_run_id=graph_run_id,
+        ):
             refs.append(
                 {
                     "kind": "fact",
@@ -755,6 +803,7 @@ class RunMonitorProjector:
                     "fact_id": str(_record_field(fact, "fact_id") or ""),
                     "fact_type": str(_record_field(fact, "fact_type") or ""),
                     "task_run_id": task_run_id,
+                    "turn_run_id": turn_run_id,
                     "session_id": session_id,
                     "graph_run_id": graph_run_id,
                     "summary": _short_text(_record_field(fact, "summary"), limit=180),
@@ -763,10 +812,11 @@ class RunMonitorProjector:
             )
         return _dedupe_signal_refs(refs)[:12]
 
-    def _latest_trace_run_fact(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> Any | None:
+    def _latest_trace_run_fact(self, *, task_run_id: str, session_id: str, graph_run_id: str, turn_run_id: str = "") -> Any | None:
         try:
             records = self._fact_records_for_scope(
                 task_run_id=task_run_id,
+                turn_run_id=turn_run_id,
                 session_id=session_id,
                 graph_run_id=graph_run_id,
                 fact_type="trace_run",
@@ -779,13 +829,14 @@ class RunMonitorProjector:
             return None
         return sorted(records, key=lambda item: float(_record_field(item, "created_at") or 0.0), reverse=True)[0]
 
-    def _recent_diagnostic_facts(self, *, task_run_id: str, session_id: str, graph_run_id: str) -> list[Any]:
+    def _recent_diagnostic_facts(self, *, task_run_id: str, session_id: str, graph_run_id: str, turn_run_id: str = "") -> list[Any]:
         records: list[Any] = []
         for fact_type in ("monitor_signal", "health_issue"):
             try:
                 records.extend(
                     self._fact_records_for_scope(
                         task_run_id=task_run_id,
+                        turn_run_id=turn_run_id,
                         session_id=session_id,
                         graph_run_id=graph_run_id,
                         fact_type=fact_type,
@@ -802,6 +853,7 @@ class RunMonitorProjector:
         task_run_id: str,
         session_id: str,
         graph_run_id: str = "",
+        turn_run_id: str = "",
         fact_type: str = "",
         limit: int = 200,
     ) -> list[Any]:
@@ -810,10 +862,11 @@ class RunMonitorProjector:
             return []
         queries: list[dict[str, Any]] = []
         normalized_task_run_id = str(task_run_id or "").strip()
+        normalized_turn_run_id = str(turn_run_id or "").strip()
         normalized_session_id = str(session_id or "").strip()
         normalized_graph_run_id = str(graph_run_id or "").strip()
-        if normalized_task_run_id.startswith("turnrun:"):
-            queries.append({"turn_run_id": normalized_task_run_id})
+        if normalized_turn_run_id:
+            queries.append({"turn_run_id": normalized_turn_run_id})
         elif normalized_task_run_id:
             queries.append({"task_run_id": normalized_task_run_id})
         if normalized_graph_run_id:
@@ -903,6 +956,28 @@ class RunMonitorProjector:
             "workspace_view": resolved["workspace_view"] or "chat",
             "task_environment_id": resolved["task_environment_id"],
             "project_id": resolved["project_id"],
+        }
+
+    def _runtime_anchor_for_task_run(self, *, task_run_id: str, diagnostics: dict[str, Any]) -> dict[str, Any]:
+        state_index = getattr(getattr(self, "runtime_host", None), "state_index", None)
+        getter = getattr(state_index, "get_runtime_anchor_by_legacy_task_run", None)
+        if callable(getter) and task_run_id:
+            try:
+                anchor = getter(task_run_id)
+            except Exception:
+                anchor = None
+            if anchor is not None:
+                return anchor.to_dict() if hasattr(anchor, "to_dict") else dict(anchor)
+        runtime_anchor_id = str(diagnostics.get("runtime_anchor_id") or "").strip()
+        if not runtime_anchor_id:
+            return {}
+        return {
+            "runtime_anchor_id": runtime_anchor_id,
+            "anchor_kind": str(diagnostics.get("runtime_anchor_kind") or ""),
+            "legacy_task_run_id": task_run_id,
+            "graph_run_id": str(diagnostics.get("graph_run_id") or ""),
+            "graph_config_id": str(diagnostics.get("graph_config_id") or ""),
+            "authority": "harness.run_monitor.runtime_anchor_projection",
         }
 
     def _kind_from_route(self, route: dict[str, str]) -> str:
@@ -1119,6 +1194,7 @@ class RunMonitorProjector:
         *,
         task_run_id: str,
         session_id: str,
+        task_environment_id: str,
         graph_run_id: str,
         graph_config_id: str,
         artifact_refs: list[dict[str, Any]],
@@ -1130,6 +1206,8 @@ class RunMonitorProjector:
         refs = [_resolver_task_run_ref(resolver, task_run_id, available=True)]
         if session_id:
             refs.append(resolver.session_ref(session_id))
+        if task_environment_id:
+            refs.append(_resolver_task_environment_ref(resolver, task_environment_id, available=None if resolve_availability else True))
         if graph_run_id:
             refs.append(_resolver_graph_run_ref(resolver, graph_run_id, available=True if not resolve_availability else None))
         if graph_config_id:
@@ -1145,17 +1223,32 @@ class RunMonitorProjector:
 
     def _graph_status(self, monitor: dict[str, Any] | None, *, graph_id: str, graph_run_id: str) -> dict[str, Any]:
         payload = dict(monitor or {})
+        graph_run = dict(payload.get("graph_run") or {})
+        graph_run_control = dict(dict(graph_run.get("diagnostics") or {}).get("runtime_control") or {})
         graph_config = dict(payload.get("graph_config") or {})
         loop_state = dict(payload.get("graph_loop_state") or {})
         node_statuses = _node_statuses_from_monitor(payload)
         active_node_id = _active_node_id(loop_state, node_statuses)
         active_node = next((item for item in node_statuses if item.get("node_id") == active_node_id), {})
-        status = str(loop_state.get("status") or dict(payload.get("task_run") or {}).get("status") or "").strip()
+        status = str(
+            graph_run.get("status")
+            or loop_state.get("status")
+            or dict(payload.get("task_run") or {}).get("status")
+            or ""
+        ).strip()
+        control_state = str(graph_run_control.get("state") or "").strip()
         running_count = sum(1 for item in node_statuses if item.get("status") == "running")
         completed_count = sum(1 for item in node_statuses if item.get("status") in {"completed", "success", "succeeded"})
         failed_count = sum(1 for item in node_statuses if item.get("status") in {"failed", "error"})
         blocked_count = sum(1 for item in node_statuses if item.get("status") in {"blocked", "waiting_human_gate", "waiting_approval"})
         ready_ids = [str(item) for item in list(loop_state.get("ready_node_ids") or [])]
+        stopped = status in {"stopped", "aborted", "cancelled", "canceled"} or control_state == "stopped"
+        if stopped:
+            active_node_id = ""
+            active_node = {}
+            running_count = 0
+            ready_ids = []
+            status = "stopped"
         return {
             "graph_id": graph_id or str(graph_config.get("graph_id") or ""),
             "graph_run_id": graph_run_id,
@@ -1232,6 +1325,15 @@ def _resolver_task_run_ref(resolver: Any, task_run_id: str, *, available: bool) 
         return resolver.task_run_ref(task_run_id)
 
 
+def _resolver_task_environment_ref(resolver: Any, task_environment_id: str, *, available: bool | None) -> dict[str, Any]:
+    if available is None:
+        return resolver.task_environment_ref(task_environment_id)
+    try:
+        return resolver.task_environment_ref(task_environment_id, available=available)
+    except TypeError:
+        return resolver.task_environment_ref(task_environment_id)
+
+
 def _resolver_graph_run_ref(resolver: Any, graph_run_id: str, *, available: bool | None) -> dict[str, Any]:
     if available is None:
         return resolver.graph_run_ref(graph_run_id)
@@ -1296,16 +1398,18 @@ def _artifact_refs_from_event_log(event_log: Any, task_run_id: str) -> list[dict
     return []
 
 
-def _fact_scope_ref(*, task_run_id: str, session_id: str, graph_run_id: str) -> dict[str, str]:
+def _fact_scope_ref(*, task_run_id: str, session_id: str, graph_run_id: str, turn_run_id: str = "") -> dict[str, str]:
     normalized_task_run_id = str(task_run_id or "").strip()
+    normalized_turn_run_id = str(turn_run_id or "").strip()
     normalized_session_id = str(session_id or "").strip()
     normalized_graph_run_id = str(graph_run_id or "").strip()
-    if normalized_task_run_id.startswith("turnrun:"):
+    if normalized_turn_run_id:
         return {
             "kind": "runtime_fact_scope",
             "scope_kind": "turn_run",
-            "scope_key": f"runtime_fact_scope:turn_run:{normalized_task_run_id}",
-            "task_run_id": normalized_task_run_id,
+            "scope_key": f"runtime_fact_scope:turn_run:{normalized_turn_run_id}",
+            "task_run_id": "",
+            "turn_run_id": normalized_turn_run_id,
             "session_id": normalized_session_id,
             "graph_run_id": normalized_graph_run_id,
         }
@@ -1315,6 +1419,7 @@ def _fact_scope_ref(*, task_run_id: str, session_id: str, graph_run_id: str) -> 
             "scope_kind": "task_run",
             "scope_key": f"runtime_fact_scope:task_run:{normalized_task_run_id}",
             "task_run_id": normalized_task_run_id,
+            "turn_run_id": "",
             "session_id": normalized_session_id,
             "graph_run_id": normalized_graph_run_id,
         }
@@ -1324,6 +1429,7 @@ def _fact_scope_ref(*, task_run_id: str, session_id: str, graph_run_id: str) -> 
             "scope_kind": "graph_run",
             "scope_key": f"runtime_fact_scope:graph_run:{normalized_graph_run_id}",
             "task_run_id": "",
+            "turn_run_id": "",
             "session_id": normalized_session_id,
             "graph_run_id": normalized_graph_run_id,
         }
@@ -1333,10 +1439,19 @@ def _fact_scope_ref(*, task_run_id: str, session_id: str, graph_run_id: str) -> 
             "scope_kind": "session",
             "scope_key": f"runtime_fact_scope:session:{normalized_session_id}",
             "task_run_id": "",
+            "turn_run_id": "",
             "session_id": normalized_session_id,
             "graph_run_id": "",
         }
-    return {"kind": "runtime_fact_scope", "scope_kind": "", "scope_key": "", "task_run_id": "", "session_id": "", "graph_run_id": ""}
+    return {
+        "kind": "runtime_fact_scope",
+        "scope_kind": "",
+        "scope_key": "",
+        "task_run_id": "",
+        "turn_run_id": "",
+        "session_id": "",
+        "graph_run_id": "",
+    }
 
 
 def _compact_trace_run(run: dict[str, Any]) -> dict[str, Any]:
@@ -1689,6 +1804,8 @@ def _active_node_id(loop_state: dict[str, Any], node_statuses: list[dict[str, An
 
 def _graph_lifecycle(status: str, *, failed_count: int, blocked_count: int) -> str:
     normalized = status.lower()
+    if normalized in {"stopped", "aborted", "cancelled", "canceled", "user_stopped"}:
+        return "stopped"
     if normalized in {"completed", "success", "succeeded"}:
         return "completed"
     if normalized in {"failed", "error"} or failed_count:
@@ -1708,6 +1825,8 @@ def _graph_stage_summary(*, active_node: dict[str, Any], status: str, ready_coun
         return f"正在执行节点：{node_label}"
     if ready_count:
         return f"有 {ready_count} 个节点等待执行"
+    if status in {"stopped", "aborted", "cancelled", "canceled", "user_stopped"}:
+        return "任务图已停止"
     if status in {"completed", "success", "succeeded"}:
         return "任务图已完成"
     if status in {"failed", "error"}:
@@ -1722,6 +1841,8 @@ def _graph_next_action(*, status: str, ready_count: int, failed_count: int, bloc
         return "等待审批"
     if ready_count:
         return "继续执行"
+    if status in {"stopped", "aborted", "cancelled", "canceled", "user_stopped"}:
+        return "已停止"
     if status in {"completed", "success", "succeeded"}:
         return "已完成"
     return "等待进展"

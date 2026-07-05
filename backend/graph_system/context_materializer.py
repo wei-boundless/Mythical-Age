@@ -7,7 +7,7 @@ from typing import Any
 
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs, normalize_artifact_ref
 
-from .edge_contracts import edge_contract_or_projection
+from .edge_contracts import edge_contract_for_edge
 from .flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from .context_provider_registry import (
     apply_context_providers,
@@ -77,9 +77,9 @@ class GraphContextMaterializer:
         structure_version = state.structure_version or "graph_structure.v1"
         config_snapshot_id = graph_config.config_id
         config_snapshot_hash = graph_config.content_hash
-        compiled_node_contract = dict(input_package.get("compiled_node_contract") or {})
-        agent_config = _node_agent_config(node=node, compiled_node_contract=compiled_node_contract)
-        node_session_policy = dict(compiled_node_contract.get("session_policy") or {})
+        agent_binding = dict(input_package.get("agent_binding") or {})
+        agent_config = _node_agent_config(node=node, agent_binding=agent_binding)
+        node_session_policy = dict(agent_binding.get("session_policy") or {})
         node_session_id = _node_session_id(
             state=state,
             node_id=node_id,
@@ -223,6 +223,7 @@ class GraphContextMaterializer:
             graph_identity={
                 "graph_run_id": state.graph_run_id,
                 "root_task_run_id": state.task_run_id,
+                "graph_root_task_run_id": state.task_run_id,
                 "node_executor_execution_id": "",
                 "config_id": graph_config.config_id,
                 "config_hash": graph_config.content_hash,
@@ -230,7 +231,8 @@ class GraphContextMaterializer:
                 "node_id": node_id,
                 "work_order_id": str(work_order_id or ""),
             },
-            node_contract=_execution_node_contract_from_input_package(graph_config=graph_config, node=node, input_package=input_package),
+            task_contract=_execution_task_contract_from_input_package(input_package),
+            agent_binding=_execution_agent_binding_from_input_package(input_package),
             edge_contracts={
                 "inbound_flow_packets": _inbound_flow_packets(slot_inbound_context),
                 "inbound_edge_contexts": _execution_inbound_contexts(slot_inbound_context),
@@ -238,7 +240,7 @@ class GraphContextMaterializer:
                     _outbound_edge_policy(graph_config=graph_config, edge=dict(edge))
                     for edge in build_outbound_flow_edges(graph_config, node_id)
                 ],
-                "authority": "graph_system.edge_contract_projection",
+                "authority": "graph_system.compiled_edge_contract_context",
             },
             memory_contract={
                 "namespace_id": _memory_namespace_id(graph_config=graph_config, state=state),
@@ -285,12 +287,11 @@ class GraphContextMaterializer:
             visibility={
                 "system_control_only": ["graph_identity", "state_refs", "runtime_controls"],
                 "runtime_consumable": [
-                    "node_contract.agent_assembly",
-                    "node_contract.model_requirement",
+                    "agent_binding",
                     "output_contract.artifact_targets",
                 ],
                 "model_visible_projection": [
-                    "node_contract.prompt_contract",
+                    "task_contract.prompt_contract",
                     "edge_contracts.inbound_edge_contexts",
                     "memory_contract.resolved_snapshots",
                     "output_contract.output_policy",
@@ -312,9 +313,9 @@ class GraphContextMaterializer:
     ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
-        compiled_node_contract = _compiled_node_contract(graph_config=graph_config, node_id=node_id)
-        agent_config = _node_agent_config(node=node, compiled_node_contract=compiled_node_contract)
-        task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract)
+        task_contract = _node_task_contract(graph_config=graph_config, node_id=node_id)
+        agent_binding = _node_agent_binding(graph_config=graph_config, node_id=node_id)
+        task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, agent_binding=agent_binding)
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
         initial_inputs = dict(state.initial_inputs or {})
         initial_inputs, inbound_context = apply_context_providers(
@@ -335,14 +336,13 @@ class GraphContextMaterializer:
                 "title": str(node.get("title") or node_id),
                 "node_type": str(node.get("node_type") or ""),
                 "task_ref": str(node.get("task_ref") or ""),
-                "agent_id": str(agent_config.get("agent_id") or ""),
-                "agent_profile_id": str(agent_config.get("agent_profile_id") or ""),
             },
             "prompt_contract": prompt_contract,
-            "compiled_node_contract": compiled_node_contract,
+            "task_contract": task_contract,
+            "agent_binding": agent_binding,
             "task_environment_id": task_environment_id,
             "runtime_scope": _runtime_scope_from_state(state),
-            "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node, compiled_node_contract=compiled_node_contract),
+            "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node, agent_binding=agent_binding),
             "execution_boundary": {
                 "node_worker_only": True,
                 "graph_state_owner": "graph_system_loop",
@@ -387,7 +387,7 @@ class GraphContextMaterializer:
             },
             "expected_result_contract": {
                 **dict(node.get("contracts") or {}),
-                **({"compiled_node_contract": compiled_node_contract} if compiled_node_contract else {}),
+                **({"task_contract": task_contract} if task_contract else {}),
             },
         }
 
@@ -445,10 +445,7 @@ def _graph_node_task_binding_hint(
     expected_result_contract: dict[str, Any],
 ) -> dict[str, Any]:
     node_metadata = dict(node.get("metadata") or {})
-    agent_config = _node_agent_config(
-        node=node,
-        compiled_node_contract=dict(input_package.get("compiled_node_contract") or {}),
-    )
+    agent_config = _node_agent_config(node=node, agent_binding=dict(input_package.get("agent_binding") or {}))
     binding_key = stable_hash(
         [
             state.graph_run_id,
@@ -802,6 +799,8 @@ def _execution_input_package(input_package: dict[str, Any]) -> dict[str, Any]:
             "authority": str(payload.get("authority") or "graph_system.node_materialization_package"),
             "materializer_authority": str(payload.get("materializer_authority") or ""),
             "node_identity": _execution_node_identity(payload.get("node_identity")),
+            "task_contract": _execution_task_contract_from_input_package(payload),
+            "agent_binding": _execution_agent_binding_from_input_package(payload),
             "task_environment_id": str(payload.get("task_environment_id") or ""),
             "runtime_scope": _execution_runtime_scope(payload.get("runtime_scope")),
             "execution_boundary": dict(payload.get("execution_boundary") or {}),
@@ -821,8 +820,6 @@ def _execution_node_identity(value: Any) -> dict[str, Any]:
             "title": str(identity.get("title") or ""),
             "node_type": str(identity.get("node_type") or ""),
             "task_ref": str(identity.get("task_ref") or ""),
-            "agent_id": str(identity.get("agent_id") or ""),
-            "agent_profile_id": str(identity.get("agent_profile_id") or ""),
         }
     )
 
@@ -1390,57 +1387,66 @@ def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
-def _execution_node_contract_from_input_package(
-    *,
-    graph_config: ExecutableGraphConfig,
-    node: dict[str, Any],
-    input_package: dict[str, Any],
-) -> dict[str, Any]:
-    runtime_profile = dict(input_package.get("runtime_profile") or {})
-    node_contract = dict(input_package.get("output_contract") or {})
-    compiled_node_contract = dict(input_package.get("compiled_node_contract") or {})
-    bindings = dict(node_contract.get("contract_bindings") or {})
-    runtime_binding = dict(bindings.get("runtime") or {})
-    executor = dict(node.get("executor") or {})
-    agent_config = _node_agent_config(node=node, compiled_node_contract=compiled_node_contract)
-    model_requirement = dict(
-        runtime_binding.get("model_requirement")
-        or runtime_profile.get("model_requirement")
-        or compiled_node_contract.get("model_requirement")
-        or {}
-    )
+def _execution_task_contract_from_input_package(input_package: dict[str, Any]) -> dict[str, Any]:
+    task_contract = dict(input_package.get("task_contract") or {})
+    output_contract = dict(input_package.get("output_contract") or {})
+    bindings = dict(output_contract.get("contract_bindings") or {})
     return _drop_empty(
         {
-            "contract_id": str(compiled_node_contract.get("contract_id") or node_contract.get("node_contract_id") or ""),
-            "compiled_contract_id": str(compiled_node_contract.get("contract_id") or ""),
-            "node_id": str(compiled_node_contract.get("node_id") or node.get("node_id") or ""),
-            "node_kind": str(compiled_node_contract.get("node_kind") or ""),
-            "node_class": str(compiled_node_contract.get("node_class") or ""),
+            "contract_id": str(task_contract.get("contract_id") or output_contract.get("node_contract_id") or ""),
+            "node_id": str(task_contract.get("node_id") or ""),
+            "node_kind": str(task_contract.get("node_kind") or ""),
+            "node_class": str(task_contract.get("node_class") or ""),
             "node_identity": dict(input_package.get("node_identity") or {}),
-            "agent_assembly": _drop_empty(
-                {
-                    "agent_id": str(agent_config.get("agent_id") or ""),
-                    "agent_profile_id": str(agent_config.get("agent_profile_id") or ""),
-                    "executor_type": str(executor.get("executor_type") or "agent"),
-                    "authority": "graph_system.node_agent_assembly_projection",
-                }
-            ),
-            "prompt_contract": dict(input_package.get("prompt_contract") or {}),
-            "model_requirement": model_requirement,
-            "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
-            "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
-            "runtime_policy": _execution_runtime_policy(runtime_profile.get("runtime_policy") or compiled_node_contract.get("runtime_policy")),
-            "input_contract": dict(input_package.get("input_contract") or {}),
+            "prompt_contract": dict(task_contract.get("prompt_contract") or input_package.get("prompt_contract") or {}),
+            "input_contract": dict(task_contract.get("input_contract") or input_package.get("input_contract") or {}),
+            "output_contract": dict(task_contract.get("output_contract") or {}),
             "acceptance_policy": dict(bindings.get("acceptance") or {}),
             "contract_bindings": _drop_empty(
                 {
+                    "output": dict(bindings.get("output") or {}),
+                    "artifact": dict(bindings.get("artifact") or {}),
+                    "acceptance": dict(bindings.get("acceptance") or {}),
                     "execution": dict(bindings.get("execution") or {}),
                 }
             ),
-            "environment_lock": _environment_lock_ref(compiled_node_contract.get("environment_lock") or runtime_profile.get("node_environment_lock")),
-            "project_binding": dict(compiled_node_contract.get("project_binding") or runtime_profile.get("graph_project_binding") or {}),
-            "session_policy": dict(compiled_node_contract.get("session_policy") or runtime_profile.get("node_session_policy") or {}),
-            "authority": "graph_system.node_contract_execution_projection",
+            "artifact_contract": dict(task_contract.get("artifact_contract") or {}),
+            "state_policy": dict(task_contract.get("state_policy") or {}),
+            "trace_policy": dict(task_contract.get("trace_policy") or {}),
+            "authority": "graph_system.task_contract_execution_projection",
+        }
+    )
+
+
+def _execution_agent_binding_from_input_package(input_package: dict[str, Any]) -> dict[str, Any]:
+    binding = dict(input_package.get("agent_binding") or {})
+    runtime_profile = dict(input_package.get("runtime_profile") or {})
+    runtime_policy = dict(binding.get("runtime_policy") or runtime_profile.get("runtime_policy") or {})
+    return _drop_empty(
+        {
+            "binding_id": str(binding.get("binding_id") or ""),
+            "binding_mode": str(binding.get("binding_mode") or ""),
+            "node_id": str(binding.get("node_id") or ""),
+            "node_kind": str(binding.get("node_kind") or ""),
+            "node_class": str(binding.get("node_class") or ""),
+            "executor_type": str(binding.get("executor_type") or ""),
+            "executor_policy": dict(binding.get("executor_policy") or {}),
+            "agent_id": str(binding.get("agent_id") or ""),
+            "agent_profile_id": str(binding.get("agent_profile_id") or ""),
+            "agent_group_id": str(binding.get("agent_group_id") or ""),
+            "agent_selection_policy": str(binding.get("agent_selection_policy") or ""),
+            "model_requirement": dict(binding.get("model_requirement") or {}),
+            "reasoning_policy": dict(runtime_profile.get("reasoning_policy") or {}),
+            "completion_profile": dict(runtime_profile.get("completion_profile") or {}),
+            "runtime_policy": _execution_runtime_policy(runtime_policy),
+            "permission_ceiling": dict(binding.get("permission_ceiling") or {}),
+            "tool_contract": dict(binding.get("tool_contract") or {}),
+            "tool_policy": dict(binding.get("tool_policy") or {}),
+            "environment_lock": _environment_lock_ref(binding.get("environment_lock") or runtime_profile.get("node_environment_lock")),
+            "project_binding": dict(binding.get("project_binding") or runtime_profile.get("graph_project_binding") or {}),
+            "session_policy": dict(binding.get("session_policy") or runtime_profile.get("node_session_policy") or {}),
+            "context_config": dict(binding.get("context_config") or {}),
+            "authority": "graph_system.agent_binding_execution_projection",
         }
     )
 
@@ -1488,11 +1494,13 @@ def _inbound_packet_refs(inbound_context: list[dict[str, Any]]) -> list[dict[str
 
 
 def _outbound_edge_policy(*, graph_config: ExecutableGraphConfig, edge: dict[str, Any]) -> dict[str, Any]:
-    edge_contract = edge_contract_or_projection(graph_config, edge)
+    edge_contract = edge_contract_for_edge(graph_config, edge)
     packet = dict(edge_contract.get("packet") or {})
     reliability = dict(edge_contract.get("reliability") or {})
     protocol = dict(edge_contract.get("protocol") or {})
+    scheduler = dict(edge_contract.get("scheduler") or {})
     trace = dict(edge_contract.get("trace") or {})
+    packet_visibility = dict(packet.get("visibility") or {})
     return {
         "edge_id": str(edge.get("edge_id") or ""),
         "target_node_id": str(edge.get("target_node_id") or ""),
@@ -1501,18 +1509,18 @@ def _outbound_edge_policy(*, graph_config: ExecutableGraphConfig, edge: dict[str
         "protocol_kind": str(protocol.get("kind") or ""),
         "interaction_pattern": str(protocol.get("interaction_pattern") or ""),
         "produces_flow_packet": bool(protocol.get("produces_flow_packet", trace.get("persist_packet", False))),
-        "scheduler_role": str(edge.get("scheduler_role") or ""),
-        "semantic_role": str(edge.get("semantic_role") or ""),
-        "payload_contract_id": str(packet.get("payload_contract_id") or edge.get("payload_contract_id") or ""),
-        "packet_contract_id": str(packet.get("packet_contract_id") or _edge_packet_contract_id(edge)),
-        "source_output_selector": str(packet.get("source_output_selector") or _edge_source_output_selector(edge)),
-        "target_context_key": str(packet.get("target_context_key") or _edge_target_context_key(edge)),
-        "target_input_slot": str(packet.get("target_input_slot") or _edge_target_input_slot(edge)),
-        "projection_policy": dict(edge.get("context_filter_policy") or {}),
-        "visibility_policy": dict(edge.get("visibility_policy") or {}),
+        "scheduler_role": str(scheduler.get("scheduler_role") or ""),
+        "semantic_role": str(scheduler.get("semantic_role") or ""),
+        "payload_contract_id": str(packet.get("payload_contract_id") or ""),
+        "packet_contract_id": str(packet.get("packet_contract_id") or packet.get("payload_contract_id") or ""),
+        "source_output_selector": str(packet.get("source_output_selector") or ""),
+        "target_context_key": str(packet.get("target_context_key") or ""),
+        "target_input_slot": str(packet.get("target_input_slot") or ""),
+        "projection_policy": dict(packet_visibility.get("context_filter_policy") or {}),
+        "visibility_policy": packet_visibility,
         "receipt_policy": {
-            "ack_required": bool(reliability.get("ack_required", edge.get("ack_required", True))),
-            "ack_policy": str(reliability.get("ack_policy") or edge.get("ack_policy") or ""),
+            "ack_required": bool(reliability.get("ack_required", True)),
+            "ack_policy": str(reliability.get("ack_policy") or ""),
         },
         "trace_policy": {
             "persist_packet": bool(trace.get("persist_packet", False)),
@@ -1534,69 +1542,6 @@ def _memory_namespace_id(*, graph_config: ExecutableGraphConfig, state: GraphLoo
         if explicit and bool(memory_scope.get("shared") is True):
             return explicit
     return f"graphmem:{safe_id(state.graph_run_id)}"
-
-
-def _edge_packet_contract_id(edge: dict[str, Any]) -> str:
-    bindings = dict(edge.get("contract_bindings") or {})
-    schema = dict(bindings.get("schema") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(edge.get("packet_contract_id") or handoff.get("packet_contract_id") or edge.get("payload_contract_id") or schema.get("payload_contract_id") or "").strip()
-
-
-def _edge_source_output_selector(edge: dict[str, Any]) -> str:
-    policy = dict(edge.get("context_filter_policy") or {})
-    artifact_policy = dict(edge.get("artifact_ref_policy") or {})
-    bindings = dict(edge.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    candidates = [
-        handoff.get("source_output_selector"),
-        policy.get("source_output_selector"),
-        artifact_policy.get("source_output_key"),
-        _first_string(policy.get("include_output_keys")),
-    ]
-    for value in candidates:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def _first_string(value: Any) -> str:
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, dict):
-        for key, enabled in value.items():
-            text = str(key or "").strip()
-            if text and enabled:
-                return text
-        return ""
-    for item in list(value or []):
-        text = str(item or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def _edge_target_context_key(edge: dict[str, Any]) -> str:
-    metadata = dict(edge.get("metadata") or {})
-    artifact_policy = dict(edge.get("artifact_ref_policy") or {})
-    bindings = dict(edge.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(
-        edge.get("target_context_key")
-        or handoff.get("target_context_key")
-        or metadata.get("target_context_key")
-        or metadata.get("target_input_key")
-        or artifact_policy.get("target_input_key")
-        or ""
-    ).strip()
-
-
-def _edge_target_input_slot(edge: dict[str, Any]) -> str:
-    metadata = dict(edge.get("metadata") or {})
-    bindings = dict(edge.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(edge.get("target_input_slot") or handoff.get("target_input_slot") or metadata.get("target_input_slot") or metadata.get("input_alias") or "").strip()
 
 
 def _prompt_contract(node: dict[str, Any]) -> dict[str, Any]:
@@ -1716,8 +1661,8 @@ def _output_artifact_targets(input_package: dict[str, Any]) -> list[dict[str, An
 
 
 def _output_environment_projection(graph_config: ExecutableGraphConfig, *, input_package: dict[str, Any] | None = None) -> dict[str, Any]:
-    compiled_node_contract = dict(dict(input_package or {}).get("compiled_node_contract") or {})
-    environment_lock = dict(compiled_node_contract.get("environment_lock") or {})
+    agent_binding = dict(dict(input_package or {}).get("agent_binding") or {})
+    environment_lock = dict(agent_binding.get("environment_lock") or {})
     return _drop_empty(
         {
             "task_environment_id": str(
@@ -1863,8 +1808,13 @@ def _node_protocol_entry(*, graph_config: ExecutableGraphConfig, node_id: str) -
     return dict(index.get(str(node_id or "")) or {})
 
 
-def _compiled_node_contract(*, graph_config: ExecutableGraphConfig, node_id: str) -> dict[str, Any]:
-    index = dict(dict(graph_config.contracts or {}).get("node_contract_index") or {})
+def _node_task_contract(*, graph_config: ExecutableGraphConfig, node_id: str) -> dict[str, Any]:
+    index = dict(dict(graph_config.contracts or {}).get("node_task_contract_index") or {})
+    return dict(index.get(str(node_id or "")) or {})
+
+
+def _node_agent_binding(*, graph_config: ExecutableGraphConfig, node_id: str) -> dict[str, Any]:
+    index = dict(dict(graph_config.contracts or {}).get("node_agent_binding_index") or {})
     return dict(index.get(str(node_id or "")) or {})
 
 
@@ -1872,9 +1822,9 @@ def _node_effective_environment_id(
     *,
     graph_config: ExecutableGraphConfig,
     node: dict[str, Any],
-    compiled_node_contract: dict[str, Any],
+    agent_binding: dict[str, Any],
 ) -> str:
-    environment_lock = dict(compiled_node_contract.get("environment_lock") or {})
+    environment_lock = dict(agent_binding.get("environment_lock") or {})
     metadata = dict(node.get("metadata") or {})
     runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
     return str(
@@ -1888,11 +1838,12 @@ def _node_effective_environment_id(
     ).strip()
 
 
-def _node_agent_config(*, node: dict[str, Any], compiled_node_contract: dict[str, Any]) -> dict[str, str]:
-    agent = dict(compiled_node_contract.get("agent") or {})
+def _node_agent_config(*, node: dict[str, Any], agent_binding: dict[str, Any]) -> dict[str, str]:
     return {
-        "agent_id": str(node.get("agent_id") or agent.get("agent_id") or "").strip(),
-        "agent_profile_id": str(node.get("agent_profile_id") or agent.get("agent_profile_id") or "").strip(),
+        "agent_id": str(node.get("agent_id") or agent_binding.get("agent_id") or "").strip(),
+        "agent_profile_id": str(node.get("agent_profile_id") or agent_binding.get("agent_profile_id") or "").strip(),
+        "agent_group_id": str(node.get("agent_group_id") or agent_binding.get("agent_group_id") or "").strip(),
+        "agent_selection_policy": str(agent_binding.get("agent_selection_policy") or "").strip(),
     }
 
 
@@ -1956,20 +1907,20 @@ def _graph_work_kind(executor_type: str) -> str:
     return "agent"
 
 
-def _node_runtime_profile(*, graph_config: ExecutableGraphConfig, node: dict[str, Any], compiled_node_contract: dict[str, Any] | None = None) -> dict[str, Any]:
+def _node_runtime_profile(*, graph_config: ExecutableGraphConfig, node: dict[str, Any], agent_binding: dict[str, Any] | None = None) -> dict[str, Any]:
     metadata = dict(node.get("metadata") or {})
     runtime_profile = dict(metadata.get("runtime_profile") or {})
     if not runtime_profile:
         runtime_profile = dict(metadata.get("runtime") or {})
-    compiled = dict(compiled_node_contract or {})
-    environment_lock = dict(compiled.get("environment_lock") or {})
+    binding = dict(agent_binding or {})
+    environment_lock = dict(binding.get("environment_lock") or {})
     task_environment_id = str(environment_lock.get("task_environment_id") or "")
     return {
         **runtime_profile,
         "task_environment_id": task_environment_id,
         "node_environment_lock": environment_lock,
-        "node_session_policy": dict(compiled.get("session_policy") or {}),
-        "graph_project_binding": dict(compiled.get("project_binding") or {}),
+        "node_session_policy": dict(binding.get("session_policy") or {}),
+        "graph_project_binding": dict(binding.get("project_binding") or {}),
         "runtime_policy": {
             "source": "graph_node_config",
             "node_id": str(node.get("node_id") or ""),
@@ -1995,7 +1946,7 @@ def _node_runtime_profile(*, graph_config: ExecutableGraphConfig, node: dict[str
                 "model_visible": "summary_without_denials",
                 "reason": "图节点只需要知道本轮可用操作；被拒绝操作不参与节点交付判断。",
             },
-            **dict(runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {}),
+            **dict(binding.get("runtime_policy") or runtime_profile.get("runtime_policy") or runtime_profile.get("execution_policy") or {}),
         },
     }
 

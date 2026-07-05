@@ -338,6 +338,49 @@ class RunMonitorService:
             return self.projector.build_task_monitor(task_run, now=now)
         return None
 
+    def get_runtime_anchor_live_monitor(self, runtime_anchor_id: str) -> dict[str, Any] | None:
+        state_index = getattr(self.runtime_host, "state_index", None)
+        getter = getattr(state_index, "get_runtime_anchor", None)
+        if not callable(getter):
+            return None
+        try:
+            anchor = getter(str(runtime_anchor_id or "").strip())
+        except Exception:
+            anchor = None
+        if anchor is None:
+            return None
+        anchor_payload = anchor.to_dict() if hasattr(anchor, "to_dict") else dict(anchor)
+        task_run_id = str(anchor_payload.get("legacy_task_run_id") or anchor_payload.get("event_scope_ref") or "").strip()
+        if task_run_id:
+            task_run = self.runtime_host.state_index.get_task_run(task_run_id)
+            if task_run is not None:
+                monitor = self.projector.build_task_monitor(task_run, now=time.time())
+                return {
+                    **monitor,
+                    "runtime_anchor_id": str(anchor_payload.get("runtime_anchor_id") or runtime_anchor_id or ""),
+                    "runtime_anchor": anchor_payload,
+                    "legacy_task_run_id": task_run_id,
+                }
+        turn_run_id = str(anchor_payload.get("turn_run_id") or "").strip()
+        if turn_run_id:
+            turn_monitor = self.get_turn_run_live_monitor(turn_run_id)
+            if turn_monitor is not None:
+                return {
+                    **turn_monitor,
+                    "runtime_anchor_id": str(anchor_payload.get("runtime_anchor_id") or runtime_anchor_id or ""),
+                    "runtime_anchor": anchor_payload,
+                    "legacy_task_run_id": task_run_id,
+                }
+        return {
+            "authority": "harness.run_monitor.runtime_anchor_detail",
+            "available": True,
+            "runtime_anchor_id": str(anchor_payload.get("runtime_anchor_id") or runtime_anchor_id or ""),
+            "runtime_anchor": anchor_payload,
+            "legacy_task_run_id": task_run_id,
+            "monitor": None,
+            "updated_at": time.time(),
+        }
+
     def get_turn_run_live_monitor(self, turn_run_id: str) -> dict[str, Any] | None:
         turn_run = self.runtime_host.state_index.get_turn_run(turn_run_id)
         if turn_run is None:
@@ -368,8 +411,12 @@ class RunMonitorService:
 
     def get_resource(self, resource_ref: str) -> dict[str, Any]:
         kind, _, resource_id = str(resource_ref or "").partition(":")
+        if kind == "runtime_anchor":
+            return self.resource_resolver.runtime_anchor_ref(resource_id)
         if kind == "task_run":
             return self.resource_resolver.task_run_ref(resource_id)
+        if kind == "task_environment":
+            return self.resource_resolver.task_environment_ref(resource_id)
         if kind == "session":
             return self.resource_resolver.session_ref(resource_id)
         if kind == "graph_run":

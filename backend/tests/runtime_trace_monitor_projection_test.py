@@ -20,12 +20,12 @@ def test_run_monitor_projects_fact_trace_summaries_without_raw_payload(tmp_path)
         )
     )
     trace = host.trace_service.start_trace(
-        run_kind="task_executor",
+        run_kind="task_run",
         root_run_id=task_run_id,
         scope={"session_id": session_id, "task_run_id": task_run_id},
         refs={"task_run_id": task_run_id},
         attributes={"prompt": "must not leak to monitor"},
-        idempotency_key="task-executor:monitor-trace",
+        idempotency_key="task-run:monitor-trace",
         started_at=101.0,
     )
     span = host.trace_service.start_span(
@@ -68,7 +68,7 @@ def test_run_monitor_projects_fact_trace_summaries_without_raw_payload(tmp_path)
     assert monitor["trace_summary"]["available"] is True
     assert monitor["trace_summary"]["hydrated"] is True
     assert monitor["trace_summary"]["trace_id"] == trace.trace_id
-    assert monitor["trace_summary"]["run"]["run_kind"] == "task_executor"
+    assert monitor["trace_summary"]["run"]["run_kind"] == "task_run"
     assert monitor["trace_summary"]["run"]["status"] == "completed"
     assert monitor["trace_summary"]["span_count"] == 1
     assert monitor["trace_summary"]["event_count"] == 1
@@ -135,12 +135,12 @@ def test_run_monitor_global_signal_reuses_compact_projection_summary(tmp_path) -
         )
     )
     trace = host.trace_service.start_trace(
-        run_kind="task_executor",
+        run_kind="task_run",
         root_run_id=task_run_id,
         scope={"session_id": session_id, "task_run_id": task_run_id},
         refs={"task_run_id": task_run_id},
         attributes={"prompt": "must not leak to monitor signal"},
-        idempotency_key="task-executor:monitor-signal",
+        idempotency_key="task-run:monitor-signal",
         started_at=101.0,
     )
     host.event_log.append(
@@ -245,7 +245,7 @@ class _TraceSummaryQueryStub:
             "session_id": session_id,
             "graph_run_id": graph_run_id,
             "detail_ref": {"kind": "trace", "trace_id": "trace:from-observability-query"},
-            "run": {"trace_id": "trace:from-observability-query", "run_kind": "task_executor", "status": "running"},
+            "run": {"trace_id": "trace:from-observability-query", "run_kind": "task_run", "status": "running"},
             "span_count": 1,
             "event_count": 0,
             "error_span_count": 0,

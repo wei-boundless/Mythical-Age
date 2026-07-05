@@ -44,6 +44,8 @@ class GraphCompilationUnit:
     graph_id: str
     compiler_version: str
     node_contract_index: dict[str, Any]
+    node_task_contract_index: dict[str, Any]
+    node_agent_binding_index: dict[str, Any]
     resource_contract_index: dict[str, Any]
     edge_contract_index: dict[str, Any]
     configurator_write_contract: dict[str, Any]

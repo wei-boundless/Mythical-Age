@@ -24,18 +24,31 @@ class QualityGateHandler:
 
 
 _HANDLERS: dict[str, QualityGateHandler] = {}
-_DEFAULT_MODULES_LOADED = False
-_DEFAULT_MODULES = (
-    "task_system.writing_graphs.quality_gate_handlers",
-)
+_LOADED_MODULES: set[str] = set()
+
+
+def snapshot_quality_gate_handler_registry() -> dict[str, Any]:
+    return {
+        "handlers": dict(_HANDLERS),
+        "loaded_modules": set(_LOADED_MODULES),
+    }
+
+
+def restore_quality_gate_handler_registry(snapshot: dict[str, Any]) -> None:
+    _HANDLERS.clear()
+    _HANDLERS.update(dict(snapshot.get("handlers") or {}))
+    _LOADED_MODULES.clear()
+    _LOADED_MODULES.update(str(item) for item in set(snapshot.get("loaded_modules") or set()) if str(item))
 
 
 def register_quality_gate_handler(handler: QualityGateHandler) -> None:
-    _HANDLERS[handler.handler_id] = handler
+    handler_id = str(handler.handler_id or "").strip()
+    if handler_id in _HANDLERS:
+        raise ValueError(f"duplicate quality gate handler id: {handler_id}")
+    _HANDLERS[handler_id] = handler
 
 
 def iter_quality_gate_handlers() -> tuple[QualityGateHandler, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_HANDLERS.values(), key=lambda handler: (handler.priority, handler.handler_id)))
 
 
@@ -60,13 +73,26 @@ def evaluate_node_quality_acceptance(
     return {}
 
 
-def _ensure_default_modules_loaded() -> None:
-    global _DEFAULT_MODULES_LOADED
-    if _DEFAULT_MODULES_LOADED:
+def load_quality_gate_handler_module(module_name: str) -> None:
+    normalized = str(module_name or "").strip()
+    if not normalized or normalized in _LOADED_MODULES:
         return
-    _DEFAULT_MODULES_LOADED = True
-    for module_name in _DEFAULT_MODULES:
-        module = importlib.import_module(module_name)
-        register = getattr(module, "register_quality_gate_handlers", None)
-        if callable(register):
-            register(register_quality_gate_handler)
+    module = importlib.import_module(normalized)
+    register = getattr(module, "register_quality_gate_handlers", None)
+    if not callable(register):
+        raise ValueError(f"quality gate handler module has no register_quality_gate_handlers(): {normalized}")
+    before = dict(_HANDLERS)
+    try:
+        register(register_quality_gate_handler)
+    except Exception:
+        _HANDLERS.clear()
+        _HANDLERS.update(before)
+        raise
+    if _HANDLERS == before:
+        raise ValueError(f"quality gate handler module registered no handlers: {normalized}")
+    _LOADED_MODULES.add(normalized)
+
+
+def load_quality_gate_handler_modules(module_names: tuple[str, ...] | list[str]) -> None:
+    for module_name in list(module_names or ()):
+        load_quality_gate_handler_module(str(module_name or ""))

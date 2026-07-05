@@ -20,7 +20,6 @@ type RunTaskLaneAction = NonNullable<RunMonitorSignal["actions"]>[number];
 
 const HIDDEN_ACTIONS = new Set(["open", "inspect"]);
 const DANGER_ACTIONS = new Set(["delete_record"]);
-const WARNING_ACTIONS = new Set(["close_runtime", "stop_task"]);
 
 function signalIcon(signal: RunMonitorSignal) {
   const activityState = signalText(signal.activity_state);
@@ -94,7 +93,16 @@ function signalTitle(signal: RunMonitorSignal) {
 }
 
 function signalOpenId(signal: RunMonitorSignal) {
-  return signal.signal_id || signal.task_instance_id || signal.task_run_id || signal.graph_run_id || "";
+  return signal.signal_id || signal.runtime_anchor_id || signal.monitor_item_id || signal.task_instance_id || signal.task_run_id || signal.turn_run_id || signal.graph_run_id || "";
+}
+
+function signalLogRunId(signal: RunMonitorSignal) {
+  const detail = signal.detail_ref ?? {};
+  const kind = String(detail.kind || signal.source_kind || "").trim();
+  if (kind === "turn_run") {
+    return String(detail.turn_run_id || signal.turn_run_id || "").trim();
+  }
+  return String(signal.task_run_id || detail.task_run_id || "").trim();
 }
 
 function visibleTaskLaneActions(signal: RunMonitorSignal): RunTaskLaneAction[] {
@@ -114,7 +122,7 @@ export function RunTaskLane({ signals, loading, actionLoading, onAction, onOpen,
       <div className="run-monitor-tasks">
         {visible.length ? visible.map((signal) => {
           const actions = visibleTaskLaneActions(signal);
-          const hasLogAction = Boolean(onOpenLog && signal.task_run_id);
+          const hasLogAction = Boolean(onOpenLog && signalLogRunId(signal));
           const stateLabel = signalStateLabel(signal);
           const subtitle = signalSubtitle(signal, stateLabel);
           return (
@@ -164,11 +172,12 @@ function RunTaskLaneActions({
   onOpenLog?: (signal: RunMonitorSignal) => void;
   signal: RunMonitorSignal;
 }) {
-  if (!actions.length && !(onOpenLog && signal.task_run_id)) return null;
-  const signalId = signal.signal_id || signal.task_instance_id || signal.task_run_id;
+  const logRunId = signalLogRunId(signal);
+  if (!actions.length && !(onOpenLog && logRunId)) return null;
+  const signalId = signal.signal_id || signal.runtime_anchor_id || signal.monitor_item_id || signal.task_instance_id || signal.task_run_id || signal.turn_run_id;
   return (
     <div className="run-monitor-task__actions" aria-label="运行操作">
-      {onOpenLog && signal.task_run_id ? (
+      {onOpenLog && logRunId ? (
         <button
           className="run-monitor-task__action"
           aria-label="打开运行日志"
@@ -193,6 +202,7 @@ function RunTaskLaneActions({
             onAction({
               action: action.action,
               signal_id: signalId,
+              runtime_anchor_id: signal.runtime_anchor_id,
               task_run_id: signal.task_run_id,
               graph_run_id: signal.graph_run_id || signal.graph_ref?.graph_run_id || "",
             });
@@ -209,9 +219,6 @@ function RunTaskLaneActions({
 function runTaskLaneActionClassName(action: string) {
   if (DANGER_ACTIONS.has(action)) {
     return "run-monitor-task__action run-monitor-task__action--danger";
-  }
-  if (WARNING_ACTIONS.has(action)) {
-    return "run-monitor-task__action run-monitor-task__action--warning";
   }
   return "run-monitor-task__action";
 }

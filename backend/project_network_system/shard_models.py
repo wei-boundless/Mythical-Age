@@ -15,33 +15,7 @@ SemanticShardWorkUnitKind = Literal[
     "validation",
     "publish",
 ]
-ShardWorkPosture = Literal["classify", "index", "trace", "review", "aggregate", "validate", "curate", "publish"]
 ShardPlanMode = Literal["static_pre_materialized", "rolling_one_hop", "runtime_requested_expansion"]
-
-
-@dataclass(frozen=True, slots=True)
-class ShardExecutorPolicy:
-    agent_id: str = ""
-    agent_profile_id: str = ""
-    agent_group_id: str = ""
-    work_posture: ShardWorkPosture = "index"
-    executor_type: str = "agent"
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None) -> "ShardExecutorPolicy":
-        payload = dict(payload or {})
-        return cls(
-            agent_id=str(payload.get("agent_id") or ""),
-            agent_profile_id=str(payload.get("agent_profile_id") or ""),
-            agent_group_id=str(payload.get("agent_group_id") or ""),
-            work_posture=str(payload.get("work_posture") or "index"),  # type: ignore[arg-type]
-            executor_type=str(payload.get("executor_type") or "agent"),
-            metadata=dict(payload.get("metadata") or {}),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return _drop_empty(asdict(self))
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +76,6 @@ class SemanticShardSpec:
     expected_work_product_contract_id: str = ""
     output_contract_id: str = ""
     payload_contract_id: str = ""
-    executor_policy: ShardExecutorPolicy = field(default_factory=ShardExecutorPolicy)
     complexity: ShardComplexity = field(default_factory=ShardComplexity)
     dependencies: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -150,7 +123,6 @@ class SemanticShardSpec:
             expected_work_product_contract_id=str(payload.get("expected_work_product_contract_id") or ""),
             output_contract_id=str(payload.get("output_contract_id") or ""),
             payload_contract_id=str(payload.get("payload_contract_id") or ""),
-            executor_policy=ShardExecutorPolicy.from_dict(payload.get("executor_policy")),
             complexity=ShardComplexity.from_dict(payload.get("complexity")),
             dependencies=_tuple_of_strings(payload.get("dependencies")),
             metadata=dict(payload.get("metadata") or {}),
@@ -171,7 +143,6 @@ class SemanticShardSpec:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["assignment"] = self.assignment.to_dict()
-        payload["executor_policy"] = self.executor_policy.to_dict()
         payload["complexity"] = self.complexity.to_dict()
         payload["assigned_scope"] = self.assigned_scope
         payload["input_refs"] = list(self.input_refs)

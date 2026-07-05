@@ -304,10 +304,10 @@ _CONTROL_OUTPUT_LINE_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "pause_for_user_steer": {
         "permit_policy_ref": "harness.loop.admission.pause_for_user_steer",
-        "executor_ref": "harness.entrypoint.runtime_facade.legacy_task_pause_removed",
+        "executor_ref": "harness.entrypoint.runtime_facade.current_work_control",
         "observation_contract": "pause_for_user_steer_observation",
-        "public_projection_policy": "task_pause_public_projection",
-        "commit_policy": "legacy_task_pause_removed_visible_status",
+        "public_projection_policy": "active_work_control_public_projection",
+        "commit_policy": "control_event_not_final_answer",
         "terminal_policy": "only a mounted task episode execution surface may pause for user steer",
         "failure_feedback_policy": "invalid pause request returns structured admission denial",
     },

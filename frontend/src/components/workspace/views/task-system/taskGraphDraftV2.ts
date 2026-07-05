@@ -162,7 +162,7 @@ export function emptyTaskGraphDraftV2(): TaskGraphDraftV2 {
     contract_bindings: {},
     default_protocol_id: "",
     runtime_policy: {
-      coordinator_agent_id: "agent:0",
+      coordinator_agent_id: "",
       participant_agent_ids: [],
       agent_group_id: "",
       coordination_mode: "review_merge",
@@ -232,7 +232,7 @@ export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraft
     default_protocol_id: graph.default_protocol_id ?? String(metadata.protocol_id ?? ""),
     runtime_policy: {
       ...runtimePolicy,
-      coordinator_agent_id: String(runtimePolicy.coordinator_agent_id ?? metadata.coordinator_agent_id ?? "agent:0") || "agent:0",
+      coordinator_agent_id: String(runtimePolicy.coordinator_agent_id ?? metadata.coordinator_agent_id ?? ""),
       participant_agent_ids: stringListOf(runtimePolicy.participant_agent_ids ?? metadata.participant_agent_ids),
       agent_group_id: String(runtimePolicy.agent_group_id ?? metadata.agent_group_id ?? ""),
       coordination_mode: String(runtimePolicy.coordination_mode ?? metadata.coordination_mode ?? "review_merge"),

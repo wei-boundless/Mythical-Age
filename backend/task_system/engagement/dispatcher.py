@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from bootstrap.graph_extensions import ensure_app_graph_extensions_loaded
 from graph_system.facade import GraphSystem
 from graph_system.models import safe_id
 from harness.runtime import AgentRuntimeServices
@@ -27,7 +28,6 @@ class EngagementDispatcher:
         session_id: str,
         turn_id: str,
         contract: EngagementContract,
-        agent_profile_ref: str,
     ) -> dict[str, Any]:
         run = EngagementRunRecord(
             engagement_run_id=f"engrun:{uuid.uuid4().hex[:12]}",
@@ -186,6 +186,7 @@ def _graph_system_from_runtime_host(runtime_host: Any) -> GraphSystem:
     graph_system = getattr(runtime_host, "graph_system", None)
     if graph_system is not None:
         return graph_system
+    ensure_app_graph_extensions_loaded()
     return GraphSystem(
         services=AgentRuntimeServices.from_runtime_host(runtime_host),
     )

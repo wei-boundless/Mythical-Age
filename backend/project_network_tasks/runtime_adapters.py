@@ -14,7 +14,6 @@ def register_runtime_algorithm_adapters(register) -> None:
             adapter_id='project_network_work_product',
             postprocess=postprocess_project_network_runtime_algorithm_outputs,
             priority=100,
-            structured_output_keys=("project_network_semantic_submissions",),
         )
     )
 
@@ -44,25 +43,25 @@ def postprocess_project_network_runtime_algorithm_outputs(
     )
     del final_answer
     project_context = _project_network_context(node=node, work_order=work_order)
-    raw_submissions = _raw_project_network_semantic_submissions(structured_outputs)
+    raw_submissions = _raw_typed_semantic_submissions(structured_outputs)
     products: list[dict[str, Any]] = []
     issues: list[str] = []
     if not raw_submissions:
-        issues.append("missing_project_network_semantic_submissions")
+        issues.append("missing_typed_semantic_submission")
     accepted_products: list[dict[str, Any]] = []
     for index, item in enumerate(raw_submissions, start=1):
         product_issues: list[str] = []
         if not isinstance(item, dict):
-            issues.append(f"semantic_submission_not_object:{index}")
+            issues.append(f"typed_semantic_submission_not_object:{index}")
             continue
-        raw_product = _project_network_work_product_from_semantic_submission(
+        raw_product = _project_network_work_product_from_typed_submission(
             item,
             expected_kind=expected_kind,
             project_context=project_context,
             work_order=work_order,
         )
         if not raw_product:
-            issues.append(f"semantic_submission_kind_unsupported:{index}")
+            issues.append(f"typed_semantic_submission_kind_unsupported:{index}")
             continue
         product = _normalize_project_network_work_product(
             raw_product,
@@ -97,7 +96,7 @@ def postprocess_project_network_runtime_algorithm_outputs(
         "algorithm_kind": algorithm_kind or "tree_reduce",
         "expected_product_kind": expected_kind,
         "product_count": len(products),
-        "semantic_submission_count": len(raw_submissions),
+        "typed_semantic_submission_count": len(raw_submissions),
         "accepted_product_count": len(accepted_products),
         "issues": _dedupe_strings(issues),
         "quality_issue_summary": "; ".join(_dedupe_strings(issues)),
@@ -105,7 +104,7 @@ def postprocess_project_network_runtime_algorithm_outputs(
             "error_code": "project_network_work_product_contract_failed",
             "retryable": True,
             "recovery_action": "requeue_same_graph_node_with_contract_feedback",
-            "user_message": "项目网络节点没有通过结构化语义提交通道提交合格审查事实，系统会把缺失字段回灌给同一节点重审。",
+            "user_message": "项目网络节点没有在 respond.structured_output_json 中提交合格的 typed semantic submission，系统会把缺失字段回灌给同一节点重审。",
         },
         "authority": "project_network_tasks.runtime_adapter.project_network_tree_reduce",
     }
@@ -133,7 +132,7 @@ def postprocess_project_network_runtime_algorithm_outputs(
             "algorithm_kind": algorithm_kind,
             "expected_product_kind": expected_kind,
             "product_count": len(products),
-            "semantic_submission_count": len(raw_submissions),
+            "typed_semantic_submission_count": len(raw_submissions),
         },
     )
 
@@ -356,43 +355,36 @@ def _payload_field_missing(payload: dict[str, Any], field_name: str) -> bool:
     return False
 
 
-def _raw_project_network_semantic_submissions(structured_outputs: dict[str, Any]) -> list[Any]:
+def _raw_typed_semantic_submissions(structured_outputs: dict[str, Any]) -> list[Any]:
     payload = dict(structured_outputs or {})
-    candidates: list[Any] = []
+    submissions: list[Any] = []
     seen_source_ids: set[int] = set()
-    for source in (payload, _structured_output_source(payload)):
+    sources: list[Any] = [
+        payload,
+        payload.get("structured_output"),
+        payload.get("node_output"),
+    ]
+    for source in sources:
         if not isinstance(source, dict):
             continue
         source_id = id(source)
         if source_id in seen_source_ids:
             continue
         seen_source_ids.add(source_id)
-        candidates.extend(_semantic_submissions_from_source(source))
-        for nested_key in ("diagnostics", "structured_output", "node_output", "project_network", "graph_build"):
-            nested = source.get(nested_key)
-            if isinstance(nested, dict):
-                candidates.extend(_semantic_submissions_from_source(nested))
-    submissions: list[Any] = []
-    for value in candidates:
-        if isinstance(value, list):
-            submissions.extend(value)
-        elif isinstance(value, tuple):
-            submissions.extend(list(value))
-        elif isinstance(value, dict):
-            submissions.append(value)
-    return _dedupe_semantic_submissions(submissions)
+        if _is_typed_semantic_submission(source):
+            submissions.append(dict(source))
+    return _dedupe_typed_semantic_submissions(submissions)
 
 
-def _semantic_submissions_from_source(source: dict[str, Any]) -> list[Any]:
-    return [
-        source.get("project_network_semantic_submissions"),
-        source.get("semantic_submissions"),
-        source.get("project_network_review_submissions"),
-        source.get("project_network_semantic_submission"),
-    ]
+def _is_typed_semantic_submission(source: dict[str, Any]) -> bool:
+    payload = dict(source or {})
+    return str(payload.get("submission_kind") or "").strip() in {
+        "module_index",
+        "directory_summary",
+    }
 
 
-def _dedupe_semantic_submissions(submissions: list[Any]) -> list[Any]:
+def _dedupe_typed_semantic_submissions(submissions: list[Any]) -> list[Any]:
     result: list[Any] = []
     seen: set[str] = set()
     for item in submissions:
@@ -404,7 +396,7 @@ def _dedupe_semantic_submissions(submissions: list[Any]) -> list[Any]:
     return result
 
 
-def _project_network_work_product_from_semantic_submission(
+def _project_network_work_product_from_typed_submission(
     submission: dict[str, Any],
     *,
     expected_kind: str,
@@ -421,13 +413,13 @@ def _project_network_work_product_from_semantic_submission(
     if expected_kind and submission_kind and submission_kind != expected_kind:
         return {}
     if expected_kind == "module_index" or submission_kind == "module_index":
-        return _module_index_product_from_semantic_submission(
+        return _module_index_product_from_typed_submission(
             submission,
             project_context=project_context,
             work_order=work_order,
         )
     if expected_kind == "directory_summary" or submission_kind == "directory_summary":
-        return _directory_summary_product_from_semantic_submission(
+        return _directory_summary_product_from_typed_submission(
             submission,
             project_context=project_context,
             work_order=work_order,
@@ -435,7 +427,7 @@ def _project_network_work_product_from_semantic_submission(
     return {}
 
 
-def _module_index_product_from_semantic_submission(
+def _module_index_product_from_typed_submission(
     submission: dict[str, Any],
     *,
     project_context: dict[str, Any],
@@ -565,7 +557,7 @@ def _module_index_product_from_semantic_submission(
     }
 
 
-def _directory_summary_product_from_semantic_submission(
+def _directory_summary_product_from_typed_submission(
     submission: dict[str, Any],
     *,
     project_context: dict[str, Any],

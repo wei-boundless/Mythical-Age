@@ -198,6 +198,7 @@ _CONTEXT_CAPABILITY_GROUPS = (
 )
 
 _SYSTEM_GROUP_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
+    "action_protocol": ("action_contracts",),
     "task_run_contract_intake": ("task_run_contracts", "runtime_contracts", "turn_state_control", "repair_feedback"),
     "react_loop": ("action_contracts", "tool_context", "turn_state_control", "repair_feedback", "current_dynamic_control"),
     "tool_runtime": ("tool_context", "action_contracts", "repair_feedback"),
@@ -1034,6 +1035,7 @@ def _build_system_wiring_manifest(
         )
     )
     task_run_contract_intake_enabled = bool(may_request_task_run and system_group_allowed("task_run_contract_intake"))
+    action_protocol_enabled = system_group_allowed("action_protocol")
     react_loop_enabled = bool(
         (may_call_tools or may_use_subagents or may_control_active_work)
         and system_group_allowed("react_loop")
@@ -1060,6 +1062,22 @@ def _build_system_wiring_manifest(
     recovery_closeout_enabled = system_group_allowed("recovery_closeout")
 
     system_groups = {
+        "action_protocol": _system_group_manifest(
+            enabled=action_protocol_enabled,
+            capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["action_protocol"],
+            config={
+                "mode": "model_action_contract",
+                "may_call_tools": may_call_tools,
+                "allowed_operations": list(allowed_operations),
+            },
+            prompt_resources=(
+                "runtime.rule.system_call_protocol",
+                "runtime.rule.turn_decision_alignment",
+                "runtime.rule.permission_denial",
+            ),
+            context_segments=("action_schema_static",),
+            feedback_channels=("action_contract_feedback", "action_contract_repair"),
+        ),
         "task_run_contract_intake": _system_group_manifest(
             enabled=task_run_contract_intake_enabled,
             capability_groups=_SYSTEM_GROUP_CAPABILITY_GROUPS["task_run_contract_intake"],
@@ -1742,7 +1760,15 @@ def _resolve_runtime_task_environment(
     )
     agent_default = _agent_profile_default_environment_id(agent_runtime_profile)
     environment_id = explicit or agent_default or "env.general.workspace"
-    registry.require(environment_id)
+    invalid_agent_default = ""
+    try:
+        registry.require(environment_id)
+    except KeyError:
+        if explicit:
+            raise
+        invalid_agent_default = environment_id
+        environment_id = GENERAL_ENVIRONMENT_ID
+        registry.require(environment_id)
     environment_payload = build_task_environment_catalog(registry=registry).runtime_environment_payload(environment_id)
     source = (
         "environment_binding"
@@ -1763,6 +1789,7 @@ def _resolve_runtime_task_environment(
             "resolved_environment_id": str(environment_payload.get("environment_id") or ""),
             "environment_group_id": str(dict(environment_payload.get("group") or {}).get("group_id") or ""),
             "source": source,
+            "invalid_agent_default_environment_id": invalid_agent_default,
         },
     )
 
@@ -1774,8 +1801,10 @@ def _agent_profile_default_environment_id(agent_runtime_profile: Any | None) -> 
     return _first_string(
         metadata.get("default_task_environment_id"),
         metadata.get("task_environment_id"),
+        metadata.get("environment_id"),
         runtime_policy.get("default_task_environment_id"),
         runtime_policy.get("task_environment_id"),
+        runtime_policy.get("environment_id"),
         context_policy.get("default_task_environment_id"),
     )
 
@@ -2037,8 +2066,8 @@ def _filter_tool_names_by_profile(
 ) -> tuple[tuple[str, ...], tuple[dict[str, str], ...]]:
     visible: list[str] = []
     filtered: list[dict[str, str]] = []
-    full_access_mode = normalize_permission_mode(permission_mode) in {"full_access", "bypass"}
-    read_only_only = bool(dict(profile.tool_policy or {}).get("read_only_tools_only") is True) and not full_access_mode
+    _ = permission_mode
+    read_only_only = bool(dict(profile.tool_policy or {}).get("read_only_tools_only") is True)
     subagent_enabled = bool(dict(profile.subagent_policy or {}).get("enabled") is True)
     for tool_name in tool_names:
         definition = definitions_by_name.get(tool_name)

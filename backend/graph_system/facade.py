@@ -10,23 +10,26 @@ from runtime.shared.models import TaskRun
 from .background_supervisor import GraphRunBackgroundSubmission, GraphRunBackgroundSupervisor
 from .loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
 from .model_overrides import merge_effective_runtime_overrides
-from .models import ExecutableGraphConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope, safe_id
+from .models import ExecutableGraphConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope, resolve_graph_root_task_run_id, safe_id
 from .resume import GraphResumeResult, GraphResumeService
 from .runner import GraphRunRunner, GraphRunRunnerResult
 from .runtime import GraphRuntime, GraphRuntimeStart
 from .supervisor import GraphSupervisor
-from .work_order_executor import GraphNodeWorkOrderExecutor
+from .work_order_executor import GraphNodeWorkOrderExecutor, GraphWorkOrderExecution
 
 _GRAPH_RUN_CONTROL_KEY = "runtime_control"
 _GRAPH_RUN_PAUSE_REQUESTED = "pause_requested"
 _GRAPH_RUN_PAUSED = "paused"
 _GRAPH_RUN_RUNNING = "running"
+_GRAPH_RUN_STOP_REQUESTED = "stop_requested"
+_GRAPH_RUN_STOPPED = "stopped"
 _GRAPH_RUN_STOP_STATES = {"stop_requested", "stopped"}
 
 
 @dataclass(frozen=True, slots=True)
 class GraphSystemStart:
     task_run: Any
+    runtime_anchor: Any
     graph_run: Any
     envelope: Any
     loop_state: Any
@@ -97,16 +100,17 @@ class GraphSystem:
             envelope=runtime_start.envelope,
             dispatch_ready=dispatch_ready,
         )
-        task_run = _task_run_from_payload(
-            self._services.state_index.get_task_run(runtime_start.task_run.task_run_id),
-            fallback=runtime_start.task_run,
-        )
+        task_run_payload = self._services.state_index.get_task_run(runtime_start.task_run.task_run_id)
+        if task_run_payload is None:
+            raise ValueError(f"GraphRuntime root TaskRun was not persisted: {runtime_start.task_run.task_run_id}")
+        task_run = _task_run_from_payload(task_run_payload)
         graph_run = _graph_run_from_payload(
             self.get_graph_run(runtime_start.graph_run.graph_run_id),
             fallback=runtime_start.graph_run,
         )
         return GraphSystemStart(
             task_run=task_run,
+            runtime_anchor=runtime_start.runtime_anchor,
             graph_run=graph_run,
             envelope=runtime_start.envelope,
             loop_state=loop_start.loop_state,
@@ -183,6 +187,8 @@ class GraphSystem:
         runtime_overrides: dict[str, Any] | None = None,
         runtime_settings_patch: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        from task_system.work_environments.scheduler import TaskScheduler
+
         order = work_order if isinstance(work_order, GraphNodeWorkOrder) else GraphNodeWorkOrder.from_dict(dict(work_order or {}))
         if runtime_settings_patch:
             self.apply_runtime_settings_patch(
@@ -193,33 +199,85 @@ class GraphSystem:
             graph_run_id=order.graph_run_id,
             runtime_overrides=runtime_overrides,
         )
-        graph_node_task_lease = self._begin_graph_node_task_execution(order)
-        graph_node_task_lease_release: dict[str, Any] = {}
-        execution = None
-        try:
-            execution = await self._work_order_executor.execute(
+        scheduler = TaskScheduler(
+            self._services.backend_dir,
+            graph_system=self,
+        )
+        command_submission = scheduler.submit_command(
+            command_kind="run_graph_node_work_order",
+            requested_by="graph_system",
+            payload={
+                "graph_config": graph_config.to_dict(),
+                "work_order": order.to_dict(),
+                "max_steps": max_steps,
+                "accept_result": bool(accept_result),
+                "runtime_overrides": effective_runtime_overrides,
+            },
+            idempotency_key=f"graph-node-run:{order.idempotency_key}:{order.work_order_id}",
+        )
+        command = dict(command_submission.get("command") or {})
+        dispatch = await scheduler.dispatch_command(str(command.get("command_id") or ""))
+        result = dict(dispatch.get("result") or {})
+        graph_execution = dict(result.get("graph_work_order_execution") or {})
+        if not graph_execution:
+            graph_execution = self.project_work_order_command_failure(
                 graph_config=graph_config,
                 work_order=order,
-                max_steps=max_steps,
-                runtime_overrides=effective_runtime_overrides,
+                command_result=dispatch,
+                accept_result=accept_result,
             )
-            graph_node_task_result_projection = self._record_graph_node_task_result(
-                work_order=execution.work_order,
-                node_result=execution.node_result,
-                executor_result=dict(execution.executor_result or {}),
-            )
-        finally:
-            graph_node_task_lease_release = self._release_graph_node_task_execution(
-                execution.work_order if execution is not None else order,
-                reason="graph_node_work_order_finished" if execution is not None else "graph_node_work_order_interrupted",
-            )
-        advance = None
+        return {
+            **graph_execution,
+            "task_command": dict(dispatch.get("command") or command),
+            "task_dispatch": dict(dispatch.get("dispatch") or {}),
+            "task_command_result": {
+                "ok": bool(dispatch.get("ok") is True),
+                "authority": str(dispatch.get("authority") or ""),
+                "command_status": str(dict(dispatch.get("command") or {}).get("status") or ""),
+                "dispatch_status": str(dict(dispatch.get("dispatch") or {}).get("status") or ""),
+            },
+        }
+
+    async def execute_work_order_executor(
+        self,
+        *,
+        graph_config: ExecutableGraphConfig,
+        work_order: GraphNodeWorkOrder,
+        max_steps: int = 12,
+        runtime_overrides: dict[str, Any] | None = None,
+    ) -> GraphWorkOrderExecution:
+        return await self._work_order_executor.execute(
+            graph_config=graph_config,
+            work_order=work_order,
+            max_steps=max_steps,
+            runtime_overrides=dict(runtime_overrides or {}),
+        )
+
+    def accept_work_order_execution_result(
+        self,
+        *,
+        graph_config: ExecutableGraphConfig,
+        execution: GraphWorkOrderExecution,
+        accept_result: bool,
+    ) -> GraphLoopAdvance | None:
         if accept_result and _result_should_advance_loop(execution.node_result):
-            advance = self.accept_node_result(
+            return self.accept_node_result(
                 graph_config=graph_config,
                 graph_run_id=execution.work_order.graph_run_id,
                 result=execution.node_result,
             )
+        return None
+
+    def project_work_order_execution(
+        self,
+        *,
+        graph_config: ExecutableGraphConfig,
+        execution: GraphWorkOrderExecution,
+        advance: GraphLoopAdvance | None,
+        graph_node_task_lease: dict[str, Any],
+        graph_node_task_lease_release: dict[str, Any],
+        graph_node_task_result_projection: dict[str, Any],
+    ) -> dict[str, Any]:
         return {
             "authority": "graph_system_work_order_execution",
             "graph_run_id": execution.work_order.graph_run_id,
@@ -228,9 +286,9 @@ class GraphSystem:
             "node_result": execution.node_result.to_dict(),
             "node_executor_task_execution": _task_execution_summary(execution.task_execution),
             "executor_result": _executor_result_summary(execution.executor_result),
-            "graph_node_task_lease": graph_node_task_lease,
-            "graph_node_task_lease_release": graph_node_task_lease_release,
-            "graph_node_task_result_projection": graph_node_task_result_projection,
+            "graph_node_task_lease": _graph_node_task_lease_projection_summary(graph_node_task_lease),
+            "graph_node_task_lease_release": _graph_node_task_lease_projection_summary(graph_node_task_lease_release),
+            "graph_node_task_result_projection": _graph_node_task_result_projection_summary(graph_node_task_result_projection),
             "accepted_result": advance.accepted_result.to_dict() if advance is not None and advance.accepted_result is not None else None,
             "graph_result": advance.graph_result.to_dict() if advance is not None and advance.graph_result is not None else None,
             "graph_loop_state": _loop_state_public_view(advance.loop_state) if advance is not None else {},
@@ -239,42 +297,63 @@ class GraphSystem:
             "events": [*list(execution.events), *([dict(item) for item in advance.events] if advance is not None else [])],
         }
 
-    def _begin_graph_node_task_execution(self, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-        sink = getattr(self._services, "graph_node_task_preparation_sink", None)
-        acquire = getattr(sink, "begin_work_order_execution", None)
-        if not callable(acquire):
-            raise RuntimeError("GraphSystem requires graph_node_task_preparation_sink to acquire graph node task lease")
-        projection = acquire(work_order)
-        payload = projection.to_dict() if hasattr(projection, "to_dict") else dict(projection or {})
-        return _graph_node_task_lease_projection_summary(payload)
-
-    def _release_graph_node_task_execution(self, work_order: GraphNodeWorkOrder, *, reason: str) -> dict[str, Any]:
-        sink = getattr(self._services, "graph_node_task_preparation_sink", None)
-        release = getattr(sink, "release_work_order_execution_lease", None)
-        if not callable(release):
-            raise RuntimeError("GraphSystem requires graph_node_task_preparation_sink to release graph node task lease")
-        projection = release(work_order, release_reason=reason)
-        payload = projection.to_dict() if hasattr(projection, "to_dict") else dict(projection or {})
-        return _graph_node_task_lease_projection_summary(payload)
-
-    def _record_graph_node_task_result(
+    def project_work_order_command_failure(
         self,
         *,
+        graph_config: ExecutableGraphConfig,
         work_order: GraphNodeWorkOrder,
-        node_result: NodeResultEnvelope,
-        executor_result: dict[str, Any],
+        command_result: dict[str, Any],
+        accept_result: bool,
     ) -> dict[str, Any]:
-        sink = getattr(self._services, "graph_node_task_preparation_sink", None)
-        recorder = getattr(sink, "record_work_order_result", None)
-        if not callable(recorder):
-            raise RuntimeError("GraphSystem requires graph_node_task_preparation_sink to record graph node task result")
-        projection = recorder(
-            work_order=work_order,
-            node_result=node_result,
-            executor_result=dict(executor_result or {}),
+        error = dict(dict(command_result.get("command") or {}).get("error") or {})
+        reason = str(error.get("message") or command_result.get("reason") or "task_command_failed").strip()
+        result = NodeResultEnvelope(
+            result_id=(
+                f"nresult:{safe_id(work_order.graph_run_id)}:"
+                f"{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}:task_command_failed"
+            ),
+            graph_run_id=work_order.graph_run_id,
+            task_run_id=work_order.task_run_id,
+            node_id=work_order.node_id,
+            work_order_id=work_order.work_order_id,
+            executor_type=work_order.executor_type,
+            status="failed",
+            outputs={
+                "executor_status": "failed",
+                "task_command_status": str(dict(command_result.get("command") or {}).get("status") or ""),
+                "task_dispatch_status": str(dict(command_result.get("dispatch") or {}).get("status") or ""),
+            },
+            error={"reason": reason},
+            diagnostics={
+                "authority": "graph_system.work_order_command_failure",
+                "graph_config_id": graph_config.config_id,
+                "task_command": dict(command_result.get("command") or {}),
+                "task_dispatch": dict(command_result.get("dispatch") or {}),
+            },
+            created_at=time.time(),
         )
-        payload = projection.to_dict() if hasattr(projection, "to_dict") else dict(projection or {})
-        return _graph_node_task_result_projection_summary(payload)
+        execution = GraphWorkOrderExecution(
+            work_order=work_order,
+            node_result=result,
+            executor_result={
+                "ok": False,
+                "status": "failed",
+                "error": reason,
+            },
+        )
+        advance = self.accept_work_order_execution_result(
+            graph_config=graph_config,
+            execution=execution,
+            accept_result=accept_result,
+        )
+        return self.project_work_order_execution(
+            graph_config=graph_config,
+            execution=execution,
+            advance=advance,
+            graph_node_task_lease={},
+            graph_node_task_lease_release={},
+            graph_node_task_result_projection={},
+        )
 
     async def run_until_idle(
         self,
@@ -371,6 +450,8 @@ class GraphSystem:
             payload={
                 "graph_run_id": graph_run.graph_run_id,
                 "task_run_id": graph_run.task_run_id,
+                "root_task_run_id": graph_run.task_run_id,
+                "graph_root_task_run_id": graph_run.task_run_id,
                 "reason": reason,
                 "requested_by": requested_by,
                 "control_state": next_control_state,
@@ -443,6 +524,8 @@ class GraphSystem:
             payload={
                 "graph_run_id": graph_run.graph_run_id,
                 "task_run_id": graph_run.task_run_id,
+                "root_task_run_id": graph_run.task_run_id,
+                "graph_root_task_run_id": graph_run.task_run_id,
                 "reason": reason,
                 "requested_by": requested_by,
             },
@@ -481,10 +564,86 @@ class GraphSystem:
             reason=_GRAPH_RUN_RUNNING,
         )
 
+    def request_graph_run_stop(self, graph_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
+        graph_run = self._require_graph_run(graph_run_id)
+        task_run = self._require_graph_root_task_run(graph_run)
+        status = str(getattr(task_run, "status", "") or "")
+        current_control = _graph_run_runtime_control(task_run)
+        current_state = str(current_control.get("state") or "")
+        if status in {"completed", "failed", "aborted", "cancelled", "canceled", "stopped"} or current_state == _GRAPH_RUN_STOPPED:
+            return self._graph_run_control_response(
+                graph_run=graph_run,
+                task_run=task_run,
+                action="stop",
+                accepted=True,
+                reason="already_stopped" if status == "stopped" or current_state == _GRAPH_RUN_STOPPED else f"graph_run_terminal:{status}",
+            )
+        state = self._loop.get_state(graph_run.graph_run_id)
+        next_control_state = _GRAPH_RUN_STOP_REQUESTED if _graph_run_has_background_work(self._services, state) else _GRAPH_RUN_STOPPED
+        terminal = next_control_state == _GRAPH_RUN_STOPPED
+        now = time.time()
+        event = self._services.event_log.append(
+            graph_run.task_run_id,
+            "graph_run_stop_requested",
+            payload={
+                "graph_run_id": graph_run.graph_run_id,
+                "task_run_id": graph_run.task_run_id,
+                "root_task_run_id": graph_run.task_run_id,
+                "graph_root_task_run_id": graph_run.task_run_id,
+                "reason": reason,
+                "requested_by": requested_by,
+                "control_state": next_control_state,
+            },
+            refs={"task_run_ref": graph_run.task_run_id, "graph_run_ref": graph_run.graph_run_id},
+        )
+        updated = replace(
+            task_run,
+            status="aborted" if terminal else status,  # type: ignore[arg-type]
+            updated_at=float(getattr(event, "created_at", 0.0) or now),
+            latest_event_offset=int(getattr(event, "offset", -1) or -1),
+            terminal_reason="user_stopped" if terminal else str(getattr(task_run, "terminal_reason", "") or ""),  # type: ignore[arg-type]
+            diagnostics=_graph_run_control_diagnostics(
+                task_run,
+                state=next_control_state,
+                requested_by=requested_by,
+                requested_at=float(getattr(event, "created_at", 0.0) or now),
+                reason=reason,
+                latest_step="graph_run_stop_requested",
+                latest_step_status="stopped" if terminal else "stop_requested",
+                latest_step_summary=(
+                    "图任务已停止，后台调度不会继续派发节点。"
+                    if terminal
+                    else "停止请求已记录，当前节点收口后图任务会停止派发。"
+                ),
+            ),
+        )
+        self.state_index.upsert_task_run(updated)
+        self._update_graph_run_control_status(
+            graph_run=graph_run,
+            status="stopped" if terminal else "stopping",
+            control_state=next_control_state,
+            event_time=float(getattr(event, "created_at", 0.0) or now),
+            reason=reason,
+            terminal_reason="user_stopped" if terminal else "",
+        )
+        return self._graph_run_control_response(
+            graph_run=self._require_graph_run(graph_run.graph_run_id),
+            task_run=updated,
+            action="stop",
+            accepted=True,
+            reason=next_control_state,
+        )
+
     def _commit_runner_result(self, *, graph_run_id: str, result: GraphRunRunnerResult) -> None:
         graph_run = _graph_run_from_payload(self.get_graph_run(graph_run_id), fallback=None)
-        task_run_id = graph_run.task_run_id if graph_run is not None else ""
-        task_run = self.get_task_run(task_run_id) if task_run_id else None
+        if graph_run is None:
+            raise ValueError(f"GraphRun not found while committing runner result: {graph_run_id}")
+        task_run_id = resolve_graph_root_task_run_id(graph_run)
+        if not task_run_id:
+            raise ValueError(f"GraphRun root TaskRun id not found while committing runner result: {graph_run_id}")
+        task_run = self.get_task_run(task_run_id)
+        if task_run is None:
+            raise ValueError(f"GraphRun root TaskRun not found while committing runner result: {task_run_id}")
         now = time.time()
         task_status = _task_status_from_runner_result(result)
         graph_status = _graph_status_from_runner_result(result)
@@ -499,39 +658,37 @@ class GraphSystem:
             "runner_dispatch_count": result.dispatch_count,
             "active_node_work_order_count": len(result.active_node_work_orders),
         }
-        if task_run is not None:
-            diagnostics = {
-                **dict(getattr(task_run, "diagnostics", {}) or {}),
-                **runner_diagnostics,
-                "executor_status": "waiting_executor" if task_status == "waiting_executor" else task_status,
-                "latest_step": "graph_run_runner_stopped",
-                "latest_step_status": task_status,
-            }
-            self.state_index.upsert_task_run(
-                replace(
-                    task_run,
-                    status=task_status,  # type: ignore[arg-type]
-                    updated_at=now,
-                    terminal_reason=terminal_reason,  # type: ignore[arg-type]
-                    diagnostics=diagnostics,
-                )
+        diagnostics = {
+            **dict(getattr(task_run, "diagnostics", {}) or {}),
+            **runner_diagnostics,
+            "executor_status": "waiting_executor" if task_status == "waiting_executor" else task_status,
+            "latest_step": "graph_run_runner_stopped",
+            "latest_step_status": task_status,
+        }
+        self.state_index.upsert_task_run(
+            replace(
+                task_run,
+                status=task_status,  # type: ignore[arg-type]
+                updated_at=now,
+                terminal_reason=terminal_reason,  # type: ignore[arg-type]
+                diagnostics=diagnostics,
             )
-        if graph_run is not None:
-            graph_payload = graph_run.to_dict()
-            self._services.runtime_objects.put_object(
-                "graph_run",
-                safe_id(graph_run_id),
-                {
-                    **graph_payload,
-                    "status": graph_status,
-                    "updated_at": now,
-                    "terminal_reason": terminal_reason,
-                    "diagnostics": {
-                        **dict(graph_payload.get("diagnostics") or {}),
-                        **runner_diagnostics,
-                    },
+        )
+        graph_payload = graph_run.to_dict()
+        self._services.runtime_objects.put_object(
+            "graph_run",
+            safe_id(graph_run_id),
+            {
+                **graph_payload,
+                "status": graph_status,
+                "updated_at": now,
+                "terminal_reason": terminal_reason,
+                "diagnostics": {
+                    **dict(graph_payload.get("diagnostics") or {}),
+                    **runner_diagnostics,
                 },
-            )
+            },
+        )
 
     def _require_graph_run(self, graph_run_id: str) -> GraphRun:
         target = str(graph_run_id or "").strip()
@@ -541,9 +698,10 @@ class GraphSystem:
         return graph_run
 
     def _require_graph_root_task_run(self, graph_run: GraphRun) -> Any:
-        task_run = self.get_task_run(graph_run.task_run_id)
+        root_task_run_id = resolve_graph_root_task_run_id(graph_run)
+        task_run = self.get_task_run(root_task_run_id)
         if task_run is None:
-            raise ValueError(f"GraphRun root TaskRun not found: {graph_run.task_run_id}")
+            raise ValueError(f"GraphRun root TaskRun not found: {root_task_run_id}")
         return task_run
 
     def _update_graph_run_control_status(
@@ -554,28 +712,28 @@ class GraphSystem:
         control_state: str,
         event_time: float,
         reason: str,
+        terminal_reason: str = "",
     ) -> None:
         payload = graph_run.to_dict()
         diagnostics = dict(payload.get("diagnostics") or {})
-        self._services.runtime_objects.put_object(
-            "graph_run",
-            safe_id(graph_run.graph_run_id),
-            {
-                **payload,
-                "status": status,
-                "updated_at": event_time,
-                "diagnostics": {
-                    **diagnostics,
-                    _GRAPH_RUN_CONTROL_KEY: {
-                        "state": control_state,
-                        "requested_by": "user",
-                        "requested_at": event_time,
-                        "reason": reason,
-                        "authority": "graph_system.graph_run_control",
-                    },
+        updated = {
+            **payload,
+            "status": status,
+            "updated_at": event_time,
+            "diagnostics": {
+                **diagnostics,
+                _GRAPH_RUN_CONTROL_KEY: {
+                    "state": control_state,
+                    "requested_by": "user",
+                    "requested_at": event_time,
+                    "reason": reason,
+                    "authority": "graph_system.graph_run_control",
                 },
             },
-        )
+        }
+        if terminal_reason:
+            updated["terminal_reason"] = terminal_reason
+        self._services.runtime_objects.put_object("graph_run", safe_id(graph_run.graph_run_id), updated)
 
     def _graph_run_control_response(
         self,
@@ -594,6 +752,8 @@ class GraphSystem:
             "reason": reason,
             "graph_run_id": graph_run.graph_run_id,
             "task_run_id": graph_run.task_run_id,
+            "root_task_run_id": graph_run.task_run_id,
+            "graph_root_task_run_id": graph_run.task_run_id,
             "graph_run": graph_run.to_dict(),
             "task_run": task_run.to_dict() if hasattr(task_run, "to_dict") else dict(task_run),
             "control": _graph_run_runtime_control(task_run),
@@ -654,7 +814,7 @@ class GraphSystem:
         if state is None and graph_run is None:
             return None
         config_payload = _graph_config_monitor_view(graph_config, include_config=include_config)
-        task_run_id = state.task_run_id if state is not None else str(dict(graph_run or {}).get("task_run_id") or "")
+        task_run_id = resolve_graph_root_task_run_id(graph_run or {}, state)
         event_limit = max(1, min(int(event_limit or 80), 240))
         events = self._recent_events(task_run_id, limit=event_limit) if task_run_id else []
         event_count = self._estimated_event_count(task_run_id, fallback=len(events)) if task_run_id else 0
@@ -675,6 +835,8 @@ class GraphSystem:
         return {
             "authority": "graph_system_run_monitor",
             "graph_run_id": graph_run_id,
+            "root_task_run_id": task_run_id,
+            "graph_root_task_run_id": task_run_id,
             "graph_run": graph_run or {},
             "task_run": _task_run_summary(task_run) if task_run_id else None,
             "task_run_monitor": task_run_monitor or None,
@@ -760,12 +922,12 @@ def _graph_config_monitor_view(graph_config: ExecutableGraphConfig | None, *, in
     }
 
 
-def _task_run_from_payload(payload: Any, *, fallback: TaskRun) -> TaskRun:
+def _task_run_from_payload(payload: Any) -> TaskRun:
     if isinstance(payload, TaskRun):
         return payload
     if isinstance(payload, dict):
         return TaskRun(**payload)
-    return fallback
+    raise ValueError("GraphRuntime root TaskRun payload is invalid")
 
 
 def _graph_run_from_payload(payload: Any, *, fallback: GraphRun | None) -> GraphRun | None:
@@ -958,6 +1120,8 @@ def _loop_state_public_view(state: Any | None) -> dict[str, Any]:
         "state_id": str(payload.get("state_id") or ""),
         "graph_run_id": str(payload.get("graph_run_id") or ""),
         "task_run_id": str(payload.get("task_run_id") or ""),
+        "root_task_run_id": resolve_graph_root_task_run_id(payload),
+        "graph_root_task_run_id": resolve_graph_root_task_run_id(payload),
         "session_id": str(payload.get("session_id") or ""),
         "config_id": str(payload.get("config_id") or ""),
         "config_hash": str(payload.get("config_hash") or ""),
@@ -1083,6 +1247,8 @@ def _graph_node_task_result_projection_summary(payload: dict[str, Any]) -> dict[
     episode = dict(payload.get("episode") or {})
     episode_result = dict(payload.get("episode_result") or {})
     event = dict(payload.get("event") or {})
+    checkpoint = dict(payload.get("checkpoint") or {})
+    lease_release = dict(payload.get("lease_release") or {})
     products = [dict(item) for item in list(payload.get("work_products") or []) if isinstance(item, dict)]
     return {
         "authority": "graph_system.graph_node_task_result_projection_summary",
@@ -1096,6 +1262,9 @@ def _graph_node_task_result_projection_summary(payload: dict[str, Any]) -> dict[
         "episode_result_status": str(episode_result.get("status") or ""),
         "work_product_ids": [str(item.get("work_product_id") or "") for item in products if str(item.get("work_product_id") or "")],
         "event_id": str(event.get("event_id") or ""),
+        "checkpoint_id": str(checkpoint.get("checkpoint_id") or ""),
+        "checkpoint_kind": str(checkpoint.get("checkpoint_kind") or ""),
+        "lease_release": _graph_node_task_lease_projection_summary({"binding": binding, **lease_release}) if lease_release else {},
     }
 
 
@@ -1156,6 +1325,8 @@ def _work_order_public_view(order: GraphNodeWorkOrder) -> dict[str, Any]:
         "work_kind": order.work_kind,
         "graph_run_id": order.graph_run_id,
         "task_run_id": order.task_run_id,
+        "root_task_run_id": order.task_run_id,
+        "graph_root_task_run_id": order.task_run_id,
         "node_id": order.node_id,
         "config_id": order.config_id,
         "config_hash": order.config_hash,

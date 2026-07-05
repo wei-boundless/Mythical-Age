@@ -90,7 +90,7 @@ function uniqueSignals(signals: RunMonitorSignal[]) {
   const seen = new Set<string>();
   const result: RunMonitorSignal[] = [];
   for (const signal of signals) {
-    const key = signal.signal_id || signal.task_instance_id || signal.task_run_id;
+    const key = signal.signal_id || signal.monitor_item_id || signal.task_instance_id || signal.task_run_id || signal.turn_run_id;
     if (!key || seen.has(key)) continue;
     seen.add(key);
     result.push(signal);

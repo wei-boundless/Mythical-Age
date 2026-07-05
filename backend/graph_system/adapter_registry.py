@@ -25,19 +25,31 @@ class RuntimeAlgorithmPostprocessAdapter:
 
 
 _ADAPTERS: dict[str, RuntimeAlgorithmPostprocessAdapter] = {}
-_DEFAULT_MODULES_LOADED = False
-_DEFAULT_MODULES = (
-    'task_system.writing_graphs.runtime_adapters',
-    'project_network_tasks.runtime_adapters',
-)
+_LOADED_MODULES: set[str] = set()
+
+
+def snapshot_runtime_algorithm_adapter_registry() -> dict[str, Any]:
+    return {
+        "adapters": dict(_ADAPTERS),
+        "loaded_modules": set(_LOADED_MODULES),
+    }
+
+
+def restore_runtime_algorithm_adapter_registry(snapshot: dict[str, Any]) -> None:
+    _ADAPTERS.clear()
+    _ADAPTERS.update(dict(snapshot.get("adapters") or {}))
+    _LOADED_MODULES.clear()
+    _LOADED_MODULES.update(str(item) for item in set(snapshot.get("loaded_modules") or set()) if str(item))
 
 
 def register_runtime_algorithm_adapter(adapter: RuntimeAlgorithmPostprocessAdapter) -> None:
-    _ADAPTERS[adapter.adapter_id] = adapter
+    adapter_id = str(adapter.adapter_id or "").strip()
+    if adapter_id in _ADAPTERS:
+        raise ValueError(f"duplicate runtime algorithm adapter id: {adapter_id}")
+    _ADAPTERS[adapter_id] = adapter
 
 
 def iter_runtime_algorithm_adapters() -> tuple[RuntimeAlgorithmPostprocessAdapter, ...]:
-    _ensure_default_modules_loaded()
     return tuple(sorted(_ADAPTERS.values(), key=lambda adapter: (adapter.priority, adapter.adapter_id)))
 
 
@@ -48,16 +60,29 @@ def runtime_algorithm_structured_output_keys() -> tuple[str, ...]:
     return tuple(dict.fromkeys(keys))
 
 
-def _ensure_default_modules_loaded() -> None:
-    global _DEFAULT_MODULES_LOADED
-    if _DEFAULT_MODULES_LOADED:
+def load_runtime_algorithm_adapter_module(module_name: str) -> None:
+    normalized = str(module_name or "").strip()
+    if not normalized or normalized in _LOADED_MODULES:
         return
-    _DEFAULT_MODULES_LOADED = True
-    for module_name in _DEFAULT_MODULES:
-        module = importlib.import_module(module_name)
-        register = getattr(module, 'register_runtime_algorithm_adapters', None)
-        if callable(register):
-            register(register_runtime_algorithm_adapter)
+    module = importlib.import_module(normalized)
+    register = getattr(module, "register_runtime_algorithm_adapters", None)
+    if not callable(register):
+        raise ValueError(f"runtime algorithm adapter module has no register_runtime_algorithm_adapters(): {normalized}")
+    before = dict(_ADAPTERS)
+    try:
+        register(register_runtime_algorithm_adapter)
+    except Exception:
+        _ADAPTERS.clear()
+        _ADAPTERS.update(before)
+        raise
+    if _ADAPTERS == before:
+        raise ValueError(f"runtime algorithm adapter module registered no adapters: {normalized}")
+    _LOADED_MODULES.add(normalized)
+
+
+def load_runtime_algorithm_adapter_modules(module_names: tuple[str, ...] | list[str]) -> None:
+    for module_name in list(module_names or ()):
+        load_runtime_algorithm_adapter_module(str(module_name or ""))
 
 
 def adapter_postprocess_kwargs(

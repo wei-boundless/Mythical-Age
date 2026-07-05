@@ -10,7 +10,6 @@ from task_system.repositories.common import next_prefixed_id
 from task_system.storage import TaskSystemStorage
 
 
-LEGACY_TASK_GRAPHS_FILE = "task_graphs.json"
 TASK_GRAPHS_DIR = "task_graphs"
 
 
@@ -20,9 +19,6 @@ class TaskGraphRepository:
 
     def list(self) -> list[TaskGraphDefinition]:
         graphs_by_id: dict[str, TaskGraphDefinition] = {}
-        for graph in self._legacy_graphs():
-            if graph.graph_id:
-                graphs_by_id.setdefault(graph.graph_id, graph)
         for graph in self._folder_graphs():
             if graph.graph_id:
                 graphs_by_id[graph.graph_id] = graph
@@ -45,6 +41,20 @@ class TaskGraphRepository:
 
     def next_id(self) -> str:
         return next_prefixed_id([item.graph_id for item in self.list()], prefix="graph.")
+
+    def delete(self, graph_id: str) -> bool:
+        target = str(graph_id or "").strip()
+        if not target:
+            return False
+        path = self.storage.path(_graph_object_path(target))
+        if not path.exists():
+            return False
+        path.unlink()
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+        return True
 
     def upsert(
         self,
@@ -97,14 +107,6 @@ class TaskGraphRepository:
         )
         self.storage.write_object(_graph_object_path(target), graph.to_dict())
         return graph
-
-    def _legacy_graphs(self) -> list[TaskGraphDefinition]:
-        payload = self.storage.read_object(LEGACY_TASK_GRAPHS_FILE, {"task_graphs": []})
-        return [
-            task_graph_from_dict(item)
-            for item in list(payload.get("task_graphs") or [])
-            if isinstance(item, dict)
-        ]
 
     def _folder_graphs(self) -> list[TaskGraphDefinition]:
         root = self.storage.path(TASK_GRAPHS_DIR)

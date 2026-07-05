@@ -5,7 +5,7 @@ from typing import Any
 
 from core.project_layout import ProjectLayout
 
-from .models import safe_id
+from .models import resolve_graph_root_task_run_id, safe_id
 
 
 class GraphTaskLifecycleManager:
@@ -74,11 +74,7 @@ class GraphTaskLifecycleManager:
         target = str(graph_run_id or "").strip()
         graph_run = dict(self.graph_system.get_graph_run(target) or {})
         state = self.graph_system.get_checkpoint_state(target)
-        root_task_run_id = str(
-            graph_run.get("task_run_id")
-            or state.get("task_run_id")
-            or ""
-        )
+        root_task_run_id = resolve_graph_root_task_run_id(graph_run, state)
         root_task = self.services.state_index.get_task_run(root_task_run_id) if root_task_run_id else None
         root_payload = root_task.to_dict() if hasattr(root_task, "to_dict") else {}
         diagnostics = dict(root_payload.get("diagnostics") or graph_run.get("diagnostics") or {})
@@ -94,6 +90,7 @@ class GraphTaskLifecycleManager:
         return {
             "graph_run_id": target,
             "root_task_run_id": root_task_run_id,
+            "graph_root_task_run_id": root_task_run_id,
             "task_run_ids": sorted(task_run_ids),
             "project_id": project_id,
             "memory_namespace_id": memory_namespace_id,

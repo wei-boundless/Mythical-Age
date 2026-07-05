@@ -238,9 +238,6 @@ function streamEventReleasesActiveTaskTurnGate(
   const status = stringValue(data.status).toLowerCase();
   const state = stringValue(data.state).toLowerCase();
   const phase = stringValue(data.phase).toLowerCase();
-  if (terminalReason === "task_executor_scheduled" || completionState === "task_executor_scheduled") {
-    return false;
-  }
   if (
     ACTIVE_TASK_GATE_RELEASE_REASONS.has(terminalReason)
     || ACTIVE_TASK_GATE_RELEASE_REASONS.has(completionState)
@@ -321,7 +318,6 @@ function patchActiveTaskTurnGate(
   const terminalReason = stringValue(data.terminal_reason);
   const nextState = stringValue(data.active_turn_state)
     || stringValue(activeTurn.state)
-    || (terminalReason === "task_executor_scheduled" ? "waiting_executor" : "")
     || state.activeTurnSnapshot?.state
     || "running_task";
   return {

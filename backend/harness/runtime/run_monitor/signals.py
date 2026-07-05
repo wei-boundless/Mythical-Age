@@ -48,13 +48,16 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
     state = signal_state_from_activity(activity)
     source_kind = _source_kind(item)
     work_kind = _work_kind(item)
-    signal_id = str(item.get("task_instance_id") or item.get("task_run_id") or "").strip()
+    turn_run_id = str(item.get("turn_run_id") or "").strip()
+    signal_id = str(item.get("monitor_item_id") or item.get("task_instance_id") or turn_run_id or item.get("task_run_id") or "").strip()
     started_at = float(item.get("started_at") or item.get("created_at") or 0.0)
     updated_at = float(item.get("updated_at") or 0.0)
     last_activity_at = float(item.get("last_activity_at") or item.get("latest_event_at") or updated_at or started_at or 0.0)
     elapsed_seconds = max(0.0, float(now) - started_at) if state == "active" and started_at else float(item.get("duration_seconds") or 0.0)
     return {
         "signal_id": signal_id,
+        "runtime_anchor_id": str(item.get("runtime_anchor_id") or ""),
+        "runtime_anchor": dict(item.get("runtime_anchor") or {}),
         "source_kind": source_kind,
         "work_kind": work_kind,
         "state": state,
@@ -82,6 +85,11 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
         }),
         "session_id": str(item.get("session_id") or ""),
         "task_run_id": str(item.get("task_run_id") or ""),
+        "task_environment_id": str(item.get("task_environment_id") or dict(item.get("session_scope") or {}).get("task_environment_id") or ""),
+        "turn_run_id": turn_run_id,
+        "stream_run_id": str(item.get("stream_run_id") or ""),
+        "active_turn_id": str(item.get("active_turn_id") or item.get("turn_id") or ""),
+        "monitor_item_id": str(item.get("monitor_item_id") or signal_id),
         "task_instance_id": signal_id,
         "graph_run_id": str(item.get("graph_run_id") or ""),
         "graph_id": str(item.get("graph_id") or ""),
@@ -99,6 +107,8 @@ def project_monitor_signal(item: dict[str, Any], *, now: float) -> dict[str, Any
         },
         "raw_refs": {
             "task_id": str(item.get("task_id") or ""),
+            "runtime_anchor_id": str(item.get("runtime_anchor_id") or ""),
+            "task_environment_id": str(item.get("task_environment_id") or dict(item.get("session_scope") or {}).get("task_environment_id") or ""),
             "route": dict(item.get("route") or {}),
         },
         "authority": SIGNAL_AUTHORITY,
@@ -129,8 +139,8 @@ def _activity(item: dict[str, Any]) -> dict[str, Any]:
 
 def _source_kind(item: dict[str, Any]) -> str:
     execution_kind = str(item.get("execution_runtime_kind") or "")
-    task_run_id = str(item.get("task_run_id") or "")
-    if execution_kind == "single_agent_turn" or task_run_id.startswith("turnrun:"):
+    turn_run_id = str(item.get("turn_run_id") or "")
+    if execution_kind == "single_agent_turn" or turn_run_id.startswith("turnrun:"):
         return "turn_run"
     if str(item.get("graph_run_id") or ""):
         return "graph_run"
@@ -166,6 +176,7 @@ def _signal_last_activity(signal: dict[str, Any]) -> float:
 
 def _detail_ref(item: dict[str, Any]) -> dict[str, str]:
     task_run_id = str(item.get("task_run_id") or "").strip()
+    turn_run_id = str(item.get("turn_run_id") or "").strip()
     graph_run_id = str(item.get("graph_run_id") or "").strip()
     graph_config_id = str(item.get("graph_config_id") or "").strip()
     if graph_run_id:
@@ -177,12 +188,20 @@ def _detail_ref(item: dict[str, Any]) -> dict[str, str]:
             "graph_config_id": graph_config_id,
             "resource_ref": "",
         }
-    if task_run_id:
-        kind = "turn_run" if task_run_id.startswith("turnrun:") else "task_run"
+    if turn_run_id:
         return {
-            "kind": kind,
+            "kind": "turn_run",
+            "task_run_id": "",
+            "turn_run_id": turn_run_id,
+            "graph_run_id": "",
+            "graph_config_id": "",
+            "resource_ref": "",
+        }
+    if task_run_id:
+        return {
+            "kind": "task_run",
             "task_run_id": task_run_id,
-            "turn_run_id": task_run_id if kind == "turn_run" else "",
+            "turn_run_id": "",
             "graph_run_id": "",
             "graph_config_id": "",
             "resource_ref": "",
@@ -319,5 +338,3 @@ def _diagnostic_revision_part(item: dict[str, Any]) -> str:
             str(fact_summary.get("fact_count") or ""),
         ]
     )
-
-

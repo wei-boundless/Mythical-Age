@@ -45,22 +45,32 @@ class TaskGraphRegistryService:
         )
         normalized_graph_nodes = tuple(dict(item) for item in graph_nodes if isinstance(item, dict))
         normalized_graph_edges = tuple(dict(item) for item in graph_edges if isinstance(item, dict))
+        normalized_agent_group_id = str(agent_group_id or "").strip()
+        normalized_participant_agent_ids = normalize_agent_id_sequence(
+            str(item).strip() for item in participant_agent_ids if str(item).strip()
+        )
+        coordinator_id = self.resolve_coordination_coordinator(
+            coordinator_agent_id=coordinator_agent_id,
+            agent_group_id=normalized_agent_group_id,
+        )
         if normalized_graph_nodes:
             normalized_subtask_refs = tuple(
                 dict.fromkeys([*normalized_subtask_refs, *_subtask_refs_from_graph_nodes(normalized_graph_nodes)])
             )
         else:
+            if not coordinator_id:
+                raise ValueError("default coordination graph requires coordinator_agent_id or an agent_group_id with coordinator_agent_id")
             normalized_graph_nodes, default_edges = _default_coordination_graph(
-                coordinator_agent_id=normalize_agent_id(str(coordinator_agent_id or "agent:0").strip() or "agent:0"),
-                participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+                coordinator_agent_id=coordinator_id,
+                participant_agent_ids=normalized_participant_agent_ids,
                 subtask_refs=normalized_subtask_refs,
             )
             if not normalized_graph_edges:
                 normalized_graph_edges = default_edges
         resolved_participants = self.resolve_coordination_participants(
-            coordinator_agent_id=normalize_agent_id(str(coordinator_agent_id or "agent:0").strip() or "agent:0"),
-            agent_group_id=str(agent_group_id or "").strip(),
-            participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+            coordinator_agent_id=coordinator_id,
+            agent_group_id=normalized_agent_group_id,
+            participant_agent_ids=normalized_participant_agent_ids,
         )
         return self.registry.upsert_task_graph(
             graph_id=target,
@@ -71,8 +81,8 @@ class TaskGraphRegistryService:
             edges=normalized_graph_edges,
             default_protocol_id=str(dict(metadata or {}).get("protocol_id") or ""),
             runtime_policy={
-                "coordinator_agent_id": str(coordinator_agent_id or "agent:0").strip() or "agent:0",
-                "agent_group_id": str(agent_group_id or "").strip(),
+                "coordinator_agent_id": coordinator_id,
+                "agent_group_id": normalized_agent_group_id,
                 "coordination_mode": str(coordination_mode or "review_merge").strip(),
                 "participant_agent_ids": list(resolved_participants),
             },
@@ -94,6 +104,25 @@ class TaskGraphRegistryService:
                 "communication_modes": [str(item).strip() for item in communication_modes if str(item).strip()],
             },
         )
+
+    def resolve_coordination_coordinator(
+        self,
+        *,
+        coordinator_agent_id: str,
+        agent_group_id: str,
+    ) -> str:
+        explicit = normalize_agent_id(str(coordinator_agent_id or "").strip())
+        if explicit:
+            return explicit
+        group_id = str(agent_group_id or "").strip()
+        if not group_id:
+            return ""
+        from agent_system.groups.registry import AgentGroupRegistry
+
+        group = AgentGroupRegistry(self.base_dir).get_group(group_id)
+        if group is None:
+            return ""
+        return normalize_agent_id(str(group.coordinator_agent_id or "").strip())
 
     def resolve_coordination_participants(
         self,
@@ -124,7 +153,9 @@ def _default_coordination_graph(
     participant_agent_ids: tuple[str, ...],
     subtask_refs: tuple[str, ...] = (),
 ) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
-    coordinator = str(coordinator_agent_id or "agent:0").strip() or "agent:0"
+    coordinator = normalize_agent_id(str(coordinator_agent_id or "").strip())
+    if not coordinator:
+        raise ValueError("default coordination graph requires coordinator_agent_id")
     participants = tuple(str(item).strip() for item in participant_agent_ids if str(item).strip())
     subtasks = tuple(str(item).strip() for item in subtask_refs if str(item).strip())
     nodes: list[dict[str, Any]] = [

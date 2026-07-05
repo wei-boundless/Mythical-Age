@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Awaitable, Callable
 
-from .models import ExecutableGraphConfig, GraphNodeWorkOrder
+from .models import ExecutableGraphConfig, GraphNodeWorkOrder, safe_id
 from .runtime_objects import load_work_order
 
 
@@ -80,7 +80,7 @@ class GraphRunBackgroundSupervisor:
         state = self._graph_loop.get_state(graph_run_id)
         control_boundary = _root_control_boundary(self._services, state)
         if control_boundary:
-            _mark_root_graph_run_paused(self._services, state, boundary="submit_until_idle", control_boundary=control_boundary)
+            _mark_root_graph_run_control_boundary(self._services, state, boundary="submit_until_idle", control_boundary=control_boundary)
             return GraphRunBackgroundSubmission(
                 graph_run_id=graph_run_id,
                 graph_config_id=graph_config.config_id,
@@ -105,7 +105,7 @@ class GraphRunBackgroundSupervisor:
         state = resume_result.loop_state or self._graph_loop.get_state(graph_run_id)
         control_boundary = _root_control_boundary(self._services, state)
         if control_boundary:
-            _mark_root_graph_run_paused(self._services, state, boundary="after_resume", control_boundary=control_boundary)
+            _mark_root_graph_run_control_boundary(self._services, state, boundary="after_resume", control_boundary=control_boundary)
             return GraphRunBackgroundSubmission(
                 graph_run_id=graph_run_id,
                 graph_config_id=graph_config.config_id,
@@ -186,7 +186,7 @@ class GraphRunBackgroundSupervisor:
             state = self._graph_loop.get_state(work_order.graph_run_id)
             control_boundary = _root_control_boundary(self._services, state)
             if control_boundary:
-                _mark_root_graph_run_paused(self._services, state, boundary="before_work_order_execution", control_boundary=control_boundary)
+                _mark_root_graph_run_control_boundary(self._services, state, boundary="before_work_order_execution", control_boundary=control_boundary)
                 return
             execution = await self._execute_work_order(
                 graph_config=graph_config,
@@ -202,7 +202,7 @@ class GraphRunBackgroundSupervisor:
             state = self._graph_loop.get_state(work_order.graph_run_id)
             control_boundary = _root_control_boundary(self._services, state)
             if control_boundary:
-                _mark_root_graph_run_paused(self._services, state, boundary="before_followup_submit", control_boundary=control_boundary)
+                _mark_root_graph_run_control_boundary(self._services, state, boundary="before_followup_submit", control_boundary=control_boundary)
                 return
             if not _state_needs_followup_submit(state):
                 return
@@ -275,10 +275,10 @@ def _root_control_boundary(services: Any, state: Any | None) -> dict[str, Any]:
         return {}
     task_run_id = str(getattr(state, "task_run_id", "") or "").strip()
     if not task_run_id:
-        return {}
+        raise ValueError("GraphLoopState root TaskRun id is missing")
     task_run = services.state_index.get_task_run(task_run_id)
     if task_run is None:
-        return {}
+        raise ValueError(f"GraphRun root TaskRun not found: {task_run_id}")
     control = _runtime_control_payload(task_run)
     control_state = str(control.get("state") or "").strip()
     if control_state in _PAUSE_CONTROL_STATES | _STOP_CONTROL_STATES:
@@ -304,7 +304,7 @@ def _runtime_control_payload(task_run: Any) -> dict[str, Any]:
     }
 
 
-def _mark_root_graph_run_paused(
+def _mark_root_graph_run_control_boundary(
     services: Any,
     state: Any | None,
     *,
@@ -315,13 +315,14 @@ def _mark_root_graph_run_paused(
         return
     control_state = str(control_boundary.get("control_state") or "").strip()
     if control_state in _STOP_CONTROL_STATES:
+        _mark_root_graph_run_stopped(services, state, boundary=boundary, control_boundary=control_boundary)
         return
     task_run_id = str(control_boundary.get("task_run_id") or getattr(state, "task_run_id", "") or "").strip()
     if not task_run_id:
-        return
+        raise ValueError("GraphLoopState root TaskRun id is missing")
     task_run = services.state_index.get_task_run(task_run_id)
     if task_run is None:
-        return
+        raise ValueError(f"GraphRun root TaskRun not found: {task_run_id}")
     current_control = _runtime_control_payload(task_run)
     if str(current_control.get("state") or "") == "paused" and str(getattr(task_run, "status", "") or "") == "waiting_executor":
         return
@@ -361,6 +362,86 @@ def _mark_root_graph_run_paused(
             },
         )
     )
+
+
+def _mark_root_graph_run_stopped(
+    services: Any,
+    state: Any | None,
+    *,
+    boundary: str,
+    control_boundary: dict[str, Any],
+) -> None:
+    if state is None:
+        return
+    task_run_id = str(control_boundary.get("task_run_id") or getattr(state, "task_run_id", "") or "").strip()
+    graph_run_id = str(getattr(state, "graph_run_id", "") or "").strip()
+    if not task_run_id:
+        raise ValueError("GraphLoopState root TaskRun id is missing")
+    task_run = services.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        raise ValueError(f"GraphRun root TaskRun not found: {task_run_id}")
+    current_control = _runtime_control_payload(task_run)
+    if str(current_control.get("state") or "") == "stopped" and str(getattr(task_run, "status", "") or "") == "aborted":
+        return
+    now = time.time()
+    event = services.event_log.append(
+        task_run_id,
+        "graph_run_stopped_at_control_boundary",
+        payload={
+            "task_run_id": task_run_id,
+            "graph_run_id": graph_run_id,
+            "boundary": boundary,
+            "previous_control_state": str(control_boundary.get("control_state") or ""),
+        },
+        refs={"task_run_ref": task_run_id, "graph_run_ref": graph_run_id},
+    )
+    event_time = float(getattr(event, "created_at", 0.0) or now)
+    control = {
+        **dict(current_control or {}),
+        "state": "stopped",
+        "requested_by": str(current_control.get("requested_by") or "user"),
+        "requested_at": float(current_control.get("requested_at") or event_time),
+        "reason": str(current_control.get("reason") or "graph_run_stop"),
+        "authority": "graph_system.graph_run_control",
+    }
+    services.state_index.upsert_task_run(
+        replace(
+            task_run,
+            status="aborted",
+            updated_at=event_time,
+            latest_event_offset=int(getattr(event, "offset", -1) or -1),
+            terminal_reason="user_stopped",
+            diagnostics={
+                **dict(getattr(task_run, "diagnostics", {}) or {}),
+                _RUNTIME_CONTROL_KEY: control,
+                "executor_status": "stopped",
+                "latest_step": "graph_run_stopped_at_control_boundary",
+                "latest_step_status": "stopped",
+                "latest_step_summary": "图任务已在运行边界停止，后台调度不会继续派发节点。",
+            },
+        )
+    )
+    if graph_run_id:
+        store = getattr(services, "runtime_objects", None)
+        if store is not None:
+            ref = f"rtobj:graph_run:{safe_id(graph_run_id)}"
+            payload = dict(store.get_object(ref) or {})
+            if payload:
+                diagnostics = dict(payload.get("diagnostics") or {})
+                store.put_object(
+                    "graph_run",
+                    safe_id(graph_run_id),
+                    {
+                        **payload,
+                        "status": "stopped",
+                        "terminal_reason": "user_stopped",
+                        "updated_at": event_time,
+                        "diagnostics": {
+                            **diagnostics,
+                            _RUNTIME_CONTROL_KEY: control,
+                        },
+                    },
+                )
 
 
 def _append_submission_event(

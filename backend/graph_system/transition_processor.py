@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .edge_contracts import edge_contract_or_projection
+from .edge_contracts import edge_contract_for_edge
 from .flow_edges import build_outbound_flow_edges
 from .flow_packet import build_flow_packet, edge_delivers_flow_packet
 from .language import REVISION_EDGE_TYPES
@@ -265,13 +265,13 @@ def _decision_ref(*, trigger: GraphTransitionInput, result: NodeResultEnvelope, 
 
 
 def _policy_snapshot(*, graph_config: ExecutableGraphConfig, edge: dict[str, Any]) -> dict[str, Any]:
-    contract = edge_contract_or_projection(graph_config, edge)
+    contract = edge_contract_for_edge(graph_config, edge)
     return _drop_empty(
         {
             "edge_id": str(edge.get("edge_id") or ""),
             "scheduler": dict(contract.get("scheduler") or {}),
-            "transition_policy": dict(contract.get("transition_policy") or dict(dict(edge.get("metadata") or {}).get("transition_policy") or {})),
-            "readiness_policy": dict(contract.get("readiness_policy") or dict(dict(edge.get("metadata") or {}).get("readiness_policy") or {})),
+            "transition_policy": dict(contract.get("transition_policy") or {}),
+            "readiness_policy": dict(contract.get("readiness_policy") or {}),
             "failure": dict(contract.get("failure") or {}),
             "human_control": dict(contract.get("human_control") or {}),
             "authority": "graph_system.transition_processor.policy_snapshot",

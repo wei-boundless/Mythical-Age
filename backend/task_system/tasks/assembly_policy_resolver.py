@@ -75,7 +75,6 @@ def resolve_specific_task_assembly_policy(
         default_agent_id=_first_value(
             getattr(execution_policy, "default_agent_id", ""),
             metadata.get("default_agent_id"),
-            "agent:0",
         ),
         agent_profile_ref=_first_value(
             metadata.get("agent_profile_id"),

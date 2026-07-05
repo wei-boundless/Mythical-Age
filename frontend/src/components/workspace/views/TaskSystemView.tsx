@@ -424,6 +424,7 @@ export function TaskSystemView() {
   const runPages: Array<LayerNavItem<RunManagementSubpage>> = [
     { value: "queue", label: "工作队列", meta: "当前运行", detail: "运行、等待、停滞和失败任务" },
     { value: "records", label: "历史记录", meta: "已完成/已清出", detail: "查看最近完成和隐藏记录" },
+    { value: "tasks", label: "任务事实", meta: "TaskCommand", detail: "任务环境、命令账本、产物和检查点" },
     { value: "cleanup", label: "清理预览", meta: "后端保护", detail: "预览可删除记录和保护原因" },
   ];
 
@@ -606,4 +607,3 @@ export function TaskSystemView() {
     </TaskSystemShell>
   );
 }
-

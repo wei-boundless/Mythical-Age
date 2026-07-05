@@ -113,12 +113,20 @@ class TaskEnvironmentViewService:
             task_environment_id=environment.task_environment_id,
             limit=work_product_limit,
         )
+        task_plans = self.task_repository.list_task_plans(environment.task_environment_id, limit=20)
+        todo_items = self.task_repository.list_todo_items(environment.task_environment_id, limit=80)
+        state_proposals = self.task_repository.list_state_proposals(environment.task_environment_id, limit=80)
+        checkpoints = self.task_repository.list_checkpoints(environment.task_environment_id, limit=20)
         control_signals = self.task_repository.list_control_signals(environment.task_environment_id, limit=40)
+        task_commands = self.task_repository.list_task_commands(environment.task_environment_id, limit=60)
+        dispatch_records = self.task_repository.list_task_dispatch_records(task_environment_id=environment.task_environment_id, limit=60)
         leases = self.task_repository.list_leases(environment.task_environment_id, limit=20)
         events = self.task_repository.list_events(environment.task_environment_id, limit=event_limit)
         environment_payload = environment.to_dict()
         graph_binding_payload = graph_binding.to_dict() if graph_binding is not None else {}
         control_signal_payloads = [item.to_dict() for item in control_signals]
+        task_command_payloads = [item.to_dict() for item in task_commands]
+        dispatch_record_payloads = [item.to_dict() for item in dispatch_records]
         lease_payloads = [item.to_dict() for item in leases]
         return {
             "authority": "task_system.task_environment_view.detail",
@@ -130,7 +138,13 @@ class TaskEnvironmentViewService:
             "latest_context_package": latest_context_package.to_dict() if latest_context_package is not None else {},
             "context_packages": [item.to_dict() for item in context_packages],
             "work_products": [item.to_dict() for item in work_products],
+            "task_plans": [item.to_dict() for item in task_plans],
+            "todo_items": [item.to_dict() for item in todo_items],
+            "state_proposals": [item.to_dict() for item in state_proposals],
+            "checkpoints": [item.to_dict() for item in checkpoints],
             "control_signals": control_signal_payloads,
+            "task_commands": task_command_payloads,
+            "task_dispatch_records": dispatch_record_payloads,
             "leases": lease_payloads,
             "events": [item.to_dict() for item in events],
             "activity_state": _activity_state(environment_payload, lease_payloads),
@@ -146,7 +160,13 @@ class TaskEnvironmentViewService:
                 "episode_result_count": len(episode_results),
                 "context_package_count": len(context_packages),
                 "work_product_count": len(work_products),
+                "task_plan_count": len(task_plans),
+                "todo_item_count": len(todo_items),
+                "state_proposal_count": len(state_proposals),
+                "checkpoint_count": len(checkpoints),
                 "control_signal_count": len(control_signals),
+                "task_command_count": len(task_commands),
+                "task_dispatch_record_count": len(dispatch_records),
                 "active_lease_count": len([item for item in lease_payloads if _lease_is_active(item)]),
                 "event_count": len(events),
                 "has_graph_node_binding": graph_binding is not None,
@@ -210,7 +230,42 @@ class TaskEnvironmentViewService:
             "task_environment": environment.to_dict(),
             "task_instance": task_instance.to_dict() if task_instance is not None else {},
             "graph_node_binding": _compact_binding(graph_binding.to_dict() if graph_binding is not None else {}),
+            "task_fact_summary": self._task_fact_summary(environment),
         }
+
+    def _task_fact_summary(self, environment: Any) -> dict[str, Any]:
+        active_plans = self.task_repository.list_task_plans(environment.task_environment_id, status="active", limit=1)
+        latest_plan = active_plans[0] if active_plans else None
+        active_todos = self.task_repository.list_todo_items(environment.task_environment_id, status="active", limit=5)
+        blocked_todos = self.task_repository.list_todo_items(environment.task_environment_id, status="blocked", limit=5)
+        pending_todos = self.task_repository.list_todo_items(environment.task_environment_id, status="pending", limit=5)
+        recorded_state_proposals = self.task_repository.list_state_proposals(
+            environment.task_environment_id,
+            status="recorded",
+            limit=20,
+        )
+        reducer_checkpoints = self.task_repository.list_checkpoints(
+            environment.task_environment_id,
+            checkpoint_kind="reducer_commit",
+            limit=1,
+        )
+        focus_todos = [*active_todos, *blocked_todos, *pending_todos][:5]
+        return _drop_empty(
+            {
+                "authority": "task_system.task_environment_view.fact_summary",
+                "active_plan": _compact_plan(latest_plan.to_dict() if latest_plan is not None else {}),
+                "focus_todos": [_compact_todo(item.to_dict()) for item in focus_todos],
+                "counts": {
+                    "active_todo": len(active_todos),
+                    "blocked_todo": len(blocked_todos),
+                    "pending_todo_sample": len(pending_todos),
+                    "recorded_state_proposal_sample": len(recorded_state_proposals),
+                },
+                "latest_reducer_checkpoint": _compact_checkpoint(
+                    reducer_checkpoints[0].to_dict() if reducer_checkpoints else {}
+                ),
+            }
+        )
 
 
 def _compact_binding(binding: dict[str, Any]) -> dict[str, Any]:
@@ -265,6 +320,46 @@ def _compact_context_package(context_package: dict[str, Any]) -> dict[str, Any]:
         )
         if context_package.get(key) not in (None, "", [], {})
     }
+
+
+def _compact_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    if not plan:
+        return {}
+    return _drop_empty(
+        {
+            "plan_id": str(plan.get("plan_id") or ""),
+            "version": plan.get("version"),
+            "status": str(plan.get("status") or ""),
+            "strategy_summary": str(plan.get("strategy_summary") or ""),
+        }
+    )
+
+
+def _compact_todo(todo: dict[str, Any]) -> dict[str, Any]:
+    if not todo:
+        return {}
+    return _drop_empty(
+        {
+            "todo_id": str(todo.get("todo_id") or ""),
+            "title": str(todo.get("title") or ""),
+            "status": str(todo.get("status") or ""),
+            "blocker": str(todo.get("blocker") or ""),
+        }
+    )
+
+
+def _compact_checkpoint(checkpoint: dict[str, Any]) -> dict[str, Any]:
+    if not checkpoint:
+        return {}
+    return _drop_empty(
+        {
+            "checkpoint_id": str(checkpoint.get("checkpoint_id") or ""),
+            "checkpoint_kind": str(checkpoint.get("checkpoint_kind") or ""),
+            "event_id": str(checkpoint.get("event_id") or ""),
+            "event_seq": checkpoint.get("event_seq"),
+            "summary": str(checkpoint.get("summary") or ""),
+        }
+    )
 
 
 def _recovery_hint(environment: dict[str, Any], binding: dict[str, Any]) -> dict[str, Any]:
@@ -369,13 +464,13 @@ def _recommended_control_api(
     has_expired_active_lease: bool,
 ) -> str:
     if has_expired_active_lease:
-        return "POST /api/task-environments/recover-stale-leases"
+        return "POST /api/task-environments/{environment_id}/commands command_kind=recover_stale_lease"
     if has_active_lease:
-        return "POST /api/task-environments/{environment_id}/control-signals"
+        return "POST /api/task-environments/{environment_id}/commands command_kind=request_pause|request_stop"
     if graph_run_id and status in {"ready", "paused", "blocked"}:
-        return "POST /api/task-environments/{environment_id}/recovery-actions"
+        return "POST /api/task-environments/{environment_id}/commands command_kind=resume_graph_run|requeue_graph_node|dispatch_ready_graph_nodes"
     if status in {"ready", "paused", "blocked"}:
-        return "POST /api/task-environments/{environment_id}/control-signals"
+        return "POST /api/task-environments/{environment_id}/commands command_kind=request_resume"
     return ""
 
 
@@ -397,3 +492,7 @@ def _lease_is_expired_active(lease: dict[str, Any]) -> bool:
     except (TypeError, ValueError):
         expires_at = 0.0
     return expires_at <= time.time()
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in dict(payload or {}).items() if value not in (None, "", [], {})}

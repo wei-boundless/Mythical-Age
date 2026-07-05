@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from core.project_layout import ProjectLayout
-from graph_system.models import NodeResultEnvelope
 from task_system.compiler.executable_graph_config_publisher import build_graph_config_from_graph
 from task_system.registry.flow_registry import TaskFlowRegistry
 
@@ -27,11 +26,13 @@ from .graph_builder import ProjectNetworkGraphBuilder
 
 
 class DirectoryRuntimeService:
-    """Connects directory render frames to GraphSystem execution.
+    """Prepares directory render frames for graph-task execution.
 
-    This service is orchestration glue. It may materialize frame manifests, build
-    frame graphs, start GraphSystem runs, and register typed child returns. It
-    must not decide semantic facts or publish semantic overlay records.
+    This service is project-network task glue. It may materialize frame
+    manifests, publish frame graph configs, prepare graph start inputs, record
+    graph start metadata, and register typed child returns. It does not start
+    GraphSystem runs, execute agents, decide semantic facts, or publish semantic
+    overlay records.
     """
 
     authority = "project_network_tasks.directory_runtime_service"
@@ -372,7 +373,7 @@ class DirectoryRuntimeService:
 
     def accept_directory_node_result(
         self,
-        node_result: NodeResultEnvelope | dict[str, Any],
+        node_result: Any,
         *,
         frame_id: str = "",
         contract: ProjectNetworkBuildContract | None = None,
@@ -386,7 +387,7 @@ class DirectoryRuntimeService:
         resolved_build_id = build_id or (frame.build_id if frame is not None else "")
         resolved_layer_id = default_layer_id or (f"directory_frame:{frame.frame_id}" if frame is not None else "")
         ingest = self.build_service.accept_node_result(
-            node_result,
+            _node_result_payload(node_result),
             contract=contract,
             build_id=resolved_build_id,
             default_shard_id=default_shard_id,
@@ -578,6 +579,14 @@ def _frame_tree_status_card(frame: DirectoryRenderFrame, *, decision: DirectoryF
 
 def _has_blocker_other_than_waiting(blockers: tuple[str, ...]) -> bool:
     return any(str(item) and str(item) != "waiting_child_returns" for item in blockers)
+
+
+def _node_result_payload(node_result: Any) -> dict[str, Any]:
+    if isinstance(node_result, dict):
+        return dict(node_result)
+    if hasattr(node_result, "to_dict"):
+        return dict(node_result.to_dict() or {})
+    raise ValueError("DirectoryRuntimeService requires node result payload")
 
 
 def _runtime_scope_for_frame(frame: DirectoryRenderFrame, runtime_scope: dict[str, Any]) -> dict[str, Any]:

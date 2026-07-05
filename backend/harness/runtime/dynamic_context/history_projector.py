@@ -154,9 +154,21 @@ def _recent_work_outcome_projection(value: Any) -> dict[str, Any]:
         for item in list(value.get("artifact_refs") or [])
         if isinstance(item, dict)
     ][:6]
+    work_product_refs = [
+        {
+            "work_product_id": compact_text(item.get("work_product_id") or item.get("id") or "", limit=240),
+            "product_kind": compact_text(item.get("product_kind") or item.get("kind") or "", limit=80),
+            "status": compact_text(item.get("status") or "", limit=80),
+        }
+        for item in list(value.get("work_product_refs") or [])
+        if isinstance(item, dict)
+    ][:6]
     return drop_empty(
         {
             "task_run_id": compact_text(value.get("task_run_id") or "", limit=240),
+            "task_environment_id": compact_text(value.get("task_environment_id") or "", limit=240),
+            "task_instance_id": compact_text(value.get("task_instance_id") or "", limit=240),
+            "task_kind": compact_text(value.get("task_kind") or "", limit=120),
             "status": compact_text(value.get("status") or "", limit=80),
             "terminal_reason": compact_text(value.get("terminal_reason") or "", limit=160),
             "lifecycle": compact_text(value.get("lifecycle") or "", limit=80),
@@ -167,6 +179,7 @@ def _recent_work_outcome_projection(value: Any) -> dict[str, Any]:
             "latest_event_type": compact_text(value.get("latest_event_type") or "", limit=120),
             "agent_brief_output": compact_text(value.get("agent_brief_output") or "", limit=900),
             "artifact_refs": artifact_refs,
+            "work_product_refs": work_product_refs,
             "continuation_state": compact_text(value.get("continuation_state") or "", limit=120),
             "decision_boundary": compact_text(value.get("decision_boundary") or "", limit=500),
             "boundary_code": "recent_work_outcome_read_only_fact",

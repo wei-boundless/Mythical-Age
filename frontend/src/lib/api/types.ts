@@ -1807,6 +1807,105 @@ export type TaskEnvironmentUpsertPayload = {
   lifecycle_policy?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
+
+export type TaskWorkEnvironmentListItem = {
+  task_environment?: Record<string, unknown>;
+  task_instance?: Record<string, unknown>;
+  graph_node_binding?: Record<string, unknown>;
+  task_fact_summary?: Record<string, unknown>;
+  activity_state?: Record<string, unknown>;
+  recovery_hint?: Record<string, unknown>;
+  control_capabilities?: Record<string, unknown>;
+  graph_runtime_projection?: Record<string, unknown>;
+};
+
+export type TaskWorkEnvironmentListResponse = {
+  authority: string;
+  task_environments: TaskWorkEnvironmentListItem[];
+  summary: Record<string, unknown>;
+};
+
+export type TaskCommandRecord = {
+  command_id: string;
+  command_kind: string;
+  requested_by: string;
+  idempotency_key: string;
+  task_environment_id?: string;
+  status?: string;
+  payload?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: Record<string, unknown>;
+  attempt_count?: number;
+  lease_ref?: string;
+  dispatch_ref?: string;
+  created_at?: number;
+  updated_at?: number;
+  authority?: string;
+};
+
+export type TaskDispatchRecord = {
+  dispatch_id: string;
+  command_id: string;
+  status: string;
+  task_environment_id?: string;
+  episode_id?: string;
+  runtime_anchor_id?: string;
+  graph_run_id?: string;
+  work_order_id?: string;
+  result?: Record<string, unknown>;
+  error?: Record<string, unknown>;
+  started_at?: number;
+  finished_at?: number;
+  authority?: string;
+};
+
+export type TaskWorkEnvironmentDetailResponse = {
+  authority: string;
+  task_environment: Record<string, unknown>;
+  task_instance?: Record<string, unknown>;
+  graph_node_binding?: Record<string, unknown>;
+  episodes?: Array<Record<string, unknown>>;
+  episode_results?: Array<Record<string, unknown>>;
+  latest_context_package?: Record<string, unknown>;
+  context_packages?: Array<Record<string, unknown>>;
+  work_products?: Array<Record<string, unknown>>;
+  task_plans?: Array<Record<string, unknown>>;
+  todo_items?: Array<Record<string, unknown>>;
+  state_proposals?: Array<Record<string, unknown>>;
+  checkpoints?: Array<Record<string, unknown>>;
+  control_signals?: Array<Record<string, unknown>>;
+  task_commands?: TaskCommandRecord[];
+  task_dispatch_records?: TaskDispatchRecord[];
+  leases?: Array<Record<string, unknown>>;
+  events?: Array<Record<string, unknown>>;
+  activity_state?: Record<string, unknown>;
+  recovery_hint?: Record<string, unknown>;
+  control_capabilities?: Record<string, unknown>;
+  graph_runtime_projection?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+};
+
+export type TaskEnvironmentCommandListResponse = {
+  authority: string;
+  task_environment_id: string;
+  commands: TaskCommandRecord[];
+  dispatch_records: TaskDispatchRecord[];
+  summary: Record<string, unknown>;
+};
+
+export type TaskEnvironmentCommandSubmitPayload = {
+  command_kind: string;
+  requested_by?: string;
+  payload?: Record<string, unknown>;
+  idempotency_key?: string;
+  dispatch_now?: boolean;
+};
+
+export type TaskEnvironmentCommandSubmitResponse = {
+  authority: string;
+  submission?: Record<string, unknown>;
+  dispatch?: Record<string, unknown>;
+};
 export type TaskAssignmentUpsertPayload = {
   task_id: string;
   task_title: string;
@@ -2873,6 +2972,8 @@ export type HarnessSessionTaskRuns = {
 export type RunMonitorSignal = {
   authority: string;
   signal_id: string;
+  runtime_anchor_id?: string;
+  runtime_anchor?: Record<string, unknown>;
   source_kind: "task_run" | "turn_run" | "runtime_run" | "graph_run" | "diagnostic" | string;
   work_kind: "chat_turn" | "agent_task" | "graph_task" | string;
   state: "active" | "waiting" | "attention" | "completed" | "failed" | "stale" | string;
@@ -2911,6 +3012,10 @@ export type RunMonitorSignal = {
   };
   session_id: string;
   task_run_id: string;
+  turn_run_id?: string;
+  stream_run_id?: string;
+  active_turn_id?: string;
+  monitor_item_id?: string;
   task_instance_id: string;
   graph_run_id: string;
   graph_id: string;
@@ -2994,6 +3099,7 @@ export type RunMonitorEnvelope = {
 export type RunMonitorActionPayload = {
   action: string;
   signal_id?: string;
+  runtime_anchor_id?: string;
   task_run_id?: string;
   graph_run_id?: string;
   reason?: string;
@@ -4427,34 +4533,13 @@ export type ChatRun = {
 
 export type LatestChatRunResult = ChatRun | null;
 
-export type SessionContinuationRecord = {
-  continuation_id?: string;
-  session_id?: string;
-  task_run_id?: string;
-  state?: string;
-  resume_allowed?: boolean;
-  resume_strategy?: string;
-  context_resume_available?: boolean;
-  context_resume_source?: string;
-  same_run_executable?: boolean;
-  recovery_cause?: string;
-  task_status?: string;
-  executor_status?: string;
-  control_state?: string;
-  user_visible_goal?: string;
-  latest_progress?: string;
-  event_cursor?: number;
-  updated_at?: number;
-  authority?: string;
-  [key: string]: unknown;
-};
-
 export type SessionContinuationProjection = {
   session_id: string;
   available: boolean;
-  record?: SessionContinuationRecord;
   context_recovery_status?: Record<string, unknown>;
   reason?: string;
+  task_continuation_authority?: string;
+  legacy_task_run_selector?: string;
   authority?: string;
 };
 
@@ -4462,7 +4547,6 @@ export type ChatRunInterruptPayload = {
   mode?: "interrupt_for_resume" | "hard_stop" | string;
   reason?: string;
   expected_active_turn_id?: string;
-  expected_task_run_id?: string;
   cascade_subagents?: "interrupt_for_resume" | "hard_stop" | "leave_running" | string;
 };
 

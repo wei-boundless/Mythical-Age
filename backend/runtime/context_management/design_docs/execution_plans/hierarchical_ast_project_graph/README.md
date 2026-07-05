@@ -6,8 +6,10 @@
 
 ## 0. 当前重构入口
 
-后续重构以 [00_refactor_execution_index.md](00_refactor_execution_index.md) 为当前入口。  
-它负责把这组文档整理成实施权威：哪些是任务底座主链，哪些是 graph/project network 边界，哪些是 AST/语义图背景方案，哪些只是成熟 agent 调研参照。
+后续重构以 [00_refactor_execution_index.md](00_refactor_execution_index.md) 为总入口，并以 [21_authority_audit_and_continuous_refactor_plan.md](21_authority_audit_and_continuous_refactor_plan.md) 作为当前连续推进计划。
+图任务母体架构的当前设计权威是 [23_graph_task_programmed_agent_spacetime_architecture.md](23_graph_task_programmed_agent_spacetime_architecture.md)，它负责把图任务重新定义为“面向 agent 的程序化时空调控系统”：GraphSystem 负责算法和时空推进，TaskSystem 负责任务环境，Harness 负责单 agent 执行，领域图只作为实例适配。
+图任务运行算法的当前修复权威是 [22_graph_task_spacetime_outcome_algorithm_repair_plan.md](22_graph_task_spacetime_outcome_algorithm_repair_plan.md)，它负责把“返修/重试/提交失败”等业务语义收束为通用 Outcome、ControlFrame 和 TransitionPolicy。
+`00` 负责把这组文档整理成实施权威；`21` 负责记录本轮代码审查后的漏洞、旧结构、迁移边界和不再碎片化的执行顺序；`23` 负责重新设计图任务母体架构；`22` 负责修复图任务时空算法与实例结构混淆问题。
 
 最重要的执行裁决：
 
@@ -28,6 +30,9 @@ FileManagement = 文件树、AST、物理事实和资源引用权威
 
 ```text
 00 重构实施入口索引
+-> 21 权威审查与连续推进计划
+-> 23 图任务程序化 Agent 时空架构重设计
+-> 22 图任务时空 Outcome 算法修复方案
 -> 16 Agent 任务系统与项目控制网络总体规划
 -> 19 任务框架稳定定义与 Agent/System 对接契约
 -> 18 任务环境运行机制实施细节方案
@@ -53,6 +58,9 @@ FileManagement = 文件树、AST、物理事实和资源引用权威
 | 文档 | 职责 | 不能承担的职责 |
 | --- | --- | --- |
 | `00_refactor_execution_index.md` | 作为当前重构实施入口，固定阅读顺序、实施阶段、系统权威链、旧链路清理标准和最小验证方式 | 不替代各细节文档，不直接设计新接口字段，不允许被当成宽泛原则备忘录 |
+| `21_authority_audit_and_continuous_refactor_plan.md` | 根据当前代码审查结果固定漏洞、旧结构、TaskCommand/Scheduler、RuntimeAnchor、ProjectNetwork generation 和前端工作台的连续推进顺序 | 不替代历史设计依据，不允许跳过 TaskCommand 继续做单点补丁，不直接实施代码 |
+| `23_graph_task_programmed_agent_spacetime_architecture.md` | 重新设计图任务母体架构：图任务是程序化节点时空调控系统，节点是图任务空间里的物理单位，agent 只是其中一种执行节点；算法层统一 readiness/transition/frame/invalidation/tree_reduce/repair，并用 ExecutionTraceBinding 连接外层 GraphTime 与内层 HarnessTurnTime | 不直接实施代码，不把写作/项目网络/repair 业务特例塞进 graph_system，不替代 22 的 Outcome 细节修复 |
+| `22_graph_task_spacetime_outcome_algorithm_repair_plan.md` | 固定图任务时空 Outcome 算法修复：执行状态与业务 outcome 分离、TransitionPolicy 按 outcome 选边、ControlFrame 管理返修/重试、人类门控和 replay、提交类节点 precommit/commit 两阶段 | 不写具体写作节点特例，不把领域词放进 GraphSystem，不用 prompt 或手工 requeue 绕过算法缺口 |
 | `01_principles_and_architecture.md` | 锁定设计原则、成熟 agent 对齐标准、总体架构和上下文边界 | 不展开 AST schema 细节 |
 | `02_deep_ast_spine_plan.md` | 设计 Deep AST spine、symbol/binding/call/dataflow、刷新生命周期 | 不让模型决定硬事实 |
 | `03_project_semantic_graph_model.md` | 设计 Semantic File Module、系统层、endpoint、control route 和 agent 交互 | 不负责多 agent 生产线 |
@@ -135,6 +143,9 @@ Deep AST Spine
 ## 4. 文档链接
 
 - [00_refactor_execution_index.md](00_refactor_execution_index.md)
+- [21_authority_audit_and_continuous_refactor_plan.md](21_authority_audit_and_continuous_refactor_plan.md)
+- [23_graph_task_programmed_agent_spacetime_architecture.md](23_graph_task_programmed_agent_spacetime_architecture.md)
+- [22_graph_task_spacetime_outcome_algorithm_repair_plan.md](22_graph_task_spacetime_outcome_algorithm_repair_plan.md)
 - [01_principles_and_architecture.md](01_principles_and_architecture.md)
 - [02_deep_ast_spine_plan.md](02_deep_ast_spine_plan.md)
 - [03_project_semantic_graph_model.md](03_project_semantic_graph_model.md)

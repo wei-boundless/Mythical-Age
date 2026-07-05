@@ -1,5 +1,5 @@
 from .admission import admit_engagement
-from .closeout import sync_engagement_run_closeout, sync_engagement_runs_for_terminal_task
+from .closeout import sync_engagement_run_closeout
 from .contract_issuer import EngagementContractIssuer
 from .dispatcher import EngagementDispatcher
 from .models import (
@@ -39,5 +39,4 @@ __all__ = [
     "admit_engagement",
     "resolve_engagement_plan",
     "sync_engagement_run_closeout",
-    "sync_engagement_runs_for_terminal_task",
 ]
