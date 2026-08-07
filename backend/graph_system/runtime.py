@@ -573,7 +573,24 @@ def _graph_runtime_scope(
         scope.setdefault("scope_source", "graph_system_runtime.explicit_scope")
     else:
         scope["scope_source"] = "graph_system_runtime.unscoped_graph_run"
-    scope["artifact_root"] = _graph_task_artifact_root(graph_run_id=graph_run_id, graph_task_instance_id=scope.get("graph_task_instance_id") or project_id)
+    project_path = _first_scope_value(
+        scope.get("project_path"),
+        diagnostics.get("project_path"),
+        initial_inputs.get("project_path"),
+    )
+    artifact_root = _first_scope_value(
+        scope.get("artifact_root"),
+        diagnostics.get("artifact_root"),
+        initial_inputs.get("artifact_root"),
+    )
+    if project_path:
+        scope["project_path"] = _normalize_logical_root(project_path)
+    if artifact_root:
+        scope["artifact_root"] = _normalize_logical_root(artifact_root)
+    elif project_path:
+        scope["artifact_root"] = f"{_normalize_logical_root(project_path)}/artifacts"
+    else:
+        scope["artifact_root"] = _graph_task_artifact_root(graph_run_id=graph_run_id, graph_task_instance_id=scope.get("graph_task_instance_id") or project_id)
     graph_task_memory_namespace = _graph_task_memory_namespace(
         graph_config=graph_config,
         graph_run_id=graph_run_id,
@@ -590,6 +607,13 @@ def _graph_task_artifact_root(*, graph_run_id: str, graph_task_instance_id: str 
     if instance_id:
         return f"storage/graph_task_instances/{safe_id(instance_id)}/runs/{safe_id(graph_run_id)}/artifacts"
     return f"output/graph_runs/{safe_id(graph_run_id)}/artifacts"
+
+
+def _normalize_logical_root(value: str) -> str:
+    normalized = str(value or "").replace("\\", "/").strip().strip("'\"`").strip("/")
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    return normalized
 
 
 def _strip_graph_environment_scope(payload: dict[str, Any]) -> dict[str, Any]:

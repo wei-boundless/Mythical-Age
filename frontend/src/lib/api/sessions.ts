@@ -13,8 +13,18 @@ import type {
   WorkbenchCurrentSessionPayload,
 } from "./types";
 
-export async function listSessions(scope?: Partial<SessionScope>) {
+export async function listSessions(
+  scope?: Partial<SessionScope>,
+  options: { limit?: number; offset?: number; mainChatOnly?: boolean } = {},
+) {
   const params = sessionScopeQuery(scope);
+  params.set("limit", String(options.limit || 200));
+  if (options.offset) {
+    params.set("offset", String(options.offset));
+  }
+  if (options.mainChatOnly) {
+    params.set("main_chat_only", "true");
+  }
   const query = params.toString();
   return request<SessionSummary[]>(query ? `/sessions?${query}` : "/sessions");
 }
@@ -172,12 +182,17 @@ export async function removeProjectWorkspace(projectKey: string, options: { deta
   });
 }
 
-export async function listProjectWorkspaceSessions(projectKey: string) {
+export async function listProjectWorkspaceSessions(projectKey: string, options: { limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit || 200));
+  if (options.offset) {
+    params.set("offset", String(options.offset));
+  }
   return request<{
     authority: string;
     project_key: string;
     sessions: SessionSummary[];
-  }>(`/project-workspaces/${encodeURIComponent(projectKey)}/sessions`);
+  }>(`/project-workspaces/${encodeURIComponent(projectKey)}/sessions?${params.toString()}`);
 }
 
 export async function createProjectWorkspaceSession(projectKey: string, title = "New Session") {

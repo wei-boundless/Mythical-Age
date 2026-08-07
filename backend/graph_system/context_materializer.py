@@ -19,8 +19,10 @@ from .flow_packet import flow_packet_inbound_projection
 from .loop_engine import LoopEngine
 from .memory_context import MemoryContextAssembler
 from .models import ExecutableGraphConfig, GraphLoopState, GraphNodeExecutionSlot, GraphNodeWorkOrder, safe_id, stable_hash
+from .node_adapter_models import node_execution_adapter_from_node, node_physical_spec_from_node, work_kind_for_adapter
 from .runtime_objects import load_flow_packet, load_node_result
 from .scheduler_view import upstream_dependency_node_ids
+from .spacetime_models import graph_time_ref_for_dispatch, node_attempt_ref_for_dispatch
 
 
 class GraphContextMaterializer:
@@ -64,6 +66,25 @@ class GraphContextMaterializer:
             if isinstance(item, dict)
         ]
         work_order_id = f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{graph_clock_seq}:{int(time.time() * 1000)}"
+        node_physical = node_physical_spec_from_node(node)
+        execution_adapter = node_execution_adapter_from_node(node)
+        superstep_seq = _superstep_seq_from_state(state=state, graph_clock_seq=graph_clock_seq)
+        graph_time = graph_time_ref_for_dispatch(
+            graph_run_id=state.graph_run_id,
+            structure_hash=state.structure_hash or graph_config.expected_structural_hash(),
+            graph_clock_seq=graph_clock_seq,
+            event_cursor=state.event_cursor,
+            superstep_seq=superstep_seq,
+            checkpoint_id=str(state.diagnostics.get("latest_checkpoint_id") or ""),
+        ).to_dict()
+        node_attempt = node_attempt_ref_for_dispatch(
+            graph_run_id=state.graph_run_id,
+            node_id=node_id,
+            work_order_id=work_order_id,
+            node_dispatch_seq=dispatch_seq,
+            graph_clock_seq=graph_clock_seq,
+            superstep_seq=superstep_seq,
+        ).to_dict()
         graph_slot = self.build_graph_slot(
             graph_config=graph_config,
             state=state,
@@ -71,6 +92,10 @@ class GraphContextMaterializer:
             work_order_id=work_order_id,
             input_package=input_package,
             inbound_context=visible_inbound_context,
+            node_physical=node_physical.to_dict(),
+            execution_adapter=execution_adapter.to_dict(),
+            graph_time=graph_time,
+            node_attempt=node_attempt,
         )
         environment_refs = _environment_refs(graph_config)
         structure_hash = state.structure_hash or graph_config.expected_structural_hash()
@@ -112,11 +137,15 @@ class GraphContextMaterializer:
         )
         return GraphNodeWorkOrder(
             work_order_id=work_order_id,
-            work_kind=_graph_work_kind(executor_type),
+            work_kind=work_kind_for_adapter(execution_adapter.adapter_kind, legacy_executor_type=executor_type),
             graph_run_id=state.graph_run_id,
             task_run_id=state.task_run_id,
             config_id=graph_config.config_id,
             config_hash=graph_config.content_hash,
+            node_kind=node_physical.node_kind,
+            execution_adapter=execution_adapter.to_dict(),
+            graph_time=graph_time,
+            node_attempt=node_attempt,
             structure_hash=structure_hash,
             structure_version=structure_version,
             config_snapshot_id=config_snapshot_id,
@@ -170,6 +199,11 @@ class GraphContextMaterializer:
             dispatch_context={
                 "graph_run_id": state.graph_run_id,
                 "config_id": graph_config.config_id,
+                "node_kind": node_physical.node_kind,
+                "node_physical": node_physical.to_dict(),
+                "execution_adapter": execution_adapter.to_dict(),
+                "graph_time": graph_time,
+                "node_attempt": node_attempt,
                 "graph_structure_hash": structure_hash,
                 "graph_structure_version": structure_version,
                 "config_snapshot_id": config_snapshot_id,
@@ -198,6 +232,10 @@ class GraphContextMaterializer:
         work_order_id: str,
         input_package: dict[str, Any],
         inbound_context: list[dict[str, Any]],
+        node_physical: dict[str, Any] | None = None,
+        execution_adapter: dict[str, Any] | None = None,
+        graph_time: dict[str, Any] | None = None,
+        node_attempt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "")
         loop_context = dict(input_package.get("loop_context") or {})
@@ -231,6 +269,10 @@ class GraphContextMaterializer:
                 "node_id": node_id,
                 "work_order_id": str(work_order_id or ""),
             },
+            node_physical=dict(node_physical or input_package.get("node_physical") or {}),
+            execution_adapter=dict(execution_adapter or input_package.get("execution_adapter") or {}),
+            graph_time=dict(graph_time or input_package.get("graph_time") or {}),
+            node_attempt=dict(node_attempt or input_package.get("node_attempt") or {}),
             task_contract=_execution_task_contract_from_input_package(input_package),
             agent_binding=_execution_agent_binding_from_input_package(input_package),
             edge_contracts={
@@ -317,13 +359,37 @@ class GraphContextMaterializer:
         agent_binding = _node_agent_binding(graph_config=graph_config, node_id=node_id)
         task_environment_id = _node_effective_environment_id(graph_config=graph_config, node=node, agent_binding=agent_binding)
         loop_context = self._loop_engine.context_for_node(state=state, node=node)
-        initial_inputs = dict(state.initial_inputs or {})
+        node_physical = node_physical_spec_from_node(node)
+        execution_adapter = node_execution_adapter_from_node(node)
+        graph_time = graph_time_ref_for_dispatch(
+            graph_run_id=state.graph_run_id,
+            structure_hash=state.structure_hash or graph_config.expected_structural_hash(),
+            graph_clock_seq=graph_clock_seq,
+            event_cursor=state.event_cursor,
+            superstep_seq=_superstep_seq_from_state(state=state, graph_clock_seq=graph_clock_seq),
+            checkpoint_id=str(state.diagnostics.get("latest_checkpoint_id") or ""),
+        ).to_dict()
+        initial_inputs = _initial_inputs_with_loop_cursor(
+            initial_inputs=dict(state.initial_inputs or {}),
+            loop_context=loop_context,
+        )
         initial_inputs, inbound_context = apply_context_providers(
             graph_config=graph_config,
             state=state,
             node=node,
             services=self._services,
             initial_inputs=initial_inputs,
+            inbound_context=inbound_context,
+        )
+        loop_context = _loop_context_with_materialized_inputs(
+            loop_context=loop_context,
+            initial_inputs=initial_inputs,
+        )
+        inbound_context = _slot_inbound_contexts(
+            graph_config=graph_config,
+            state=state,
+            node_id=node_id,
+            input_package={"initial_inputs": initial_inputs},
             inbound_context=inbound_context,
         )
         environment_refs = _environment_refs(graph_config)
@@ -335,8 +401,12 @@ class GraphContextMaterializer:
                 "node_id": node_id,
                 "title": str(node.get("title") or node_id),
                 "node_type": str(node.get("node_type") or ""),
+                "node_kind": node_physical.node_kind,
                 "task_ref": str(node.get("task_ref") or ""),
             },
+            "node_physical": node_physical.to_dict(),
+            "execution_adapter": execution_adapter.to_dict(),
+            "graph_time": graph_time,
             "prompt_contract": prompt_contract,
             "task_contract": task_contract,
             "agent_binding": agent_binding,
@@ -401,7 +471,14 @@ class GraphContextMaterializer:
                     continue
                 context.append(flow_packet_inbound_projection(packet, packet_ref=str(packet_entry.get("packet_ref") or "")))
         context.extend(_loop_iteration_contexts_for_node(graph_config=graph_config, state=state, node_id=node_id))
-        context.extend(_self_quality_failure_contexts_for_node(services=self._services, state=state, node_id=node_id))
+        context.extend(
+            _self_quality_failure_contexts_for_node(
+                graph_config=graph_config,
+                services=self._services,
+                state=state,
+                node_id=node_id,
+            )
+        )
         return context
 
 
@@ -509,8 +586,20 @@ def _node_tail(node_id: str) -> str:
     return str(node_id or "").strip().rsplit("::", 1)[-1]
 
 
+def _node_by_id(graph_config: ExecutableGraphConfig, node_id: str) -> dict[str, Any] | None:
+    target = str(node_id or "").strip()
+    if not target:
+        return None
+    for raw in graph_config.nodes:
+        node = dict(raw or {}) if isinstance(raw, dict) else {}
+        if str(node.get("node_id") or "").strip() == target:
+            return node
+    return None
+
+
 def _self_quality_failure_contexts_for_node(
     *,
+    graph_config: ExecutableGraphConfig,
     services: Any | None,
     state: GraphLoopState,
     node_id: str,
@@ -524,6 +613,8 @@ def _self_quality_failure_contexts_for_node(
     source_error = dict(result.error or summary.get("error") or {})
     quality_acceptance = dict(dict(result.diagnostics or {}).get("quality_acceptance") or {})
     issue_values = list(source_error.get("issues") or quality_acceptance.get("issues") or [])
+    retry_policy = dict((_node_by_id(graph_config, node_id) or {}).get("retry") or {})
+    include_artifact_text = bool(retry_policy.get("include_quality_failure_artifact_text") is True)
     payload = _drop_empty(
         {
             "source_error": source_error,
@@ -536,7 +627,11 @@ def _self_quality_failure_contexts_for_node(
             "issues": issue_values,
             "handoff_summary": str(result.handoff_summary or summary.get("handoff_summary") or "")[:1200],
             "artifact_refs": artifact_refs,
-            "artifact_payloads": _artifact_payloads_for_refs(artifact_refs, max_refs=8, max_chars=30000),
+            "artifact_payloads": (
+                _artifact_payloads_for_refs(artifact_refs, max_refs=8, max_chars=30000)
+                if include_artifact_text
+                else []
+            ),
             "authority": "graph_system.self_quality_failure_payload",
         }
     )
@@ -570,7 +665,7 @@ def _self_quality_failure_contexts_for_node(
                 "receipt_refs": [],
                 "visibility": {
                     "source": "graph_loop.result_history.latest_self_quality_failure",
-                    "artifact_text_projection": "bounded",
+                    "artifact_text_projection": "bounded" if include_artifact_text else "suppressed_by_retry_policy",
                     "authority": "graph_system.self_quality_failure_context.visibility",
                 },
                 "authority": "graph_system.self_quality_failure_context",
@@ -622,6 +717,11 @@ def _node_result_from_history_summary(summary: dict[str, Any]) -> Any | None:
         task_run_id=task_run_id,
         node_id=node_id,
         work_order_id=work_order_id,
+        node_kind=str(summary.get("node_kind") or "agent_execution_node"),
+        execution_adapter_kind=str(summary.get("execution_adapter_kind") or "agent_harness"),
+        graph_time=dict(summary.get("graph_time") or {}),
+        node_attempt=dict(summary.get("node_attempt") or {}),
+        execution_trace_binding=dict(summary.get("execution_trace_binding") or {}),
         executor_type=str(summary.get("executor_type") or "agent"),
         status=str(summary.get("status") or "blocked"),
         artifact_refs=tuple(_artifact_ref_values(summary.get("artifact_refs"))),
@@ -831,6 +931,8 @@ def _execution_runtime_scope(value: Any) -> dict[str, Any]:
         "graph_task_instance_id",
         "workspace_view",
         "artifact_root",
+        "project_path",
+        "source_project_id",
         "scope_id",
         "graph_binding_mode",
         "memory_namespace_id",
@@ -936,7 +1038,7 @@ def _execution_context_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload.get("initial_inputs"), dict):
         result["initial_inputs"] = _execution_initial_inputs(
             payload.get("initial_inputs"),
-            include_project_brief=str(payload.get("authority") or "") == "graph_system.initial_input_payload",
+            include_user_creative_seed=str(payload.get("authority") or "") == "graph_system.initial_input_payload",
         )
     for key in ("graph_id", "project_id", "title"):
         if payload.get(key):
@@ -1119,14 +1221,16 @@ def _execution_tree_reduce(value: Any) -> dict[str, Any]:
     )
 
 
-def _execution_initial_inputs(value: Any, *, include_project_brief: bool = False) -> dict[str, Any]:
+def _execution_initial_inputs(value: Any, *, include_user_creative_seed: bool = False) -> dict[str, Any]:
     payload = dict(value or {})
     allowed_keys = {
         *set(_loop_contract_inputs(payload).keys()),
         "graph_task_instance_id",
         *context_provider_initial_input_keys(),
+        "project_path",
         "project_title",
         "quality_gate_feedback",
+        "source_project_id",
         "source",
         "title",
         "workspace_view",
@@ -1142,8 +1246,9 @@ def _execution_initial_inputs(value: Any, *, include_project_brief: bool = False
             result[key] = _truncate_value(value, max_chars=6000)
         else:
             result[key] = value
-    if include_project_brief and payload.get("project_brief"):
-        result["project_brief"] = str(payload.get("project_brief") or "")[:12000]
+    if include_user_creative_seed and payload.get("user_creative_seed"):
+        result["user_creative_seed"] = str(payload.get("user_creative_seed") or "")[:12000]
+        result["user_input_kind"] = str(payload.get("user_input_kind") or "raw_creative_paragraph")
     return _drop_empty(result)
 
 
@@ -1152,11 +1257,70 @@ def _loop_contract_inputs(value: Any) -> dict[str, Any]:
     allowed_keys = {
         "project_id",
         "artifact_root",
+        "project_path",
+        "source_project_id",
         "revision_execution_range",
         "round_index",
         *context_provider_loop_contract_input_keys(),
     }
     return {key: payload.get(key) for key in allowed_keys if payload.get(key) not in ("", None, [], {})}
+
+
+def _initial_inputs_with_loop_cursor(
+    *,
+    initial_inputs: dict[str, Any],
+    loop_context: dict[str, Any],
+) -> dict[str, Any]:
+    inputs = dict(initial_inputs or {})
+    active_frame = dict(dict(loop_context or {}).get("active_frame") or {})
+    cursor_key = str(active_frame.get("cursor_key") or dict(loop_context or {}).get("cursor_key") or "").strip()
+    cursor_value = active_frame.get("cursor")
+    if cursor_value in ("", None):
+        cursor_value = dict(loop_context or {}).get("cursor_value")
+    if cursor_key and cursor_value not in ("", None):
+        inputs[cursor_key] = cursor_value
+    for frame_value_key, input_key_name in (("start", "start_key"), ("end", "end_key")):
+        input_key = str(active_frame.get(input_key_name) or "").strip()
+        frame_value = active_frame.get(frame_value_key)
+        if input_key and frame_value not in ("", None):
+            inputs[input_key] = frame_value
+    return inputs
+
+
+def _loop_context_with_materialized_inputs(
+    *,
+    loop_context: dict[str, Any],
+    initial_inputs: dict[str, Any],
+) -> dict[str, Any]:
+    context = dict(loop_context or {})
+    inputs = dict(initial_inputs or {})
+    active_frame = dict(context.get("active_frame") or {})
+    if active_frame:
+        values = {
+            **dict(active_frame.get("values") or {}),
+            **inputs,
+        }
+        cursor_key = str(active_frame.get("cursor_key") or context.get("cursor_key") or "").strip()
+        if cursor_key and active_frame.get("cursor") not in ("", None):
+            values[cursor_key] = active_frame.get("cursor")
+        active_frame["values"] = values
+        context["active_frame"] = active_frame
+        frame_id = str(active_frame.get("frame_id") or active_frame.get("scope_id") or "").strip()
+        active_frames = []
+        replaced = False
+        for raw in list(context.get("active_frames") or []):
+            frame = dict(raw) if isinstance(raw, dict) else {}
+            if frame_id and str(frame.get("frame_id") or frame.get("scope_id") or "") == frame_id:
+                frame["cursor_value"] = active_frame.get("cursor")
+                frame["iteration_id"] = str(active_frame.get("active_iteration_id") or frame.get("iteration_id") or "")
+                replaced = True
+            active_frames.append(frame)
+        if active_frames:
+            context["active_frames"] = active_frames
+        elif not replaced:
+            context["active_frames"] = []
+    context["contract_inputs"] = inputs
+    return context
 
 
 def _loop_variables(loop_context: dict[str, Any]) -> dict[str, Any]:
@@ -1286,6 +1450,8 @@ def _slot_inbound_contexts(
     initial_inputs = dict(input_package.get("initial_inputs") or {})
     if not initial_inputs or not _is_graph_start_node(graph_config, node_id):
         return contexts
+    if any(str(item.get("context_id") or "") == "graph_initial_input" for item in contexts):
+        return contexts
     contexts.insert(
         0,
         {
@@ -1296,8 +1462,8 @@ def _slot_inbound_contexts(
             "edge_id": f"graph_input::{node_id}",
             "payload_contract_id": "contract.graph.initial_inputs",
             "packet_contract_id": "contract.graph.initial_inputs",
-            "target_context_key": "graph_initial_inputs",
-            "target_input_slot": "initial_inputs",
+            "target_context_key": "用户原始创意段落",
+            "target_input_slot": "user_creative_seed",
             "delivery_policy": "contract_payload",
             "payload": {
                 "initial_inputs": initial_inputs,
@@ -1900,11 +2066,25 @@ def _memory_protocol_summary(protocol: dict[str, Any]) -> dict[str, Any]:
 
 def _graph_work_kind(executor_type: str) -> str:
     normalized = str(executor_type or "agent").strip()
-    if normalized in {"human", "human_gate", "review_gate"}:
-        return "human_gate"
+    if normalized in {"human", "human_gate", "manual_gate"}:
+        raise ValueError("human gate is a node/edge gate attachment, not a graph work kind")
+    if normalized == "review_gate":
+        return "control_router"
     if normalized == "tool":
         return "tool"
     return "agent"
+
+
+def _superstep_seq_from_state(*, state: GraphLoopState, graph_clock_seq: int) -> int:
+    loop_state = dict(state.loop_state or {})
+    for key in ("superstep_seq", "dispatch_wave_seq", "wave_seq"):
+        try:
+            value = int(loop_state.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            return value
+    return max(1, int(graph_clock_seq or 1))
 
 
 def _node_runtime_profile(*, graph_config: ExecutableGraphConfig, node: dict[str, Any], agent_binding: dict[str, Any] | None = None) -> dict[str, Any]:

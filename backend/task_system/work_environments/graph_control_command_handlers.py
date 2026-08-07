@@ -108,6 +108,7 @@ def apply_task_environment_graph_recovery_command(
     action: str,
     command_id: str = "",
     start_node_ids: tuple[str, ...] = (),
+    checkpoint_id: str = "",
     reset_downstream: bool = False,
     dispatch_ready: bool = True,
     max_dispatch_requests: int = 4,
@@ -205,6 +206,7 @@ def apply_task_environment_graph_recovery_command(
                 graph_config=graph_config,
                 graph_run_id=graph_run_id,
                 start_node_ids=targets,
+                checkpoint_id=checkpoint_id,
                 runtime_settings_patch=dict(runtime_settings_patch or {}),
                 reset_downstream=reset_downstream,
             )
@@ -224,6 +226,7 @@ def apply_task_environment_graph_recovery_command(
                 "command_id": command_id,
                 "graph_run_id": graph_run_id,
                 "node_ids": list(targets),
+                "checkpoint_id": str(checkpoint_id or ""),
                 "requeue": _compact_graph_loop_start(requeue),
                 "dispatch": dispatch_payload,
             }

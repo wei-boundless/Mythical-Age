@@ -6,8 +6,11 @@ param(
     [string]$WorkspaceView = "task_environment",
     [string]$TaskEnvironmentId = "env.creation.writing",
     [string]$ProjectId = "project.creation.writing.honghuang",
+    [string]$GraphTaskInstanceId = "",
+    [string]$ProjectPath = "",
     [string]$ProjectTitle = "洪荒时代",
-    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
+    [string]$RawCreativeText = "",
+    [string]$RawCreativeFile = "",
     [int]$TargetGroupCount = 2,
     [int]$UnitsPerGroup = 100,
     [int]$TargetMeasureUnits = 700000,
@@ -20,7 +23,18 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
-function Test-WritingProjectBriefContent {
+function ConvertTo-RawCreativeParagraph {
+    param(
+        [string]$Content
+    )
+
+    if ($null -eq $Content) {
+        return ""
+    }
+    return (($Content -replace "`r`n", " ") -replace "`n", " " -replace "`r", " ").Trim()
+}
+
+function Test-WritingRawCreativeSourceContent {
     param(
         [string]$Content,
         [string]$ProjectTitle
@@ -32,6 +46,19 @@ function Test-WritingProjectBriefContent {
     }
     if ([string]::IsNullOrWhiteSpace($text)) {
         return $false
+    }
+
+    $formalArtifactMarkers = @(
+        "# ",
+        "## ",
+        "### ",
+        "硬设定锁定清单",
+        "节点交付内容"
+    )
+    foreach ($marker in $formalArtifactMarkers) {
+        if ($text.Contains($marker)) {
+            return $false
+        }
     }
 
     $agentProjectMarkers = @(
@@ -49,58 +76,44 @@ function Test-WritingProjectBriefContent {
         }
     }
 
-    $hasTitle = $text.Contains($ProjectTitle)
-    $hasScale = ($text.Contains("200章") -or $text.Contains("总章节数"))
-    $hasWritingContract = (
-        ($text.Contains("创作禁区") -or $text.Contains("硬设定")) -and
-        ($text.Contains("作品类型") -or $text.Contains("题材约束") -or $text.Contains("项目定位"))
-    )
-    return ($hasTitle -and $hasScale -and $hasWritingContract)
+    return ($text.Length -ge 20)
 }
 
 if ([string]::IsNullOrWhiteSpace($SessionId)) {
     $SessionId = "writing-modular-novel-honghuang-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
 }
 
-$BriefPath = Join-Path $RepoRoot $ProjectBriefFile
-$ProjectBrief = ""
-if (Test-Path $BriefPath) {
-    $CandidateBrief = (Get-Content -Raw -Path $BriefPath -Encoding UTF8).Trim()
-    if (Test-WritingProjectBriefContent -Content $CandidateBrief -ProjectTitle $ProjectTitle) {
-        $ProjectBrief = $CandidateBrief
+$RawCreativePath = ""
+$RawCreativeParagraph = ""
+if (-not [string]::IsNullOrWhiteSpace($RawCreativeText)) {
+    $RawCreativeParagraph = ConvertTo-RawCreativeParagraph -Content $RawCreativeText
+} elseif (-not [string]::IsNullOrWhiteSpace($RawCreativeFile)) {
+    $RawCreativePath = Join-Path $RepoRoot $RawCreativeFile
+    if (-not (Test-Path $RawCreativePath)) {
+        throw "Raw creative source file not found: $RawCreativePath"
     }
+    $RawCreativeParagraph = ConvertTo-RawCreativeParagraph -Content (Get-Content -Raw -Path $RawCreativePath -Encoding UTF8)
 }
 
-if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
-    $ProjectStorageSlug = [Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '_').Trim('_').ToLower()
-    $ProjectInstanceRoot = Join-Path $RepoRoot "storage/graph_task_instances/$ProjectStorageSlug"
-    $FallbackBrief = $null
-    if (Test-Path $ProjectInstanceRoot) {
-        $FallbackBrief = Get-ChildItem -LiteralPath $ProjectInstanceRoot -Recurse -File -Filter "project_brief.md" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -like "*\artifacts\$ProjectId\project_brief.md" } |
-            Where-Object {
-                $candidateText = (Get-Content -Raw -LiteralPath $_.FullName -Encoding UTF8 -ErrorAction SilentlyContinue).Trim()
-                Test-WritingProjectBriefContent -Content $candidateText -ProjectTitle $ProjectTitle
-            } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-    }
-    if ($null -eq $FallbackBrief) {
-        throw "Valid writing project brief file not found. Checked primary path and run-scoped fallbacks for project '$ProjectId'. Primary path: $BriefPath"
-    }
-    $BriefPath = $FallbackBrief.FullName
-    $ProjectBrief = (Get-Content -Raw -Path $BriefPath -Encoding UTF8).Trim()
+if (-not (Test-WritingRawCreativeSourceContent -Content $RawCreativeParagraph -ProjectTitle $ProjectTitle)) {
+    throw "Raw creative source is required and must be the user's plain creative paragraph, not a previous formal artifact, Markdown project brief, or unrelated project document."
 }
 
-if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
-    throw "Project brief file is empty: $BriefPath"
+$ProjectSlug = [Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower()
+if ([string]::IsNullOrWhiteSpace($ProjectSlug)) {
+    $ProjectSlug = "writing-project"
 }
-
+if ([string]::IsNullOrWhiteSpace($GraphTaskInstanceId)) {
+    $GraphTaskInstanceId = "gti.graph.writing.modular_novel.$ProjectSlug"
+}
+if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+    $ProjectPath = "output/novel_artifacts/modular_novel/projects/$ProjectSlug"
+}
+$ProjectPath = ($ProjectPath -replace "\\", "/").TrimEnd("/")
 if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
-    $ProjectSlug = [Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower()
-    $SessionSlug = [Regex]::Replace($SessionId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower()
-    $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$ProjectSlug/$SessionSlug"
+    $ArtifactRoot = "$ProjectPath/artifacts"
 }
+$ArtifactRoot = ($ArtifactRoot -replace "\\", "/").TrimEnd("/")
 
 $SessionScope = @{
     workspace_view = $WorkspaceView
@@ -148,9 +161,12 @@ $Payload = @{
     run_mode = "dispatch_only"
     initial_inputs = @{
         project_id = $ProjectId
+        graph_task_instance_id = $GraphTaskInstanceId
+        project_path = $ProjectPath
         project_title = $ProjectTitle
         title = $ProjectTitle
-        project_brief = $ProjectBrief
+        user_creative_seed = $RawCreativeParagraph
+        user_input_kind = "raw_creative_paragraph"
         target_group_count = $TargetGroupCount
         units_per_group = $UnitsPerGroup
         target_unit_count = ($TargetGroupCount * $UnitsPerGroup)
@@ -186,14 +202,19 @@ $Result = [pscustomobject]@{
     session_scope = $SessionScope
     session_created = [bool]$ResolvedSession.created
     graph_id = $GraphId
+    source_project_id = $ProjectId
+    requested_graph_task_instance_id = $GraphTaskInstanceId
+    graph_task_instance_id = [string]$Response.graph_task_instance_id
+    graph_task_instance_created = [bool]$Response.graph_task_instance_created
     task_id = $TaskId
     task_run_id = [string]$Response.task_run_id
     graph_run_id = [string]$Response.graph_run_id
     graph_config_id = [string]$Response.graph_config_id
     node_work_order_count = @($Response.node_work_orders).Count
     first_node_id = if (@($Response.node_work_orders).Count -gt 0) { [string]$Response.node_work_orders[0].node_id } else { "" }
+    project_path = $ProjectPath
     artifact_root = $ArtifactRoot
-    project_brief_file = [string]$BriefPath
+    raw_creative_source = if ([string]::IsNullOrWhiteSpace($RawCreativePath)) { "direct_text" } else { [string]$RawCreativePath }
     graph_status = [string]$Response.graph_loop_state.status
     source = "scripts.start_writing_project_run"
 }

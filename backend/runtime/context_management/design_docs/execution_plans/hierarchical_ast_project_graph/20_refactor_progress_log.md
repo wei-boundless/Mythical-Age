@@ -7047,3 +7047,211 @@ scripts/project_stack.ps1 -Action check -FrontendMode dev
 - 后端日志无新 traceback；仅有既有 `jieba/pkg_resources` warning。
 
 结论：写作图任务脚本和图任务启动主链已恢复可运行。此次修复不是执行层兜底，而是把节点身份线接回配置生成和发布源头；同时把 graph control API 从“返回执行内脏”收缩为“返回控制面摘要”。下一阶段继续 RuntimeAnchor 迁移和旧 TaskRun alias 收口，重点检查 `TaskRecordLifecycleManager`、runtime log、run monitor、graph root 仍直接暴露 task_run_id 的位置。
+
+### Stage F121：GraphNode 物理身份、时空引用与 Human Gate 附件化
+
+目标：
+
+```text
+把图任务节点从“默认等于 agent / gate / prompt”收缩为图空间物理单位。
+为 work order / result 补上 node_kind、execution_adapter、graph_time、node_attempt。
+修正 human gate 语义：它不是节点，也不是 work order，而是节点或边上的审核附件。
+```
+
+权威链检查：
+
+- 符合：`GraphNode` 只表达图空间物理点，`NodeExecutionAdapter` 表达执行方式，二者分离。
+- 符合：`human_gate/manual_gate` 不能发布成 `GraphNode`，也不能编译成 `GraphNodeWorkOrder`。
+- 符合：`waiting_human_gate` 只保留为状态 / outcome；人工审核入口收敛到 `NodeGateAttachment(gate_kind="human_gate")` 或 `edge.protocol_kind = human_gate`。
+- 符合：执行器不再接收 `work_kind = human_gate` 并自行制造等待态；等待态必须来自 gate attachment / edge decision 控制链。
+- 符合：`node_dispatch_seq` 与 `attempt_index` 分离；调度次数不是重试次数。
+
+修正点：
+
+- `backend/graph_system/node_adapter_models.py`
+  - 新增 `GraphNodePhysicalSpec`、`NodeExecutionAdapter`、`NodeActivationPlan`、`NodeGateAttachment`。
+  - 移除 `human_gate_node` / `human_gate` adapter 概念。
+  - 对 `node_type = human_gate / manual_gate`、`executor_type = human / human_gate / manual_gate` 直接失败，提示改为 gate attachment / edge control。
+  - `work_kind_for_adapter()` 改由 adapter 决定 work kind，且不再返回 `human_gate`。
+- `backend/graph_system/spacetime_models.py`
+  - 新增 `GraphTimeRef`、`NodeAttemptRef`、`HarnessTurnTime`、`ExecutionTraceBinding`。
+  - `NodeAttemptRef.attempt_index` 默认从 1 开始，不再等同于 `node_dispatch_seq`。
+- `backend/graph_system/models.py`
+  - `GraphNodeExecutionSlot`、`GraphNodeWorkOrder`、`NodeResultEnvelope` 增加节点物理身份和图时间字段。
+  - `GraphNodeWorkOrder.work_kind` 移除 `human_gate`。
+  - `ExecutableGraphConfig` 结构 hash 纳入 physical / execution_adapter 投影。
+- `backend/graph_system/context_materializer.py`
+  - 构建 work order 时注入 node physical、adapter、graph time、node attempt。
+- `backend/graph_system/work_order_executor.py`
+  - 删除 `human_gate` work order 分支。
+  - agent result / command failure result 继承 work order 的节点身份和时空引用。
+- `backend/task_system/compiler/executable_graph_config_publisher.py`
+  - 发布配置时生成 node physical / execution_adapter。
+  - 拒绝把 human/manual gate 发布成 executable graph node。
+- `backend/task_system/compiler/node_contract_models.py`
+  - 拒绝把 human/manual gate 编译成 node contract，防止契约层继续暗示“人工门是节点”。
+- `backend/runtime/context_management/design_docs/execution_plans/hierarchical_ast_project_graph/23_graph_task_programmed_agent_spacetime_architecture.md`
+  - 记录实现不变量：human gate 是审核装饰器 / 控制附件，不进入节点执行队列。
+
+验证：
+
+```text
+python -m compileall backend/graph_system/node_adapter_models.py backend/graph_system/spacetime_models.py backend/graph_system/models.py backend/graph_system/context_materializer.py backend/task_system/compiler/executable_graph_config_publisher.py backend/task_system/compiler/node_contract_models.py backend/graph_system/runtime_objects.py backend/graph_system/work_order_executor.py backend/graph_system/facade.py backend/graph_system/__init__.py
+python scripts\configure_writing_modular_novel_graph.py
+rg -n 'human_gate_node|adapter_kind.*human_gate|work_kind.*human_gate|human_gate_requires_external_decision' backend/graph_system backend/task_system/compiler
+```
+
+真实结果：
+
+- 编译通过。
+- 写作图配置发布成功：
+  - `graph.writing.modular_novel.master`
+  - `graph.writing.modular_novel.design_init`
+  - `graph.writing.modular_novel.chapter_cycle`
+  - `graph.writing.modular_novel.finalize`
+- `human_gate` 节点边界验证通过：`node_physical_spec_from_node({"node_type": "human_gate"})` 抛出 `ValueError`。
+- `human_gate` work order 边界验证通过：`GraphNodeWorkOrder(work_kind="human_gate")` 抛出 `ValueError`。
+- `human_gate/manual_gate` node contract 分类已改为拒绝，写作图配置脚本二次运行成功，未误伤当前写作图。
+- 普通 agent 节点挂 `human_gate_policy` 可生成 `NodeGateAttachment(gate_kind="human_gate")`。
+- `rg` 未发现 `human_gate_node`、`adapter_kind=human_gate`、`work_kind=human_gate` 执行残留。
+
+结论：human gate 已从图任务物理节点和执行队列中拔出，回到节点/边审核附件位置。下一阶段应继续收紧旧图编辑器和 composable graph 里的 `human_gate` unit 命名，避免前端/配置层继续暗示“人工门是节点”。
+
+### Stage F122：GraphRun 启动实例化与任务系统归属
+
+目标：
+
+```text
+每次启动图任务必须落到一个具体 GraphTaskInstance。
+GraphRun 不允许作为裸运行存在于管理面。
+任务系统负责实例、root session、文件空间、run 记录和控制状态同步。
+GraphSystem 只负责图算法运行，不拥有项目实例归属。
+```
+
+权威链检查：
+
+- 符合：通用 `/graph-system/task-graphs/{graph_id}/start` 启动前先调用任务系统实例启动服务。
+- 符合：未指定实例时创建新的 `GraphTaskInstance`；指定已有实例时校验 graph_id 后复用。
+- 符合：GraphRun 的 `project_id` 固定为 `graph_task_instance_id`，普通业务项目 ID 只作为 `source_project_id` 记录。
+- 符合：`pause/resume/stop` 控制不再依赖当前发布的 `graph_config_id`，只按 GraphRun 的 session/scope 绑定校验。
+- 符合：控制结果同步回 GraphTaskInstance 状态，任务系统成为运行管理账本。
+
+修正点：
+
+- `backend/task_system/graph_instances/launch_service.py`
+  - 新增 `GraphTaskInstanceLaunchService`，统一创建/复用实例、root session、文件空间、启动输入绑定和 run/status 记录。
+- `backend/api/graph_system.py`
+  - 启动入口强制走实例绑定服务。
+  - 返回 `graph_task_instance_id`、`graph_task_instance`、`graph_task_instance_created`。
+  - 删除旧的 project-or-instance 混合 scope 校验 helper。
+  - `pause/resume/stop` 控制接口不再查当前 `ExecutableGraphConfig`。
+- `backend/api/graph_task_instances.py`
+  - 实例启动入口复用通用启动链，不再重复 `record_run`。
+  - 写作图实例启动输入改为 `user_creative_seed`，去掉 `project_brief` 启动字段残留。
+- `frontend/src/lib/api/graph.ts`、`frontend/src/lib/api/types.ts`
+  - 控制请求的 `graph_config_id` 改为可选。
+  - 启动/控制响应类型暴露 GraphTaskInstance 信息。
+- `scripts/start_writing_project_run.ps1`
+  - 启动结果输出 `graph_task_instance_id` 和 `graph_task_instance_created`。
+
+验证：
+
+```text
+python -m compileall backend/api/graph_system.py backend/api/graph_task_instances.py backend/task_system/graph_instances/launch_service.py backend/task_system/graph_instances/__init__.py
+python -c "import api.graph_system, api.graph_task_instances; from task_system.graph_instances import GraphTaskInstanceLaunchService; print(GraphTaskInstanceLaunchService.authority)"
+fixed backend restart: 127.0.0.1:8003
+powershell -ExecutionPolicy Bypass -File scripts/start_writing_project_run.ps1 -RawCreativeText <plain creative paragraph> -UnitsPerBatch 1
+POST /api/graph-system/graph-runs/{graph_run_id}/stop with body {"reason":"..."} and no graph_config_id
+GET /api/graph-system/graph-task-instances/{graph_task_instance_id}
+```
+
+真实结果：
+
+- Python 编译通过。
+- 后端固定端口 `127.0.0.1:8003` 用新代码启动成功。
+- 写作图 smoke 启动返回：
+  - `graph_task_instance_created=true`
+  - `graph_task_instance_id=gti.graph.writing.modular_novel.master.eaefc9ab05df`
+  - `node_work_order_count=1`
+  - `first_node_id=graph_module.design_init::project_brief`
+- 无 `graph_config_id` 的 stop 成功：
+  - `stop_accepted=true`
+  - `stop_reason=stopped`
+  - 实例 `status=stopped`
+  - 实例 `graph_run_ids` 包含本次 `graph_run_id`
+  - 实例文件空间存在。
+- 后端日志无新 traceback；仅有既有 `jieba/pkg_resources` warning。
+
+结论：图任务启动已从裸 GraphRun 收口为“GraphTaskInstance 管理的具体项目运行”。GraphSystem 保持算法运行权威，任务系统拥有实例和运行管理账本。下一阶段可以继续清理前端/CLI 中仍以裸 GraphRun 作为主入口的管理视图，让 UI 默认从实例维度进入监控、产物和人审控制。
+
+### Stage F123：GraphRun 节点级 checkpoint 恢复
+
+目标：
+
+```text
+图任务不能用“重新启动一条新 run”替代恢复。
+只要 checkpoint、节点结果、事件和产物没有删除，GraphRun 就必须能选择历史坐标，把活动视图恢复到任意可执行节点边界。
+恢复时不覆盖旧历史，而是在最新事件时间上开启 recovery epoch。
+```
+
+权威链检查：
+
+- 符合：GraphLoop 仍是唯一状态推进权威，恢复动作进入 `requeue_nodes_and_checkpoint()`，不由任务系统或前端拼状态。
+- 符合：LangGraph checkpointer 只作为持久化 checkpoint contract 使用，不接管图运行器。
+- 符合：TaskSystem 只传递 `checkpoint_id`、`start_node_ids`、`reset_downstream` 等控制意图，不直接修改 GraphLoopState。
+- 符合：恢复基底来自历史 checkpoint，事件游标使用最新 cursor 继续递增，避免覆盖旧 checkpoint。
+- 符合：requeue 后重新投影 `completed_node_ids`、`failed_node_ids`、`blocked_node_ids`，避免 node state 与快捷索引不一致。
+- 符合：恢复动作会清理旧 `runtime_control=stopped`，避免 monitor 把已恢复运行继续压成 stopped。
+
+修正点：
+
+- `backend/graph_system/checkpoint_store.py`
+  - checkpoint protocol 增加 `get_checkpoint(graph_run_id, checkpoint_id)`。
+- `backend/graph_system/langgraph_checkpoint_store.py`
+  - 支持按 checkpoint_id 精确读取历史 checkpoint。
+- `backend/graph_system/loop.py`
+  - `requeue_nodes_and_checkpoint()` 支持 `checkpoint_id`。
+  - 新增 recovery epoch 语义：历史 checkpoint 作为内容基底，最新 event cursor 作为新写入时间。
+  - 清理恢复基底中的 stale active work order。
+  - requeue 后重算状态索引。
+  - formal TaskRun / GraphRun 同步时清理旧停止控制态。
+- `backend/api/graph_system.py`
+  - `POST /graph-system/graph-runs/{graph_run_id}/requeue-nodes` 支持 `checkpoint_id`。
+  - 新增 `GET /graph-system/graph-runs/{graph_run_id}/checkpoints`。
+- `backend/task_system/work_environments/graph_control_command_handlers.py`
+  - 任务环境 recovery command 可透传 `checkpoint_id`。
+- `backend/task_system/work_environments/scheduler.py`
+  - recovery command payload 持久化并传递 `checkpoint_id`。
+- `frontend/src/lib/api/graph.ts`、`frontend/src/lib/api/types.ts`
+  - 增加 checkpoint 查询和 requeue API 类型。
+
+真实验证：
+
+```text
+python -m compileall backend/graph_system/checkpoint_store.py backend/graph_system/langgraph_checkpoint_store.py backend/graph_system/loop.py backend/api/graph_system.py backend/task_system/work_environments/graph_control_command_handlers.py backend/task_system/work_environments/scheduler.py
+git diff --check -- backend/graph_system/checkpoint_store.py backend/graph_system/langgraph_checkpoint_store.py backend/graph_system/loop.py backend/api/graph_system.py backend/task_system/work_environments/graph_control_command_handlers.py backend/task_system/work_environments/scheduler.py frontend/src/lib/api/graph.ts frontend/src/lib/api/types.ts
+fixed backend restart: 127.0.0.1:8003
+GET /api/graph-system/graph-runs/grun:graph_writing_modular_novel_master:1783288133550/checkpoints?limit=80
+POST /api/graph-system/graph-runs/grun:graph_writing_modular_novel_master:1783288133550/requeue-nodes
+GET /api/graph-system/graph-runs/grun:graph_writing_modular_novel_master:1783288133550/monitor
+```
+
+实测结果：
+
+- 历史 checkpoint 29 存在，状态为 `running`，`chapter_index=5`，`chapter_draft=ready`。
+- 历史 checkpoint 49 仍存在，状态为 `blocked`，`chapter_draft=blocked`，未被覆盖。
+- 恢复后写入 checkpoint 51：
+  - `status=running`
+  - `ready_node_ids=["graph_module.chapter_cycle::chapter_draft"]`
+  - `chapter_index=5`
+  - `chapter_index_padded="005"`
+  - `recovery_epoch=2`
+  - `recovery_base_event_cursor=29`
+- monitor 已同步承认恢复态：
+  - `graph_status=running`
+  - `task_status=running`
+  - `latest_step=graph_nodes_requeued`
+  - `loop_status=running`
+  - `draft_status=ready`
+
+结论：GraphRun 已具备“从历史 checkpoint 回到节点”的基础能力。下一阶段应把前端 checkpoint 时间线、节点 attempt 列表和恢复按钮做成明确控制面，并继续把写作图的章节 cursor / artifact path 作为节点输入契约审计，防止 agent 内容和系统坐标再次错位。

@@ -6,6 +6,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .language import validate_harness_edge_config
+from .node_adapter_models import (
+    GRAPH_NODE_EXECUTION_ADAPTER_KINDS,
+    GRAPH_NODE_KINDS,
+    LEGACY_EXECUTOR_TYPES,
+    node_execution_adapter_from_node,
+    node_physical_spec_from_node,
+)
 
 
 EXECUTABLE_GRAPH_CONFIG_SCHEMA_VERSION = "graph_config.v1"
@@ -484,6 +491,10 @@ class GraphReadinessDecision:
 class GraphNodeExecutionSlot:
     slot_id: str
     graph_identity: dict[str, Any] = field(default_factory=dict)
+    node_physical: dict[str, Any] = field(default_factory=dict)
+    execution_adapter: dict[str, Any] = field(default_factory=dict)
+    graph_time: dict[str, Any] = field(default_factory=dict)
+    node_attempt: dict[str, Any] = field(default_factory=dict)
     task_contract: dict[str, Any] = field(default_factory=dict)
     agent_binding: dict[str, Any] = field(default_factory=dict)
     edge_contracts: dict[str, Any] = field(default_factory=dict)
@@ -509,6 +520,10 @@ class GraphNodeExecutionSlot:
         return cls(
             slot_id=str(payload.get("slot_id") or ""),
             graph_identity=dict(payload.get("graph_identity") or {}),
+            node_physical=dict(payload.get("node_physical") or {}),
+            execution_adapter=dict(payload.get("execution_adapter") or {}),
+            graph_time=dict(payload.get("graph_time") or {}),
+            node_attempt=dict(payload.get("node_attempt") or {}),
             task_contract=dict(payload.get("task_contract") or {}),
             agent_binding=dict(payload.get("agent_binding") or {}),
             edge_contracts=dict(payload.get("edge_contracts") or {}),
@@ -532,6 +547,10 @@ class GraphNodeWorkOrder:
     task_ref: str
     config_id: str
     config_hash: str
+    node_kind: str = "agent_execution_node"
+    execution_adapter: dict[str, Any] = field(default_factory=dict)
+    graph_time: dict[str, Any] = field(default_factory=dict)
+    node_attempt: dict[str, Any] = field(default_factory=dict)
     structure_hash: str = ""
     structure_version: str = GRAPH_STRUCTURE_VERSION
     config_snapshot_id: str = ""
@@ -568,8 +587,13 @@ class GraphNodeWorkOrder:
             raise ValueError("GraphNodeWorkOrder authority must be graph_system_node_work_order")
         if not self.work_order_id:
             raise ValueError("GraphNodeWorkOrder requires work_order_id")
-        if self.work_kind not in {"agent", "tool", "human_gate"}:
+        if self.work_kind not in {"agent", "tool", "repository", "materialization", "control_router", "subgraph", "resource"}:
             raise ValueError("GraphNodeWorkOrder work_kind is not supported")
+        if self.node_kind and self.node_kind not in GRAPH_NODE_KINDS:
+            raise ValueError(f"GraphNodeWorkOrder node_kind is not supported: {self.node_kind}")
+        adapter_kind = str(dict(self.execution_adapter or {}).get("adapter_kind") or "").strip()
+        if adapter_kind and adapter_kind not in GRAPH_NODE_EXECUTION_ADAPTER_KINDS:
+            raise ValueError(f"GraphNodeWorkOrder execution_adapter.adapter_kind is not supported: {adapter_kind}")
         agent_binding = dict(self.graph_slot.get("agent_binding") or {})
         if self.work_kind == "agent" and not (
             self.agent_profile_id
@@ -607,6 +631,10 @@ class GraphNodeWorkOrder:
             node_id=str(payload.get("node_id") or ""),
             config_id=str(payload.get("config_id") or ""),
             config_hash=str(payload.get("config_hash") or ""),
+            node_kind=str(payload.get("node_kind") or dict(payload.get("dispatch_context") or {}).get("node_kind") or "agent_execution_node"),
+            execution_adapter=dict(payload.get("execution_adapter") or dict(payload.get("dispatch_context") or {}).get("execution_adapter") or {}),
+            graph_time=dict(payload.get("graph_time") or dict(payload.get("dispatch_context") or {}).get("graph_time") or {}),
+            node_attempt=dict(payload.get("node_attempt") or dict(payload.get("dispatch_context") or {}).get("node_attempt") or {}),
             structure_hash=str(payload.get("structure_hash") or dict(payload.get("dispatch_context") or {}).get("graph_structure_hash") or ""),
             structure_version=str(payload.get("structure_version") or dict(payload.get("dispatch_context") or {}).get("graph_structure_version") or GRAPH_STRUCTURE_VERSION),
             config_snapshot_id=str(payload.get("config_snapshot_id") or payload.get("config_id") or ""),
@@ -648,6 +676,11 @@ class NodeResultEnvelope:
     task_run_id: str
     node_id: str
     work_order_id: str
+    node_kind: str = "agent_execution_node"
+    execution_adapter_kind: str = "agent_harness"
+    graph_time: dict[str, Any] = field(default_factory=dict)
+    node_attempt: dict[str, Any] = field(default_factory=dict)
+    execution_trace_binding: dict[str, Any] = field(default_factory=dict)
     executor_type: str = "agent"
     status: str = "completed"
     outputs: dict[str, Any] = field(default_factory=dict)
@@ -676,6 +709,10 @@ class NodeResultEnvelope:
             raise ValueError("NodeResultEnvelope requires node_id")
         if not self.work_order_id:
             raise ValueError("NodeResultEnvelope requires work_order_id")
+        if self.node_kind and self.node_kind not in GRAPH_NODE_KINDS:
+            raise ValueError(f"NodeResultEnvelope node_kind is not supported: {self.node_kind}")
+        if self.execution_adapter_kind and self.execution_adapter_kind not in GRAPH_NODE_EXECUTION_ADAPTER_KINDS:
+            raise ValueError(f"NodeResultEnvelope execution_adapter_kind is not supported: {self.execution_adapter_kind}")
         if self.status not in {"completed", "failed", "blocked", "waiting_human_gate"}:
             raise ValueError("NodeResultEnvelope status must be completed, failed, blocked, or waiting_human_gate")
         if self.status == "completed" and not (
@@ -709,6 +746,11 @@ class NodeResultEnvelope:
             task_run_id=str(payload.get("task_run_id") or ""),
             node_id=str(payload.get("node_id") or ""),
             work_order_id=str(payload.get("work_order_id") or ""),
+            node_kind=str(payload.get("node_kind") or dict(payload.get("diagnostics") or {}).get("node_kind") or "agent_execution_node"),
+            execution_adapter_kind=str(payload.get("execution_adapter_kind") or dict(payload.get("diagnostics") or {}).get("execution_adapter_kind") or "agent_harness"),
+            graph_time=dict(payload.get("graph_time") or dict(payload.get("diagnostics") or {}).get("graph_time") or {}),
+            node_attempt=dict(payload.get("node_attempt") or dict(payload.get("diagnostics") or {}).get("node_attempt") or {}),
+            execution_trace_binding=dict(payload.get("execution_trace_binding") or dict(payload.get("diagnostics") or {}).get("execution_trace_binding") or {}),
             executor_type=str(payload.get("executor_type") or "agent"),
             status=str(payload.get("status") or "completed"),
             outputs=dict(payload.get("outputs") or {}),
@@ -794,12 +836,28 @@ def graph_config_from_dict(payload: dict[str, Any]) -> ExecutableGraphConfig:
 
 
 def _validate_node_executors(nodes: tuple[dict[str, Any], ...]) -> None:
-    supported = {"agent", "resource", "human", "human_gate", "review_gate", "tool"}
+    supported = set(LEGACY_EXECUTOR_TYPES) | {
+        "deterministic_system",
+        "external_service",
+        "materialization",
+        "control_router",
+        "subgraph",
+        "repository",
+        "repository_read",
+        "repository_write",
+    }
     for node in nodes:
-        node_id = str(dict(node).get("node_id") or "").strip()
+        payload = dict(node)
+        node_id = str(payload.get("node_id") or "").strip()
         if not node_id:
             raise ValueError("ExecutableGraphConfig node requires node_id")
-        executor = dict(dict(node).get("executor") or {})
+        physical = node_physical_spec_from_node(payload)
+        adapter = node_execution_adapter_from_node(payload)
+        if physical.node_kind not in GRAPH_NODE_KINDS:
+            raise ValueError(f"ExecutableGraphConfig node_kind is not supported: {node_id}")
+        if adapter.adapter_kind not in GRAPH_NODE_EXECUTION_ADAPTER_KINDS:
+            raise ValueError(f"ExecutableGraphConfig node execution adapter is not supported: {node_id}")
+        executor = dict(payload.get("executor") or {})
         executor_type = str(executor.get("executor_type") or "agent").strip() or "agent"
         if executor_type not in supported:
             raise ValueError(f"ExecutableGraphConfig node executor_type is not supported: {node_id}")
@@ -813,6 +871,8 @@ def _validate_edges(nodes: tuple[dict[str, Any], ...], edges: tuple[dict[str, An
 
 def _structural_node_payload(node: dict[str, Any]) -> dict[str, Any]:
     executor = dict(node.get("executor") or {})
+    physical = node_physical_spec_from_node(node)
+    adapter = node_execution_adapter_from_node(node)
     loop = dict(node.get("loop") or {})
     metadata = dict(node.get("metadata") or {})
     runtime_profile = dict(metadata.get("runtime_profile") or metadata.get("runtime") or {})
@@ -821,9 +881,12 @@ def _structural_node_payload(node: dict[str, Any]) -> dict[str, Any]:
         {
             "node_id": str(node.get("node_id") or ""),
             "node_type": str(node.get("node_type") or ""),
+            "node_kind": physical.node_kind,
+            "physical": _structure_mapping(physical.to_dict()),
+            "execution_adapter": _structure_mapping(adapter.to_dict()),
             "executor": _structure_mapping(
                 executor,
-                include_keys={"executor_type", "task_ref", "agent_id", "agent_profile_id", "resource_kind"},
+                include_keys={"executor_type", "adapter_kind", "task_ref", "agent_id", "agent_profile_id", "resource_kind"},
             ),
             "loop": _structure_mapping(loop),
             "resource": _structure_mapping(dict(node.get("resource") or {})),

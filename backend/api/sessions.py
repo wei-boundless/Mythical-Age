@@ -98,6 +98,9 @@ async def list_sessions(
     task_environment_id: str | None = Query(default=None, max_length=200),
     project_id: str | None = Query(default=None, max_length=240),
     include_active_task: bool = Query(default=False),
+    main_chat_only: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> list[dict[str, Any]]:
     runtime = require_runtime()
     sessions = await asyncio.to_thread(
@@ -105,6 +108,9 @@ async def list_sessions(
         workspace_view=workspace_view,
         task_environment_id=task_environment_id,
         project_id=project_id,
+        main_chat_only=main_chat_only,
+        limit=limit,
+        offset=offset,
     )
     if not include_active_task:
         return sessions

@@ -657,6 +657,10 @@ def _graph_node_work_order_user_message(
         context_package=context_package,
         summary=authorized_input_summary,
     )
+    execution_coordinate_section = _graph_node_execution_coordinate_section(
+        work_order_payload=work_order_payload,
+        context_package=context_package,
+    )
     payload = {
         "graph_node_identity": {
             "graph_run_id": str(work_order_payload.get("graph_run_id") or ""),
@@ -695,6 +699,7 @@ def _graph_node_work_order_user_message(
         "你不得把“还需要读取文件、记忆或继续探索”当作节点交付；如果上下文包确实不足，只能明确说明缺失的输入事实和阻塞原因。\n"
         "如果输入足够，请直接在本轮交付完整节点产物，不要输出状态报告、进度说明或询问是否继续。\n\n"
         f"你的节点职责契约：\n{role_contract or '依据当前图节点上下文完成本节点交付。'}\n\n"
+        f"{execution_coordinate_section}\n\n"
         f"{authorized_input_section}\n\n"
         "原始任务环境上下文包如下，用于追溯字段来源；优先消费上方“已授权输入”中的正文与状态：\n"
         f"```json\n{_json_for_prompt(payload, limit=30000)}\n```"
@@ -712,6 +717,93 @@ def _graph_node_agent_visible_resource_handles(context_package: dict[str, Any]) 
             "authority": "harness.graph_node_work_order_bridge.resource_handles",
         }
     )
+
+
+def _graph_node_execution_coordinate_section(
+    *,
+    work_order_payload: dict[str, Any],
+    context_package: dict[str, Any],
+) -> str:
+    graph_context = dict(context_package.get("graph_context") or {})
+    initial_inputs = {
+        **dict(graph_context.get("initial_inputs") or {}),
+        **dict(dict(work_order_payload.get("input_package") or {}).get("initial_inputs") or {}),
+        **dict(work_order_payload.get("explicit_inputs") or {}),
+    }
+    loop_contract = dict(graph_context.get("loop_contract") or {})
+    loop_context = dict(graph_context.get("loop_context") or dict(dict(work_order_payload.get("input_package") or {}).get("loop_context") or {}))
+    loop_variables = dict(loop_contract.get("variables") or {})
+    current_frame = dict(dict(loop_context.get("current_frame") or {}) or {})
+    active_frame = dict(dict(loop_context.get("active_frame") or {}) or {})
+    cursor_key = _first_non_empty_string(
+        active_frame.get("cursor_key"),
+        current_frame.get("cursor_key"),
+        loop_context.get("cursor_key"),
+    )
+    cursor_value = _first_non_empty_string(
+        active_frame.get("cursor"),
+        current_frame.get("cursor_value"),
+        loop_context.get("cursor_value"),
+        initial_inputs.get(cursor_key) if cursor_key else "",
+    )
+    coordinate = _drop_empty(
+        {
+            "node_id": str(work_order_payload.get("node_id") or ""),
+            "work_order_id": str(work_order_payload.get("work_order_id") or ""),
+            "scope_id": _first_non_empty_string(loop_context.get("scope_id"), current_frame.get("scope_id"), active_frame.get("scope_id")),
+            "iteration_id": _first_non_empty_string(loop_context.get("iteration_id"), current_frame.get("iteration_id"), active_frame.get("active_iteration_id")),
+            "cursor_key": cursor_key,
+            "cursor_value": cursor_value,
+            "chapter_index": initial_inputs.get("chapter_index"),
+            "current_chapter_index": initial_inputs.get("current_chapter_index"),
+            "current_chapter_label": initial_inputs.get("current_chapter_label"),
+            "batch_start_index": initial_inputs.get("batch_start_index"),
+            "batch_end_index": initial_inputs.get("batch_end_index"),
+            "batch_label": initial_inputs.get("batch_label"),
+            "active_chapter_range": initial_inputs.get("active_chapter_range"),
+            "revision_execution_range": initial_inputs.get("revision_execution_range"),
+            "round_index": _first_non_empty_string(
+                dict(work_order_payload.get("graph_state") or {}).get("round_index"),
+                dict(work_order_payload.get("dispatch_context") or {}).get("round_index"),
+                initial_inputs.get("round_index"),
+            ),
+            "loop_variables": _compact_coordinate_variables(loop_variables),
+            "authority": "harness.graph_node_work_order_bridge.execution_coordinate",
+        }
+    )
+    if not coordinate:
+        return (
+            "## 当前执行坐标\n"
+            "当前节点没有额外循环坐标；只按节点职责契约和已授权输入完成交付。"
+        )
+    return (
+        "## 当前执行坐标\n"
+        "本段是当前节点的最高执行坐标，优先级高于上游长文中的示例、批次目录、旧产物标题和返修引用。"
+        "如果下方授权正文包含多个章节、多个文件或上一轮失败正文，只能抽取与本坐标匹配的内容执行；不得被正文开头的第一个章节带偏。\n"
+        f"```json\n{_json_for_prompt(coordinate, limit=6000)}\n```"
+    )
+
+
+def _compact_coordinate_variables(value: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "chapter_index",
+        "current_chapter_index",
+        "current_chapter_label",
+        "chapter_index_padded",
+        "batch_start_index",
+        "batch_end_index",
+        "batch_label",
+        "batch_chapter_range",
+        "volume_index",
+        "volume_label",
+        "round_index",
+        "graph_loop_summary",
+    }
+    return {
+        key: item
+        for key, item in dict(value or {}).items()
+        if key in allowed and item not in ("", None, [], {})
+    }
 
 
 def _graph_node_agent_visible_graph_context(context_package: dict[str, Any]) -> dict[str, Any]:
@@ -955,6 +1047,13 @@ def _graph_node_inbound_context_block(inbound: dict[str, Any], *, item_limit: in
     handoff_summary = str(payload.get("handoff_summary") or "").strip()
     artifact_payloads = _artifact_payloads_from_inbound(inbound)
     used_chars = 0
+    initial_inputs = dict(payload.get("initial_inputs") or {})
+    user_creative_seed = str(initial_inputs.get("user_creative_seed") or "").strip()
+    if user_creative_seed:
+        excerpt = _clip_text(user_creative_seed, min(item_limit, AUTHORIZED_INPUT_MAX_ITEM_CHAR_LIMIT))
+        used_chars += len(excerpt)
+        lines.extend(["", "#### 用户原始创意段落", "````text", excerpt, "````"])
+        return "\n".join(lines).strip(), used_chars
     if handoff_summary and not artifact_payloads:
         excerpt = _clip_text(handoff_summary, min(2000, item_limit))
         used_chars += len(excerpt)

@@ -316,6 +316,10 @@ class GraphSystem:
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
             work_order_id=work_order.work_order_id,
+            node_kind=work_order.node_kind,
+            execution_adapter_kind=str(dict(work_order.execution_adapter or {}).get("adapter_kind") or "agent_harness"),
+            graph_time=dict(work_order.graph_time or {}),
+            node_attempt=dict(work_order.node_attempt or {}),
             executor_type=work_order.executor_type,
             status="failed",
             outputs={
@@ -571,6 +575,11 @@ class GraphSystem:
         current_control = _graph_run_runtime_control(task_run)
         current_state = str(current_control.get("state") or "")
         if status in {"completed", "failed", "aborted", "cancelled", "canceled", "stopped"} or current_state == _GRAPH_RUN_STOPPED:
+            self._checkpoint_stopped_loop_state_if_needed(
+                graph_run_id=graph_run.graph_run_id,
+                reason=reason or str(current_control.get("reason") or ""),
+                stopped_at=float(current_control.get("requested_at") or time.time()),
+            )
             return self._graph_run_control_response(
                 graph_run=graph_run,
                 task_run=task_run,
@@ -626,12 +635,35 @@ class GraphSystem:
             reason=reason,
             terminal_reason="user_stopped" if terminal else "",
         )
+        if terminal:
+            self._checkpoint_stopped_loop_state_if_needed(
+                graph_run_id=graph_run.graph_run_id,
+                reason=reason,
+                stopped_at=float(getattr(event, "created_at", 0.0) or now),
+            )
         return self._graph_run_control_response(
             graph_run=self._require_graph_run(graph_run.graph_run_id),
             task_run=updated,
             action="stop",
             accepted=True,
             reason=next_control_state,
+        )
+
+    def _checkpoint_stopped_loop_state_if_needed(self, *, graph_run_id: str, reason: str = "", stopped_at: float = 0.0) -> None:
+        state = self._loop.get_state(graph_run_id)
+        if state is None:
+            return
+        if (
+            str(state.status or "") == _GRAPH_RUN_STOPPED
+            and not tuple(state.running_node_ids or ())
+            and not dict(state.active_work_orders or {})
+            and not tuple(state.ready_node_ids or ())
+        ):
+            return
+        self._loop.stop_and_checkpoint(
+            state=state,
+            reason=reason,
+            stopped_at=stopped_at,
         )
 
     def _commit_runner_result(self, *, graph_run_id: str, result: GraphRunRunnerResult) -> None:
@@ -818,20 +850,28 @@ class GraphSystem:
         event_limit = max(1, min(int(event_limit or 80), 240))
         events = self._recent_events(task_run_id, limit=event_limit) if task_run_id else []
         event_count = self._estimated_event_count(task_run_id, fallback=len(events)) if task_run_id else 0
-        active_work_orders = _active_work_orders_from_state(state)
         task_run = self.get_task_run(task_run_id) if task_run_id else None
+        stopped = _graph_monitor_is_stopped(graph_run=graph_run, task_run=task_run)
+        active_work_orders = [] if stopped else _active_work_orders_from_state(state)
         task_run_monitor = self._task_run_monitor(task_run)
-        active_node_runtime_views = _active_node_runtime_views(
-            state=state,
-            events=events,
-            task_run_lookup=self.get_task_run,
-            task_run_monitor_lookup=self._task_run_monitor_by_id,
+        active_node_runtime_views = (
+            []
+            if stopped
+            else _active_node_runtime_views(
+                state=state,
+                events=events,
+                task_run_lookup=self.get_task_run,
+                task_run_monitor_lookup=self._task_run_monitor_by_id,
+            )
         )
         supervisor_observation = (
             GraphSupervisor().observe(graph_config=graph_config, state=state).to_dict()
             if graph_config is not None and state is not None
             else {}
         )
+        loop_state_view = _loop_state_public_view(state) if state is not None else {}
+        if stopped:
+            loop_state_view = _stopped_loop_state_public_view(loop_state_view)
         return {
             "authority": "graph_system_run_monitor",
             "graph_run_id": graph_run_id,
@@ -842,7 +882,7 @@ class GraphSystem:
             "task_run_monitor": task_run_monitor or None,
             "run_monitor": task_run_monitor or None,
             "graph_config": config_payload,
-            "graph_loop_state": _loop_state_public_view(state) if state is not None else {},
+            "graph_loop_state": loop_state_view,
             "active_node_work_orders": active_work_orders,
             "active_node_work_order_count": len(active_work_orders),
             "active_node_runtime_views": active_node_runtime_views,
@@ -950,6 +990,22 @@ def _graph_run_runtime_control(task_run: Any) -> dict[str, Any]:
         "reason": str(control.get("reason") or ""),
         "authority": str(control.get("authority") or "graph_system.graph_run_control"),
     }
+
+
+def _graph_monitor_is_stopped(*, graph_run: Any, task_run: Any) -> bool:
+    graph_payload = graph_run.to_dict() if hasattr(graph_run, "to_dict") else (dict(graph_run or {}) if isinstance(graph_run, dict) else {})
+    graph_status = str(graph_payload.get("status") or "").strip()
+    graph_terminal_reason = str(graph_payload.get("terminal_reason") or "").strip()
+    task_status = str(getattr(task_run, "status", "") or "").strip()
+    task_terminal_reason = str(getattr(task_run, "terminal_reason", "") or "").strip()
+    control_state = str(_graph_run_runtime_control(task_run).get("state") or "").strip() if task_run is not None else ""
+    return (
+        graph_status in {"stopped", "aborted", "cancelled", "canceled"}
+        or task_status in {"aborted", "cancelled", "canceled", "stopped"}
+        or graph_terminal_reason == "user_stopped"
+        or task_terminal_reason == "user_stopped"
+        or control_state == _GRAPH_RUN_STOPPED
+    )
 
 
 def _graph_run_control_diagnostics(
@@ -1142,6 +1198,21 @@ def _loop_state_public_view(state: Any | None) -> dict[str, Any]:
         "event_cursor": payload.get("event_cursor", -1),
         "terminal_reason": str(payload.get("terminal_reason") or ""),
         "diagnostics": _loop_diagnostics_monitor_view(dict(payload.get("diagnostics") or {})),
+    }
+
+
+def _stopped_loop_state_public_view(payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload:
+        return {}
+    return {
+        **dict(payload),
+        "status": "stopped",
+        "ready_node_ids": [],
+        "running_node_ids": [],
+        "blocked_node_ids": [],
+        "active_node_ids": [],
+        "active_work_order_node_ids": [],
+        "terminal_reason": str(payload.get("terminal_reason") or "user_stopped"),
     }
 
 

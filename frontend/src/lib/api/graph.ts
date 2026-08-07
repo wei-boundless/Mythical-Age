@@ -2,9 +2,11 @@ import { request } from "./shared";
 import type {
   ExecutableGraphConfigPayload,
   GraphRunBackgroundSubmitResult,
+  GraphRunCheckpointsResult,
   GraphRunControlResult,
   GraphRunDispatchReadyResult,
   GraphRunMonitorView,
+  GraphRunRequeueNodesResult,
   GraphTaskDefinitionList,
   GraphTaskInstanceArtifacts,
   GraphTaskInstanceCreateResult,
@@ -88,7 +90,7 @@ export async function submitGraphRunUntilIdle(
 export async function pauseGraphRun(
   graphRunId: string,
   payload: {
-    graph_config_id: string;
+    graph_config_id?: string;
     session_scope?: Partial<SessionScope>;
     reason?: string;
   }
@@ -105,7 +107,7 @@ export async function pauseGraphRun(
 export async function resumeGraphRun(
   graphRunId: string,
   payload: {
-    graph_config_id: string;
+    graph_config_id?: string;
     session_scope?: Partial<SessionScope>;
     reason?: string;
   }
@@ -122,7 +124,7 @@ export async function resumeGraphRun(
 export async function stopGraphRun(
   graphRunId: string,
   payload: {
-    graph_config_id: string;
+    graph_config_id?: string;
     session_scope?: Partial<SessionScope>;
     reason?: string;
   }
@@ -155,6 +157,25 @@ export async function getGraphRunMonitor(
   );
 }
 
+export async function listGraphRunCheckpoints(
+  graphRunId: string,
+  graphConfigId = "",
+  limit = 80,
+  sessionScope?: Partial<SessionScope>,
+) {
+  const params = new URLSearchParams();
+  if (graphConfigId) {
+    params.set("graph_config_id", graphConfigId);
+  }
+  if (sessionScope?.workspace_view) params.set("workspace_view", sessionScope.workspace_view);
+  if (sessionScope?.task_environment_id) params.set("task_environment_id", sessionScope.task_environment_id);
+  if (sessionScope?.project_id) params.set("project_id", sessionScope.project_id);
+  params.set("limit", String(Math.max(1, Math.min(Number(limit || 80), 500))));
+  return request<GraphRunCheckpointsResult>(
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/checkpoints?${params.toString()}`
+  );
+}
+
 export async function listGraphTasks() {
   return request<GraphTaskDefinitionList>("/graph-system/graph-tasks");
 }
@@ -170,6 +191,9 @@ export async function createGraphTaskInstance(
   payload: {
     title: string;
     description?: string;
+    graph_task_instance_id?: string;
+    project_path?: string;
+    artifact_root?: string;
     initial_inputs?: Record<string, unknown>;
     run_config?: Record<string, unknown>;
     metadata?: Record<string, unknown>;
@@ -337,6 +361,26 @@ export async function dispatchGraphRunReadyNodes(
 ) {
   return request<GraphRunDispatchReadyResult>(
     `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/dispatch-ready`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function requeueGraphRunNodes(
+  graphRunId: string,
+  payload: {
+    graph_config_id: string;
+    session_scope?: Partial<SessionScope>;
+    start_node_ids: string[];
+    checkpoint_id?: string;
+    runtime_settings_patch?: Record<string, unknown>;
+    reset_downstream?: boolean;
+  }
+) {
+  return request<GraphRunRequeueNodesResult>(
+    `/graph-system/graph-runs/${encodeURIComponent(graphRunId)}/requeue-nodes`,
     {
       method: "POST",
       body: JSON.stringify(payload),

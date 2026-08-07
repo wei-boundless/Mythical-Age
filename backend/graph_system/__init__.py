@@ -13,6 +13,18 @@ from .models import (
     NodeResultEnvelope,
     graph_config_from_dict,
 )
+from .node_adapter_models import (
+    GraphNodePhysicalSpec,
+    NodeActivationPlan,
+    NodeExecutionAdapter,
+    NodeGateAttachment,
+)
+from .spacetime_models import (
+    ExecutionTraceBinding,
+    GraphTimeRef,
+    HarnessTurnTime,
+    NodeAttemptRef,
+)
 from .flow_packet import FlowPacket
 from .flow_edges import build_inbound_flow_edges, build_outbound_flow_edges
 from .scheduler_view import SchedulerView, build_scheduler_view
@@ -51,10 +63,18 @@ __all__ = [
     "GraphRunRunner",
     "GraphRunRunnerResult",
     "GraphNodeWorkOrder",
+    "GraphNodePhysicalSpec",
+    "NodeActivationPlan",
+    "NodeExecutionAdapter",
+    "NodeGateAttachment",
     "GraphRun",
     "GraphResultEnvelope",
     "GraphRuntimeEnvelope",
     "NodeResultEnvelope",
+    "GraphTimeRef",
+    "HarnessTurnTime",
+    "NodeAttemptRef",
+    "ExecutionTraceBinding",
     "SchedulerView",
     "LangGraphCheckpointStore",
     "build_scheduler_view",

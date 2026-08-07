@@ -163,6 +163,7 @@ export class WorkspaceRuntime {
   private sessionRuntimeProjectionTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTokenStatsTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionHistoryInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getSessionHistory>>>>();
+  private chatWorkspaceHydratePromise: Promise<void> | null = null;
   private harnessTurnHydrateRequest = 0;
   private workspaceTreeRequest = 0;
   private workspaceTreeInFlightKey = "";
@@ -427,27 +428,13 @@ export class WorkspaceRuntime {
       ...prev,
       workspaceInitializing: true,
     }));
+    const initialWorkspaceView = this.store.getState().activeWorkspaceView;
     try {
       void this.refreshTaskEnvironmentCatalog().catch(() => undefined);
-      let restoredCurrentSession = false;
-      let preferLatestVisibleSession = false;
-      const persistedSessionRef = await this.readPersistedCurrentSessionRef();
-      const rememberedSessionRef = readRememberedSessionRef();
-      const restoreCandidates = rememberedSessionRef?.updatedAt
-        ? this.startupSessionRestoreCandidates(rememberedSessionRef, persistedSessionRef)
-        : this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
-      for (const candidate of restoreCandidates) {
-        const restored = await this.restoreRememberedSessionOnStartup(candidate);
-        restoredCurrentSession = restored === "restored";
-        if (restored === "non_main") {
-          preferLatestVisibleSession = true;
-        }
-        if (restoredCurrentSession) {
-          break;
-        }
-      }
-      if (!restoredCurrentSession) {
-        await this.initializeFromSessionList(undefined, { preferLatestVisibleSession });
+      if (initialWorkspaceView === "chat") {
+        await this.hydrateChatWorkspaceIfNeeded();
+      } else {
+        await this.initializeSystemWorkspaceShell();
       }
     } catch (error) {
       this.store.setState((prev) => ({
@@ -472,8 +459,83 @@ export class WorkspaceRuntime {
     }
 
     void this.loadWorkspaceMetadata().catch(() => undefined);
-    void this.refreshWorkspaceTree().catch(() => undefined);
-    void this.loadInspectorMemoryFile().catch(() => undefined);
+  }
+
+  private async initializeChatWorkspace() {
+    let restoredCurrentSession = false;
+    let preferLatestVisibleSession = false;
+    const persistedSessionRef = await this.readPersistedCurrentSessionRef();
+    const rememberedSessionRef = readRememberedSessionRef();
+    const restoreCandidates = rememberedSessionRef?.updatedAt
+      ? this.startupSessionRestoreCandidates(rememberedSessionRef, persistedSessionRef)
+      : this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
+    for (const candidate of restoreCandidates) {
+      const restored = await this.restoreRememberedSessionOnStartup(candidate);
+      restoredCurrentSession = restored === "restored";
+      if (restored === "non_main") {
+        preferLatestVisibleSession = true;
+      }
+      if (restoredCurrentSession) {
+        break;
+      }
+    }
+    if (!restoredCurrentSession) {
+      await this.initializeFromSessionList(undefined, { preferLatestVisibleSession });
+    }
+  }
+
+  private hydrateChatWorkspaceIfNeeded() {
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+    if (this.chatWorkspaceHydratePromise) {
+      return this.chatWorkspaceHydratePromise;
+    }
+    const run = (async () => {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceInitializing: true,
+      }));
+      await this.initializeChatWorkspace();
+      if (this.disposed) {
+        return;
+      }
+      this.startRunMonitor();
+      void this.refreshWorkspaceTree().catch(() => undefined);
+      void this.loadInspectorMemoryFile().catch(() => undefined);
+    })();
+    this.chatWorkspaceHydratePromise = run;
+    const clear = () => {
+      if (this.chatWorkspaceHydratePromise === run) {
+        this.chatWorkspaceHydratePromise = null;
+      }
+    };
+    run.then(clear, clear);
+    return run;
+  }
+
+  private requestChatWorkspaceHydrate() {
+    void this.hydrateChatWorkspaceIfNeeded().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
+  }
+
+  private async initializeSystemWorkspaceShell() {
+    const persistedSessionRef = await this.readPersistedCurrentSessionRef();
+    const rememberedSessionRef = readRememberedSessionRef();
+    const restoreCandidates = rememberedSessionRef?.updatedAt
+      ? this.startupSessionRestoreCandidates(rememberedSessionRef, persistedSessionRef)
+      : this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
+    for (const candidate of restoreCandidates) {
+      const restored = await this.restoreRememberedSessionShellOnStartup(candidate);
+      if (restored === "restored" || restored === "non_main") {
+        break;
+      }
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceInitializing: false,
+    }));
   }
 
   private startupSessionRestoreCandidates(...refs: Array<SessionRef | null | undefined>) {
@@ -600,8 +662,62 @@ export class WorkspaceRuntime {
         this.noteSessionRefreshFailure(error);
       });
     } else {
-      this.refreshRestoredSessionIndexesInBackground(summary);
+    this.refreshRestoredSessionIndexesInBackground(summary);
     }
+    return "restored";
+  }
+
+  private async restoreRememberedSessionShellOnStartup(ref: SessionRef) {
+    const normalized = this.normalizeSessionRef(ref, this.store.getState());
+    if (!normalized.sessionId) {
+      clearRememberedSessionRef();
+      return false;
+    }
+
+    let summary: SessionSummary;
+    try {
+      summary = await getSessionSummary(normalized.sessionId, normalized.scope);
+    } catch (error) {
+      if (shouldClearRememberedSessionAfterError(error)) {
+        clearRememberedSessionRef(normalized.sessionId);
+        this.clearPersistedCurrentSessionRef(normalized.sessionId);
+        return "invalid";
+      }
+      return "failed";
+    }
+
+    const restoredPoolKey = normalized.poolKey ?? sessionPoolKeyForScope(summary.scope);
+    if (restoredPoolKey === MAIN_CHAT_POOL_KEY && !isVisibleMainChatSession(summary)) {
+      clearRememberedSessionRef(normalized.sessionId);
+      this.clearPersistedCurrentSessionRef(normalized.sessionId);
+      return "non_main";
+    }
+
+    const restoredScope = summary.scope ?? normalized.scope;
+    const restoredRef: SessionRef = {
+      sessionId: summary.id,
+      ...(restoredScope ? { scope: restoredScope } : {}),
+      poolKey: normalized.poolKey ?? sessionPoolKeyForScope(restoredScope),
+    };
+    this.store.setState((prev) => {
+      const sessions = mergeSessionSummaries(prev.sessions, [summary]);
+      const stateWithSummary = { ...prev, sessions };
+      const conversationActiveEnvironment = this.shouldUseConversationEnvironment(restoredRef)
+        ? this.activeEnvironmentForSession(summary) ?? prev.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+        : prev.conversationActiveEnvironment;
+      const permissionMode = this.permissionModeForSession(summary.id, stateWithSummary, prev.permissionMode);
+      const selectedChatModelId = this.chatModelSelectionIdFromConversationState(summary.conversation_state, prev.selectedChatModelId);
+      return {
+        ...stateWithSummary,
+        currentSessionId: summary.id,
+        activeSessionScope: restoredScope ?? null,
+        activeSessionRef: restoredRef,
+        conversationActiveEnvironment,
+        permissionMode,
+        selectedChatModelId,
+        selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
+      };
+    });
     return "restored";
   }
 
@@ -615,15 +731,15 @@ export class WorkspaceRuntime {
     }
     this.store.setState((prev) => ({
       ...prev,
+      activeProjectKey: activeProject?.key || prev.activeProjectKey,
+      activeProjectRoot: activeProject?.workspace_root || prev.activeProjectRoot,
       projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, projects),
     }));
     if (!activeProject) {
       return;
     }
-    await this.selectProjectWorkspace(activeProject.key, {
-      preferredSessionId: summary.id,
-      fallbackSession: summary,
-    });
+    await this.refreshProjectSessions(activeProject.key);
+    void this.refreshWorkspaceTree().catch(() => undefined);
   }
 
   private refreshRestoredSessionIndexesInBackground(restoredSession: SessionSummary) {
@@ -635,7 +751,7 @@ export class WorkspaceRuntime {
   private async refreshRestoredSessionIndexes(restoredSession: SessionSummary) {
     const [projectPayload, allSessions] = await Promise.all([
       listProjectWorkspaces(),
-      listSessions(),
+      listSessions(undefined, { mainChatOnly: true }),
     ]);
     const visibleRestored = isVisibleMainChatSession(restoredSession) ? [restoredSession] : [];
     const sessions = mergeSessionSummaries(visibleMainChatSessions(allSessions), visibleRestored);
@@ -685,7 +801,7 @@ export class WorkspaceRuntime {
   ) {
     const [projectPayload, allSessions] = await Promise.all([
       projectPayloadOverride ? Promise.resolve(projectPayloadOverride) : listProjectWorkspaces(),
-      listSessions(),
+      listSessions(undefined, { mainChatOnly: true }),
     ]);
     const sessions = visibleMainChatSessions(allSessions);
     const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
@@ -855,7 +971,7 @@ export class WorkspaceRuntime {
   }
 
   private async refreshMainSessionPool() {
-    const sessions = visibleMainChatSessions(await listSessions());
+    const sessions = visibleMainChatSessions(await listSessions(undefined, { mainChatOnly: true }));
     this.sessionListFailureNotifiedAt = 0;
     this.store.setState((prev) => {
       const activeProjectRoot = prev.activeProjectRoot;
@@ -1065,7 +1181,7 @@ export class WorkspaceRuntime {
       const removal = await removeProjectWorkspace(normalizedKey, { detachSessions: true });
       const [projectPayload, allSessions] = await Promise.all([
         listProjectWorkspaces(),
-        listSessions(),
+        listSessions(undefined, { mainChatOnly: true }),
       ]);
       const sessions = visibleMainChatSessions(allSessions);
       const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
@@ -3229,7 +3345,6 @@ export class WorkspaceRuntime {
       }, normalized.sessionId));
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
       this.projectPermissionModeToRuntime(permissionMode);
-      void this.refreshWorkspaceTree().catch(() => undefined);
       return true;
     }
     const visibleProjectionSnapshot = this.visibleRuntimeProjectionSnapshot(normalized.sessionId, currentState);
@@ -3258,7 +3373,6 @@ export class WorkspaceRuntime {
     }, normalized.sessionId));
     this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
     this.projectPermissionModeToRuntime(permissionMode);
-    void this.refreshWorkspaceTree().catch(() => undefined);
     return false;
   }
 
@@ -5875,6 +5989,9 @@ export class WorkspaceRuntime {
       ...prev,
       activeWorkspaceView: workspaceView,
     }));
+    if (workspaceView === "chat") {
+      this.requestChatWorkspaceHydrate();
+    }
   }
 
   private workspaceViewForTaskEnvironment(taskEnvironmentId: string): WorkspaceView {
@@ -5927,6 +6044,9 @@ export class WorkspaceRuntime {
       conversationActiveEnvironment: activeEnvironment,
       chatTaskEnvironmentBinding: null,
     }));
+    if (view === "chat") {
+      this.requestChatWorkspaceHydrate();
+    }
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.persistActiveTaskEnvironment(sessionId, activeEnvironment).catch((error) => {

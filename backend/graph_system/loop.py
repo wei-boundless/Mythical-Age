@@ -469,8 +469,71 @@ class GraphLoop:
     def get_latest_checkpoint(self, graph_run_id: str) -> Any | None:
         return self._checkpoint_store.get_latest_checkpoint(graph_run_id)
 
+    def get_checkpoint(self, graph_run_id: str, checkpoint_id: str) -> Any | None:
+        getter = getattr(self._checkpoint_store, "get_checkpoint", None)
+        if getter is None:
+            target = str(checkpoint_id or "").strip()
+            if not target:
+                return None
+            for checkpoint in self._checkpoint_store.list_checkpoints(graph_run_id, limit=None):
+                if str(getattr(checkpoint, "checkpoint_id", "") or "") == target:
+                    return checkpoint
+            return None
+        return getter(graph_run_id, checkpoint_id)
+
     def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> tuple[Any, ...]:
         return self._checkpoint_store.list_checkpoints(graph_run_id, limit=limit)
+
+    def stop_and_checkpoint(
+        self,
+        *,
+        state: GraphLoopState,
+        reason: str = "",
+        stopped_at: float = 0.0,
+    ) -> GraphLoopStart:
+        now = float(stopped_at or time.time())
+        active_node_ids = {
+            str(item)
+            for item in [
+                *list(state.running_node_ids or ()),
+                *list(dict(state.active_work_orders or {}).keys()),
+            ]
+            if str(item)
+        }
+        node_states = {key: dict(value) for key, value in dict(state.node_states or {}).items()}
+        for node_id in active_node_ids:
+            payload = dict(node_states.get(node_id) or {})
+            if not payload:
+                continue
+            payload["status"] = "stopped"
+            payload["updated_at"] = now
+            payload["blocked_reason"] = str(reason or "graph_run_stopped")
+            node_states[node_id] = payload
+        diagnostics = {
+            **dict(state.diagnostics or {}),
+            "runtime_control": {
+                "state": "stopped",
+                "requested_at": now,
+                "reason": str(reason or ""),
+                "authority": "graph_system.graph_run_control",
+            },
+            "latest_step": "graph_run_stop_checkpointed",
+            "latest_step_status": "stopped",
+            "latest_step_summary": "图任务已停止，GraphLoopState 已清理活动节点和活动 work order。",
+        }
+        next_state = _replace_state(
+            state,
+            status="stopped",
+            node_states=node_states,
+            ready_node_ids=(),
+            running_node_ids=(),
+            blocked_node_ids=(),
+            active_work_orders={},
+            terminal_reason="user_stopped",
+            diagnostics=diagnostics,
+        )
+        checkpoint = self._write_state(next_state)
+        return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint)
 
     def patch_runtime_settings_and_checkpoint(
         self,
@@ -525,6 +588,7 @@ class GraphLoop:
         graph_config: ExecutableGraphConfig,
         graph_run_id: str,
         start_node_ids: tuple[str, ...],
+        checkpoint_id: str = "",
         runtime_settings_patch: dict[str, Any] | None = None,
         reset_downstream: bool = True,
     ) -> GraphLoopStart:
@@ -532,6 +596,23 @@ class GraphLoop:
         if state is None:
             raise ValueError(f"GraphLoopState not found: {graph_run_id}")
         assert_graph_config_compatible_with_state(graph_config=graph_config, state=state)
+        base_checkpoint_id = str(checkpoint_id or "").strip()
+        base_event_cursor = state.event_cursor
+        if base_checkpoint_id:
+            checkpoint = self.get_checkpoint(graph_run_id, base_checkpoint_id)
+            if checkpoint is None:
+                raise ValueError(f"Graph checkpoint not found: {base_checkpoint_id}")
+            base_state = GraphLoopState.from_dict(dict(getattr(checkpoint, "state", {}) or {}))
+            if base_state.graph_run_id != graph_run_id:
+                raise ValueError("Graph checkpoint graph_run_id mismatch")
+            assert_graph_config_compatible_with_state(graph_config=graph_config, state=base_state)
+            base_event_cursor = base_state.event_cursor
+            state = _state_for_checkpoint_recovery_epoch(
+                base_state=base_state,
+                latest_state=state,
+                checkpoint_id=base_checkpoint_id,
+                target_node_ids=start_node_ids,
+            )
         targets = tuple(dict.fromkeys(str(item).strip() for item in start_node_ids if str(item).strip()))
         if not targets:
             raise ValueError("Graph node requeue requires start_node_ids")
@@ -593,13 +674,16 @@ class GraphLoop:
                     "graph_run_id": next_state.graph_run_id,
                     "start_node_ids": list(targets),
                     "reset_node_ids": list(reset_node_ids),
+                    "base_checkpoint_id": base_checkpoint_id,
+                    "base_event_cursor": base_event_cursor,
+                    "recovery_epoch": dict(next_state.diagnostics or {}).get("recovery_epoch"),
                     "runtime_settings_patched": bool(runtime_settings_patch),
                     "graph_loop_state": _loop_state_summary(next_state),
                 },
                 refs={"graph_run_ref": next_state.graph_run_id, "graph_config_ref": next_state.config_snapshot_id or next_state.config_id},
             )
         ]
-        self._update_formal_runs(next_state, graph_result=None)
+        self._update_formal_runs(next_state, graph_result=None, clear_runtime_control=True)
         return GraphLoopStart(loop_state=next_state, checkpoint=checkpoint, events=tuple(events))
 
     def requeue_blocked_nodes_and_checkpoint(
@@ -1178,7 +1262,13 @@ class GraphLoop:
             refs=dict(refs or {}),
         ).to_dict()
 
-    def _update_formal_runs(self, state: GraphLoopState, *, graph_result: GraphResultEnvelope | None) -> None:
+    def _update_formal_runs(
+        self,
+        state: GraphLoopState,
+        *,
+        graph_result: GraphResultEnvelope | None,
+        clear_runtime_control: bool = False,
+    ) -> None:
         now = time.time()
         if not state.task_run_id:
             raise ValueError("GraphLoopState root TaskRun id is missing")
@@ -1199,6 +1289,8 @@ class GraphLoop:
             **dict(current_task.diagnostics or {}),
             **audit,
         }
+        if clear_runtime_control:
+            _clear_recovery_runtime_control(diagnostics)
         if graph_result is not None:
             diagnostics["graph_result"] = graph_result.to_dict()
         self._services.state_index.upsert_task_run(
@@ -1218,6 +1310,8 @@ class GraphLoop:
                 **dict(dict(graph_run).get("diagnostics") or {}),
                 **audit,
             }
+            if clear_runtime_control:
+                _clear_recovery_runtime_control(diagnostics)
             if graph_result is not None:
                 diagnostics["graph_result"] = graph_result.to_dict()
             self._services.runtime_objects.put_object(
@@ -3186,6 +3280,7 @@ def _state_after_revision_requeue(
             edge_state["status"] = "ready"
             edge_state["updated_at"] = now
         edge_states[edge_id] = edge_state
+    ready_node_ids = () if requires_execution_range and not cursor_patch else targets
     return _replace_state(
         state,
         status="running",
@@ -3195,11 +3290,81 @@ def _state_after_revision_requeue(
         loop_state=loop_state,
         initial_inputs=initial_inputs,
         active_work_orders=active_work_orders,
-        ready_node_ids=() if requires_execution_range and not cursor_patch else targets,
+        ready_node_ids=ready_node_ids,
         running_node_ids=(),
-        failed_node_ids=tuple(item for item in state.failed_node_ids if item not in reset_set),
-        blocked_node_ids=targets if requires_execution_range and not cursor_patch else (),
+        completed_node_ids=tuple(
+            node_id
+            for node_id, payload in node_states.items()
+            if str(payload.get("status") or "") == "completed"
+        ),
+        failed_node_ids=tuple(
+            node_id
+            for node_id, payload in node_states.items()
+            if str(payload.get("status") or "") == "failed"
+        ),
+        blocked_node_ids=tuple(
+            node_id
+            for node_id, payload in node_states.items()
+            if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}
+        ),
         terminal_reason="",
+    )
+
+
+def _state_for_checkpoint_recovery_epoch(
+    *,
+    base_state: GraphLoopState,
+    latest_state: GraphLoopState,
+    checkpoint_id: str,
+    target_node_ids: tuple[str, ...],
+) -> GraphLoopState:
+    now = time.time()
+    node_states = {key: dict(value) for key, value in base_state.node_states.items()}
+    for node_id, node in list(node_states.items()):
+        if str(node.get("status") or "") != "running":
+            continue
+        node["status"] = "pending"
+        node["updated_at"] = now
+        node.pop("work_order_id", None)
+        node_states[node_id] = node
+    latest_diagnostics = dict(latest_state.diagnostics or {})
+    diagnostics = dict(base_state.diagnostics or {})
+    history = [
+        dict(item)
+        for item in list(latest_diagnostics.get("recovery_epoch_history") or diagnostics.get("recovery_epoch_history") or [])
+        if isinstance(item, dict)
+    ]
+    recovery_epoch = int(latest_diagnostics.get("recovery_epoch") or len(history) or 0) + 1
+    history.append(
+        {
+            "authority": "graph_system.checkpoint_recovery_epoch",
+            "checkpoint_id": str(checkpoint_id or ""),
+            "base_event_cursor": base_state.event_cursor,
+            "latest_event_cursor_before_recovery": latest_state.event_cursor,
+            "target_node_ids": [str(item) for item in target_node_ids if str(item)],
+            "created_at": now,
+        }
+    )
+    diagnostics.update(
+        {
+            "recovery_epoch": recovery_epoch,
+            "recovery_base_checkpoint_id": str(checkpoint_id or ""),
+            "recovery_base_event_cursor": base_state.event_cursor,
+            "recovery_latest_event_cursor_before_recovery": latest_state.event_cursor,
+            "recovery_target_node_ids": [str(item) for item in target_node_ids if str(item)],
+            "recovery_epoch_history": history[-20:],
+        }
+    )
+    return _replace_state(
+        base_state,
+        status="running",
+        node_states=node_states,
+        active_work_orders={},
+        running_node_ids=(),
+        ready_node_ids=(),
+        event_cursor=max(base_state.event_cursor, latest_state.event_cursor),
+        terminal_reason="",
+        diagnostics=diagnostics,
     )
 
 
@@ -3511,6 +3676,14 @@ def _state_identity_audit(state: GraphLoopState) -> dict[str, Any]:
         "config_snapshot_hash": state.config_snapshot_hash or state.config_hash,
         "runtime_settings_revision": int(diagnostics.get("runtime_settings_revision") or 0),
     }
+
+
+def _clear_recovery_runtime_control(diagnostics: dict[str, Any]) -> None:
+    diagnostics.pop("runtime_control", None)
+    diagnostics["executor_status"] = "running"
+    diagnostics["latest_step"] = "graph_nodes_requeued"
+    diagnostics["latest_step_status"] = "running"
+    diagnostics["latest_step_summary"] = "图任务已从历史 checkpoint 恢复，目标节点已重新进入可调度状态。"
 
 
 def _formal_task_run_status(graph_status: str) -> str:

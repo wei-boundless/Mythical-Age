@@ -60,8 +60,18 @@ export async function upsertTaskWorkflow(workflowId: string, payload: TaskWorkfl
   });
 }
 
-export async function getTaskSystemOverview() {
-  return request<TaskSystemOverview>("/tasks/overview");
+export async function getTaskSystemOverview(options: { scope?: "full" | "environment" | "graph" } = {}) {
+  const scope = options.scope ?? "full";
+  const query = scope === "full" ? "" : `?scope=${encodeURIComponent(scope)}`;
+  return request<TaskSystemOverview>(`/tasks/overview${query}`);
+}
+
+export async function getTaskSystemEnvironmentOverview() {
+  return getTaskSystemOverview({ scope: "environment" });
+}
+
+export async function getTaskSystemGraphOverview() {
+  return getTaskSystemOverview({ scope: "graph" });
 }
 
 export async function upsertTaskSystemContract(contractId: string, payload: ContractSpecUpsertPayload) {

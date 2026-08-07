@@ -2,12 +2,12 @@
 
 import { lazy, Suspense, type ReactNode } from "react";
 
-import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
-import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import type { WorkspaceView } from "@/lib/store/types";
 
 import { SystemPageShell } from "./SystemPageShell";
 
+const CenterWorkspaceView = lazy(() => import("@/components/workspace/views/center/CenterWorkspaceView").then((module) => ({ default: module.CenterWorkspaceView })));
+const WorkbenchShell = lazy(() => import("@/components/layout/WorkbenchShell").then((module) => ({ default: module.WorkbenchShell })));
 const CapabilitySystemView = lazy(() => import("@/components/workspace/views/CapabilitySystemView").then((module) => ({ default: module.CapabilitySystemView })));
 const GraphTaskSystemView = lazy(() => import("@/components/workspace/views/GraphTaskSystemView").then((module) => ({ default: module.GraphTaskSystemView })));
 const HealthSystemView = lazy(() => import("@/components/workspace/views/HealthSystemView").then((module) => ({ default: module.HealthSystemView })));
@@ -38,11 +38,13 @@ function LazyView({ children }: { children: ReactNode }) {
 function renderCenterWorkspace({ centerTaskEnvironmentId, view }: WorkspaceRegistryContext) {
   return (
     <SystemPageShell label="主会话" view={view}>
-      <WorkbenchShell hideMainToolbar>
-        <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
-          <CenterWorkspaceView taskEnvironmentId={centerTaskEnvironmentId} />
-        </section>
-      </WorkbenchShell>
+      <LazyView>
+        <WorkbenchShell hideMainToolbar>
+          <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
+            <CenterWorkspaceView taskEnvironmentId={centerTaskEnvironmentId} />
+          </section>
+        </WorkbenchShell>
+      </LazyView>
     </SystemPageShell>
   );
 }
@@ -141,4 +143,3 @@ export function WorkspaceRegistry({
   const definition = resolveWorkspaceView(view);
   return <>{definition.render({ centerTaskEnvironmentId, view: definition.view })}</>;
 }
-

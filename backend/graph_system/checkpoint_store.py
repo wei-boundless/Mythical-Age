@@ -46,6 +46,9 @@ class GraphCheckpointStore(Protocol):
     def get_latest_checkpoint(self, graph_run_id: str) -> GraphCheckpointRecord | None:
         ...
 
+    def get_checkpoint(self, graph_run_id: str, checkpoint_id: str) -> GraphCheckpointRecord | None:
+        ...
+
     def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> tuple[GraphCheckpointRecord, ...]:
         ...
 

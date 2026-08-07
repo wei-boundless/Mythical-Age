@@ -116,14 +116,19 @@ class ProjectWorkspaceService:
                 return workspace
         raise ProjectWorkspaceMissing("project workspace not found")
 
-    def sessions_for_workspace(self, key: str) -> list[dict[str, Any]]:
+    def sessions_for_workspace(self, key: str, *, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
         workspace = self.workspace_for_key(key)
         root = str(workspace.get("workspace_root") or "")
-        return [
+        sessions = [
             session
             for session in self._main_chat_sessions()
             if _same_workspace_root(_session_workspace_root(session), root)
         ]
+        start = max(0, int(offset or 0))
+        if limit is None:
+            return sessions[start:]
+        count = max(1, int(limit or 1))
+        return sessions[start:start + count]
 
     def project_binding_for_key(self, key: str, *, source: str = "project_workspace") -> dict[str, str]:
         workspace = self.workspace_for_key(key)
@@ -168,7 +173,7 @@ class ProjectWorkspaceService:
         sessions = []
         for session in list(self.session_manager.list_sessions() or []):
             scope = dict(session.get("scope") or {})
-            if str(scope.get("workspace_view") or "chat").strip() == "task_environment":
+            if str(scope.get("workspace_view") or "chat").strip() not in {"", "chat"}:
                 continue
             task_binding = dict(session.get("task_binding") or {})
             if str(task_binding.get("kind") or "").strip() == "task_graph":

@@ -234,7 +234,6 @@ GraphNode
     memory_repository_node
     artifact_repository_node
     control_router_node
-    human_gate_node
     subgraph_node
     materialization_node
     external_service_node
@@ -245,6 +244,7 @@ GraphNode
   output_ports
   control_ports
   resource_ports
+  gate_attachments
   input_contract_ref
   output_contract_ref
   resource_contract_ref
@@ -275,10 +275,39 @@ GraphNode
 | `memory_repository_node` | 否 | 记忆库、共享状态、layer summary、checkpoint memory | memory view / commit receipt |
 | `artifact_repository_node` | 否 | 文档、报告、索引文件、审查产物仓库 | artifact ref / version receipt |
 | `control_router_node` | 否 | outcome 路由、条件分支、join、fanout、barrier | transition decision |
-| `human_gate_node` | 否，除非绑定人工代理 | 人工确认、人工替换产物、审批分叉 | human decision result |
 | `subgraph_node` | 视子图而定 | 把一张子图作为父图的物理节点 | subgraph run ref / aggregate result |
 | `materialization_node` | 否 | precommit、commit、publish、generation seal | materialization receipt |
 | `external_service_node` | 否，除非服务背后是 agent | 调第三方服务、索引器、编译器、数据库 | external receipt |
+
+Human gate 不是节点。它是挂在节点或边上的审核装饰器 / 控制附件：
+
+```text
+NodeGateAttachment
+  gate_id
+  gate_kind:
+    review_gate
+    human_gate
+    post_node_gate
+  owner_node_id
+  owner_edge_id
+  trigger:
+    before_dispatch
+    post_node_result
+    before_edge_delivery
+    before_materialization
+  allowed_human_actions
+  gate_policy
+```
+
+它审核某个节点结果、边传播或物化提交，不在图空间里占一个物理节点，也不生成独立 agent episode。只有当人工决策需要被记录时，系统生成 human decision event / receipt，并可打开 `ControlFrame(kind="human_gate")`。
+
+实现不变量：
+
+- `node_type = human_gate / manual_gate` 不能发布成 `GraphNode`。
+- `executor_type = human / human_gate / manual_gate` 不能编译成 `GraphNodeWorkOrder`。
+- `work_kind` 不包含 `human_gate`；人工审核不会进入执行器队列。
+- 合法入口只有两类：`NodeGateAttachment(gate_kind="human_gate")` 或 `edge.protocol_kind = human_gate`。
+- `waiting_human_gate` 是节点状态 / outcome，不是节点类型，也不是 execution adapter。
 
 因此，一个节点至少有四层身份：
 
@@ -295,7 +324,6 @@ Execution Adapter:
   deterministic_function
   resource_projection
   repository_operation
-  human_gate
   subgraph_runner
   external_service
 
@@ -317,7 +345,6 @@ NodeExecutionAdapter
     repository_read
     repository_write
     control_router
-    human_gate
     subgraph_runner
     external_service
   admission_policy
@@ -442,7 +469,7 @@ NodeInvocationFrame
   status
 ```
 
-如果 `execution_adapter_kind = agent_harness`，它对应一次 agent 执行现场，并且必须有 `TaskWorkEnvironment` 与 `AgentExecutionEpisode`。如果是 deterministic / repository / materialization / human gate，则它对应一次系统动作、仓库操作、物化提交或人工决策，不生成 agent episode。
+如果 `execution_adapter_kind = agent_harness`，它对应一次 agent 执行现场，并且必须有 `TaskWorkEnvironment` 与 `AgentExecutionEpisode`。如果是 deterministic / repository / materialization，则它对应一次系统动作、仓库操作或物化提交，不生成 agent episode。Human gate 不走 `NodeInvocationFrame`；它作为 `NodeGateAttachment` 产生 gate decision event，并在需要暂停或返修时打开 `ControlFrame(kind="human_gate")`。
 
 ### 5.6 OutcomeSignal
 
@@ -1587,7 +1614,7 @@ frontend task runtime workbench
 | 任务环境 | graph node 执行有 TaskCommand、Episode、WorkProduct |
 | 内外时间桥接 | GraphTime 追踪 superstep/node attempt/frame/checkpoint；HarnessTurnTime 追踪 turn/action/tool/observation；二者通过 ExecutionTraceBinding 关联 |
 | 并发控制 | 并发由 GraphSystem dispatch + TaskScheduler lease 控制 |
-| 可恢复 | checkpoint 恢复 active frames 和 pending work |
+| 可恢复 | checkpoint 能恢复 active frames、pending work，并能从任意历史节点边界开启 recovery epoch |
 | 可审计 | timeline 可追踪 work order、result、packet、outcome、frame、turn_run_id、action_request_ref |
 | 领域隔离 | 写作、项目网络、维护逻辑全部在 adapter / task package |
 
@@ -1607,6 +1634,8 @@ frontend task runtime workbench
 12. 为兼容旧链路保留第二套运行权威。
 13. 把 Harness `TurnRun` 当成 `Task` 或 `GraphRun`。
 14. 让 GraphSystem 根据 Harness 内部 tool/action trace 直接选边。
+15. 用重新启动新 GraphRun 替代历史 checkpoint 恢复。
+16. 恢复时覆盖旧 checkpoint，或让旧 `runtime_control=stopped` 压制已恢复的活动视图。
 
 ## 17. 最终裁决
 

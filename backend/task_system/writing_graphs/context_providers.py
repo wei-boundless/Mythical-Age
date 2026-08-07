@@ -128,6 +128,12 @@ def provide_writing_graph_context(
             updates.update(dict(patch))
             current_inputs.update(dict(patch))
 
+    visible_inbound = _project_chapter_draft_context_to_current_chapter(
+        node_id=node_id,
+        graph_run_id=state.graph_run_id,
+        initial_inputs=current_inputs,
+        inbound_context=visible_inbound,
+    )
     visible_inbound = _sanitize_revision_context_for_current_chapter(
         node_id=node_id,
         initial_inputs=current_inputs,
@@ -159,6 +165,10 @@ def _current_chapter_execution_inputs(initial_inputs: dict[str, Any]) -> dict[st
     if chapter is None:
         return {}
     patch: dict[str, Any] = {
+        "chapter_index": chapter,
+        "chapter_index_padded": f"{chapter:03d}",
+        "chapter_label": f"第{chapter}章",
+        "chapter_file_prefix": f"chapter_{chapter:03d}",
         "current_chapter_index": chapter,
         "current_chapter_index_padded": f"{chapter:03d}",
         "current_chapter_label": f"第{chapter}章",
@@ -263,6 +273,168 @@ def _current_chapter_outline_inputs(*, initial_inputs: dict[str, Any], inbound_c
             }
         )
     return {}
+
+
+def _project_chapter_draft_context_to_current_chapter(
+    *,
+    node_id: str,
+    graph_run_id: str,
+    initial_inputs: dict[str, Any],
+    inbound_context: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if _node_tail(node_id) != "chapter_draft":
+        return inbound_context
+    chapter = _int_value(initial_inputs.get("current_chapter_index") or initial_inputs.get("chapter_index"), None)
+    if chapter is None:
+        return inbound_context
+    outline = str(initial_inputs.get("current_chapter_outline") or "").strip()
+    outline_title = str(initial_inputs.get("current_chapter_outline_title") or f"第{chapter:03d}章").strip()
+    projected: list[dict[str, Any]] = []
+    inserted_projection = False
+    for raw in inbound_context:
+        item = dict(raw or {})
+        if not _is_chapter_outline_context(item):
+            projected.append(item)
+            continue
+        payload = dict(item.get("payload") or {})
+        refs = _artifact_ref_values(item.get("artifact_refs") or payload.get("artifact_refs"))
+        selected_payloads: list[dict[str, Any]] = []
+        for artifact_payload in _artifact_payload_dicts(item):
+            text = str(artifact_payload.get("content") or artifact_payload.get("text") or "").strip()
+            section = _extract_chapter_outline_section(text, chapter)
+            if not section:
+                continue
+            selected_payloads.append(
+                _drop_empty(
+                    {
+                        **dict(artifact_payload),
+                        "content": section,
+                        "text": section,
+                        "projection": "current_chapter_outline_only",
+                        "projected_chapter_index": chapter,
+                        "authority": f"{AUTHORITY}.current_chapter_outline_projection",
+                    }
+                )
+            )
+        if outline and not selected_payloads:
+            selected_payloads.append(
+                {
+                    "artifact_ref": refs[0] if refs else "",
+                    "content": outline,
+                    "text": outline,
+                    "projection": "current_chapter_outline_only",
+                    "projected_chapter_index": chapter,
+                    "authority": f"{AUTHORITY}.current_chapter_outline_projection",
+                }
+            )
+        if selected_payloads:
+            projected.append(
+                _drop_empty(
+                    {
+                        **item,
+                        "context_id": f"writing_current_chapter_outline:{_safe_id(graph_run_id)}:{_safe_id(node_id)}:{chapter}",
+                        "packet_type": "writing.current_chapter_outline_projection",
+                        "target_context_key": "当前章细纲",
+                        "target_input_slot": "current_chapter_outline",
+                        "delivery_policy": "current_chapter_outline_projection",
+                        "payload": {
+                            **payload,
+                            "current_chapter_index": chapter,
+                            "current_chapter_label": initial_inputs.get("current_chapter_label") or f"第{chapter}章",
+                            "current_chapter_outline_title": outline_title,
+                            "artifact_payloads": selected_payloads,
+                            "artifact_refs": refs,
+                            "authority": f"{AUTHORITY}.current_chapter_outline_payload",
+                        },
+                        "artifact_refs": [{"path": ref} for ref in refs],
+                        "visibility": {
+                            "source": "writing_graph_context_provider.current_chapter_outline_projection",
+                            "artifact_text_projection": "current_chapter_only",
+                            "authority": f"{AUTHORITY}.current_chapter_outline_visibility",
+                        },
+                        "authority": f"{AUTHORITY}.current_chapter_outline_context",
+                    }
+                )
+            )
+            inserted_projection = True
+            continue
+        payload.pop("artifact_payloads", None)
+        item["payload"] = _drop_empty(
+            {
+                **payload,
+                "current_chapter_index": chapter,
+                "current_chapter_outline_projection": "missing",
+            }
+        )
+        visibility = dict(item.get("visibility") or {})
+        visibility["artifact_text_projection"] = "suppressed_for_single_chapter_execution"
+        visibility["authority"] = f"{AUTHORITY}.chapter_outline_projection_visibility"
+        item["visibility"] = visibility
+        projected.append(item)
+    if outline and not inserted_projection:
+        projected.insert(
+            0,
+            {
+                "context_id": f"writing_current_chapter_outline:{_safe_id(graph_run_id)}:{_safe_id(node_id)}:{chapter}",
+                "packet_type": "writing.current_chapter_outline_projection",
+                "source_node_id": "__writing_context_provider__",
+                "target_node_id": node_id,
+                "edge_id": f"writing_current_chapter_outline::{node_id}",
+                "payload_contract_id": "task_system.writing.current_chapter_outline.v1",
+                "packet_contract_id": "task_system.writing.current_chapter_outline.v1",
+                "target_context_key": "当前章细纲",
+                "target_input_slot": "current_chapter_outline",
+                "delivery_policy": "current_chapter_outline_projection",
+                "payload": {
+                    "current_chapter_index": chapter,
+                    "current_chapter_label": initial_inputs.get("current_chapter_label") or f"第{chapter}章",
+                    "current_chapter_outline_title": outline_title,
+                    "artifact_payloads": [
+                        {
+                            "artifact_ref": str(initial_inputs.get("current_chapter_outline_source") or "current_chapter_outline"),
+                            "content": outline,
+                            "text": outline,
+                            "projection": "current_chapter_outline_only",
+                            "projected_chapter_index": chapter,
+                            "authority": f"{AUTHORITY}.current_chapter_outline_projection",
+                        }
+                    ],
+                    "authority": f"{AUTHORITY}.current_chapter_outline_payload",
+                },
+                "artifact_refs": [],
+                "memory_refs": [],
+                "result_refs": [],
+                "receipt_refs": [],
+                "visibility": {
+                    "source": "writing_graph_context_provider.current_chapter_outline_projection",
+                    "artifact_text_projection": "current_chapter_only",
+                    "authority": f"{AUTHORITY}.current_chapter_outline_visibility",
+                },
+                "authority": f"{AUTHORITY}.current_chapter_outline_context",
+            },
+        )
+    return projected
+
+
+def _is_chapter_outline_context(inbound: dict[str, Any]) -> bool:
+    source_tail = _node_tail(str(inbound.get("source_node_id") or ""))
+    edge_id = str(inbound.get("edge_id") or inbound.get("source_edge_id") or "").lower()
+    target_key = str(inbound.get("target_context_key") or inbound.get("target_input_slot") or "")
+    if source_tail == "chapter_outline":
+        return True
+    if "outline" in edge_id and "draft" in edge_id:
+        return True
+    return target_key in {"上游交接包", "chapter_outline", "当前批次细纲"}
+
+
+def _artifact_payload_dicts(inbound: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = dict(inbound.get("payload") or {})
+    result: list[dict[str, Any]] = []
+    for container in (inbound, payload):
+        for raw in list(dict(container).get("artifact_payloads") or []):
+            if isinstance(raw, dict):
+                result.append(dict(raw))
+    return result
 
 
 def _sanitize_revision_context_for_current_chapter(

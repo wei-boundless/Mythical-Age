@@ -320,7 +320,9 @@ def _node_kind(node: dict[str, Any]) -> str:
     if str(node.get("node_class") or "") == "resource":
         return "ResourceNode"
     node_type = str(node.get("node_type") or "").strip()
-    if node_type in {"router", "barrier", "join", "human_gate", "review_gate", "manual_gate", "safety_gate"}:
+    if node_type in {"human_gate", "manual_gate"}:
+        raise ValueError("human gate must be configured as a node/edge gate attachment, not as a node contract")
+    if node_type in {"router", "barrier", "join", "review_gate", "safety_gate"}:
         return "ControlNode"
     return "ExecutableNode"
 

@@ -501,6 +501,28 @@ def _task_graph_overview_item(graph) -> dict[str, object]:
     }
 
 
+def _task_graph_fast_overview_item(graph) -> dict[str, object]:
+    return {
+        "graph_id": graph.graph_id,
+        "title": graph.title,
+        "domain_id": graph.domain_id,
+        "graph_kind": graph.graph_kind,
+        "entry_node_id": graph.entry_node_id,
+        "output_node_id": graph.output_node_id,
+        "nodes": [],
+        "edges": [],
+        "node_count": len(graph.nodes),
+        "edge_count": len(graph.edges),
+        "publish_state": graph.publish_state,
+        "enabled": graph.enabled,
+        "metadata": {
+            "overview_mode": "fast",
+            "detail_required_for_edit": True,
+        },
+        "overview_mode": "fast",
+    }
+
+
 def _environment_kind_management_payload(base_dir) -> dict[str, object]:
     templates = [item.to_dict() for item in TaskEnvironmentKindTemplateRepository(base_dir).list()]
     return {
@@ -859,6 +881,130 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     }
 
 
+def _empty_task_management_payload(task_assignments: list[dict[str, object]] | None = None) -> dict[str, object]:
+    return {
+        "entry_policies": [],
+        "task_domains": [],
+        "engagement_plans": [],
+        "specific_task_records": [],
+        "task_flow_definitions": [],
+        "flow_contract_bindings": [],
+        "execution_policies": [],
+        "contract_catalog": [],
+        "task_assignments": task_assignments or [],
+        "workflow_resources": [],
+    }
+
+
+def _contract_management_shell(contract_management: dict[str, object]) -> dict[str, object]:
+    return {
+        "authority": "task_system.contract_management",
+        "contract_specs": [],
+        "contract_families": [],
+        "contract_family_catalog": {},
+        "contract_kind_options": list(contract_management.get("contract_kind_options") or []),
+        "field_type_options": list(contract_management.get("field_type_options") or []),
+        "source_hint_options": list(contract_management.get("source_hint_options") or []),
+        "visibility_options": list(contract_management.get("visibility_options") or []),
+        "acceptance_rule_type_options": list(contract_management.get("acceptance_rule_type_options") or []),
+        "validation_issues": [],
+        "summary": dict(contract_management.get("summary") or {}),
+    }
+
+
+def _task_system_environment_payload(base_dir) -> dict[str, object]:
+    registry = TaskFlowRegistry(base_dir)
+    contract_registry = TaskContractRegistry(base_dir)
+    task_assignments = [item.to_dict() for item in registry.list_task_assignments()]
+    task_environment_management = build_task_environment_catalog(
+        registry=task_environment_registry_from_backend_dir(base_dir),
+        engagement_plans=[],
+    ).management_payload()
+    environment_kind_management = _environment_kind_management_payload(base_dir)
+    environment_task_inventory = _environment_task_inventory(task_assignments)
+    project_instance_management = _project_instance_management(
+        base_dir,
+        environment_ids=_visible_task_environment_ids(task_environment_management),
+    )
+    contract_management = contract_registry.build_catalog()
+    return {
+        "authority": "task_system.management_console",
+        "summary": {
+            "task_assignment_count": len(task_assignments),
+            "contract_spec_count": int(dict(contract_management.get("summary") or {}).get("contract_spec_count") or 0),
+            "contract_spec_validation_issue_count": int(dict(contract_management.get("summary") or {}).get("validation_issue_count") or 0),
+        },
+        "task_management": _empty_task_management_payload(),
+        "task_environment_management": task_environment_management,
+        "project_instance_management": project_instance_management,
+        "environment_kind_management": environment_kind_management,
+        "environment_task_inventory": environment_task_inventory,
+        "contract_management": _contract_management_shell(contract_management),
+        "contract_usage_index": {
+            "authority": "task_system.contract_usage_index",
+            "by_contract_id": {},
+            "summary": {"contract_with_usage_count": 0, "usage_count": 0},
+        },
+        "diagnostics": {
+            "overview_mode": "environment",
+            "deferred_sections": ["task_assignments", "task_graphs", "contract_specs", "node_configurations"],
+        },
+    }
+
+
+def _task_system_graph_payload(base_dir) -> dict[str, object]:
+    registry = TaskFlowRegistry(base_dir)
+    task_graph_models = registry.list_task_graphs()
+    task_graphs = [_task_graph_fast_overview_item(item) for item in task_graph_models]
+    semantic_relations = semantic_relation_catalog()
+    communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
+    return {
+        "authority": "task_system.management_console",
+        "summary": {
+            "task_graph_count": len(task_graphs),
+            "communication_protocol_count": len(communication_protocols),
+        },
+        "task_management": _empty_task_management_payload(),
+        "task_graph_management": {
+            "task_graphs": task_graphs,
+            "task_graph_specs": [],
+            "semantic_relation_catalog": semantic_relations,
+            "semantic_relations": semantic_relations["relations"],
+            "communication_protocols": communication_protocols,
+            "a2a": {
+                "protocol_version": "0.3.0",
+                "transport": "JSONRPC",
+                "protocol_locked": True,
+                "agent_cards": [],
+                "message_types": [
+                    "message/send",
+                    "message/stream",
+                    "task/status",
+                    "task/artifact",
+                ],
+                "part_types": ["text", "data", "file"],
+                "task_states": [
+                    "submitted",
+                    "working",
+                    "input-required",
+                    "completed",
+                    "canceled",
+                    "failed",
+                    "rejected",
+                    "auth-required",
+                    "unknown",
+                ],
+                "overview_mode": "protocol_only",
+            },
+            "overview_mode": "graph",
+        },
+        "diagnostics": {
+            "overview_mode": "graph",
+            "deferred_sections": ["task_assignments", "contract_specs", "node_configurations"],
+        },
+    }
+
+
 def _task_node_configuration_for_preview(base_dir, node_config_id: str) -> TaskNodeConfigurationSpec | None:
     spec = TaskNodeConfigurationRepository(base_dir).get(node_config_id)
     if spec is not None:
@@ -873,8 +1019,12 @@ def _task_node_configuration_for_preview(base_dir, node_config_id: str) -> TaskN
 
 
 @router.get("/tasks/overview")
-async def task_system_overview() -> dict[str, object]:
+async def task_system_overview(scope: str = Query(default="full", pattern="^(full|environment|graph)$")) -> dict[str, object]:
     runtime = require_runtime()
+    if scope == "environment":
+        return _task_system_environment_payload(runtime.base_dir)
+    if scope == "graph":
+        return _task_system_graph_payload(runtime.base_dir)
     return _task_system_payload(runtime.base_dir)
 
 

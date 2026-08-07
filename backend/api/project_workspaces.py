@@ -112,10 +112,12 @@ async def remove_project_workspace(
 async def list_project_workspace_sessions(
     project_key: str,
     include_active_task: bool = Query(default=True),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        sessions = _service(runtime).sessions_for_workspace(project_key)
+        sessions = _service(runtime).sessions_for_workspace(project_key, limit=limit, offset=offset)
     except ProjectWorkspaceMissing as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if include_active_task:

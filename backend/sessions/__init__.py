@@ -54,17 +54,25 @@ class SessionProjectBindingMissing(ValueError):
 
 
 DEFAULT_SESSION_PERMISSION_MODE = "full_access"
+SESSION_SUMMARY_INDEX_SCHEMA = 1
+SESSION_SUMMARY_INDEX_FILENAME = "session_summary_index.json"
 
 
 class SessionManager:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
-        self.sessions_dir = ProjectLayout.from_backend_dir(self.base_dir).sessions_dir
+        layout = ProjectLayout.from_backend_dir(self.base_dir)
+        self.sessions_dir = layout.sessions_dir
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        self.summary_index_path = layout.runtime_cache_dir / SESSION_SUMMARY_INDEX_FILENAME
+        self.summary_index_path.parent.mkdir(parents=True, exist_ok=True)
         self._locks_guard = threading.Lock()
         self._session_locks: dict[str, threading.RLock] = {}
         self._summary_cache_guard = threading.Lock()
         self._summary_cache: dict[str, tuple[int, int, dict[str, Any]]] = {}
+        self._summary_index_loaded = False
+        self._summary_index_dirty = False
+        self._summary_index: dict[str, tuple[int, int, dict[str, Any]]] = {}
 
     def list_sessions(
         self,
@@ -72,10 +80,14 @@ class SessionManager:
         workspace_view: str | None = None,
         task_environment_id: str | None = None,
         project_id: str | None = None,
+        main_chat_only: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         sessions = [
             item
             for item in self._list_session_summaries()
+            if not main_chat_only or _is_main_chat_session_summary(item)
             if _scope_matches(
                 item,
                 workspace_view=workspace_view,
@@ -83,7 +95,12 @@ class SessionManager:
                 project_id=project_id,
             )
         ]
-        return sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
+        sorted_sessions = sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
+        start = max(0, int(offset or 0))
+        if limit is None:
+            return sorted_sessions[start:]
+        count = max(1, int(limit or 1))
+        return sorted_sessions[start:start + count]
 
     def get_session_summary(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
@@ -637,7 +654,11 @@ class SessionManager:
         return rows
 
     def _list_session_summaries(self) -> list[dict[str, Any]]:
-        return [self._summary_from_path(path) for path in self.sessions_dir.glob("*.json")]
+        paths = list(self.sessions_dir.glob("*.json"))
+        summaries = [self._summary_from_path(path) for path in paths]
+        self._drop_missing_summary_index_entries({path.name for path in paths})
+        self._flush_summary_index_if_dirty()
+        return summaries
 
     def _summary_from_path(self, path: Path) -> dict[str, Any]:
         session_id = path.stem
@@ -732,7 +753,14 @@ class SessionManager:
                     handle.flush()
                     os.fsync(handle.fileno())
                 _replace_file_atomically(tmp_path, path)
-                self._invalidate_summary_cache(session_id)
+                stat = path.stat()
+                self._store_cached_summary(
+                    path.name,
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                    summary=self._summary_from_payload(payload),
+                    persist=True,
+                )
             except OSError as exc:
                 if tmp_path is not None:
                     try:
@@ -763,17 +791,43 @@ class SessionManager:
     def _cached_summary(self, cache_key: str, *, mtime_ns: int, size: int) -> dict[str, Any] | None:
         with self._summary_cache_guard:
             cached = self._summary_cache.get(cache_key)
-            if cached is None:
-                return None
-            cached_mtime_ns, cached_size, summary = cached
-            if cached_mtime_ns != int(mtime_ns) or cached_size != int(size):
+            if cached is not None:
+                cached_mtime_ns, cached_size, summary = cached
+                if cached_mtime_ns == int(mtime_ns) and cached_size == int(size):
+                    return _clone_summary(summary)
                 self._summary_cache.pop(cache_key, None)
+            self._ensure_summary_index_loaded_locked()
+            indexed = self._summary_index.get(cache_key)
+            if indexed is None:
                 return None
+            indexed_mtime_ns, indexed_size, summary = indexed
+            if indexed_mtime_ns != int(mtime_ns) or indexed_size != int(size):
+                self._summary_index.pop(cache_key, None)
+                self._summary_index_dirty = True
+                return None
+            self._summary_cache[cache_key] = (indexed_mtime_ns, indexed_size, _clone_summary(summary))
             return _clone_summary(summary)
 
-    def _store_cached_summary(self, cache_key: str, *, mtime_ns: int, size: int, summary: dict[str, Any]) -> None:
+    def _store_cached_summary(
+        self,
+        cache_key: str,
+        *,
+        mtime_ns: int,
+        size: int,
+        summary: dict[str, Any],
+        persist: bool = False,
+    ) -> None:
         with self._summary_cache_guard:
-            self._summary_cache[cache_key] = (int(mtime_ns), int(size), _clone_summary(summary))
+            normalized = _clone_summary(summary)
+            record = (int(mtime_ns), int(size), normalized)
+            self._summary_cache[cache_key] = record
+            self._ensure_summary_index_loaded_locked()
+            current = self._summary_index.get(cache_key)
+            if current != record:
+                self._summary_index[cache_key] = (int(mtime_ns), int(size), _clone_summary(summary))
+                self._summary_index_dirty = True
+            if persist:
+                self._flush_summary_index_locked()
 
     def _invalidate_summary_cache(self, session_id: str) -> None:
         try:
@@ -782,6 +836,104 @@ class SessionManager:
             return
         with self._summary_cache_guard:
             self._summary_cache.pop(cache_key, None)
+            self._ensure_summary_index_loaded_locked()
+            if cache_key in self._summary_index:
+                self._summary_index.pop(cache_key, None)
+                self._summary_index_dirty = True
+                self._flush_summary_index_locked()
+
+    def _drop_missing_summary_index_entries(self, existing_cache_keys: set[str]) -> None:
+        with self._summary_cache_guard:
+            self._ensure_summary_index_loaded_locked()
+            stale = [key for key in self._summary_index if key not in existing_cache_keys]
+            if not stale:
+                return
+            for key in stale:
+                self._summary_index.pop(key, None)
+                self._summary_cache.pop(key, None)
+            self._summary_index_dirty = True
+
+    def _ensure_summary_index_loaded_locked(self) -> None:
+        if self._summary_index_loaded:
+            return
+        self._summary_index_loaded = True
+        path = self.summary_index_path
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            self._summary_index_dirty = True
+            return
+        if not isinstance(payload, dict) or int(payload.get("schema") or 0) != SESSION_SUMMARY_INDEX_SCHEMA:
+            self._summary_index_dirty = True
+            return
+        sessions = payload.get("sessions")
+        if not isinstance(sessions, dict):
+            self._summary_index_dirty = True
+            return
+        loaded: dict[str, tuple[int, int, dict[str, Any]]] = {}
+        for key, record in sessions.items():
+            if not isinstance(record, dict):
+                continue
+            summary = record.get("summary")
+            if not isinstance(summary, dict):
+                continue
+            cache_key = str(key or "").strip()
+            if not cache_key.endswith(".json"):
+                continue
+            loaded[cache_key] = (
+                int(record.get("mtime_ns") or 0),
+                int(record.get("size") or 0),
+                _clone_summary(summary),
+            )
+        self._summary_index = loaded
+
+    def _flush_summary_index_if_dirty(self) -> None:
+        with self._summary_cache_guard:
+            self._flush_summary_index_locked()
+
+    def _flush_summary_index_locked(self) -> None:
+        if not self._summary_index_dirty:
+            return
+        payload = {
+            "schema": SESSION_SUMMARY_INDEX_SCHEMA,
+            "authority": "sessions.summary_index",
+            "updated_at": time.time(),
+            "sessions": {
+                key: {
+                    "mtime_ns": mtime_ns,
+                    "size": size,
+                    "summary": _clone_summary(summary),
+                }
+                for key, (mtime_ns, size, summary) in sorted(self._summary_index.items())
+            },
+        }
+        self.summary_index_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self.summary_index_path.parent,
+                prefix=f".{self.summary_index_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                tmp_path = Path(handle.name)
+                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self.summary_index_path)
+            self._summary_index_dirty = False
+        except OSError:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist session summary index: %s", self.summary_index_path, exc_info=True)
 
     def _latest_provider_visible_append_anchor(self, session_id: str) -> dict[str, Any]:
         try:
@@ -1319,6 +1471,16 @@ def _scope_matches(
     if task_environment_id is not None and scope["task_environment_id"] != str(task_environment_id or "").strip():
         return False
     if project_id is not None and scope["project_id"] != str(project_id or "").strip():
+        return False
+    return True
+
+
+def _is_main_chat_session_summary(payload: dict[str, Any]) -> bool:
+    scope = _normalize_scope(dict(payload.get("scope") or {}))
+    if scope["workspace_view"] not in {"", "chat"}:
+        return False
+    task_binding = _normalize_task_binding(dict(payload.get("task_binding") or {}))
+    if str(task_binding.get("kind") or "").strip() == "task_graph":
         return False
     return True
 

@@ -82,6 +82,24 @@ class LangGraphCheckpointStore:
             return _latest_checkpoint_record(records)
         return None
 
+    def get_checkpoint(self, graph_run_id: str, checkpoint_id: str) -> GraphCheckpointRecord | None:
+        target = str(checkpoint_id or "").strip()
+        if not target:
+            return None
+        checkpoint_tuple = self._saver.get_tuple(_config(graph_run_id, checkpoint_id=target))
+        if checkpoint_tuple is not None:
+            record = _record_from_checkpoint_tuple(
+                checkpoint_tuple,
+                fallback_graph_run_id=graph_run_id,
+                fallback_checkpoint_id=target,
+            )
+            if record.checkpoint_id == target:
+                return record
+        for record in self.list_checkpoints(graph_run_id, limit=None):
+            if record.checkpoint_id == target:
+                return record
+        return None
+
     def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> tuple[GraphCheckpointRecord, ...]:
         records: list[GraphCheckpointRecord] = []
         for item in self._saver.list(_config(graph_run_id), limit=limit):
@@ -125,12 +143,15 @@ class LangGraphCheckpointStore:
         return {"authority": self.authority, "graph_run_id": target, "deleted_counts": counts}
 
 
-def _config(graph_run_id: str) -> dict[str, Any]:
+def _config(graph_run_id: str, *, checkpoint_id: str = "") -> dict[str, Any]:
+    configurable = {
+        "thread_id": str(graph_run_id or ""),
+        "checkpoint_ns": GRAPH_CHECKPOINT_NAMESPACE,
+    }
+    if checkpoint_id:
+        configurable["checkpoint_id"] = str(checkpoint_id or "")
     return {
-        "configurable": {
-            "thread_id": str(graph_run_id or ""),
-            "checkpoint_ns": GRAPH_CHECKPOINT_NAMESPACE,
-        }
+        "configurable": configurable,
     }
 
 

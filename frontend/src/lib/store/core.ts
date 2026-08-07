@@ -41,9 +41,9 @@ export function createIdleSessionActivity(updatedAt = 0): SessionActivityState {
   };
 }
 
-export function getDefaultState(): StoreState {
+export function getDefaultState(overrides: Partial<Pick<StoreState, "activeWorkspaceView" | "workspaceInitializing">> = {}): StoreState {
   return {
-    activeWorkspaceView: "chat",
+    activeWorkspaceView: overrides.activeWorkspaceView ?? "chat",
     workspaceContext: null,
     workspaceTree: null,
     workspaceTreeLoading: false,
@@ -72,7 +72,7 @@ export function getDefaultState(): StoreState {
       source: "system_default",
       updated_at: 0,
     },
-    workspaceInitializing: true,
+    workspaceInitializing: overrides.workspaceInitializing ?? true,
     messages: [],
     activeProjectionsByKey: {},
     isStreaming: false,

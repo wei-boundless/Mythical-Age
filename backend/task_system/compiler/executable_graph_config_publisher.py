@@ -18,6 +18,7 @@ from graph_system.language import (
     harness_edge_semantic_role,
 )
 from graph_system.models import ExecutableGraphConfig, safe_id, stable_hash
+from graph_system.node_adapter_models import node_execution_adapter_from_node, node_physical_spec_from_node
 from task_system.compiler.graph_compiler import build_graph_compilation_unit
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.compiler.writing_graph_config_migrator import normalize_writing_graph_for_transition_runtime
@@ -1004,6 +1005,23 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
     prompt_contract = dict(raw_metadata.get("prompt_contract") or {})
     node_id = str(node.get("node_id") or "").strip()
     node_type = str(node.get("node_type") or "agent").strip() or "agent"
+    node_for_projection = {
+        **dict(node),
+        "node_id": node_id,
+        "node_type": node_type,
+        "metadata": metadata,
+        "executor": {
+            "executor_type": _executor_type_for_node(node),
+            "executor_policy": dict(node.get("executor_policy") or metadata.get("executor_policy") or {}),
+        },
+        "gates": {
+            "review_gate_policy": dict(node.get("review_gate_policy") or {}),
+            "human_gate_policy": dict(node.get("human_gate_policy") or metadata.get("human_gate_policy") or {}),
+            "post_node_gate_policy": dict(node.get("post_node_gate_policy") or metadata.get("post_node_gate_policy") or {}),
+        },
+    }
+    node_physical = node_physical_spec_from_node(node_for_projection)
+    execution_adapter = node_execution_adapter_from_node(node_for_projection)
     task_ref = str(node.get("task_id") or metadata.get("task_ref") or f"task_graph.node.{graph_id}.{node_id}").strip()
     agent_profile_id = str(
         node.get("agent_profile_id")
@@ -1015,7 +1033,9 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         "node_id": node_id,
         "title": str(node.get("title") or node_id),
         "node_type": node_type,
+        "node_kind": node_physical.node_kind,
         "node_class": "resource" if _is_resource_node_type(node_type=node_type, node_id=node_id) else "executable",
+        "physical": node_physical.to_dict(),
         "task_ref": task_ref,
         "agent_id": str(node.get("agent_id") or ""),
         "agent_profile_id": agent_profile_id,
@@ -1027,9 +1047,11 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
             or ""
         ),
         "executor": {
-            "executor_type": _executor_type_for_node(node),
+            "executor_type": str(node_for_projection["executor"].get("executor_type") or "agent"),
+            "adapter_kind": execution_adapter.adapter_kind,
             "executor_policy": dict(node.get("executor_policy") or metadata.get("executor_policy") or {}),
         },
+        "execution_adapter": execution_adapter.to_dict(),
         "execution": {
             "execution_mode": str(node.get("execution_mode") or "sync"),
             "wait_policy": str(node.get("wait_policy") or "wait_all_upstream_completed"),
@@ -1484,7 +1506,9 @@ def _executor_type_for_node(node: dict[str, Any]) -> str:
     if node_type == "graph_module" or bool(metadata.get("graph_module")):
         raise ValueError("graph module nodes must be expanded before executor selection")
     if node_type in {"manual_gate", "human_gate"}:
-        return "human"
+        raise ValueError(
+            "human gate must be configured as a node/edge gate attachment, not published as an executable graph node"
+        )
     if node_type == "review_gate":
         return "review_gate"
     if node_type == "tool":

@@ -14,7 +14,7 @@ export function sessionTaskEnvironmentId(session: SessionSummary) {
 
 export function isVisibleMainChatSession(session: SessionSummary) {
   const workspaceView = String(session.scope?.workspace_view || "").trim();
-  if (workspaceView === "project" || workspaceView === "task_environment" || workspaceView === GRAPH_TASK_WORKSPACE_VIEW) {
+  if (workspaceView && workspaceView !== "chat") {
     return false;
   }
   if (String(session.task_binding?.kind || "").trim() === "task_graph") {

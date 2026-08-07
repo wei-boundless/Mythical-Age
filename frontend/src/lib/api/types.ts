@@ -3353,6 +3353,9 @@ export type SessionTruncateResponse = {
 export type TaskGraphRunStartResult = {
   authority: string;
   graph_id: string;
+  graph_task_instance_id: string;
+  graph_task_instance?: GraphTaskInstanceSummary;
+  graph_task_instance_created?: boolean;
   graph_run_id: string;
   graph_config_id: string;
   launch_session_id: string;
@@ -3641,6 +3644,23 @@ export type GraphRunDispatchReadyResult = {
   events: Array<Record<string, unknown>>;
 };
 
+export type GraphRunRequeueNodesResult = {
+  authority: string;
+  graph_run_id: string;
+  graph_config_id: string;
+  graph_structure_hash: string;
+  graph_loop_state: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  events: Array<Record<string, unknown>>;
+};
+
+export type GraphRunCheckpointsResult = {
+  authority: string;
+  graph_run_id: string;
+  checkpoint_count: number;
+  checkpoints: Array<Record<string, unknown>>;
+};
+
 export type GraphRunUntilIdleResult = {
   authority: string;
   graph_run_id: string;
@@ -3679,6 +3699,8 @@ export type GraphRunControlResult = {
   action: "pause" | "resume" | string;
   reason: string;
   graph_run_id: string;
+  graph_task_instance_id?: string;
+  graph_task_instance?: GraphTaskInstanceSummary;
   task_run_id: string;
   graph_run: Record<string, unknown>;
   task_run: Record<string, unknown>;

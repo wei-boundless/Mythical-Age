@@ -72,12 +72,6 @@ class GraphNodeWorkOrderExecutor:
                 max_steps=max_steps,
                 model_override_diagnostics=model_override_diagnostics,
             )
-        if order.work_kind == "human_gate":
-            return self._unsupported_executor_result(
-                graph_config=graph_config,
-                work_order=order,
-                reason="human_gate_requires_external_decision",
-            )
         if order.work_kind == "tool":
             return self._unsupported_executor_result(
                 graph_config=graph_config,
@@ -328,6 +322,7 @@ class GraphNodeWorkOrderExecutor:
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
             work_order_id=work_order.work_order_id,
+            **_node_result_identity_from_work_order(work_order),
             executor_type=work_order.executor_type,
             status=effective_result_status,
             outputs={
@@ -377,8 +372,9 @@ class GraphNodeWorkOrderExecutor:
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
             work_order_id=work_order.work_order_id,
+            **_node_result_identity_from_work_order(work_order),
             executor_type=work_order.executor_type,
-            status="waiting_human_gate" if work_order.work_kind == "human_gate" else "blocked",
+            status="blocked",
             outputs={},
             error={"reason": reason},
             diagnostics={
@@ -450,6 +446,7 @@ def _agent_execution_not_ok_result(
         task_run_id=work_order.task_run_id,
         node_id=work_order.node_id,
         work_order_id=work_order.work_order_id,
+        **_node_result_identity_from_work_order(work_order),
         executor_type=work_order.executor_type,
         status=status,
         outputs={
@@ -495,6 +492,16 @@ def _agent_node_result_status_for_not_ok_execution(
     if recoverable_error and bool(recoverable_error.get("retryable", True)):
         return "blocked"
     return "failed"
+
+
+def _node_result_identity_from_work_order(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    execution_adapter = dict(work_order.execution_adapter or {})
+    return {
+        "node_kind": work_order.node_kind,
+        "execution_adapter_kind": str(execution_adapter.get("adapter_kind") or "agent_harness"),
+        "graph_time": dict(work_order.graph_time or {}),
+        "node_attempt": dict(work_order.node_attempt or {}),
+    }
 
 
 def _artifact_refs_from_executor_result(executor_result: dict[str, Any], *, task_execution_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -548,6 +555,10 @@ def _contract_artifact_refs_from_final_content(
             content_source=content_source,
             final_answer=final_answer,
             model_output_payload=model_output_payload,
+            extraction_policy=_artifact_content_extraction_policy(
+                artifact=artifact,
+                resolved_output_policy=resolved_output_policy,
+            ),
         )
         if not content and bool(artifact.get("fallback_to_full_content")):
             content = str(final_answer or "").strip()
@@ -584,6 +595,7 @@ def _contract_artifact_refs_from_final_content(
                 "absolute_path": str(target),
                 "content_source": content_source,
                 "source": "graph_contract_artifact_policy",
+                "execution_coordinate": _artifact_execution_coordinate(work_order),
                 "authority": "graph_system.contract_artifact_materializer",
             }
         )
@@ -690,6 +702,7 @@ def _artifact_materialization_receipts(
     refs = [item for item in refs if item]
     if not refs:
         return [], []
+    execution_coordinate = _artifact_execution_coordinate(work_order)
     try:
         receipt = service.record_materialization(
             task_run_id=work_order.task_run_id,
@@ -712,6 +725,10 @@ def _artifact_materialization_receipts(
                 "work_order_id": work_order.work_order_id,
                 "node_executor_execution_id": node_executor_execution_id,
                 "task_environment_id": str(graph_config.task_environment_id or ""),
+                "graph_task_instance_id": str(execution_coordinate.get("graph_task_instance_id") or ""),
+                "project_path": str(execution_coordinate.get("project_path") or ""),
+                "source_project_id": str(execution_coordinate.get("source_project_id") or ""),
+                "artifact_execution_coordinate": execution_coordinate,
                 "source_authority": "graph_system.work_order_executor",
             },
         )
@@ -953,14 +970,14 @@ def _contract_artifact_root(
     user_explicit_root = _user_explicit_artifact_root(work_order)
     runtime_scope_root = _runtime_scope_artifact_root(work_order)
     root_value = str(
-        environment_root
+        user_explicit_root
+        or runtime_scope_root
         or policy_root
+        or environment_root
         or artifact_materialization.get("default_artifact_root")
         or output_policy.get("default_artifact_root")
         or policy.get("default_artifact_root")
         or policy.get("root")
-        or user_explicit_root
-        or runtime_scope_root
         or ""
     ).strip()
     root = _resolve_inside_workspace(workspace_root=workspace_root, value=_render_artifact_template(root_value, values))
@@ -969,14 +986,15 @@ def _contract_artifact_root(
     explicit_subdir = ""
     if user_explicit_root and root_value != user_explicit_root:
         explicit_subdir = _artifact_subdir_from_explicit_root(user_explicit_root)
-    subdir_template = explicit_subdir or str(
-        artifact_materialization.get("subdir_template")
-        or artifact_materialization.get("scope_template")
-        or output_policy.get("subdir_template")
-        or policy.get("subdir_template")
-        or policy.get("scope_template")
-        or ""
-    ).strip()
+    selected_explicit_root = root_value in {user_explicit_root, runtime_scope_root} and bool(root_value)
+    subdir_template = "" if selected_explicit_root else explicit_subdir or str(
+            artifact_materialization.get("subdir_template")
+            or artifact_materialization.get("scope_template")
+            or output_policy.get("subdir_template")
+            or policy.get("subdir_template")
+            or policy.get("scope_template")
+            or ""
+        ).strip()
     if subdir_template:
         subdir = _sanitize_relative_path(_render_artifact_template(subdir_template, values))
         if subdir:
@@ -1026,14 +1044,53 @@ def _artifact_materialization_root(*, graph_config: ExecutableGraphConfig, work_
     raw_policy_root = str(artifact_materialization.get("artifact_root") or output_policy.get("artifact_root") or "").strip()
     policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
     return str(
-        environment_projection.get("environment_artifact_root")
+        _user_explicit_artifact_root(work_order)
+        or _runtime_scope_artifact_root(work_order)
+        or _render_artifact_template(policy_root, values)
+        or environment_projection.get("environment_artifact_root")
         or work_order.artifact_space_ref
         or _environment_artifact_root(graph_config)
-        or _render_artifact_template(policy_root, values)
         or _render_artifact_template(str(artifact_materialization.get("default_artifact_root") or output_policy.get("default_artifact_root") or "").strip(), values)
-        or _user_explicit_artifact_root(work_order)
-        or _runtime_scope_artifact_root(work_order)
     ).strip()
+
+
+def _artifact_execution_coordinate(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    input_package = dict(work_order.input_package or {})
+    initial_inputs = dict(input_package.get("initial_inputs") or {})
+    loop_context = dict(input_package.get("loop_context") or {})
+    active_frame = dict(loop_context.get("active_frame") or {})
+    current_frame = dict(loop_context.get("current_frame") or {})
+    cursor_key = str(active_frame.get("cursor_key") or current_frame.get("cursor_key") or loop_context.get("cursor_key") or "").strip()
+    cursor_value = active_frame.get("cursor")
+    if cursor_value in ("", None):
+        cursor_value = current_frame.get("cursor_value", loop_context.get("cursor_value"))
+    return _drop_empty(
+        {
+            "graph_run_id": work_order.graph_run_id,
+            "task_run_id": work_order.task_run_id,
+            "work_order_id": work_order.work_order_id,
+            "node_id": work_order.node_id,
+            "task_ref": work_order.task_ref,
+            "graph_time": dict(work_order.graph_time or {}),
+            "node_attempt": dict(work_order.node_attempt or {}),
+            "scope_id": str(loop_context.get("scope_id") or current_frame.get("scope_id") or active_frame.get("scope_id") or ""),
+            "iteration_id": str(loop_context.get("iteration_id") or current_frame.get("iteration_id") or active_frame.get("active_iteration_id") or ""),
+            "cursor_key": cursor_key,
+            "cursor_value": cursor_value,
+            "chapter_index": initial_inputs.get("chapter_index"),
+            "current_chapter_index": initial_inputs.get("current_chapter_index"),
+            "chapter_index_padded": initial_inputs.get("chapter_index_padded"),
+            "batch_start_index": initial_inputs.get("batch_start_index"),
+            "batch_end_index": initial_inputs.get("batch_end_index"),
+            "volume_index": initial_inputs.get("volume_index"),
+            "project_id": initial_inputs.get("project_id"),
+            "source_project_id": initial_inputs.get("source_project_id"),
+            "graph_task_instance_id": initial_inputs.get("graph_task_instance_id"),
+            "project_path": initial_inputs.get("project_path"),
+            "artifact_root": initial_inputs.get("artifact_root"),
+            "authority": "graph_system.artifact_execution_coordinate",
+        }
+    )
 
 
 def _artifact_template_values(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
@@ -1104,16 +1161,124 @@ def _model_output_payload(*, final_answer: str, task_execution_payload: dict[str
     }
 
 
-def _artifact_content_for_source(*, content_source: str, final_answer: str, model_output_payload: dict[str, Any]) -> str:
+def _artifact_content_for_source(
+    *,
+    content_source: str,
+    final_answer: str,
+    model_output_payload: dict[str, Any],
+    extraction_policy: dict[str, Any] | None = None,
+) -> str:
     source = str(content_source or "").strip()
     if source in {"", "final_content", "final_answer", "full_content", "model_response"}:
-        return str(final_answer or "").strip()
-    value = _nested_lookup(dict(model_output_payload or {}), source)
-    if isinstance(value, str):
-        return value.strip()
-    if value is not None:
-        return str(value).strip()
-    return ""
+        content = str(final_answer or "").strip()
+    else:
+        value = _nested_lookup(dict(model_output_payload or {}), source)
+        if isinstance(value, str):
+            content = value.strip()
+        elif value is not None:
+            content = str(value).strip()
+        else:
+            content = ""
+    return _apply_artifact_content_extraction(content, policy=dict(extraction_policy or {}))
+
+
+def _artifact_content_extraction_policy(*, artifact: dict[str, Any], resolved_output_policy: dict[str, Any]) -> dict[str, Any]:
+    output_policy = dict(resolved_output_policy.get("output_policy") or {})
+    materialization_policy = dict(resolved_output_policy.get("artifact_materialization_policy") or {})
+    return {
+        **dict(output_policy.get("content_extraction_policy") or {}),
+        **dict(materialization_policy.get("content_extraction_policy") or {}),
+        **dict(artifact.get("content_extraction_policy") or {}),
+    }
+
+
+def _apply_artifact_content_extraction(content: str, *, policy: dict[str, Any]) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    mode = str(policy.get("mode") or "").strip()
+    if mode not in {"markdown_artifact_body", "markdown_body", "artifact_markdown_body"}:
+        return text
+    extracted = _extract_markdown_artifact_body(text)
+    return extracted or text
+
+
+def _extract_markdown_artifact_body(content: str) -> str:
+    text = str(content or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    text = _strip_node_delivery_markdown_wrapper(text)
+    text = _strip_prewrite_markdown_wrapper(text)
+    if text.lstrip().startswith("#"):
+        return _strip_trailing_fence(text)
+    fenced = _extract_markdown_fence_body(text)
+    if fenced:
+        return _strip_trailing_fence(_strip_prewrite_markdown_wrapper(_strip_node_delivery_markdown_wrapper(fenced)))
+    heading = re.search(r"(?m)^#{1,6}\s+\S", text)
+    if heading:
+        return _strip_trailing_fence(_strip_prewrite_markdown_wrapper(_strip_node_delivery_markdown_wrapper(text[heading.start() :].strip())))
+    return text
+
+
+def _strip_node_delivery_markdown_wrapper(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    lines = text.split("\n")
+    first = lines[0].strip() if lines else ""
+    if not re.match(r"^#{1,6}\s*节点交付内容\s*$", first):
+        return text
+    for index, line in enumerate(lines[1:], start=1):
+        stripped = line.strip()
+        if re.match(r"^#{1,6}\s+\S", stripped) and "节点交付内容" not in stripped:
+            return "\n".join(lines[index:]).strip()
+    return text
+
+
+def _strip_prewrite_markdown_wrapper(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    lines = text.split("\n")
+    first = lines[0].strip() if lines else ""
+    if not re.match(r"^#{1,6}\s*(写前取材|取材判断|写前判断|写作计划|章节场景预算)", first):
+        return text
+    for index, line in enumerate(lines[1:], start=1):
+        stripped = line.strip()
+        if _is_chapter_prose_heading(stripped) or re.match(r"^#{1,6}\s*章节正文候选\s*$", stripped):
+            return "\n".join(lines[index:]).strip()
+    return text
+
+
+def _is_chapter_prose_heading(line: str) -> bool:
+    return bool(
+        re.match(
+            r"^#{1,6}\s*第\s*(?:\d{1,5}|[零〇一二三四五六七八九十百千万两]+)\s*章(?:\s*(?:[:：]\s*)?.*)?$",
+            str(line or "").strip(),
+        )
+    )
+
+
+def _extract_markdown_fence_body(content: str) -> str:
+    lines = str(content or "").split("\n")
+    start_index = -1
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*```(?:markdown|md|text)?\s*$", line, flags=re.IGNORECASE):
+            start_index = index + 1
+            break
+    if start_index < 0:
+        return ""
+    end_index = len(lines)
+    for index in range(start_index, len(lines)):
+        if re.match(r"^\s*```\s*$", lines[index]):
+            end_index = index
+            break
+    return "\n".join(lines[start_index:end_index]).strip()
+
+
+def _strip_trailing_fence(content: str) -> str:
+    text = str(content or "").strip()
+    return re.sub(r"\n?\s*```\s*$", "", text).strip()
 
 
 def _render_artifact_template(template: str, values: dict[str, Any]) -> str:
@@ -2015,6 +2180,10 @@ def _quality_failure_soft_passes(
         return False
     allowed_prefixes = ("insufficient_metric:", "insufficient_unit_metric:", "below_target:")
     return all(any(issue.startswith(prefix) for prefix in allowed_prefixes) for issue in issues)
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _graph_node_by_id(graph_config: ExecutableGraphConfig, node_id: str) -> dict[str, Any]:

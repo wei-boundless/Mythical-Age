@@ -519,6 +519,7 @@ class TaskScheduler:
             payload={
                 "recovery_action": action,
                 "start_node_ids": list(payload.get("start_node_ids") or []),
+                "checkpoint_id": str(payload.get("checkpoint_id") or ""),
                 "reset_downstream": bool(payload.get("reset_downstream", False)),
                 "dispatch_ready": bool(payload.get("dispatch_ready", True)),
                 "max_dispatch_requests": int(payload.get("max_dispatch_requests") or 4),
@@ -534,6 +535,7 @@ class TaskScheduler:
             action=action,
             command_id=command.command_id,
             start_node_ids=tuple(str(item).strip() for item in list(payload.get("start_node_ids") or []) if str(item).strip()),
+            checkpoint_id=str(payload.get("checkpoint_id") or ""),
             reset_downstream=bool(payload.get("reset_downstream", False)),
             dispatch_ready=bool(payload.get("dispatch_ready", True)),
             max_dispatch_requests=int(payload.get("max_dispatch_requests") or 4),
