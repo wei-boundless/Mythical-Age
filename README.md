@@ -434,8 +434,8 @@ langchain-agent/
 - **真实运行验证**：涉及运行链路、前后端联调、SSE、监控、Electron 的修改，必须用 CLI 真实启动实测，不靠静态检查。
 ## 前端展示
 <img width="1915" height="918" alt="image" src="https://github.com/user-attachments/assets/fd9bc795-bfcb-414e-83b8-a2c4231ecc31" />
-<img width="1010" height="610" alt="image" src="https://github.com/user-attachments/assets/951480fd-ab85-4003-ac90-e7d5650fd2e3" />
-
+<img width="1020" height="645" alt="image" src="https://github.com/user-attachments/assets/0cd886c9-c739-458c-b22a-4a406f2f5bd5" />
+<img width="640" height="360" alt="pelican-bicycle" src="https://github.com/user-attachments/assets/dd9871e7-084b-4a08-8eae-25a5baae5190" />
 <img width="1911" height="870" alt="image" src="https://github.com/user-attachments/assets/c1cf8f87-64a9-46a8-95c2-a1aaf0c98b2a" />
 <img width="1916" height="868" alt="image" src="https://github.com/user-attachments/assets/e54b2760-dca7-4f36-8c9c-422fa3a580d5" />
 
