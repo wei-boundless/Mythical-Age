@@ -104,8 +104,15 @@ def _public_ledger_record(
     task_run_id: str = "taskrun:turn:session-a:1:abc",
     message_id: str = "history-message:turn:session-a:1:assistant",
 ) -> dict:
+    event_data = dict(data)
+    if (
+        public_event_type == ASSISTANT_TEXT_FINAL_EVENT
+        and event_data.get("content")
+        and not event_data.get("content_sha256")
+    ):
+        event_data["content_sha256"] = f"sha256:test-final:{offset}"
     payload = {
-        **data,
+        **event_data,
         "public_anchor": {
             "session_id": session_id,
             "turn_id": turn_id,
@@ -128,7 +135,7 @@ def _public_ledger_record(
         "created_at": float(offset),
         "public_event_type": public_event_type,
         "terminal": public_event_type == SESSION_OUTPUT_COMMIT_ACK_EVENT,
-        "data": {**data, "public_projection_frame": frame},
+        "data": {**event_data, "public_projection_frame": frame},
         "public_projection_frame": frame,
     }
 
@@ -223,7 +230,7 @@ def test_session_runtime_timeline_closed_task_uses_public_ledger_closeout_surfac
     assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:1"
     assert attachment["projection_anchor"]["anchor_message_id"] == "history-message:turn:session-a:1:assistant"
     slice_ = _projection_slice(attachment)
-    assert slice_["schema_version"] == "chronological_projection"
+    assert slice_["projection_schema_id"] == "chronological_projection"
     assert slice_["event_log_id"] == "chatrun:session-a:1"
     assert slice_["start_offset"] == 1
     assert slice_["end_offset"] == 3
@@ -425,97 +432,6 @@ def test_session_runtime_timeline_replays_public_ledger_agent_todo_as_structured
     assert todo_frame["active_item_id"] == "todo:1"
     assert todo_frame["completion_ready"] is False
     assert [item["content"] for item in todo_frame["todo_items"]] == ["修复任务清单投影", "验证刷新后仍可见"]
-
-
-def test_session_runtime_timeline_keeps_steer_projection_on_steer_turn_not_target_turn() -> None:
-    task_run_id = "taskrun:turn:session-a:1:abc"
-    stream_run_id = "strun:session-a:steer"
-    stream_run = SimpleNamespace(
-        stream_run_id=stream_run_id,
-        session_id="session-a",
-        event_log_id="chatrun:session-a:steer",
-        status="completed",
-        diagnostics={
-            "active_turn_input_policy": "steer",
-            "expected_active_turn_id": "turn:session-a:1",
-            "active_turn_id": "turn:session-a:1",
-            "runtime_turn_run_id": "turnrun:turn:session-a:2",
-            "runtime_task_run_id": task_run_id,
-        },
-        created_at=3.0,
-        updated_at=4.0,
-    )
-    frame = {
-        "authority": "harness.public_projection",
-        "frame_id": "frame:steer:accepted",
-        "projection_id": "frame:steer:accepted",
-        "source_event_type": "active_task_steer_accepted",
-        "sequence": 1,
-        "event_offset": 1,
-        "event_family": "status",
-        "channel": "status",
-        "lossless": True,
-        "anchor": {
-            "session_id": "session-a",
-            "stream_run_id": stream_run_id,
-            "run_id": stream_run_id,
-            "task_run_id": task_run_id,
-        },
-        "op": "item_upsert",
-        "slot": "status",
-        "source_authority": "runtime",
-        "main_visibility": "visible_live",
-        "retention": "transient",
-        "status_kind": "status_event",
-        "item_id": "active-task-steer:accepted",
-        "title": "补充要求已接入当前任务",
-        "text": "请优先修正 steer 投影归属。",
-        "state": "done",
-    }
-    runtime_host = _runtime_host(
-        task_runs=[],
-        events_by_run={},
-        stream_runs=[stream_run],
-        public_events_by_stream_run={
-            stream_run_id: [
-                {
-                    "stream_run_id": stream_run_id,
-                    "event_log_id": "chatrun:session-a:steer",
-                    "event_id": "event:steer:accepted",
-                    "event_offset": 1,
-                    "created_at": 4.0,
-                    "public_event_type": "active_task_steer_accepted",
-                    "terminal": False,
-                    "data": {"public_projection_frame": frame},
-                    "public_projection_frame": frame,
-                }
-            ],
-        },
-    )
-
-    timeline = build_session_runtime_timeline(
-        session_id="session-a",
-        history={
-            "messages": [
-                {"id": "user:turn:1", "role": "user", "content": "开始任务", "turn_id": "turn:session-a:1"},
-                {"id": "assistant:turn:1", "role": "assistant", "content": "我会启动任务。", "turn_id": "turn:session-a:1"},
-                {"id": "user:turn:2", "role": "user", "content": "补充：先修 steer", "turn_id": "turn:session-a:2"},
-                {"id": "assistant:turn:2", "role": "assistant", "content": "已收到补充要求。", "turn_id": "turn:session-a:2"},
-            ]
-        },
-        runtime_host=runtime_host,
-    )
-
-    attachment = timeline["runtime_attachments"][0]
-    frames = _projection_frames(attachment)
-
-    assert attachment["projection_anchor"]["anchor_turn_id"] == "turn:session-a:2"
-    assert attachment["projection_anchor"]["anchor_message_id"] == "assistant:turn:2"
-    assert attachment["projection_anchor"]["task_run_id"] == task_run_id
-    assert frames[0]["anchor"]["turn_id"] == "turn:session-a:2"
-    assert frames[0]["anchor"]["message_id"] == "assistant:turn:2"
-    assert _projection_slice(attachment)["projection_key"]["turn_id"] == "turn:session-a:2"
-    assert _projection_slice(attachment)["projection_key"]["message_id"] == "assistant:turn:2"
 
 
 def test_session_runtime_projection_filters_body_only_history_and_bounds_frames() -> None:

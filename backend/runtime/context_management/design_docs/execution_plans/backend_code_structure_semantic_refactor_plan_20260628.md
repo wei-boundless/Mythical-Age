@@ -131,7 +131,7 @@ backend/runtime/
   memory/                  # runtime memory stores and file evidence stores
 
 backend/capability_system/ # capability registry/supply facts: tools, MCP, skills
-backend/memory_system/     # long-term/session memory supply facts
+backend/memory_system/     # long-term/conversation continuity summary supply facts
 ```
 
 新增 `harness.runtime.context_contract` 的目的不是拆大文件，而是把“每段上下文应该如何被 agent / runtime / provider 使用”做成可检查契约：

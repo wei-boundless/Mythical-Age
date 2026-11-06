@@ -35,8 +35,8 @@ def build_execution_recipe(
         source_kind=str(execution_shape.source_kind or profile.get("source_kind") or ""),
         input_schema=dict(profile.get("input_schema") or {}),
         output_schema=dict(profile.get("output_schema") or {"final_answer": {"type": "string", "required": True}}),
-        default_agent_id=str(profile.get("default_agent_id") or "agent:0"),
-        allowed_agent_ids=tuple(str(item) for item in tuple(profile.get("allowed_agent_ids") or ("agent:0",))),
+        default_agent_id=str(profile.get("default_agent_id") or ""),
+        allowed_agent_ids=tuple(str(item) for item in tuple(profile.get("allowed_agent_ids") or ()) if str(item)),
         required_capability_tags=tuple(str(item) for item in tuple(profile.get("required_capability_tags") or ())),
         required_operations=tuple(str(item) for item in tuple(profile.get("required_operations") or ("op.model_response",))),
         optional_operations=tuple(str(item) for item in tuple(profile.get("optional_operations") or ())),
@@ -287,7 +287,8 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             ),
             "metadata": {
                 "execution_strategy": "direct_tool_preferred",
-                "primary_tool_name": "web_search",
+                "primary_tool_name": "web",
+                "primary_tool_action": "search",
                 "primary_operation_ref": "op.web_search",
             },
         }
@@ -329,13 +330,13 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             "source_kind": execution_shape.source_kind or "workspace",
             "required_operations": ("op.model_response",),
             "optional_operations": (
-                "op.read_file",
-                "op.list_dir",
-                "op.stat_path",
-                "op.path_exists",
-                "op.glob_paths",
-                "op.search_files",
-                "op.search_text",
+                "op.workspace_read",
+                "op.workspace_read",
+                "op.workspace_read",
+                "op.workspace_read",
+                "op.workspace_search",
+                "op.workspace_search",
+                "op.workspace_search",
                 "op.web_search",
                 "op.fetch_url",
             ),
@@ -352,8 +353,8 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             "task_mode": "light_web_game" if is_game else "bounded_patch",
             "source_kind": "workspace",
             "output_schema": {"final_answer": {"type": "string", "required": True}, "artifact_refs": {"type": "array", "required": False}},
-            "required_operations": ("op.model_response", "op.write_file", "op.edit_file") if is_game else ("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
-            "optional_operations": ("op.read_file", "op.search_files") if is_game else ("op.search_files", "op.git_diff"),
+            "required_operations": ("op.model_response", "op.workspace_write", "op.workspace_edit") if is_game else ("op.model_response", "op.workspace_read", "op.workspace_search", "op.workspace_write", "op.workspace_edit"),
+            "optional_operations": ("op.workspace_read", "op.workspace_search") if is_game else ("op.workspace_search", "op.git_read"),
             "step_blueprints": (
                 _step("scope_work", "Scope work", "understand"),
                 _step("inspect_or_design", "Inspect or design", "analyze"),
@@ -466,9 +467,9 @@ def _agent_runtime_operations(
     values = [str(item).strip() for item in list(semantic_contract.get("optional_operations") or []) if str(item).strip()]
     actions = {str(item).strip() for item in list(semantic_contract.get("required_actions") or []) if str(item).strip()}
     if list(execution_obligation.get("required_reads") or []) or actions.intersection({"read_material", "inspect_code"}):
-        values.extend(["op.read_file", "op.search_text", "op.search_files"])
+        values.extend(["op.workspace_read", "op.workspace_search", "op.workspace_search"])
     if list(execution_obligation.get("required_writes") or []) or actions.intersection({"apply_real_change", "integrate_asset"}):
-        values.extend(["op.write_file", "op.edit_file"])
+        values.extend(["op.workspace_write", "op.workspace_edit"])
     if list(execution_obligation.get("required_commands") or []) or "run_browser_verification" in actions:
         values.append("op.shell")
     if "run_browser_verification" in actions:

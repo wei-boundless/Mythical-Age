@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from capability_system.capabilities.retrieval.cleaner import ParsedContentCleaner
+from capability_system.capabilities.document_processing.content_cleaner import ParsedContentCleaner
 from capability_system.capabilities.document_processing.pdf.agent.models import (
     PDFCanonicalEvidence,
     PDFCanonicalResult,

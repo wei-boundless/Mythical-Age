@@ -92,6 +92,286 @@ export type SessionScope = {
   project_id?: string;
 };
 
+export type ProviderCacheLogRecord = {
+  bus_record_id: string;
+  request_id: string;
+  run_id: string;
+  task_run_id: string;
+  session_id: string;
+  provider: string;
+  model: string;
+  provider_lane: string;
+  cache_status: string;
+  physical_cache_spine_status: string;
+  prompt_tokens: number;
+  cached_tokens: number;
+  miss_tokens: number;
+  hit_rate: number;
+  expected_cacheable_tokens?: number;
+  physical_cache_spine_hash?: string;
+  transport_contract_hash?: string;
+  physical_cache_spine_provider_scaled_tokens?: number;
+  physical_cache_spine_segment_kinds?: string[];
+  physical_cache_spine_context_contract_node_refs?: string[];
+  physical_cache_spine_context_contract_edge_refs?: string[];
+  physical_cache_spine_agent_domains?: string[];
+  physical_cache_spine_connection_contract_refs?: string[];
+  physical_cache_spine_control_signals?: string[];
+  provider_under_read_tokens: number;
+  current_context_append_tokens?: number;
+  volatile_tokens?: number;
+  current_turn_tail_tokens?: number;
+  never_replay_tail_tokens?: number;
+  unconfirmed_provider_replay_tokens?: number;
+  non_cache_payload_breakdown_available?: boolean;
+  tool_schema_blocker_tokens?: number;
+  non_spine_prompt_tokens?: number;
+  first_mismatch_segment?: Record<string, unknown>;
+  provider_prefix_cache_health?: Record<string, unknown>;
+  created_at: number;
+};
+
+export type ProviderCacheLog = {
+  authority: string;
+  source: string;
+  run_id?: string;
+  task_run_id?: string;
+  session_id: string;
+  summary: {
+    record_count: number;
+    prompt_tokens: number;
+    cached_tokens: number;
+    miss_tokens: number;
+    hit_rate: number;
+    latest_status?: string;
+    latest_prefix_health?: Record<string, unknown>;
+    latest_under_read_tokens?: number;
+    latest_volatile_tokens?: number;
+    latest_current_context_append_tokens?: number;
+    latest_current_turn_tail_tokens?: number;
+    latest_never_replay_tail_tokens?: number;
+    latest_unconfirmed_provider_replay_tokens?: number;
+    latest_non_cache_payload_breakdown_available?: boolean;
+    warm_provider_under_read_tokens?: number;
+    cold_start_under_read_tokens?: number;
+    history_under_read_tokens?: number;
+    current_prefix_covered?: boolean;
+    current_cache_spine_hash?: string;
+    current_transport_contract_hash?: string;
+    current_context_contract_node_refs?: string[];
+    current_context_contract_edge_refs?: string[];
+    current_agent_domains?: string[];
+    current_connection_contract_refs?: string[];
+    provider_under_read_count: number;
+    local_physical_mismatch_count: number;
+    cold_start_count: number;
+    hit_count: number;
+    status_counts: Record<string, number>;
+  };
+  records: ProviderCacheLogRecord[];
+  updated_at: number;
+};
+
+export type RuntimeTopologyNodeKind =
+  | "domain"
+  | "contract"
+  | "physical"
+  | "transport"
+  | "ledger"
+  | "memory"
+  | "diagnostic"
+  | string;
+
+export type RuntimeTopologyEdgeStatus = "connected" | "weak" | "planned" | "missing_status" | "disconnected" | "broken" | string;
+
+export type RuntimeTopologyNode = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  kind: RuntimeTopologyNodeKind;
+  branch?: string;
+  module_path?: string;
+  file?: string;
+  time_scope?: string;
+  timeScope?: string;
+  agent_domain?: string;
+  domain?: string;
+  agent_role?: string;
+  control_layer?: string;
+  authority?: string;
+  summary?: string;
+  owned_signals?: string[];
+  state_read_policy?: string;
+  state_write_policy?: string;
+  physical_lane_policy?: string;
+  status?: string;
+  x?: number;
+  y?: number;
+  [key: string]: unknown;
+};
+
+export type RuntimeTopologyEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  edge_kind?: string;
+  signal?: string;
+  control_signal?: string;
+  status: RuntimeTopologyEdgeStatus;
+  payload_schema?: string;
+  payload?: string;
+  payload_identity?: string;
+  authority?: string;
+  connection_contract_ref?: string;
+  physical_lane?: string;
+  producer_ref?: string;
+  consumer_ref?: string;
+  lifecycle?: string;
+  cache_expectation?: string;
+  state_read_policy?: string;
+  state_write_policy?: string;
+  failure_route?: string;
+  failureRoute?: string;
+  terminal_behavior?: string;
+  forbidden_route?: string;
+  forbiddenRoute?: string;
+  diagnostics_key?: string;
+  [key: string]: unknown;
+};
+
+export type RuntimeTopologyBranch = {
+  id: string;
+  label: string;
+};
+
+export type RuntimeTopologyDiagnosticIssueLink = {
+  issue_id: string;
+  code: string;
+  severity?: string;
+  message?: string;
+  subject?: string;
+  subject_type?: string;
+  affected_edge_id?: string;
+  affected_node_id?: string;
+  affected_line_id?: string;
+  affected_action_type?: string;
+  affected_contract_id?: string;
+  line_inventory_ref?: string;
+  governance_ref?: string;
+  line_domain?: string;
+  broken_segment?: string;
+  authority?: string;
+  details?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type RuntimeTopologyDiagnostics = {
+  issue_count?: number;
+  issues?: Array<Record<string, unknown>>;
+  diagnostic_issue_links?: RuntimeTopologyDiagnosticIssueLink[];
+  diagnostic_issue_link_count?: number;
+  line_governance?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type AgentControlNetworkPayload = {
+  schema: string;
+  authority: string;
+  generated_at?: number;
+  scope?: {
+    session_id?: string;
+    runtime_available?: boolean;
+    runtime_host_available?: boolean;
+    runtime_host_instance_id?: string;
+    read_only?: boolean;
+    [key: string]: unknown;
+  };
+  summary?: {
+    node_count?: number;
+    edge_count?: number;
+    connected_edge_count?: number;
+    runtime_authority?: string;
+    projection_kind?: string;
+    [key: string]: unknown;
+  };
+  branches?: RuntimeTopologyBranch[];
+  domains?: Array<Record<string, unknown>>;
+  nodes: RuntimeTopologyNode[];
+  edges: RuntimeTopologyEdge[];
+  diagnostics?: RuntimeTopologyDiagnostics;
+  runtime_evidence?: {
+    available?: boolean;
+    reason?: string;
+    session_id?: string;
+    turn_memory?: Record<string, unknown>;
+    provider_cache_log?: ProviderCacheLog | Record<string, unknown>;
+    context_recovery_package?: Record<string, unknown>;
+    cache_diagnostics?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+};
+
+export type SessionTokensPayload = {
+  system_tokens: number;
+  message_tokens: number;
+  total_tokens: number;
+  context_meter?: {
+    current_context_tokens?: number;
+    current_context_ratio?: number;
+    compaction_pressure_tokens?: number;
+    context_window_tokens?: number;
+    input_capacity_tokens?: number;
+    replacement_threshold_tokens?: number;
+    compaction_pressure_ratio?: number;
+    compaction_remaining_tokens?: number;
+    compaction_remaining_ratio?: number;
+    pressure_level?: string;
+  };
+  context_recovery_package?: {
+    present?: boolean;
+    fresh?: boolean;
+    source?: string;
+    package_schema_id?: string;
+    covered_message_count?: number;
+    covered_event_run_id?: string;
+    covered_event_offset_end?: number | null;
+    summary_hash?: string;
+    source_summary_hash?: string;
+    freshness_status?: string;
+    stale_reason?: string;
+  };
+  compaction_readiness?: {
+    pressure_level?: string;
+    auto_replacement_allowed?: boolean;
+    replacement_threshold_tokens?: number;
+    warning_threshold_tokens?: number;
+    ready_threshold_tokens?: number;
+    current_context_tokens?: number;
+    compaction_pressure_tokens?: number;
+    blocked_reason?: string;
+    context_recovery_package_present?: boolean;
+    context_recovery_package_fresh?: boolean;
+    context_recovery_package_source?: string;
+  };
+  provider_cache_log?: ProviderCacheLog;
+  provider_protocol_timeline_tokens?: number;
+  provider_protocol_timeline_message_count?: number;
+  compression_saved_tokens?: number;
+  compression_ratio?: number;
+  raw_history_tokens: number;
+  history_tokens: number;
+  history_budget_tokens: number;
+  history_remaining_tokens: number;
+  history_usage_ratio: number;
+  history_remaining_ratio: number;
+  history_pressure_level: string;
+  history_compaction_strategy: string;
+  history_did_compact: boolean;
+  history_did_microcompact: boolean;
+  history_did_full_compact: boolean;
+};
+
 export type WorkbenchSessionRef = {
   authority?: string;
   session_id?: string;
@@ -235,6 +515,13 @@ export type PublicChatTimelineItem = {
   tool_name?: string;
   permission_decision_id?: string;
   arguments_preview?: string;
+  polling?: {
+    mode?: string;
+    poll_id?: string;
+    interval_ms?: number;
+    timeout_ms?: number;
+    success_condition?: string;
+  };
   target?: string;
   phase?: "running" | "done" | "adjusting" | string;
   phase_ref?: string;
@@ -315,6 +602,10 @@ export type PublicProjectionFrame = {
   retention: "transient" | "final" | "pinned_until_resolved" | "trace" | string;
   pin_reason?: string;
   item_id?: string;
+  body_ref?: string;
+  message_ref?: string;
+  content_sha256?: string;
+  content_utf8_bytes?: number;
   title?: string;
   text?: string;
   detail?: string;
@@ -335,10 +626,19 @@ export type PublicProjectionFrame = {
   action_kind?: string;
   subject_label?: string;
   arguments_preview?: string;
+  polling?: {
+    mode?: string;
+    poll_id?: string;
+    interval_ms?: number;
+    timeout_ms?: number;
+    success_condition?: string;
+  };
   target?: string;
   collapsed?: boolean;
+  duration_ms?: number;
   trace_refs?: string[];
   artifact_refs?: Array<Record<string, unknown>>;
+  content_window?: PublicToolContentWindow;
   commit?: {
     state: "checked" | "committed" | "failed" | "skipped" | string;
     commit_event_offset?: number;
@@ -346,6 +646,29 @@ export type PublicProjectionFrame = {
     content_sha256?: string;
   };
   diagnostics?: Record<string, unknown>;
+};
+
+export type PublicToolContentWindow = {
+  authority?: string;
+  content_available?: boolean;
+  kind?: "read_file" | string;
+  path?: string;
+  status?: string;
+  text?: string;
+  start_line?: number;
+  end_line?: number;
+  returned_lines?: number;
+  line_count?: number;
+  total_lines?: number;
+  has_more?: boolean;
+  next_start_line?: number;
+  truncated?: boolean;
+  preview_lines?: number;
+  preview_truncated?: boolean;
+  content_sha256?: string;
+  exact_artifact_ref?: string;
+  reused_observation_ref?: string;
+  reusable_result_ref?: string;
 };
 
 export type PublicChatTimelineDelta = {
@@ -416,7 +739,7 @@ export type SessionRuntimeAttachment = {
 
 export type ProjectionSlice = {
   slice_id: string;
-  schema_version: "chronological_projection" | string;
+  projection_schema_id: "chronological_projection" | string;
   event_log_id: string;
   start_offset: number;
   end_offset: number;
@@ -1498,6 +1821,105 @@ export type TaskEnvironmentUpsertPayload = {
   lifecycle_policy?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
+
+export type TaskWorkEnvironmentListItem = {
+  task_environment?: Record<string, unknown>;
+  task_instance?: Record<string, unknown>;
+  graph_node_binding?: Record<string, unknown>;
+  task_fact_summary?: Record<string, unknown>;
+  activity_state?: Record<string, unknown>;
+  recovery_hint?: Record<string, unknown>;
+  control_capabilities?: Record<string, unknown>;
+  graph_runtime_projection?: Record<string, unknown>;
+};
+
+export type TaskWorkEnvironmentListResponse = {
+  authority: string;
+  task_environments: TaskWorkEnvironmentListItem[];
+  summary: Record<string, unknown>;
+};
+
+export type TaskCommandRecord = {
+  command_id: string;
+  command_kind: string;
+  requested_by: string;
+  idempotency_key: string;
+  task_environment_id?: string;
+  status?: string;
+  payload?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: Record<string, unknown>;
+  attempt_count?: number;
+  lease_ref?: string;
+  dispatch_ref?: string;
+  created_at?: number;
+  updated_at?: number;
+  authority?: string;
+};
+
+export type TaskDispatchRecord = {
+  dispatch_id: string;
+  command_id: string;
+  status: string;
+  task_environment_id?: string;
+  episode_id?: string;
+  runtime_anchor_id?: string;
+  graph_run_id?: string;
+  work_order_id?: string;
+  result?: Record<string, unknown>;
+  error?: Record<string, unknown>;
+  started_at?: number;
+  finished_at?: number;
+  authority?: string;
+};
+
+export type TaskWorkEnvironmentDetailResponse = {
+  authority: string;
+  task_environment: Record<string, unknown>;
+  task_instance?: Record<string, unknown>;
+  graph_node_binding?: Record<string, unknown>;
+  episodes?: Array<Record<string, unknown>>;
+  episode_results?: Array<Record<string, unknown>>;
+  latest_context_package?: Record<string, unknown>;
+  context_packages?: Array<Record<string, unknown>>;
+  work_products?: Array<Record<string, unknown>>;
+  task_plans?: Array<Record<string, unknown>>;
+  todo_items?: Array<Record<string, unknown>>;
+  state_proposals?: Array<Record<string, unknown>>;
+  checkpoints?: Array<Record<string, unknown>>;
+  control_signals?: Array<Record<string, unknown>>;
+  task_commands?: TaskCommandRecord[];
+  task_dispatch_records?: TaskDispatchRecord[];
+  leases?: Array<Record<string, unknown>>;
+  events?: Array<Record<string, unknown>>;
+  activity_state?: Record<string, unknown>;
+  recovery_hint?: Record<string, unknown>;
+  control_capabilities?: Record<string, unknown>;
+  graph_runtime_projection?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+};
+
+export type TaskEnvironmentCommandListResponse = {
+  authority: string;
+  task_environment_id: string;
+  commands: TaskCommandRecord[];
+  dispatch_records: TaskDispatchRecord[];
+  summary: Record<string, unknown>;
+};
+
+export type TaskEnvironmentCommandSubmitPayload = {
+  command_kind: string;
+  requested_by?: string;
+  payload?: Record<string, unknown>;
+  idempotency_key?: string;
+  dispatch_now?: boolean;
+};
+
+export type TaskEnvironmentCommandSubmitResponse = {
+  authority: string;
+  submission?: Record<string, unknown>;
+  dispatch?: Record<string, unknown>;
+};
 export type TaskAssignmentUpsertPayload = {
   task_id: string;
   task_title: string;
@@ -1883,6 +2305,8 @@ export type AgentSystemAgentRuntimeProfile = {
   trace_policy: string;
   lifecycle_policy: string;
   model_profile?: AgentSystemAgentModelProfile;
+  prompt_set_refs?: string[];
+  prompt_bindings?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
 
@@ -2055,7 +2479,7 @@ export type HealthRiskEvent = {
 export type HealthTaskRecord = {
   task_run_id: string;
   session_id: string;
-  task_contract_ref: string;
+  task_run_contract_ref: string;
   title: string;
   task_id: string;
   agent_id: string;
@@ -2238,9 +2662,18 @@ export type ModelProviderConfig = {
   fallback_base_url: string;
   fallback_credential_ref?: string;
   fallback_api_key_configured: boolean;
+  registered_models?: RegisteredModel[];
   supported_providers: Record<string, ModelProviderOption>;
   provider_catalog?: ModelProviderCatalog;
   authority: string;
+};
+
+export type RegisteredModel = {
+  provider: string;
+  model: string;
+  base_url: string;
+  credential_ref?: string;
+  active?: boolean;
 };
 
 export type ImageAssetConfig = {
@@ -2562,6 +2995,8 @@ export type HarnessSessionTaskRuns = {
 export type RunMonitorSignal = {
   authority: string;
   signal_id: string;
+  runtime_anchor_id?: string;
+  runtime_anchor?: Record<string, unknown>;
   source_kind: "task_run" | "turn_run" | "runtime_run" | "graph_run" | "diagnostic" | string;
   work_kind: "chat_turn" | "agent_task" | "graph_task" | string;
   state: "active" | "waiting" | "attention" | "completed" | "failed" | "stale" | string;
@@ -2600,6 +3035,10 @@ export type RunMonitorSignal = {
   };
   session_id: string;
   task_run_id: string;
+  turn_run_id?: string;
+  stream_run_id?: string;
+  active_turn_id?: string;
+  monitor_item_id?: string;
   task_instance_id: string;
   graph_run_id: string;
   graph_id: string;
@@ -2683,6 +3122,7 @@ export type RunMonitorEnvelope = {
 export type RunMonitorActionPayload = {
   action: string;
   signal_id?: string;
+  runtime_anchor_id?: string;
   task_run_id?: string;
   graph_run_id?: string;
   reason?: string;
@@ -2761,6 +3201,10 @@ export type HarnessTaskRunLiveMonitor = {
   scope?: string;
   task_run: Record<string, unknown>;
   task_run_id?: string;
+  turn_run_id?: string;
+  stream_run_id?: string;
+  active_turn_id?: string;
+  source_kind?: "task_run" | "turn_run" | string;
   task_instance_id?: string;
   root_task_run_id?: string;
   kind?: "agent_run" | "task_graph" | string;
@@ -2809,6 +3253,14 @@ export type HarnessTaskRunLiveMonitor = {
   status: string;
   terminal_reason: string;
   updated_at: number;
+};
+
+export type HarnessTurnRunLiveMonitor = HarnessTaskRunLiveMonitor & {
+  scope?: "turn_run" | string;
+  source_kind?: "turn_run" | string;
+  turn_run_id?: string;
+  stream_run_id?: string;
+  active_turn_id?: string;
 };
 
 export type RuntimeApprovalResolution = {
@@ -2887,10 +3339,13 @@ export type HarnessSessionLiveMonitor = {
   authority: string;
   session_id: string;
   active_task_run_id?: string;
+  active_turn_id?: string;
+  active_turn_run_id?: string;
+  active_stream_run_id?: string;
   active_turn_snapshot?: {
     turn_id?: string;
     turn_run_id?: string;
-    bound_task_run_id?: string;
+    stream_run_id?: string;
     task_run_id?: string;
     state?: string;
     updated_at?: number;
@@ -2921,6 +3376,9 @@ export type SessionTruncateResponse = {
 export type TaskGraphRunStartResult = {
   authority: string;
   graph_id: string;
+  graph_task_instance_id: string;
+  graph_task_instance?: GraphTaskInstanceSummary;
+  graph_task_instance_created?: boolean;
   graph_run_id: string;
   graph_config_id: string;
   launch_session_id: string;
@@ -3209,6 +3667,23 @@ export type GraphRunDispatchReadyResult = {
   events: Array<Record<string, unknown>>;
 };
 
+export type GraphRunRequeueNodesResult = {
+  authority: string;
+  graph_run_id: string;
+  graph_config_id: string;
+  graph_structure_hash: string;
+  graph_loop_state: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  events: Array<Record<string, unknown>>;
+};
+
+export type GraphRunCheckpointsResult = {
+  authority: string;
+  graph_run_id: string;
+  checkpoint_count: number;
+  checkpoints: Array<Record<string, unknown>>;
+};
+
 export type GraphRunUntilIdleResult = {
   authority: string;
   graph_run_id: string;
@@ -3247,6 +3722,8 @@ export type GraphRunControlResult = {
   action: "pause" | "resume" | string;
   reason: string;
   graph_run_id: string;
+  graph_task_instance_id?: string;
+  graph_task_instance?: GraphTaskInstanceSummary;
   task_run_id: string;
   graph_run: Record<string, unknown>;
   task_run: Record<string, unknown>;
@@ -3723,7 +4200,7 @@ export type ExperimentTurnMemoryTrace = {
     dropped_sections: string[];
     token_accounting: Record<string, number>;
   };
-  session_memory: {
+  conversation_continuity: {
     section_count: number;
     model_sections: MemoryTraceSection[];
     debug_sections: MemoryTraceSection[];
@@ -3777,7 +4254,7 @@ export type MemoryHeader = {
   summary: string;
 };
 
-export type MemorySessionInspect = {
+export type ConversationContinuityInspect = {
   present: boolean;
   preview: string;
   model_preview: string;
@@ -3793,7 +4270,7 @@ export type MemorySessionInspect = {
   durable_matches: Record<string, unknown>;
 };
 
-export type MemorySessionFile = {
+export type ConversationContinuityFile = {
   id: string;
   label: string;
   description: string;
@@ -3805,13 +4282,13 @@ export type MemorySessionFile = {
   preview: string;
 };
 
-export type MemorySessionFilesResponse = {
+export type ConversationContinuityFilesResponse = {
   session_id: string;
   root: string;
   present: boolean;
   existing_count: number;
   missing_count: number;
-  files: MemorySessionFile[];
+  files: ConversationContinuityFile[];
 };
 
 export type FormalMemoryRepository = {
@@ -3953,7 +4430,7 @@ export type MemoryOverview = {
     headers: MemoryHeader[];
     maintenance_runtime: Record<string, unknown>;
   };
-  session_memory: MemorySessionInspect | null;
+  conversation_continuity: ConversationContinuityInspect | null;
 };
 
 export type ProjectInstructionSource = {
@@ -4042,7 +4519,7 @@ export type MemoryRecallPreview = {
     eligible_for_injection: boolean;
   }>;
   rendered_summary: string;
-  context_result: MemorySessionInspect | null;
+  context_result: ConversationContinuityInspect | null;
 };
 
 export type MemoryGovernanceResponse = {
@@ -4073,8 +4550,8 @@ export type StreamHandlers = {
 };
 
 export type StreamResult = {
-  terminalEvent: "turn_completed";
-  terminalStatus: "completed" | "failed" | "stopped" | string;
+  terminalEvent: "turn_completed" | "recoverable_interruption";
+  terminalStatus: "completed" | "failed" | "stopped" | "recoverable_interruption" | string;
   streamRunId: string;
   eventLogId: string;
   lastEventOffset: number;
@@ -4089,7 +4566,11 @@ export type ChatRun = {
   diagnostics?: Record<string, unknown>;
   latest_event_offset: number;
   chat_run_execution_attached?: boolean;
-  is_reconnectable?: boolean;
+  live_reconnectable?: boolean;
+  replay_available?: boolean;
+  recoverable_interruption?: boolean;
+  continuation_available?: boolean;
+  continuation_ref?: Record<string, unknown>;
   terminal_event?: string;
   replay_url: string;
   live_ws_url: string;
@@ -4097,35 +4578,13 @@ export type ChatRun = {
 
 export type LatestChatRunResult = ChatRun | null;
 
-export type SessionContinuationRecord = {
-  continuation_id?: string;
-  session_id?: string;
-  task_run_id?: string;
-  state?: string;
-  resume_allowed?: boolean;
-  resume_strategy?: string;
-  context_resume_available?: boolean;
-  context_resume_source?: string;
-  same_run_executable?: boolean;
-  recovery_cause?: string;
-  task_status?: string;
-  executor_status?: string;
-  control_state?: string;
-  user_visible_goal?: string;
-  latest_progress?: string;
-  event_cursor?: number;
-  updated_at?: number;
-  authority?: string;
-  [key: string]: unknown;
-};
-
 export type SessionContinuationProjection = {
   session_id: string;
   available: boolean;
-  record?: SessionContinuationRecord;
-  interrupted_turn?: Record<string, unknown>;
   context_recovery_status?: Record<string, unknown>;
   reason?: string;
+  task_continuation_authority?: string;
+  legacy_task_run_selector?: string;
   authority?: string;
 };
 
@@ -4133,7 +4592,6 @@ export type ChatRunInterruptPayload = {
   mode?: "interrupt_for_resume" | "hard_stop" | string;
   reason?: string;
   expected_active_turn_id?: string;
-  expected_task_run_id?: string;
   cascade_subagents?: "interrupt_for_resume" | "hard_stop" | "leave_running" | string;
 };
 
@@ -4186,4 +4644,3 @@ export type AgentSystemSubagentPolicy = {
   result_policy: string;
   allow_nested_subagents: boolean;
 };
-

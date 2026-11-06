@@ -1,0 +1,70 @@
+{
+  "name": "mythical-age",
+  "productName": "MythicalAge",
+  "version": "0.1.0",
+  "description": "Mythical Age · 洪荒智能 — 桌面客户端",
+  "main": "main.cjs",
+  "private": true,
+  "author": "Mythical Age",
+  "scripts": {
+    "start": "electron ."
+  },
+  "build": {
+    "appId": "com.mythicalage.desktop",
+    "productName": "MythicalAge",
+    "directories": {
+      "app": ".",
+      "output": "D:/mythical-age/Mythical-Age--/dist/desktop",
+      "buildResources": "D:/mythical-age/Mythical-Age--/desktop"
+    },
+    "electronDist": "D:/mythical-age/Mythical-Age--/frontend/node_modules/electron/dist",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "D:/mythical-age/Mythical-Age--/dist/backend/mythical-backend.exe",
+        "to": "backend/mythical-backend.exe"
+      },
+      {
+        "from": "D:/mythical-age/Mythical-Age--/dist/frontend",
+        "to": "frontend"
+      },
+      {
+        "from": "C:/Users/11707/.workbuddy/binaries/node/versions/22.22.2-3/node.exe",
+        "to": "runtime/node.exe"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "include": "installer.nsh",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "warningsAsErrors": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "shortcutName": "Mythical Age",
+      "artifactName": "MythicalAge-Setup-PreserveData-${version}-force-close.exe"
+    },
+    "compression": "normal"
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "^24.13.3"
+  }
+}

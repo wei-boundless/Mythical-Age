@@ -50,6 +50,39 @@ async def stream_task_run_log_events(
     )
 
 
+@router.get("/runtime/logs/runtime-anchors/{runtime_anchor_id}/events")
+async def stream_runtime_anchor_log_events(
+    runtime_anchor_id: str,
+    request: Request,
+    after_offset: int | None = Query(default=None),
+    limit: int = Query(default=240, ge=1, le=1000),
+    include_payloads: bool = False,
+    include_model_messages: bool = False,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+):
+    runtime = require_runtime()
+    host = runtime.harness_runtime.single_agent_runtime_host
+    public_run_id = str(runtime_anchor_id or "").strip()
+    event_scope_run_id = _legacy_task_run_id_for_runtime_anchor(host, public_run_id)
+    effective_after_offset = _resolve_runtime_log_after_offset(
+        "runtime_anchor",
+        public_run_id,
+        after_offset=after_offset,
+        last_event_id=last_event_id,
+    )
+    return _runtime_log_streaming_response(
+        host,
+        request=request,
+        scope="runtime_anchor",
+        run_id=public_run_id,
+        event_scope_run_id=event_scope_run_id,
+        after_offset=effective_after_offset,
+        limit=limit,
+        include_payloads=include_payloads,
+        include_model_messages=include_model_messages,
+    )
+
+
 @router.get("/runtime/logs/turn-runs/{turn_run_id}/events")
 async def stream_turn_run_log_events(
     turn_run_id: str,
@@ -89,6 +122,7 @@ def _runtime_log_streaming_response(
     request: Request,
     scope: str,
     run_id: str,
+    event_scope_run_id: str | None = None,
     after_offset: int,
     limit: int,
     include_payloads: bool,
@@ -100,6 +134,7 @@ def _runtime_log_streaming_response(
             request=request,
             scope=scope,
             run_id=run_id,
+            event_scope_run_id=event_scope_run_id or run_id,
             after_offset=after_offset,
             limit=limit,
             include_payloads=include_payloads,
@@ -120,18 +155,19 @@ async def _stream_runtime_log_events(
     request: Request,
     scope: str,
     run_id: str,
+    event_scope_run_id: str,
     after_offset: int,
     limit: int,
     include_payloads: bool,
     include_model_messages: bool,
 ):
-    subscription = host.event_log.subscribe(run_id=run_id, max_queue_size=max(100, int(limit or 240)))
+    subscription = host.event_log.subscribe(run_id=event_scope_run_id, max_queue_size=max(100, int(limit or 240)))
     latest_offset = int(after_offset)
     try:
         yield "retry: 1500\n\n"
         replay_events = _runtime_log_events_after(
             host,
-            run_id,
+            event_scope_run_id,
             after_offset=latest_offset,
             limit=limit,
             include_payloads=include_payloads,
@@ -166,7 +202,7 @@ async def _stream_runtime_log_events(
             if event.offset > latest_offset + 1:
                 catchup_events = _runtime_log_events_after(
                     host,
-                    run_id,
+                    event_scope_run_id,
                     after_offset=latest_offset,
                     limit=max(int(limit or 240), event.offset - latest_offset),
                     include_payloads=include_payloads,
@@ -208,6 +244,29 @@ async def _stream_runtime_log_events(
             )
     finally:
         host.event_log.unsubscribe(subscription)
+
+
+def _legacy_task_run_id_for_runtime_anchor(host: Any, runtime_anchor_id: str) -> str:
+    normalized = str(runtime_anchor_id or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="runtime_anchor_id is required")
+    getter = getattr(getattr(host, "state_index", None), "get_runtime_anchor", None)
+    if not callable(getter):
+        raise HTTPException(status_code=404, detail="RuntimeAnchor not found")
+    try:
+        anchor = getter(normalized)
+    except Exception:
+        anchor = None
+    if anchor is None:
+        raise HTTPException(status_code=404, detail="RuntimeAnchor not found")
+    payload = anchor.to_dict() if hasattr(anchor, "to_dict") else dict(anchor)
+    legacy_task_run_id = str(payload.get("legacy_task_run_id") or "").strip()
+    if not legacy_task_run_id:
+        event_scope_ref = str(payload.get("event_scope_ref") or "").strip()
+        legacy_task_run_id = event_scope_ref.removeprefix("task_run:").strip() if event_scope_ref.startswith("task_run:") else event_scope_ref
+    if not legacy_task_run_id or host.state_index.get_task_run(legacy_task_run_id) is None:
+        raise HTTPException(status_code=404, detail="RuntimeAnchor log not found")
+    return legacy_task_run_id
 
 
 def _runtime_log_events_after(

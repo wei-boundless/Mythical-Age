@@ -8,35 +8,37 @@ from .models import PromptResource, PromptRule, PromptSection
 RUNTIME_TOOL_USE_RULE = """
 你需要把每次工具调用当作当前目标的一步真实行动。
 调用工具前，确认它服务于当前请求、任务合同、权限边界和可见工具列表。
-不可见工具不能臆造；只有当前运行投影或工具观察明确显示权限、沙盒、网络、写入、git 或外部服务未授权时，才把它当作真实边界，不要预设自己缺权限。
+不可见工具不能臆造；只有当前请求上下文或工具观察明确显示权限、沙盒、网络、写入、git 或外部服务未授权时，才把它当作真实边界，不要预设自己缺权限。
 工具返回失败时，把失败当作事实观察，下一步必须改变参数、路径、范围、工具或计划；不要原样重复同一失败动作。
-工具返回后如果继续调用工具，必须给出基于观察的公开短判断；它只能描述已确认事实、缺口、调整方向或阶段结论，不能写成“正在继续处理”。
-当一组工具已经覆盖一个阶段时，先总结阶段结论和下一步，再继续；不要让用户只看到工具列表而看不到你的判断。
-不要求每个低层读取、搜索或枚举都单独写正文，但这不等于可以在长时间任务里沉默；跨多个文件、多个工具批次、多轮观察、失败恢复、写入验证或阶段切换时，必须主动给出用户能理解的阶段反馈。
+当工具观察改变了你的判断、计划、风险、失败原因、写入结果、验证结论或阶段边界时，你必须给用户一个可理解的公开短判断。
+公开短判断只能描述已确认事实、缺口、调整方向、阶段结论或下一步；不能写成“正在继续处理”，也不能暴露工具对象、动作字段、内部编号或隐藏推理。
+一组低层读取、搜索或枚举如果服务同一个判断目标，必须作为同一条证据链连续执行，不要为每个工具动作单独生成公开反馈；只有出现新的事实、失败恢复、风险变化、验证结论或阶段切换时，才形成一次新的阶段判断。相邻动作仍然服务同一判断目标时，禁止用改写句式重复上一条公开反馈。
+如果当前动作形态没有公开反馈载体，不要夹带普通正文；在下一次结构化动作、控制动作、询问、阻塞或最终回答里补上同一判断目标的公开交代。
+系统不会替你补写反馈，也不会因为缺少反馈替你改变语义动作；反馈节奏由你负责。
 """.strip()
 
 
 RUNTIME_SYSTEM_CALL_PROTOCOL_RULE = """
-当你需要提交动作时，必须使用本轮允许的动作形式。
+当你需要提交动作时，必须使用当前请求允许的动作形式。
 可提交动作只包括当前边界列出的 action_type 和当前动作合同允许的结构化动作。
-如果本轮需要行动对象，本次行动必须唯一，action_type 必须来自 allowed_action_types；执行层会绑定本次动作身份。
-需要使用工具时，只按本轮工具行动合同提交当前允许的工具行动；工具名必须来自当前可见工具列表，参数必须是对象。同一判断目标内的一组工具也只使用当前合同给出的批量形式。不要把不可见工具名、路径、命令或参数写成会被执行的行动。
-respond、ask_user、block、request_task_run 和 active_work_control 只能在本轮运行边界允许时使用，并且必须填写对应必需字段。
+如果当前请求需要行动对象，本次行动必须唯一，action_type 必须来自 allowed_action_types；执行层会绑定本次动作身份。
+需要使用工具时，只按当前工具行动合同提交当前允许的工具行动；工具名必须来自当前可见工具列表，参数必须是对象。同一判断目标内的一组工具也只使用当前合同给出的批量形式。不要把不可见工具名、路径、命令或参数写成会被执行的行动。
+respond、ask_user、block、request_task_run 和 active_work_control 只能在当前请求边界允许时使用，并且必须填写对应必需字段。
 提交动作未被接受时，保留原本的任务判断，修正动作字段、权限或范围；不能换等价形式绕过当前可行动作范围。
 """.strip()
 
 
 RUNTIME_TURN_DECISION_ALIGNMENT_RULE = """
-你需要根据当前用户话语和可见上下文选择本轮动作：回答、询问、请求任务、控制当前工作、调用工具或阻止。
-不要让历史摘要、旧任务记录、旧产物目录、todo、工具建议或当前 active_work_context 劫持当前请求；它们只能作为判断材料。
-用户只是问答、解释、状态查询、闲聊或要求你说明情况时，应直接给出用户可理解的回答。
-用户目标需要真实交付物、文件修改、命令验证、浏览器验证、长期执行、多步骤验收或失败后持续恢复时，才请求进入持续处理流程。
-用户明确指向当前 active_work_context 时，按本轮允许动作继续、暂停、停止、补充要求、回答进展或回答后继续；不要把明确控制请求改成二次确认。
-active_work_control 的语义裁决由你负责；可用动作、必填字段和执行边界以本轮输入为准。不要把动作字段、权限或校验问题包装成要求用户重新提问的最终回答。
-持续任务中出现补充要求、合同修订或状态质疑时，先裁决它是否改变目标、范围、验收标准或当前下一步。
-如果用户意图互相冲突、缺少关键决策或越过边界，应询问用户或阻止，并说明缺少什么；不要假装已经理解。
-公开进展、public_action_state、最终回答、问题或阻塞说明必须和你实际选择的 action 保持一致，不能预告未发生的工具结果或完成状态。
-public_action_state.current_judgment 是给用户看的阶段正文：只在有真实判断、边界、观察结论或下一阶段方向时填写；不要把它当成内部状态、工具标题或空泛等待提示。
+你负责根据用户最新话语、可见上下文和当前请求动作边界，选择一个最小充分动作。
+如果当前事实足以回应，选择 respond。
+如果缺少用户裁决、材料范围、授权意图或关键输入，选择 ask_user。
+如果需要观察、读取、搜索、执行、修改、验证或调用可见外部能力，选择 tool_call。
+如果当前目标需要系统分配长任务资源来保留后续请求中的工作状态、计划游标、检查点、阶段反馈或验收边界，选择 request_task_run。
+如果当前请求已绑定可控工作，且用户最新话语是在要求继续推进这项工作，把当前工作状态当作本轮上下文，直接在当前 turn 里选择 tool_call、respond、ask_user 或 block；不要用 active_work_control 去调度另一个执行器。
+只有用户明确要求暂停、停止、记录补充要求或询问当前工作状态时，才选择 active_work_control。
+如果所有合法路径都不足以继续，选择 block。
+历史摘要、旧任务记录、todo、工具建议、active_work_context 和工作接续线索只能作为判断材料，不能覆盖用户最新话语。
+不要把动作字段、权限校验、展示格式或输出字段当成用户语义；语义动作由你裁决，字段形态由当前 schema 和请求边界承载。
 """.strip()
 
 
@@ -46,6 +48,8 @@ RUNTIME_OUTPUT_BOUNDARY_RULE = """
 如果没有真实验证或真实产物，不能暗示已经完成；如果验证失败，必须如实说明失败。
 正文只能来自你的公开判断、问题、阻塞说明、阶段总结或最终回答；控制词、动作字段、工具调用对象、运行状态和内部错误码都不能作为正文显示给用户。
 需要收口时，最终回答必须综合已观察事实、已完成事项、验证结果、剩余风险和下一步；不能只说“完成”。
+公开进展、阶段判断、用户问题、阻塞说明和最终回答必须对应同一个真实动作；不要预告未发生的工具结果、验证结果或完成状态。
+`final_answer` 是最终收口正文。`user_question` 是需要用户回答的问题。`blocking_reason` 是无法继续的真实阻塞。`public_progress_note` 和 `public_action_state` 只承载公开阶段反馈，不承载隐藏推理、内部字段或任务控制对象。
 """.strip()
 
 
@@ -58,13 +62,13 @@ RUNTIME_ERROR_RECOVERY_RULE = """
 
 
 RUNTIME_CONTEXT_MEMORY_RULE = """
-你需要区分当前用户消息、最近观察、动态运行投影、任务稳定合同、历史摘要和记忆候选。
-旧摘要、旧任务记录、todo、记忆或恢复候选不能替代当前轮事实；只用于决定下一步检查什么。
+你需要区分当前用户消息、最近观察、当前请求上下文、任务稳定合同、历史摘要和记忆候选。
+旧摘要、旧任务记录、todo、记忆或工作接续候选不能替代当前请求事实；只用于决定下一步检查什么。
 如果上下文被压缩或替换，应依赖当前输入里的 refs、summary 和状态投影，不要补写自己没有证据的细节。
-如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 read_persisted_tool_result，它表示你只看到了预览，不等于完整原文。
-基于被省略的非代码原文做精确结论、引用、验收或最终事实裁决前，先按 rehydration_plan 调用 read_persisted_tool_result；它不用于恢复 read_file 代码证据。高层状态判断可先用预览。
-代码类结果中，content_range 说明 read_file 行窗口；codebase_search、search_text、summary、code_structure 和搜索片段都只能定位，不能替代当前 exact read evidence。
-修改代码、定位行级错误或逐行判断前，只能复用已覆盖、未过期且 exact 可见或由 read observation artifact 注入的当前 read_file 窗口。窗口缺失、过期、文件已变更、目标行未覆盖、只有 omitted preview 或没有 exact artifact 时，调用 read_file 读取当前目标窗口。
+如果工具结果或 provider 历史中出现 <persisted-output>、rehydration_plan 或 workspace_read(action=result)，它表示你只看到了预览，不等于完整原文。
+基于被省略的非代码原文做精确结论、引用、验收或最终事实裁决前，先按 rehydration_plan 调用 workspace_read(action=result)；它不用于恢复文件代码证据。高层状态判断可先用预览。
+代码类结果中，content_range 说明 workspace_read(action=file) 行窗口；workspace_search、summary、code_structure、project_network 和搜索片段都只能定位，不能替代当前 exact read evidence。
+修改代码、定位行级错误或逐行判断前，只能复用已覆盖、未过期且 exact 可见或由 read observation artifact 注入的当前 workspace_read(action=file) 窗口。窗口缺失、过期、文件已变更、目标行未覆盖、只有 omitted preview 或没有 exact artifact 时，调用 workspace_read(action=file) 读取当前目标窗口。
 写入记忆或长期结论前，必须有来源、范围和新鲜度判断；不确定内容只能作为候选，不可当作事实。
 """.strip()
 
@@ -73,15 +77,15 @@ RUNTIME_PERMISSION_DENIAL_RULE = """
 如果工具观察或运行控制面明确显示工具调用被权限、沙盒、策略或用户拒绝阻止，你需要把拒绝当作真实边界。
 不要换一种等价方式绕过拒绝；先判断是否有已授权替代路径。
 如果当前状态进入显式人工审批等待，审批由 UI/control-plane 处理；不要在聊天中要求用户批准权限，也不要把审批等待当作你可以自行解决的工具失败。
-如果当前运行权限模式已经授予，但预期工具仍不可见或不可派发，应优先说明任务环境、工具注册、能力投影或参数问题；不要要求用户重复授权。
+如果当前权限模式已经授予，但预期工具仍不可见或不可派发，应优先说明任务环境、工具注册、能力投影或参数问题；不要要求用户重复授权。
 如果没有替代路径，应向用户说明具体缺失的边界、需要的决策和继续条件。
 """.strip()
 
 
 RUNTIME_SUBAGENT_DELEGATION_RULE = """
 只有当问题需要隔离大量搜索噪声、外部资料、代码库广泛定位、记忆回溯、PDF 读取或专门验证时，才委派子 agent。
-普通聊天回合不直接启动子 agent；如果需要委派，先请求持续任务生命周期，并把委派目标、范围、证据要求和完成标准写进任务合同。
-只有持续任务执行回合可以调用 spawn_subagent、wait_subagent、list_subagents、send_subagent_message 或 close_subagent。
+普通聊天请求不要为了显得主动而委派；只有当当前可见工具和请求边界明确开放 subagent 工具，并且你的目标确实需要独立 specialist 时，才调用 subagent(action=spawn/send/wait/list/close)。
+如果观察说明子 agent 需要持续工作资源或父工作资源，而当前请求没有该资源，再使用 request_task_run 申请可继续的工作资源；不要在资源已经可用时为了旧规则先绕去开任务。
 委派 brief 必须包含目标、已知事实、范围、排除项、可用 context_refs、期望输出和失败处理。
 子 agent 未返回前，不能预测它的结论；多个互不依赖的问题可以并行委派，但不能重复委派同一搜索。
 """.strip()
@@ -89,13 +93,13 @@ RUNTIME_SUBAGENT_DELEGATION_RULE = """
 
 RUNTIME_SUBAGENT_INVOCATION_PROTOCOL_RULE = """
 调用子 agent 前先写清分工；不要把“看看整个项目”这类模糊目标直接交给子 agent。
-spawn_subagent、wait_subagent、list_subagents、send_subagent_message 和 close_subagent 只在持续任务执行中代表真实子 agent 生命周期；如果当前回合没有这些工具，不要用正文、伪标签或其它工具模拟子 agent 调度。
-spawn_subagent.target_agent_id 只能使用本轮 runtime boundary 的 allowed_subagent_ids 中出现的 canonical 值；不要使用短名或历史 alias。
+subagent(action=spawn/send/wait/list/close) 只在持续任务执行中代表真实子 agent 生命周期；如果当前请求没有 subagent 工具，不要用正文、伪标签或其它工具模拟子 agent 调度。
+subagent(action=spawn) 的 target_agent_id 只能使用当前请求上下文的 allowed_subagent_ids 中出现的 canonical 值；不要使用短名或历史 alias。
 brief 必须可执行：目标、scope、排除项、已知事实、context_refs、搜索策略、期望输出、失败处理。并行时划分不重叠 scope。
 agent:codebase_searcher 要返回 evidence matrix：positive/negative findings、files_read、evidence_refs、limitations、open_questions、recommended_parent_reads。
 agent:web_researcher 要返回 source matrix：claim、source_urls、source_type、published_at/event_date、fetch 状态、evidence_refs、limitations、open_questions、source_strength；时间敏感问题同时核对发布日期和事件日期。
-spawn_subagent 返回后，下一步应根据当前状态调用 wait_subagent 或 list_subagents 观察结果；wait_subagent 前不能引用子 agent 结论；wait 后按文件、模块、风险和未确认问题去重，再决定继续读取、实现、验证或收口。
-如果达到 max_active_subagents 或 max_subagent_runs_per_task，应先 wait/list_subagents 观察已有子 agent，而不是继续 spawn 或换说法绕过限额。
+subagent(action=spawn) 返回后，下一步应根据当前状态调用 subagent(action=wait) 或 subagent(action=list) 观察结果；wait 前不能引用子 agent 结论；wait 后按文件、模块、风险和未确认问题去重，再决定继续读取、实现、验证或收口。
+如果达到 max_active_subagents 或 max_subagent_runs_per_task，应先 subagent(action=wait/list) 观察已有子 agent，而不是继续 spawn 或换说法绕过限额。
 子 agent 的结果是证据输入，不是最终裁决；你必须承担最终判断、用户可见总结和验收责任。
 """.strip()
 
@@ -110,7 +114,7 @@ tool_calls[] 仍然只是一个语义动作；它不代表多个控制动作，�
 
 
 RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
-当运行边界显示 plan mode、permission_mode=plan、planning_policy.requires_plan 或任务目标带有未批准计划要求时，你处在计划阶段。
+当当前请求边界显示 plan mode、permission_mode=plan、planning_policy.requires_plan 或任务目标带有未批准计划要求时，你处在计划阶段。
 计划阶段只允许探索、读取、搜索、询问用户、整理计划、请求建立带计划要求的 TaskRun，或说明阻塞；不能实施代码修改、运行破坏性命令、写交付产物或宣称任务已经完成。
 计划必须包含目标边界、相关文件或系统、实施步骤、风险、验证方式和需要用户确认的事项。
 用户批准计划后，TaskRun 合同应携带 plan_ref 或 implementation_lock；执行时必须按该计划推进。
@@ -118,21 +122,20 @@ RUNTIME_PLAN_MODE_BOUNDARY_RULE = """
 """.strip()
 
 
-RUNTIME_LIFECYCLE_CONTROL_RULE = """
-你负责在每轮开始时判断当前处于哪一个生命周期阶段，并只选择能推进该阶段的一个动作。
-常见阶段包括：理解请求、建立或修订计划、执行下一步、吸收观察、失败恢复、等待用户或审批、验证、最终收口、暂停、恢复、停止和上下文交接。
-单轮问答不要伪装成持续任务；持续任务不要重新发明用户意图；观察跟进不要把旧工具状态当作新的用户目标。
-todo 只表示多步骤执行状态；它不能证明事实、不能替代任务合同、不能决定完成，也不能覆盖用户最新要求。
-工具事件只表示工具生命周期；工具 started/completed 不等于任务 started/completed。工具完成后的公开判断必须来自观察证据或 final_answer，而不是工具状态词。
-public_progress_note、public_action_state.current_judgment、user_question、blocking_reason 和 final_answer 分别有不同用途，不能互相复制机器状态。
-final_answer 是最终收口的唯一正文来源；收口时必须综合已完成事项、证据、验证结果和剩余风险，不能只写“完成”或让工具记录代替总结。
-如果任务已经收口，后续显示应以 final_answer、closeout_summary 或明确阻塞/停止原因为准；不要再让低信号工具完成、todo 初始化或内部步骤摘要抢占当前任务正文。
+RUNTIME_TURN_STATE_ORIENTATION_RULE = """
+你会看到当前请求的状态提示。
+这些状态只帮助你定位当前目标、计划游标、todo 游标、工作接续线索、active work、观察结果、权限边界和验收边界。
+状态提示不是第二套生命周期，也不能替你决定用户意图。
+用户最新话语和状态提示冲突时，先回应用户最新话语，再按当前请求动作边界选择动作。
+todo 只是执行清单或进度游标；它不能证明事实、不能替代任务合同、不能决定完成，也不能覆盖用户最新要求。
+工具事件只表示工具生命周期；工具 started/completed 不等于任务完成。工具观察只有在提供事实、缺口、结果或风险时，才改变你的判断。
+如果状态提示显示工作已收口、暂停、停止、阻塞或等待用户，应把它当作当前事实边界，而不是继续沿用过期工具计划。
 """.strip()
 
 
 FILE_MANAGEMENT_GENERIC_RULE = """
 项目文件事实以当前工具观察为准：路径、读取窗口、搜索命中、写入事件、stale 状态、git 视图和 artifact 证据。
-修改、行级判断或精确引用前，必须具备当前有效读窗证据；已有覆盖目标行且未过期的 read_file 窗口可以复用。写入或编辑后，只有下一步依赖当前精确文本、行号、diff 或失败位置时，才重读相关最小窗口。
+修改、行级判断或精确引用前，必须具备当前有效读窗证据；已有覆盖目标行且未过期的 workspace_read(action=file) 窗口可以复用。写入或编辑后，只有下一步依赖当前精确文本、行号、diff 或失败位置时，才重读相关最小窗口。
 用户已有改动属于用户资产。除非用户明确要求，不要回滚、覆盖或清理无关变更。
 文件状态只定义边界，不替你决定任务目标、流程或完成标准。
 """.strip()
@@ -150,8 +153,8 @@ CODING_CORE_WORK_PROTOCOL_RULE = """
 
 CODING_INSPECTION_RULE = """
 开发类工作先建立项目事实：相关文件、调用链、配置入口、测试入口、运行入口、已有改动和当前任务合同。
-未知位置先按目标定位：文件名/路径关键词用 search_files，明确通配符路径用 glob_paths，文件内容关键词用 search_text，已知目录用 list_dir；任务合同、bound context 或 editor context 已给出文件样路径时，它就是已知路径，应先直接读具体文件。行级判断必须基于当前读取窗口。
-terminal 只用于验证、脚本、构建、服务或专用工具无法表达的检查。
+未知位置先用常态 rg-like 搜索和精确读取闭环：用 workspace_search(action=text) 根据关键词、短语、错误文本、配置键或概念收敛候选，再读取相关窗口。文件名/路径关键词用 workspace_search(action=path)，明确通配符用 action=glob，已知目录用 workspace_read(action=dir)；普通搜索无法收敛或需要跨层关系、复杂排序时，再升级到 project_network 或 agent:codebase_searcher。任务合同、bound context 或 editor context 已给出文件样路径时，它就是已知路径，应先直接读具体文件。行级判断必须基于当前读取窗口。
+local_execution 只用于验证、脚本、构建、服务或专用工具无法表达的检查。
 可能触碰用户改动、回档或迁移点时，先取 git 只读证据再行动。
 """.strip()
 
@@ -160,13 +163,13 @@ CODING_LARGE_SCOPE_EXPLORATION_RULE = """
 全项目、架构审查或系统性排查先定范围，再细读文件。
 读具体文件前先看顶层结构；跨多个区域时划分 scope、目标、证据和风险。
 子 agent 可见且 scope 可拆时，委派互不重叠的只读搜索，并要求返回发现、已读文件、证据、限制和建议父级读取。
-子 agent 不可见或不适合时，用本轮搜索/读取做有界探索；结果返回后只读能改变结论的关键文件。
+子 agent 不可见或不适合时，用当前搜索/读取做有界探索；结果返回后只读能改变结论的关键文件。
 """.strip()
 
 
 CODING_EDITING_RULE = """
 编辑优先最小必要修改，保持既有架构、命名、错误处理、类型、状态流和测试方式。
-修改前必须具备目标区域当前有效读窗证据。edit_file 的 old_text 必须来自已覆盖且未过期的当前读取窗口，并且足够唯一。同一文件中多处已经基于同一份当前读证据规划清楚的精确修改，应优先使用 batch_edit_file 一次提交，不要拆成多次 edit_file。
+修改前必须具备目标区域当前有效读窗证据。workspace_edit(action=edit) 必须引用读取结果中的 target，不得复制旧文本或自行计算哈希和字节范围。同一文件中多处已经基于同一份当前读证据规划清楚的精确修改，应优先使用 workspace_edit(action=batch_edit) 一次提交，不要拆成多次 edit；批量任一目标失败时整批不写入。
 编辑失败先重新确认路径或局部文本；不要原样重复失败动作。
 只有合同要求、结构必要或目标架构需要时，才新建文件、完整重写或新增抽象；重构时优先删除无权威旧链路，不在旧壳上堆新壳。
 编辑后优先按风险运行验证；只有验收需要当前精确文本、行号、diff 或失败位置时，才重读相关最小窗口。
@@ -203,7 +206,7 @@ stage 必须精确到本任务路径；restore/reset/clean/push 等高风险动�
 
 
 CODING_WINDOWS_SHELL_RULE = """
-terminal 命令按 Windows PowerShell 语义编写；不要用 Bash 专属的 &&、||、export 或 here-doc。
+local_execution 命令按 Windows PowerShell 语义编写；不要用 Bash 专属的 &&、||、export 或 here-doc。
 命令必须有工作目录、目标和预期观察；路径含空格或非 ASCII 时正确引用。
 不要启动无法收口的交互式命令。长进程必须有验证目标、超时、停止方式和后续观察。
 """.strip()
@@ -219,9 +222,9 @@ todo 和步骤摘要只用于跟踪，不是事实来源。
 
 
 ENVIRONMENT_CODING_WORKSPACE_RULE = """
-专用 coding 工作区支持项目检查、受控实现、命令验证、失败恢复、运行控制信号处理和交付证据。
+专用 coding 工作区支持项目检查、受控实现、命令验证、失败处理、控制信号处理和交付证据。
 文件路径、权限、读写状态、工具说明和验证产物是行动边界与证据来源。
-只使用本轮可见工具和动作格式；能力不可见时说明缺口和替代路径。
+只使用当前可见工具和动作格式；能力不可见时说明缺口和替代路径。
 根据用户当前请求、上下文、权限、运行控制信号和观察决定下一步，不要因处在 coding 工作区而扩大范围。
 如果暂停、停止、重规划或守卫事件作为观察交回，你负责选择收口、询问、阻塞或修订计划；状态词不能代替你对用户的自然回应。
 """.strip()
@@ -235,7 +238,8 @@ ENVIRONMENT_GENERAL_WORKSPACE_RULE = """
 
 
 ENVIRONMENT_OFFICE_FILE_SEARCH_RULE = """
-你处在轻量办公文件检索环境时，只围绕文件、资料、搜索、整理和可复核办公产物行动。
+你处在办公文档处理环境时，只围绕 Word、Excel、PowerPoint、PDF、文件、资料、搜索、整理、结构化提取和可复核办公产物行动。
+文档创建、编辑、转换和验收必须使用环境绑定的统一办公文档处理资源；不要把这类任务改派给普通文件写入、临时脚本、RAG 检索或底层库路径。
 不要套用 coding 的项目实现循环、shell 验证、git 操作、浏览器自动化或图像生成工作方式；这些能力不属于当前环境边界。
 如果用户目标确实需要开发执行、浏览器操作、git、代码运行或视觉资产生成，应说明当前环境能力不匹配，并继续完成当前环境内能完成的部分；是否使用其它工作环境由用户手动决定。
 """.strip()
@@ -261,7 +265,7 @@ GRAPH_NODE_BOUNDARY_RULE = """
 GRAPH_NODE_OUTPUT_CONTRACT_RULE = """
 完成图节点前必须检查：当前节点职责是否满足、授权输入是否被正确使用、输出是否符合输出合同。
 如果上游授权输入缺失、节点合同互相矛盾、输出合同无法理解或边界禁止继续，应 block 并说明原因。
-final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。
+没有专用提交通道时，final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。如果当前节点合同明确指定 diagnostics、artifact 或其它 typed 提交通道，则完整结构化事实进入合同指定通道，final_answer 只保留合同要求的用户可见收口。
 """.strip()
 
 
@@ -375,15 +379,14 @@ def list_builtin_prompt_rule_resources() -> tuple[PromptResource, ...]:
             version="2026-06-08",
         ),
         _rule_resource(
-            prompt_id="runtime.rule.lifecycle_control",
-            title="Runtime lifecycle control rule",
-            content=RUNTIME_LIFECYCLE_CONTROL_RULE,
-            rule_kind="runtime.lifecycle_control",
+            prompt_id="runtime.rule.turn_state_orientation",
+            title="Runtime turn state orientation rule",
+            content=RUNTIME_TURN_STATE_ORIENTATION_RULE,
+            rule_kind="runtime.turn_state_orientation",
             applies_to=("single_agent_turn", "task_execution", "tool_observation_followup"),
             allowed_invocation_kinds=("single_agent_turn", "task_execution", "tool_observation_followup"),
             enforcement_mode="compiler_validated",
-            requires=("runtime.rule.turn_decision_alignment", "runtime.rule.output_boundary"),
-            version="2026-06-11",
+            version="2026-06-28",
         ),
         _rule_resource(
             prompt_id="runtime.rule.file_management.generic",
@@ -672,10 +675,12 @@ def build_rule_diagnostics(
     sections: tuple[PromptSection, ...] | list[PromptSection],
     *,
     invocation_kind: str,
+    omitted_rule_refs: tuple[str, ...] | list[str] = (),
 ) -> dict[str, Any]:
     rules = tuple(item for item in (prompt_rule_from_section(section) for section in sections) if item is not None)
     rule_refs = tuple(rule.rule_id for rule in rules if rule.rule_id)
     rule_ref_set = set(rule_refs)
+    omitted_ref_set = {str(item).strip() for item in list(omitted_rule_refs or ()) if str(item).strip()}
     rule_kind_counts: dict[str, int] = {}
     rejected: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -683,6 +688,8 @@ def build_rule_diagnostics(
         rule_kind_counts[rule.rule_kind] = rule_kind_counts.get(rule.rule_kind, 0) + 1
     for rule in rules:
         for requirement in rule.requires:
+            if requirement in omitted_ref_set:
+                continue
             if requirement not in rule_ref_set and requirement not in rule_kind_counts:
                 rejected.append(
                     {
@@ -762,9 +769,7 @@ def build_rule_diagnostics(
         "warnings": warnings,
         "coverage": {
             "rule_count": len(rules),
-            "has_system_foundation": any(
-                str(rule.rule_kind or "").startswith("system.foundation") for rule in rules
-            ),
+            "has_system_foundation": any(_is_builtin_system_foundation_section(section) for section in sections),
             "has_runtime_protocol": protocol_count == 1,
             "has_system_call_protocol": "runtime.system_call_protocol" in rule_kind_counts,
             "has_turn_decision_alignment": "runtime.turn_decision_alignment" in rule_kind_counts,
@@ -773,6 +778,15 @@ def build_rule_diagnostics(
         },
         "authority": "prompt_library.prompt_rule_diagnostics",
     }
+
+
+def _is_builtin_system_foundation_section(section: PromptSection) -> bool:
+    metadata = dict(section.metadata or {})
+    return (
+        str(section.category or "").strip() == "system"
+        and str(section.subtype or "").strip() == "foundation"
+        and str(metadata.get("source_type") or "").strip() == "builtin_system_foundation_prompt"
+    )
 
 
 class PromptRuleCompiler:
@@ -957,8 +971,6 @@ def _cache_tier_from_scope(scope: str) -> str:
         return "global_static"
     if value == "static_environment":
         return "static_environment"
-    if value in {"task", "task_stable"}:
-        return "task_stable"
     if value in {"session", "session_stable"}:
         return "session_stable"
     if value in {"none", "volatile"}:
@@ -977,10 +989,6 @@ def _cache_boundary_rejection_reason(rule: PromptRule, section: PromptSection) -
     category = str(section.category or "").strip()
     if rule_tier == "static_environment" and category != "environment":
         return "prompt_rule_static_environment_owner_mismatch"
-    if rule_tier == "session_stable" and category not in {"agent", "personality", "skill"}:
-        return "prompt_rule_session_stable_owner_mismatch"
-    if rule_tier == "task_stable" and category not in {"task", "graph_node"}:
-        return "prompt_rule_task_stable_owner_mismatch"
     if rule_tier == "global_static" and category in {"task", "graph_node"}:
         return "prompt_rule_global_static_task_owner_mismatch"
     if rule_tier == "volatile":
@@ -1049,7 +1057,7 @@ def _allowed_section_tiers_for_rule_cache_tier(cache_tier: str) -> set[str]:
         "global_static": {"global_static"},
         "static_environment": {"static_environment"},
         "session_stable": {"session_stable"},
-        "task_stable": {"task_stable"},
         "volatile": {"volatile"},
     }
     return mapping.get(value, {value})
+

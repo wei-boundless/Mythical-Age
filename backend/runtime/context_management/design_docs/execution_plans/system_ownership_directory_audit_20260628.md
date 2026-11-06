@@ -1,7 +1,8 @@
 # System Ownership Directory Audit
 
 日期：2026-06-28  
-状态：系统归属审计；只定名、定权威、定治理规则，不修改运行代码。  
+状态：历史审计记录，命名原则已被后续标准化设计收束。  
+说明：本文中的 `neural` 只保留为早期比喻语境，不作为后续代码、prompt 或模块命名依据；正式运行提示词体系以 `turn_runtime_prompt_system_standardization_design_20260628.md` 和 `prompt_library_wiring_standardization_design_20260628.md` 为准。  
 范围：项目根目录、`backend` 一级系统、已知模糊目录、运行态数据目录、旧 agent 神经结构。
 
 ## 1. 审计结论
@@ -314,4 +315,3 @@ backend/
 - `memory_system` 是 memory hint 事实源；证据必须来自 evidence/ledger/tool observation。
 - `provider tools sidecar` 是 hidden transport，不进 stable prompt、不进 memory、不进 sealed provider-visible history。
 - 根目录只保留源码系统、扩展系统、卫星 app、运行数据根和产物根；不允许 runtime data 以系统目录形式散落。
-

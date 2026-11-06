@@ -16,11 +16,9 @@ _PROTOCOL_MARKERS = (
     "name=\"query\"",
     "name=\"path\"",
     "name=\"command\"",
-    "name=\"old_text\"",
     "name=\"new_text\"",
     "name=\"content\"",
     "name=\"read_file\"",
-    "name=\"read_structured_file\"",
     "name=\"search_text\"",
     "name=\"search_files\"",
     "name=\"glob_paths\"",
@@ -38,11 +36,11 @@ _PROTOCOL_MARKERS = (
 )
 
 _TAG_RE = re.compile(
-    r"<\s*(?:tool_call|invoke|read_file|read_structured_file|search_text|search_files|glob_paths|"
+    r"<\s*(?:tool_call|invoke|read_file|search_text|search_files|glob_paths|"
     r"write_file|edit_file|batch_edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent|｜｜DSML)"
-    r"|</\s*(?:tool_call|invoke|read_file|read_structured_file|search_text|search_files|glob_paths|"
+    r"|</\s*(?:tool_call|invoke|read_file|search_text|search_files|glob_paths|"
     r"write_file|edit_file|batch_edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\s*>"
-    r"|name=\"(?:query|path|command|old_text|new_text|content|read_file|read_structured_file|search_text|search_files|glob_paths|"
+    r"|name=\"(?:query|path|command|new_text|content|read_file|search_text|search_files|glob_paths|"
     r"write_file|edit_file|batch_edit_file|terminal|spawn_subagent|send_subagent_message|wait_subagent|list_subagents|close_subagent)\"",
     flags=re.IGNORECASE,
 )
@@ -134,5 +132,4 @@ def strip_protocol_leak(content: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
-
 

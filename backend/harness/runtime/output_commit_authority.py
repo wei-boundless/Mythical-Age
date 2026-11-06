@@ -367,6 +367,7 @@ class OutputCommitAuthority:
                 "answer_finalization_policy": prepared.decision.finalization_policy,
                 "content_sha256": _text_sha256(prepared.commit_content),
                 "commit_gate": prepared.commit_gate_payload,
+                "refs": dict(request.refs or {}),
                 "authority": "harness.session_output_commit",
             },
             refs=dict(request.refs or {}),
@@ -440,6 +441,7 @@ class OutputCommitAuthority:
             "checked_event_offset": checked_event_offset,
             "committer_result": _public_committer_result(committer_result),
             "commit_gate": dict(commit_gate or {}),
+            "refs": dict(request.refs or {}),
             "authority": "harness.session_output_commit",
         }
         runtime_host = self.runtime_host

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness.continuation import select_session_continuation
 from harness.runtime import SingleAgentRuntimeHost
 from runtime.shared.models import TurnRun
 from sessions import SessionManager
 
 
-def test_runtime_interruption_records_recoverable_state_without_agent_terminal(tmp_path: Path) -> None:
+def test_runtime_interruption_closes_turn_with_memory_package(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_root = tmp_path / "runtime"
     backend_dir.mkdir()
@@ -60,11 +59,11 @@ def test_runtime_interruption_records_recoverable_state_without_agent_terminal(t
     turn_events = host.event_log.list_events(turn_run_id)
     interruption_event = turn_events[-1]
     interruption_payload = dict(interruption_event.payload or {})
-    selection = select_session_continuation(host, session_id=session_id)
+    turn_memory = host.turn_memory_store.get_turn(session_id, turn_id)
 
     assert result["runtime_interruption_recorded"] is True
     assert result["public_terminal_event_appended"] is False
-    assert result["turn_run_closed"] is False
+    assert result["turn_run_closed"] is True
     assert result["turn_run_interruption_recorded"] is True
     assert result["turn_runtime_interruption_event_recorded"] is True
     assert "visible_message_appended" not in result
@@ -75,25 +74,32 @@ def test_runtime_interruption_records_recoverable_state_without_agent_terminal(t
     assert current.terminal_event == ""
     assert replay_response["terminal"] is True
     assert dict(current.diagnostics or {})["recoverable"] is True
-    assert dict(current.diagnostics or {})["semantic_terminal"] is False
+    assert dict(current.diagnostics or {})["agent_decision_terminal"] is False
     assert dict(current.diagnostics or {})["runtime_interruption_code"] == "runtime_process_restarted"
     assert reconciled_turn is not None
-    assert reconciled_turn.status == "running"
-    assert reconciled_turn.terminal_reason == ""
+    assert reconciled_turn.status == "interrupted"
+    assert reconciled_turn.terminal_reason == "runtime_interruption_closed"
     assert dict(reconciled_turn.diagnostics or {})["recoverable"] is True
-    assert dict(reconciled_turn.diagnostics or {})["semantic_terminal"] is False
+    assert dict(reconciled_turn.diagnostics or {})["agent_decision_terminal"] is False
     assert dict(reconciled_turn.diagnostics or {})["runtime_interruption_code"] == "runtime_process_restarted"
-    assert dict(reconciled_turn.diagnostics or {})["interrupted_turn_continuation_pending"] is True
-    assert selection.interrupted_turn is not None
-    assert selection.interrupted_turn.turn_run_id == turn_run_id
-    assert selection.interrupted_turn.interruption_kind == "runtime_execution_interrupted"
+    assert dict(reconciled_turn.diagnostics or {})["interrupted_turn_closed"] is True
+    assert dict(reconciled_turn.diagnostics or {})["interrupted_turn_memory_package_ready"] is True
+    assert dict(reconciled_turn.diagnostics or {})["terminal_status"] == "interrupted"
+    assert dict(reconciled_turn.diagnostics or {})["turn_lifecycle_closed_by"] == "runtime_interruption"
+    assert turn_memory is not None
+    assert turn_memory.status == "terminal"
+    assert turn_memory.phase == "terminal"
+    assert turn_memory.handoff_state == "interrupted_turn_memory_package"
+    assert turn_memory.recovery_state == "runtime_process_restarted"
+    assert dict(turn_memory.pending_commit_summary or {})["turn_lifecycle_closed_by"] == "runtime_interruption"
     assert not terminal_events
     assert [event.event_type for event in turn_events] == ["turn_runtime_interruption_recorded"]
-    assert interruption_payload["recovery_entry"]["handoff_to_agent"] is True
-    assert interruption_payload["recovery_entry"]["system_authored_terminal"] is False
+    assert interruption_payload["interruption_closure"]["state"] == "interrupted_turn_closed"
+    assert interruption_payload["interruption_closure"]["memory_package_ready"] is True
+    assert interruption_payload["interruption_closure"]["system_authored_terminal"] is False
 
 
-def test_runtime_interruption_advances_turn_run_cursor_without_terminalizing(tmp_path: Path) -> None:
+def test_runtime_interruption_advances_turn_run_cursor_while_closing_lifecycle(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_root = tmp_path / "runtime"
     backend_dir.mkdir()
@@ -140,14 +146,14 @@ def test_runtime_interruption_advances_turn_run_cursor_without_terminalizing(tmp
 
     assert result["runtime_interruption_recorded"] is True
     assert result["public_terminal_event_appended"] is False
-    assert result["turn_run_closed"] is False
+    assert result["turn_run_closed"] is True
     assert result["turn_runtime_interruption_event_recorded"] is True
     assert current is not None
     assert current.status == "orphaned"
     assert current.terminal_event == ""
     assert reconciled_turn is not None
-    assert reconciled_turn.status == "running"
-    assert reconciled_turn.terminal_reason == ""
+    assert reconciled_turn.status == "interrupted"
+    assert reconciled_turn.terminal_reason == "runtime_interruption_closed"
     assert reconciled_turn.latest_event_offset == interruption_event.offset
     assert interruption_event.offset > observed.offset
     assert [event.event_type for event in turn_events] == [

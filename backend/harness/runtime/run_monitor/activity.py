@@ -27,7 +27,7 @@ class RuntimeActivityControlContext:
     reason: str = ""
 
 
-STOPPED_STATUSES = {"cancelled", "canceled", "stopped", "user_aborted"}
+STOPPED_STATUSES = {"cancelled", "canceled", "stopped", "user_aborted", "interrupted"}
 STOPPED_REASONS = {
     "cancelled",
     "canceled",
@@ -36,6 +36,7 @@ STOPPED_REASONS = {
     "user_cancelled",
     "user_canceled",
     "user_stopped",
+    "runtime_interruption_closed",
     "blocked_expired",
     "runtime_retention_expired",
     "approval_expired",
@@ -159,7 +160,7 @@ def _is_user_stopped(*, status: str, terminal_reason: str, control_state: str) -
         return True
     if status == "aborted" and terminal_reason in STOPPED_REASONS:
         return True
-    return control_state in {"stopped", "cancelled", "canceled", "user_aborted"}
+    return control_state in {"stopped", "cancelled", "canceled", "user_aborted", "interrupted"}
 
 
 def _is_resumable(

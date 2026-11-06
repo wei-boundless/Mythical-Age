@@ -14,9 +14,9 @@ from permissions.resource_policy_builder import RuntimeApprovalContext
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 from runtime.shared.runtime_directive import RuntimeDirective
 
-SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
-WRITE_OPERATIONS = {"op.write_file", "op.edit_file"}
-WRITE_TOOL_NAMES = {"write_file", "edit_file", "batch_edit_file"}
+SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.workspace_write", "op.workspace_edit", "op.office_document", "op.shell"}
+WRITE_OPERATIONS = {"op.workspace_write", "op.workspace_edit", "op.office_document"}
+WRITE_TOOL_NAMES = {"workspace_edit", "office_document"}
 EXPLICIT_HUMAN_APPROVAL_POLICIES = {
     "manual_approval_required",
     "requires_human_approval",
@@ -46,11 +46,11 @@ def build_model_response_runtime_admission(
     registry = operation_registry
     context = approval_context or RuntimeApprovalContext()
     mode = normalize_permission_mode(permission_mode)
-    task_contract = dict(task_operation.get("task_contract") or {})
+    task_system_contract = dict(task_operation.get("task_system_contract") or {})
     task_execution_assembly = dict(task_operation.get("task_execution_assembly") or {})
     task_body_assembly = dict(task_operation.get("task_body_assembly") or {})
     agent_runtime_spec = dict(task_operation.get("agent_runtime_spec") or {})
-    task_id = str(task_contract.get("task_id") or "task-runtime")
+    task_id = str(task_system_contract.get("task_id") or "task-runtime")
     policy_ref = f"respol:{task_id}:model-response:runtime"
     decisions = _build_runtime_decisions(
         task_operation,
@@ -138,8 +138,8 @@ def build_model_response_runtime_admission(
         executor_type="model",
         adopted_resource_policy_ref=policy_ref,
         operation_refs=operation_refs,
-        input_contract_ref=str(agent_runtime_spec.get("input_contract_ref") or task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
-        output_contract_ref=str(agent_runtime_spec.get("output_contract_ref") or task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
+        input_contract_ref=str(agent_runtime_spec.get("input_contract_ref") or task_execution_assembly.get("input_contract_id") or task_system_contract.get("input_contract_id") or ""),
+        output_contract_ref=str(agent_runtime_spec.get("output_contract_ref") or task_execution_assembly.get("output_contract_id") or task_system_contract.get("output_contract_id") or ""),
         execution_graph_ref=f"execgraph:{task_id}:runtime",
         runtime_executable=True,
         diagnostics={
@@ -287,6 +287,29 @@ def _decide_runtime_operation(
     sandbox_policy: dict[str, Any],
     permission_mode: str,
 ) -> ResourceDecision:
+    normalized_permission_mode = normalize_permission_mode(permission_mode)
+    if descriptor is None:
+        return ResourceDecision(
+            operation_id=operation_id,
+            decision="deny",
+            reason="unknown operation",
+            diagnostics={"fail_closed": True},
+        )
+    if normalized_permission_mode in {"full_access", "bypass"}:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason=f"operation allowed by runtime permission mode {normalized_permission_mode}",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={
+                "permission_mode": normalized_permission_mode,
+                "approval_policy": approval_policy,
+                "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
+                "destructive": bool(descriptor.destructive),
+                "profile_allowed": operation_id in agent_allowed,
+                "profile_blocked": operation_id in agent_blocked,
+            },
+        )
     if operation_id in agent_blocked:
         return ResourceDecision(
             operation_id=operation_id,
@@ -300,13 +323,6 @@ def _decide_runtime_operation(
             decision="deny",
             reason="operation outside agent capability profile",
             risk_tags=tuple(descriptor.risk_tags) if descriptor is not None else (),
-        )
-    if descriptor is None:
-        return ResourceDecision(
-            operation_id=operation_id,
-            decision="deny",
-            reason="unknown operation",
-            diagnostics={"fail_closed": True},
         )
     if is_model_visible_agent_operation(descriptor.operation_id):
         return ResourceDecision(
@@ -322,27 +338,14 @@ def _decide_runtime_operation(
             reason="non-destructive task state operation is exposed as a bounded model-visible tool",
             risk_tags=descriptor.risk_tags,
         )
-    if descriptor.operation_type in {"mcp", "agent"}:
+    if descriptor.operation_type in {"mcp", "agent", "agent_capability"}:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="not_executable",
             reason="mcp and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
         )
-    if normalize_permission_mode(permission_mode) in {"full_access", "bypass"}:
-        return ResourceDecision(
-            operation_id=descriptor.operation_id,
-            decision="allow",
-            reason=f"operation allowed by runtime permission mode {normalize_permission_mode(permission_mode)}",
-            risk_tags=descriptor.risk_tags,
-            diagnostics={
-                "permission_mode": normalize_permission_mode(permission_mode),
-                "approval_policy": approval_policy,
-                "requires_approval_by_default": bool(descriptor.requires_approval_by_default),
-                "destructive": bool(descriptor.destructive),
-            },
-        )
-    if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.write_file", "op.edit_file"}:
+    if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.workspace_write", "op.workspace_edit", "op.office_document"}:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="allow",
@@ -470,5 +473,3 @@ def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
-

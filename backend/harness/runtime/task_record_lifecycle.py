@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from graph_system.lifecycle_manager import GraphTaskLifecycleManager
-from harness.loop.task_run_execution_control import executor_control_signal_effect, request_executor_control_signal
+from graph_system.models import resolve_graph_root_task_run_id
+from harness.loop.runtime_cell_control import runtime_cell_control_signal_effect, request_runtime_cell_control_signal
 
 
 class TaskRecordLifecycleNotFound(LookupError):
@@ -70,7 +71,7 @@ class TaskRecordLifecycleManager:
             "authority": f"{self.authority}.cleanup",
             "task_run_id": task_run_id,
         }
-        contract_ref = str(getattr(task_run, "task_contract_ref", "") or "")
+        contract_ref = str(getattr(task_run, "task_run_contract_ref", "") or "")
         if contract_ref.startswith("rtobj:"):
             try:
                 effects["contract_ref_deleted"] = self.host.runtime_objects.delete_ref(contract_ref)
@@ -103,27 +104,19 @@ class TaskRecordLifecycleManager:
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         session_id = str(getattr(task_run, "session_id", "") or "")
-        executor_stop = self._stop_executors({task_run_id}, reason="task_record_deleted")
+        runtime_cell_stop = self._request_runtime_cell_stop({task_run_id}, reason="task_record_deleted")
         tombstone = self.host.state_index.mark_task_run_deleted(task_run_id)
         cell_cancel = self.host.cancel_task_run_cells(
             task_run_sessions={task_run_id: session_id} if session_id else {},
             reason="task_record_deleted",
         )
-        active_turn = {}
-        if session_id:
-            active_turn = self.host.active_turn_registry.complete_bound_task(
-                session_id=session_id,
-                task_run_id=task_run_id,
-                terminal_reason="task_record_deleted",
-            ) or {}
         return {
             "authority": f"{self.authority}.deletion_mark",
             "task_run_id": task_run_id,
             "session_id": session_id,
             "tombstone": tombstone,
-            "executor_stop": executor_stop,
+            "runtime_cell_stop": runtime_cell_stop,
             "cell_cancel": cell_cancel,
-            "active_turn": active_turn,
         }
 
     def _deletable_task_run(self, task_run_id: str) -> Any:
@@ -156,7 +149,7 @@ class TaskRecordLifecycleManager:
             for item in list(manager.preview_delete_graph_run(graph_run_id).get("task_run_ids") or [])
             if str(item).strip()
         } | {task_run_id}
-        executor_stop = self._stop_executors(task_run_ids, reason="task_record_deleted")
+        runtime_cell_stop = self._request_runtime_cell_stop(task_run_ids, reason="task_record_deleted")
         cell_cancel = self.host.cancel_task_run_cells(
             task_run_sessions=self._task_run_sessions(task_run_ids),
             reason="graph_root_task_record_deleted",
@@ -168,7 +161,7 @@ class TaskRecordLifecycleManager:
             "task_run_id": task_run_id,
             "graph_run_id": graph_run_id,
             "task_run_ids": sorted(task_run_ids),
-            "executor_stop": executor_stop,
+            "runtime_cell_stop": runtime_cell_stop,
             "cell_cancel": cell_cancel,
             "deleted": True,
         }
@@ -177,17 +170,16 @@ class TaskRecordLifecycleManager:
         if self.graph_system is None:
             return False
         graph_run = dict(self.graph_system.get_graph_run(graph_run_id) or {})
-        root_task_run_id = str(graph_run.get("task_run_id") or "").strip()
-        if root_task_run_id:
-            return root_task_run_id == task_run_id
-        return str(dict(self.graph_system.get_checkpoint_state(graph_run_id) or {}).get("task_run_id") or "").strip() == task_run_id
+        state = dict(self.graph_system.get_checkpoint_state(graph_run_id) or {})
+        root_task_run_id = resolve_graph_root_task_run_id(graph_run, state)
+        return bool(root_task_run_id) and root_task_run_id == task_run_id
 
-    def _stop_executors(self, task_run_ids: set[str], *, reason: str) -> dict[str, Any]:
+    def _request_runtime_cell_stop(self, task_run_ids: set[str], *, reason: str) -> dict[str, Any]:
         accepted: list[str] = []
         signals: list[dict[str, Any]] = []
         failed: list[str] = []
         for task_run_id in task_run_ids:
-            signal = request_executor_control_signal(
+            signal = request_runtime_cell_control_signal(
                 self.host,
                 task_run_id=task_run_id,
                 kind="stop",
@@ -200,11 +192,11 @@ class TaskRecordLifecycleManager:
                 continue
             if signal.signal_id:
                 accepted.append(task_run_id)
-                signals.append(executor_control_signal_effect(signal))
+                signals.append(runtime_cell_control_signal_effect(signal))
             else:
                 failed.append(task_run_id)
         return {
-            "authority": f"{self.authority}.executor_stop",
+            "authority": f"{self.authority}.runtime_cell_stop",
             "requested_task_run_ids": sorted(task_run_ids),
             "accepted_task_run_ids": sorted(accepted),
             "control_signals": sorted(signals, key=lambda item: str(item.get("task_run_id") or "")),
@@ -229,5 +221,3 @@ def _graph_run_id(diagnostics: dict[str, Any]) -> str:
     origin = dict(diagnostics.get("origin") or {})
     runtime_scope = dict(diagnostics.get("runtime_scope") or {})
     return str(diagnostics.get("graph_run_id") or origin.get("graph_run_id") or runtime_scope.get("graph_run_id") or "").strip()
-
-

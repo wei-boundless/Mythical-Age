@@ -42,6 +42,9 @@ class ExecutionReceipt:
     reused_previous_result: bool = False
     result_ref: str = ""
     error: str = ""
+    started_at: float | None = None
+    completed_at: float | None = None
+    duration_ms: int | None = None
     authority: str = "runtime.execution_receipt"
 
     def __post_init__(self) -> None:
@@ -390,6 +393,12 @@ def build_execution_receipt(
     reused_previous_result: bool = False,
     error: str = "",
 ) -> ExecutionReceipt:
+    started_at = _positive_float(record.created_at)
+    completed_at = (
+        _positive_float(record.updated_at)
+        if record.status in {"completed", "failed", "replay_suppressed", "reused_completed_result"}
+        else None
+    )
     return ExecutionReceipt(
         execution_id=record.execution_id,
         request_ref=record.request_ref,
@@ -398,7 +407,24 @@ def build_execution_receipt(
         reused_previous_result=bool(reused_previous_result),
         result_ref=record.result_ref,
         error=str(error or ""),
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_ms=_duration_ms(started_at, completed_at),
     )
+
+
+def _positive_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _duration_ms(started_at: float | None, completed_at: float | None) -> int | None:
+    if not started_at or not completed_at or completed_at < started_at:
+        return None
+    return int(round((completed_at - started_at) * 1000))
 
 
 def _normalized_tool_args(payload: Any) -> Any:
@@ -430,6 +456,5 @@ def _safe_id(value: str, *, limit: int = 160) -> str:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     head_limit = max(1, limit - len(digest) - 1)
     return f"{safe[:head_limit].rstrip('_')}_{digest}"
-
 
 

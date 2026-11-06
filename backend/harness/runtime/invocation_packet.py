@@ -20,7 +20,6 @@ class RuntimeInvocationPacket:
     action_schema_manifest: dict[str, Any] = field(default_factory=dict)
     artifact_scope_manifest: dict[str, Any] = field(default_factory=dict)
     tool_catalog_manifest: dict[str, Any] = field(default_factory=dict)
-    task_contract_manifest: dict[str, Any] = field(default_factory=dict)
     bound_task_context_manifest: dict[str, Any] = field(default_factory=dict)
     prompt_pack_refs: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()
@@ -29,7 +28,7 @@ class RuntimeInvocationPacket:
     context_refs: tuple[str, ...] = ()
     observation_refs: tuple[str, ...] = ()
     artifact_refs: tuple[str, ...] = ()
-    current_task_contract_ref: str = ""
+    current_task_run_contract_ref: str = ""
     current_step_ref: str = ""
     current_plan_ref: str = ""
     current_repair_refs: tuple[str, ...] = ()
@@ -62,7 +61,6 @@ class RuntimeInvocationPacket:
         payload["action_schema_manifest"] = dict(self.action_schema_manifest)
         payload["artifact_scope_manifest"] = dict(self.artifact_scope_manifest)
         payload["tool_catalog_manifest"] = dict(self.tool_catalog_manifest)
-        payload["task_contract_manifest"] = dict(self.task_contract_manifest)
         payload["bound_task_context_manifest"] = dict(self.bound_task_context_manifest)
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
         payload["available_tools"] = [dict(item) for item in self.available_tools]

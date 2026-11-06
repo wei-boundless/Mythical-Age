@@ -125,12 +125,12 @@ target_warm_cache_read_rate_expected_miss_tokens = 5438
 expected miss families:
   current_context_append ~= 205
   dynamic_or_never_replay_tail = 1259
-  provider_transport_sidecar = 3974
+  provider_tool_schema_blocker = 3974
 uncategorized_miss_tokens = 0
 first_uncovered_stable_segment = lifecycle_stable#9
 ```
 
-`uncategorized=0` 表示账本分类没有乱；真正问题是目标结构本身把过多内容放进不可稳定命中的物理区，且工具 sidecar 没有被验证为 matched。
+`uncategorized=0` 表示账本分类没有乱；真正问题是目标结构本身把过多内容放进不可稳定命中的物理区，且工具 schema 没有被验证为 provider physical prefix，只能作为 blocker。
 
 ### 4. Memory maintenance 插入了额外低命中模型调用
 

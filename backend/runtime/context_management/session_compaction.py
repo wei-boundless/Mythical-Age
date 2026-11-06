@@ -6,6 +6,11 @@ from typing import Any, Literal
 
 from memory_system.storage.models import Message
 from runtime.prompt_accounting import ContextUsageMeter, ModelTokenUsageRecord, TokenCounterRegistry
+from runtime.prompt_accounting.provider_lane import (
+    PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
+    PROVIDER_LANE_AGENT_TOOL_LOOP,
+    normalize_provider_lane,
+)
 
 
 TOKEN_COUNTER = TokenCounterRegistry()
@@ -18,7 +23,7 @@ class _EmptyPromptAccountingLedger:
     def list_token_usage(self, **_kwargs: Any) -> list[Any]:
         return []
 
-    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+    def list_cache_plans(self, **_kwargs: Any) -> list[Any]:
         return []
 
     def summarize_session(self, _session_id: str) -> dict[str, Any]:
@@ -44,7 +49,7 @@ class _LatestContextUsageLedger:
             return []
         return [record]
 
-    def list_prompt_cache(self, **_kwargs: Any) -> list[Any]:
+    def list_cache_plans(self, **_kwargs: Any) -> list[Any]:
         return []
 
     def summarize_session(self, _session_id: str) -> dict[str, Any]:
@@ -131,7 +136,18 @@ def _latest_context_usage_snapshot(ledger: Any, *, session_id: str) -> dict[str,
         payload = reader(session_id)
     except Exception:
         return {}
-    return dict(payload or {}) if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    provider_lane = normalize_provider_lane(
+        payload.get("provider_lane")
+        or dict(payload.get("diagnostics") or {}).get("provider_lane")
+    )
+    if provider_lane not in {
+        PROVIDER_LANE_AGENT_TOOL_LOOP,
+        PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
+    }:
+        return {}
+    return dict(payload)
 
 
 def _model_usage_record_from_context_snapshot(snapshot: dict[str, Any]) -> ModelTokenUsageRecord | None:
@@ -151,6 +167,7 @@ def _model_usage_record_from_context_snapshot(snapshot: dict[str, Any]) -> Model
         provider=str(payload.get("provider") or ""),
         model=str(payload.get("model") or ""),
         source="provider_usage" if source == "provider_usage" else "local_prediction",
+        phase="provider_usage" if source == "provider_usage" else "local_prediction",
         prompt_tokens=prompt_tokens,
         completion_tokens=int(payload.get("completion_tokens") or 0),
         reasoning_tokens=int(payload.get("reasoning_tokens") or 0),
@@ -244,10 +261,10 @@ def _build_session_pressure(
     record = dict(session_record or _load_session_record(runtime, session_id=session_id) or {})
     compressed_context = str(record.get("compressed_context") or "").strip()
     boundary_created_at = _safe_float(record.get("provider_protocol_compaction_created_at"))
-    api_transcript = _load_api_transcript(runtime, session_id=session_id)
+    provider_protocol_timeline = _load_provider_protocol_timeline(runtime, session_id=session_id)
     public_messages = _public_pressure_messages(raw_messages)
     protocol_messages, protocol_stats = _protocol_pressure_messages(
-        api_transcript,
+        provider_protocol_timeline,
         boundary_created_at=boundary_created_at,
         compressed_context_present=bool(compressed_context),
     )
@@ -260,7 +277,7 @@ def _build_session_pressure(
         "public_history_tokens": int(public_tokens),
         "provider_protocol_tokens": int(protocol_tokens),
         "public_message_count": len(public_messages),
-        "api_transcript_message_count": len(api_transcript),
+        "provider_protocol_timeline_message_count": len(provider_protocol_timeline),
         "provider_protocol_message_count": len(protocol_messages),
         "provider_protocol_compaction_created_at": boundary_created_at,
         "compressed_context_present": bool(compressed_context),
@@ -280,12 +297,12 @@ def _load_session_record(runtime: Any, *, session_id: str) -> dict[str, Any]:
     return dict(record or {}) if isinstance(record, dict) else {}
 
 
-def _load_api_transcript(runtime: Any, *, session_id: str) -> list[dict[str, Any]]:
-    load_session_for_api = getattr(getattr(runtime, "session_manager", None), "load_session_for_api", None)
-    if not callable(load_session_for_api):
+def _load_provider_protocol_timeline(runtime: Any, *, session_id: str) -> list[dict[str, Any]]:
+    load_provider_protocol_timeline = getattr(getattr(runtime, "session_manager", None), "load_provider_protocol_timeline", None)
+    if not callable(load_provider_protocol_timeline):
         return []
     try:
-        transcript = load_session_for_api(session_id)
+        transcript = load_provider_protocol_timeline(session_id)
     except Exception:
         return []
     return [dict(item) for item in list(transcript or []) if isinstance(item, dict)]
@@ -463,7 +480,7 @@ def compact_session_history(
     record = runtime.session_manager.get_history(session_id)
     raw_messages = list(record.get("messages") or [])
     py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    compactor = runtime.memory_facade.conversation_continuity.compactor(session_id)
     tokens_before = compactor.conversation_tokens(py_messages)
     history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
     history_pressure_level = str(compactor.pressure_level(tokens_before, len(py_messages)) or "normal")
@@ -577,8 +594,8 @@ def auto_compact_session_if_needed(
 def _runtime_history_compactor_available(runtime: Any) -> bool:
     facade = getattr(runtime, "memory_facade", None)
     adapter = getattr(facade, "adapter", None)
-    session_memory = getattr(facade, "session_memory", None)
-    return callable(getattr(adapter, "to_messages", None)) and callable(getattr(session_memory, "compactor", None))
+    conversation_continuity = getattr(facade, "conversation_continuity", None)
+    return callable(getattr(adapter, "to_messages", None)) and callable(getattr(conversation_continuity, "compactor", None))
 
 
 def _auto_skipped_response(

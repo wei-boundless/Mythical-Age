@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 
-FILE_OBSERVATION_POLICY_AUTHORITY = "runtime.shared.file_observation_policy.v1"
+FILE_OBSERVATION_POLICY_AUTHORITY = "runtime.shared.file_observation_policy"
 
 READ_FILE_DEFAULT_START_LINE = 1
 READ_FILE_DEFAULT_LINE_COUNT = 900

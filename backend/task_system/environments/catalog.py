@@ -37,6 +37,7 @@ class TaskEnvironmentCatalogItem:
             "risk_policy": self.resolved.spec.risk_policy.to_dict(),
             "observability_policy": dict(self.resolved.spec.observability_policy),
             "lifecycle_policy": dict(self.resolved.spec.lifecycle_policy),
+            "metadata": dict(self.resolved.spec.metadata),
             "authority": self.resolved.authority,
         }
 
@@ -64,6 +65,7 @@ class TaskEnvironmentCatalogItem:
             "risk_policy": runtime_payload["risk_policy"],
             "observability_policy": runtime_payload["observability_policy"],
             "lifecycle_policy": runtime_payload["lifecycle_policy"],
+            "metadata": runtime_payload["metadata"],
             "task_library": dict(self.task_library),
             "authority": self.authority,
         }

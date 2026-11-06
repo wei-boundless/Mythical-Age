@@ -27,6 +27,7 @@ def main() -> int:
         )
     )
     parser.add_argument("--live", action="store_true", help="Send the tail scenario to DeepSeek.")
+    parser.add_argument("--model", default="", help="DeepSeek model for live probes. Defaults to project setting.")
     parser.add_argument("--stable-lines", type=int, default=900, help="Size of deterministic stable prefix.")
     parser.add_argument("--context-chars", type=int, default=1400, help="Chars per appended context chunk.")
     parser.add_argument("--tail-chars", type=int, default=700, help="Chars per volatile dynamic tail.")
@@ -131,10 +132,11 @@ async def _run_live_append_only_probe(args: argparse.Namespace, *, include_tail:
     if not settings.llm_api_key:
         raise RuntimeError("DeepSeek API key is not configured.")
     thinking_mode = str(args.thinking_mode or settings.llm_thinking_mode or "disabled").strip().lower()
+    model_name = str(getattr(args, "model", "") or settings.llm_model or "deepseek-v4-flash").strip()
     tools = [] if args.without_tools else _probe_tools()
     model = LightweightChatModel(
         provider="deepseek",
-        model=str(settings.llm_model or "deepseek-v4-flash"),
+        model=model_name,
         api_key=settings.llm_api_key,
         base_url=str(settings.llm_base_url or "https://api.deepseek.com"),
         timeout_seconds=min(60.0, float(settings.llm_timeout_seconds or 45.0)),
@@ -167,7 +169,7 @@ async def _run_live_append_only_probe(args: argparse.Namespace, *, include_tail:
         await model.close()
     return {
         "provider": "deepseek",
-        "model": str(settings.llm_model or ""),
+        "model": model_name,
         "thinking_mode": thinking_mode,
         "with_native_tools": bool(tools),
         "scenario": "append_only_with_replaceable_dynamic_tail"
@@ -454,4 +456,3 @@ def _int(value: Any) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

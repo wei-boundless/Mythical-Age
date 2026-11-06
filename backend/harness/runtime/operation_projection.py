@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from permissions.policy import normalize_permission_mode
-
 
 @dataclass(frozen=True, slots=True)
 class OperationAuthorizationDecision:
@@ -54,17 +52,18 @@ def project_operation_authorization(
     operation_ceiling: tuple[str, ...] | list[str] | None = None,
 ) -> OperationAuthorizationProjection:
     definitions = dict(definitions_by_name or {})
-    mode = normalize_permission_mode(permission_mode)
+    _ = permission_mode
     known_operations = {
-        str(getattr(definition, "operation_id", "") or "").strip()
+        operation_id
         for definition in definitions.values()
-        if str(getattr(definition, "operation_id", "") or "").strip()
+        for operation_id in _definition_operation_ids(definition)
     }
     agent_allowed = _operation_set(agent_allowed_operations)
     agent_blocked = _operation_set(agent_blocked_operations)
     task_requested = _operation_set(task_requested_operations)
-    full_access_mode = mode in {"full_access", "bypass"}
-    candidate_operations = sorted(known_operations | agent_allowed | agent_blocked | task_requested)
+    ceiling = _operation_set(operation_ceiling or ())
+    has_ceiling = operation_ceiling is not None
+    candidate_operations = sorted(known_operations | agent_allowed | agent_blocked | task_requested | ceiling)
     decisions: list[OperationAuthorizationDecision] = []
     for operation_id in candidate_operations:
         if not operation_id:
@@ -77,9 +76,12 @@ def project_operation_authorization(
         elif blocked_by_agent:
             final_decision = "deny"
             reason = "agent_blocked_operation"
+        elif has_ceiling and operation_id not in ceiling:
+            final_decision = "deny"
+            reason = "operation_ceiling_excluded"
         else:
             final_decision = "allow"
-            reason = "permission_mode_full_access" if full_access_mode else "agent_allowed"
+            reason = "agent_allowed"
         decisions.append(
             OperationAuthorizationDecision(
                 operation_id=operation_id,
@@ -101,3 +103,22 @@ def project_operation_authorization(
 
 def _operation_set(value: tuple[str, ...] | list[str]) -> set[str]:
     return {str(item).strip() for item in list(value or []) if str(item).strip()}
+
+
+def _definition_operation_ids(definition: Any) -> tuple[str, ...]:
+    operation_ids: list[str] = []
+    primary = str(getattr(definition, "operation_id", "") or "").strip()
+    if primary:
+        operation_ids.append(primary)
+    for operation_id in dict(getattr(definition, "action_operation_ids", {}) or {}).values():
+        value = str(operation_id or "").strip()
+        if value:
+            operation_ids.append(value)
+    result: list[str] = []
+    seen: set[str] = set()
+    for operation_id in operation_ids:
+        if operation_id in seen:
+            continue
+        seen.add(operation_id)
+        result.append(operation_id)
+    return tuple(result)

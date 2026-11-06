@@ -105,7 +105,7 @@ class AssignmentRepository:
         task_structure = dict(task_policy.get("task_structure") or {})
         safety_policy = dict(task_policy.get("safety_policy") or {})
         flow = flow if flow is not None else self.get_flow(flow_id)
-        default_agent_id = str(getattr(flow, "default_agent_id", "") or "agent:0").strip() or "agent:0"
+        default_agent_id = normalize_agent_id(str(getattr(flow, "default_agent_id", "") or "").strip())
         flow_metadata = dict(getattr(flow, "metadata", {}) or {})
         task_structure = {
             **task_structure,
@@ -161,7 +161,7 @@ def _assignment_from_dict(payload: dict[str, object]) -> TaskAssignment:
             or dict(payload.get("task_structure") or {}).get("environment_id")
             or ""
         ).strip(),
-        default_agent_id=normalize_agent_id(str(payload.get("default_agent_id") or "agent:0")),
+        default_agent_id=normalize_agent_id(str(payload.get("default_agent_id") or "")),
         participant_agent_ids=normalize_agent_id_sequence(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
         workflow_id=str(payload.get("workflow_id") or ""),
         workflow_file_ref=str(payload.get("workflow_file_ref") or ""),

@@ -8,8 +8,8 @@ from typing import Any, Literal
 
 from context_system.budget.presets import match_context_budget_preset_for_available_context_tokens
 from memory_system.storage.models import Message
-from memory_system.storage.session_memory import SessionMemoryManager
-from memory_system.storage.session_memory_view import has_material_session_memory_content
+from memory_system.storage.conversation_continuity import ConversationContinuityManager
+from memory_system.storage.conversation_continuity_view import has_material_conversation_continuity_content
 from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner
 from core.token_accounting import count_text_tokens
 
@@ -203,11 +203,11 @@ def _dedupe_recovery_items(values: list[str]) -> list[str]:
 
 
 class ContextCompactor:
-    """Applies token-aware runtime compaction using session memory as working state."""
+    """Applies token-aware runtime compaction using conversation continuity summary as working state."""
 
     def __init__(
         self,
-        session_memory_manager: SessionMemoryManager,
+        conversation_continuity_manager: ConversationContinuityManager,
         max_messages: int = 18,
         keep_recent_messages: int = 8,
         effective_history_token_budget: int = 6_000,
@@ -230,7 +230,7 @@ class ContextCompactor:
             raise ValueError("keep_recent_messages must be smaller than max_messages")
         if full_compact_recent_messages <= 0:
             raise ValueError("full_compact_recent_messages must be positive")
-        self.session_memory_manager = session_memory_manager
+        self.conversation_continuity_manager = conversation_continuity_manager
         self.max_messages = max_messages
         self.keep_recent_messages = keep_recent_messages
         self.full_compact_recent_messages = min(full_compact_recent_messages, keep_recent_messages)
@@ -383,7 +383,7 @@ class ContextCompactor:
             role=message.role,
             content=(
                 f"[Earlier {label} was microcompacted to reduce context pressure. "
-                f"Use session memory for the working state. Preview: {preview}]"
+                f"Use conversation continuity summary for the working state. Preview: {preview}]"
             ),
             meta={**message.meta, "kind": "microcompact_stub"},
         )
@@ -497,7 +497,7 @@ class ContextCompactor:
         recent_count: int,
         summary_content: str | None = None,
         summary_target_tokens: int = 0,
-        compaction_source: str = "deterministic_session_memory",
+        compaction_source: str = "deterministic_conversation_continuity",
         preserve_from_index: int | None = None,
     ) -> tuple[list[Message], Message]:
         recent = self._select_full_compact_preserved_messages(
@@ -508,10 +508,10 @@ class ContextCompactor:
         session_summary = (
             summary_content.strip()
             if summary_content is not None
-            else self.session_memory_manager.compact_view(max_chars_per_section=max_chars_per_section).strip()
+            else self.conversation_continuity_manager.compact_view(max_chars_per_section=max_chars_per_section).strip()
         )
         session_summary = self._trim_summary_to_token_target(session_summary, summary_target_tokens)
-        if not has_material_session_memory_content(session_summary):
+        if not has_material_conversation_continuity_content(session_summary):
             raise ValueError("compaction_summary_unavailable")
         summary_message = Message(
             role="system",
@@ -692,15 +692,15 @@ class ContextCompactor:
         recent_count = self.full_compact_recent_messages
         max_chars_per_section = 420
         summary_target_tokens = int(budget_decision.get("summary_target_tokens") or 0)
-        session_compaction_validation = self.session_memory_manager.validate_compaction_state(working)
+        session_compaction_validation = self.conversation_continuity_manager.validate_compaction_state(working)
         session_summary_content = ""
         session_preserve_from_index: int | None = None
         context_recovery_content = ""
         if session_compaction_validation.get("ok"):
-            context_recovery_content = self.session_memory_manager.context_recovery_markdown().strip()
+            context_recovery_content = self.conversation_continuity_manager.context_recovery_markdown().strip()
             session_summary_content = (
                 context_recovery_content
-                or self.session_memory_manager.compact_view(
+                or self.conversation_continuity_manager.compact_view(
                     max_chars_per_section=max_chars_per_section,
                 ).strip()
             )
@@ -717,9 +717,9 @@ class ContextCompactor:
             reason=reason,
             reserved_output_tokens=reserved_output_tokens,
         )
-        explicit_semantic_summary_present = has_material_session_memory_content(semantic_summary_content or "")
-        explicit_summary_present = has_material_session_memory_content(summary_content or "")
-        source_summary_present = has_material_session_memory_content(summary_source_content or "")
+        explicit_semantic_summary_present = has_material_conversation_continuity_content(semantic_summary_content or "")
+        explicit_summary_present = has_material_conversation_continuity_content(summary_content or "")
+        source_summary_present = has_material_conversation_continuity_content(summary_source_content or "")
         semantic_compactor_needed = (
             semantic_summary_content is None
             and not explicit_summary_present
@@ -731,7 +731,7 @@ class ContextCompactor:
             else None
         )
         semantic_worker_summary = _summary_from_semantic_worker_result(semantic_worker_result)
-        semantic_worker_summary_present = has_material_session_memory_content(semantic_worker_summary)
+        semantic_worker_summary_present = has_material_conversation_continuity_content(semantic_worker_summary)
         resolved_summary_content = (
             semantic_summary_content
             if explicit_semantic_summary_present
@@ -749,7 +749,7 @@ class ContextCompactor:
             if explicit_semantic_summary_present
             else "explicit_summary"
             if explicit_summary_present
-            else "validated_session_memory"
+            else "validated_conversation_continuity"
             if session_summary_content and resolved_summary_content == session_summary_content
             else str(semantic_worker_result.source)
             if semantic_worker_result and semantic_worker_result.ok and semantic_worker_summary_present
@@ -784,7 +784,7 @@ class ContextCompactor:
         }
         while True:
             if resolved_summary_content is None and summary_source_content is not None:
-                resolved_summary_content = self.session_memory_manager.compact_view(
+                resolved_summary_content = self.conversation_continuity_manager.compact_view(
                     content=summary_source_content,
                     max_chars_per_section=max_chars_per_section,
                 ).strip()
@@ -838,12 +838,12 @@ class ContextCompactor:
             if max_chars_per_section > 240:
                 max_chars_per_section = 240
                 if compaction_source == "explicit_summary_source" and summary_source_content is not None:
-                    resolved_summary_content = self.session_memory_manager.compact_view(
+                    resolved_summary_content = self.conversation_continuity_manager.compact_view(
                         content=summary_source_content,
                         max_chars_per_section=max_chars_per_section,
                     ).strip()
                 elif resolved_summary_content is None and summary_source_content is None and summary_content is None:
-                    resolved_summary_content = self.session_memory_manager.compact_view(
+                    resolved_summary_content = self.conversation_continuity_manager.compact_view(
                         max_chars_per_section=max_chars_per_section,
                     ).strip()
                 continue
@@ -853,12 +853,12 @@ class ContextCompactor:
             fallback_summary = resolved_summary_content
             if fallback_summary is None:
                 if summary_source_content is not None:
-                    fallback_summary = self.session_memory_manager.compact_view(
+                    fallback_summary = self.conversation_continuity_manager.compact_view(
                         content=summary_source_content,
                         max_chars_per_section=160,
                     ).strip()
                 else:
-                    fallback_summary = self.session_memory_manager.compact_view(max_chars_per_section=160).strip()
+                    fallback_summary = self.conversation_continuity_manager.compact_view(max_chars_per_section=160).strip()
             try:
                 compacted, summary_message = self._build_full_compact_messages(
                     micro_messages,

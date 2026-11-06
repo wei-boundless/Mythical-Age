@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from context_system.projection.projection import ContextProjection
+from context_system.projection.projection import TurnContextProjection
 from runtime.memory.observation_aggregator import ObservationAggregator
 
 
@@ -15,7 +15,7 @@ def test_observation_aggregator_builds_evidence_items_without_losing_projection(
     aggregator = ObservationAggregator()
 
     aggregator.add_projection(
-        ContextProjection(main_context={"answer_source": "tool"}),
+        TurnContextProjection(main_context={"answer_source": "tool"}),
         tool_name="web_search",
     )
     snapshot = aggregator.add_tool_observation(

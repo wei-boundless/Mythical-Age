@@ -64,9 +64,16 @@ class FileWriteEvent:
     operation: str
     observation_ref: str = ""
     content_sha256_after: str = ""
+    # Line ranges this write actually changed, as inclusive (start, end) pairs.
+    # Empty means the writer could not localize the change (for example a shell
+    # command), so every read window for the file must be treated as stale.
+    changed_ranges: tuple[tuple[int, int], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return _drop_empty(asdict(self))
+        payload = _drop_empty(asdict(self))
+        if self.changed_ranges:
+            payload["changed_ranges"] = [[int(start), int(end)] for start, end in self.changed_ranges]
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,7 +305,11 @@ def _apply_file_event(
             exists=True,
         )
     if event_type in {"write", "edit"}:
-        stale_ranges = tuple(replace(item, stale=True) for item in current.read_ranges)
+        changed_ranges = _changed_ranges_from_event(event)
+        stale_ranges = tuple(
+            replace(item, stale=True) if _read_range_overlaps_changes(item, changed_ranges) else item
+            for item in current.read_ranges
+        )
         superseded_recommendations = tuple(
             replace(item, status="superseded")
             for item in current.read_recommendations
@@ -308,6 +319,7 @@ def _apply_file_event(
             operation=event_type,
             observation_ref=observation_ref,
             content_sha256_after=str(event.get("content_sha256") or ""),
+            changed_ranges=changed_ranges,
         )
         return replace(
             current,
@@ -719,3 +731,44 @@ def _bool_or_none(value: Any) -> bool | None:
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {}, ())}
+
+
+def _changed_ranges_from_event(event: dict[str, Any]) -> tuple[tuple[int, int], ...]:
+    """Extract the line ranges a write event actually changed.
+
+    An empty result means the writer could not localize the change, for example
+    a shell command that rewrote the file. Callers must then treat every read
+    window as stale instead of trusting evidence that may no longer hold.
+    """
+    raw = event.get("changed_ranges")
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    ranges: list[tuple[int, int]] = []
+    for item in raw:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        start = _int_or_none(item[0])
+        end = _int_or_none(item[1])
+        if start is None or end is None:
+            continue
+        if end >= start >= 1:
+            ranges.append((int(start), int(end)))
+    return tuple(ranges)
+
+
+def _read_range_overlaps_changes(
+    read_range: FileReadRange,
+    changed_ranges: tuple[tuple[int, int], ...],
+) -> bool:
+    """Return True when this write invalidates the read window.
+
+    Only overlapping windows are invalidated, so an edit to one region does not
+    throw away knowledge of unrelated regions. When the changed ranges are
+    unknown the whole window set is invalidated.
+    """
+    if not changed_ranges:
+        return True
+    for start, end in changed_ranges:
+        if read_range.start_line <= end and read_range.end_line >= start:
+            return True
+    return False

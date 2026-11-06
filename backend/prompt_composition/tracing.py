@@ -2,61 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import PromptCompositionSegmentBinding, PromptCompositionSlot
-from runtime.context_management.context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-)
-from runtime.context_management.context_segment_policy import context_segment_policy_for_spec
-
-RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND = {
-    "action_schema_static": "runtime_action_schema",
-    "artifact_scope_stable": "runtime_artifact_scope",
-    "bound_task_context_stable": "runtime_bound_task_context",
-    "environment_stable": "runtime_environment_boundary",
-    "file_evidence_policy_stable": "runtime_file_evidence_policy",
-    "lifecycle_stable": "runtime_lifecycle",
-    "project_instructions_stable": "runtime_project_instructions",
-    "semantic_compaction_stable_boundary": "semantic_compaction_boundary",
-    "task_contract_stable": "runtime_contract",
-    "task_prompt_contract": "runtime_contract",
-    "task_runtime_boundary_stable": "runtime_task_boundary",
-    "task_state_replay_entry": "runtime_task_state_replay",
-    "task_stable": "runtime_contract",
-    "tool_index_stable": "tool_catalog",
-    "turn_stable": "runtime_protocol",
-    "attachment_context_index": "runtime_attachment_context_index",
-    "evidence_index_cursor": "runtime_evidence_index_cursor",
-    "task_goal_context": "runtime_task_goal_context",
-    "task_plan_context": "runtime_task_plan_context",
-    "task_todo_context": "runtime_task_todo_context",
-    "editor_context_index": "runtime_editor_context_index",
-    "current_editor_evidence_delta": "runtime_editor_evidence_delta",
-    "runtime_memory_context": "runtime_memory_context",
-    "runtime_baseline_refs": "runtime_baseline_refs",
-    "incremental_context_frame": "runtime_incremental_context_frame",
-    "incremental_context_cursor": "runtime_incremental_context_cursor",
-    "read_evidence_context": "runtime_read_evidence_context",
-    "read_evidence_injection": "runtime_read_evidence",
-    "bound_task_runtime_context": "runtime_bound_task_context",
-    "task_runtime_boundary_dynamic": "runtime_dynamic_boundary",
-    "active_skills": "runtime_active_skills",
-    "session_history_tail_context": "runtime_session_history_tail_context",
-    "provider_protocol_history": "runtime_append_only_context",
-    "single_agent_turn_tool_call": "runtime_append_only_context",
-    "single_agent_turn_user_steer_context": "runtime_append_only_context",
-    "session_pinned_facts_context": "runtime_append_only_context",
-    "tool_transcript_delta": "runtime_append_only_context",
-    "user_steering_context_append": "runtime_append_only_context",
-    "user_steering_consumption_tail": "dynamic_context_fragment",
-}
+from .models import PromptCompositionSegmentBinding, PromptManifestBinding
+from .slot_policy import runtime_source_kind_for_segment
 
 
 def bind_segments_to_slots(
     *,
     segments: tuple[dict[str, Any], ...],
-    slots: tuple[PromptCompositionSlot, ...],
+    slots: tuple[PromptManifestBinding, ...],
 ) -> tuple[PromptCompositionSegmentBinding, ...]:
     bindings: list[PromptCompositionSegmentBinding] = []
     for segment in segments:
@@ -86,7 +39,7 @@ def bind_segments_to_slots(
     return tuple(bindings)
 
 
-def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptCompositionSlot, ...]) -> tuple[PromptCompositionSlot, ...]:
+def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptManifestBinding, ...]) -> tuple[PromptManifestBinding, ...]:
     kind = str(segment.get("kind") or "").strip()
     metadata = dict(segment.get("metadata") or {}) if isinstance(segment.get("metadata"), dict) else {}
     prompt_slot_id = str(metadata.get("prompt_slot_id") or "").strip()
@@ -95,7 +48,7 @@ def _matching_slots(*, segment: dict[str, Any], slots: tuple[PromptCompositionSl
         if exact_matches:
             return tuple(exact_matches)
     source_tokens = _source_tokens(str(segment.get("source_ref") or ""))
-    matches: list[PromptCompositionSlot] = []
+    matches: list[PromptManifestBinding] = []
     for slot in slots:
         slot_tokens = {
             token
@@ -117,20 +70,7 @@ def _fallback_status(segment: dict[str, Any]) -> str:
     return runtime_source_kind_for_segment(segment)
 
 
-def runtime_source_kind_for_segment(segment: dict[str, Any]) -> str:
-    kind = str(segment.get("kind") or "").strip()
-    source_kind = RUNTIME_SOURCE_KIND_BY_SEGMENT_KIND.get(kind)
-    if source_kind:
-        return source_kind
-    policy = context_segment_policy_for_spec(segment)
-    if policy.section in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
-        return "runtime_append_only_context"
-    if policy.section == DYNAMIC_TAIL:
-        return "dynamic_context_fragment"
-    return "legacy_runtime_text"
-
-
-def _binding_status(*, segment: dict[str, Any], matching_slots: tuple[PromptCompositionSlot, ...]) -> str:
+def _binding_status(*, segment: dict[str, Any], matching_slots: tuple[PromptManifestBinding, ...]) -> str:
     if not matching_slots:
         return _fallback_status(segment)
     if any(slot.source_kind == "registered_prompt" for slot in matching_slots):
@@ -158,8 +98,8 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
         return "segment is compiler-generated environment boundary and should become a registered environment slot"
     if status == "runtime_file_evidence_policy":
         return "segment is compiler-generated file evidence policy and should become a registered file evidence slot"
-    if status == "runtime_lifecycle":
-        return "segment is compiler-generated lifecycle protocol and should become a registered lifecycle slot"
+    if status == "runtime_turn_state":
+        return "segment is compiler-generated turn state guidance and should become a registered turn state slot"
     if status == "runtime_project_instructions":
         return "segment is scoped project instruction content collected from project instruction files"
     if status == "runtime_contract":
@@ -201,9 +141,13 @@ def _binding_reason(*, status: str, kind: str, source_ref: str) -> str:
     if status == "runtime_protocol":
         return "segment is compiler-generated runtime protocol and should become a registered protocol slot"
     if status == "semantic_compaction_boundary":
-        return "segment is compiler-generated semantic compaction boundary and should become a registered lifecycle slot"
+        return "segment is compiler-generated semantic compaction boundary and should become a registered runtime boundary slot"
     if status == "tool_catalog":
         return "segment is compiler-generated tool catalog and should be owned by ToolCatalogManifest"
+    if status == "runtime_unregistered_static_text":
+        return "segment is stable static text without a registered prompt source kind; assign an explicit prompt kind or source kind"
+    if status == "unclassified_runtime_prompt":
+        return "segment could not be classified by the prompt slot policy"
     return f"segment is compiler-generated stable text without a registered prompt slot: kind={kind} source_ref={source_ref}"
 
 

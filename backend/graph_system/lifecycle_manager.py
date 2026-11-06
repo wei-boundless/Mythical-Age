@@ -5,7 +5,7 @@ from typing import Any
 
 from core.project_layout import ProjectLayout
 
-from .models import safe_id
+from .models import resolve_graph_root_task_run_id, safe_id
 
 
 class GraphTaskLifecycleManager:
@@ -74,11 +74,7 @@ class GraphTaskLifecycleManager:
         target = str(graph_run_id or "").strip()
         graph_run = dict(self.graph_system.get_graph_run(target) or {})
         state = self.graph_system.get_checkpoint_state(target)
-        root_task_run_id = str(
-            graph_run.get("task_run_id")
-            or state.get("task_run_id")
-            or ""
-        )
+        root_task_run_id = resolve_graph_root_task_run_id(graph_run, state)
         root_task = self.services.state_index.get_task_run(root_task_run_id) if root_task_run_id else None
         root_payload = root_task.to_dict() if hasattr(root_task, "to_dict") else {}
         diagnostics = dict(root_payload.get("diagnostics") or graph_run.get("diagnostics") or {})
@@ -90,10 +86,11 @@ class GraphTaskLifecycleManager:
             or memory_namespace.get("namespace_id")
             or f"graphmem:{safe_id(target)}"
         ).strip()
-        task_run_ids = self._collect_task_run_ids(graph_run_id=target, root_task_run_id=root_task_run_id, state=state)
+        task_run_ids = self._collect_task_run_ids(graph_run_id=target, root_task_run_id=root_task_run_id)
         return {
             "graph_run_id": target,
             "root_task_run_id": root_task_run_id,
+            "graph_root_task_run_id": root_task_run_id,
             "task_run_ids": sorted(task_run_ids),
             "project_id": project_id,
             "memory_namespace_id": memory_namespace_id,
@@ -102,28 +99,13 @@ class GraphTaskLifecycleManager:
             "config_id": str(graph_run.get("config_id") or diagnostics.get("graph_config_id") or ""),
         }
 
-    def _collect_task_run_ids(self, *, graph_run_id: str, root_task_run_id: str, state: dict[str, Any]) -> set[str]:
+    def _collect_task_run_ids(self, *, graph_run_id: str, root_task_run_id: str) -> set[str]:
         task_ids = {root_task_run_id} if root_task_run_id else set()
-        indexed_task_runs = []
-        list_graph_node_task_runs = getattr(self.services.state_index, "list_graph_node_task_runs", None)
-        if callable(list_graph_node_task_runs):
-            indexed_task_runs = list(list_graph_node_task_runs(graph_run_id=graph_run_id) or [])
-        if indexed_task_runs:
-            for task_run in indexed_task_runs:
-                task_ids.add(str(getattr(task_run, "task_run_id", "") or ""))
-        else:
-            for task_run in self.services.state_index.list_task_runs():
-                payload = task_run.to_dict() if hasattr(task_run, "to_dict") else {}
-                diagnostics = dict(payload.get("diagnostics") or {})
-                if str(diagnostics.get("graph_run_id") or "") == graph_run_id:
-                    task_ids.add(str(payload.get("task_run_id") or ""))
-        for payload in dict(state.get("node_states") or {}).values():
-            result_ref = str(dict(payload or {}).get("result_ref") or "")
-            if not result_ref:
-                continue
-            result = self.services.runtime_objects.get_object(result_ref)
-            outputs = dict(result.get("outputs") or {})
-            task_ids.add(str(outputs.get("node_executor_task_run_id") or ""))
+        for task_run in self.services.state_index.list_task_runs():
+            payload = task_run.to_dict() if hasattr(task_run, "to_dict") else {}
+            diagnostics = dict(payload.get("diagnostics") or {})
+            if str(diagnostics.get("graph_run_id") or "") == graph_run_id:
+                task_ids.add(str(payload.get("task_run_id") or ""))
         return {item for item in task_ids if item}
 
     def _artifact_paths(self, scope: dict[str, Any]) -> list[Path]:
@@ -141,4 +123,3 @@ class GraphTaskLifecycleManager:
             "authority": "graph_system_task_lifecycle.runtime_events",
             "deleted_task_run_ids": deleted,
         }
-

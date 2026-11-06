@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .edge_contracts import edge_contract_for_edge
 from .models import ExecutableGraphConfig, GraphLoopState
 from .readiness_evaluator import GraphReadinessEvaluator
 from .scheduler_view import build_scheduler_view, is_executable_node
@@ -47,13 +48,10 @@ class GraphStateMachine:
         }
 
     def initial_edge_states(self, graph_config: ExecutableGraphConfig) -> dict[str, dict[str, Any]]:
-        edge_protocol_index = dict(dict(graph_config.contracts or {}).get("edge_protocol_index") or {})
-        edge_contract_index = dict(dict(graph_config.contracts or {}).get("edge_contract_index") or {})
         return {
             str(edge.get("edge_id") or ""): _initial_edge_state(
                 edge=edge,
-                edge_protocol_index=edge_protocol_index,
-                edge_contract_index=edge_contract_index,
+                edge_contract=edge_contract_for_edge(graph_config, dict(edge)),
             )
             for edge in graph_config.edges
             if str(edge.get("edge_id") or "")
@@ -213,26 +211,22 @@ def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
 def _initial_edge_state(
     *,
     edge: dict[str, Any],
-    edge_protocol_index: dict[str, Any],
-    edge_contract_index: dict[str, Any],
+    edge_contract: dict[str, Any],
 ) -> dict[str, Any]:
     edge_id = str(edge.get("edge_id") or "")
-    contract = dict(edge_contract_index.get(edge_id) or {})
+    contract = dict(edge_contract or {})
     reliability = dict(contract.get("reliability") or {})
     protocol = dict(contract.get("protocol") or {})
-    legacy_projection = dict(contract.get("legacy_protocol_projection") or edge_protocol_index.get(edge_id) or edge)
     return _drop_empty(
         {
             "edge_id": edge_id,
             "source_node_id": str(edge.get("source_node_id") or ""),
             "target_node_id": str(edge.get("target_node_id") or ""),
             "status": "pending",
-            "ack_required": bool(reliability.get("ack_required", legacy_projection.get("ack_required", True))),
-            "ack_policy": str(reliability.get("ack_policy") or legacy_projection.get("ack_policy") or ""),
+            "ack_required": bool(reliability.get("ack_required", True)),
+            "ack_policy": str(reliability.get("ack_policy") or ""),
             "protocol_kind": str(protocol.get("kind") or ""),
-            "protocol_ref": str(contract.get("contract_id") or edge_id)
-            if contract or edge_id in edge_protocol_index
-            else "",
+            "protocol_ref": str(contract.get("contract_id") or edge_id),
             "contract_authority": str(contract.get("authority") or ""),
         }
     )

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 
 CANONICAL_TASK_RUN_STATUSES = frozenset(
     {
         "created",
+        "admitted",
         "running",
         "waiting_executor",
         "waiting_approval",
@@ -78,20 +80,14 @@ def runtime_control_payload_from_task_run(
         return {}
     if isinstance(runtime_control, dict):
         return dict(runtime_control)
-    if isinstance(task_run, dict):
-        diagnostics = task_run.get("diagnostics") if isinstance(task_run.get("diagnostics"), dict) else {}
-        control = task_run.get("runtime_control") if isinstance(task_run.get("runtime_control"), dict) else None
-        if isinstance(control, dict):
-            return dict(control)
-        direct = str(task_run.get("control_state") or "").strip()
-    else:
-        diagnostics = getattr(task_run, "diagnostics", {}) or {}
-        direct = str(getattr(task_run, "control_state", "") or "").strip()
-    control = diagnostics.get("runtime_control") if isinstance(diagnostics, dict) else {}
+    view = _task_run_read_view(task_run)
+    if view.runtime_control:
+        return dict(view.runtime_control)
+    control = view.diagnostics.get("runtime_control")
     if isinstance(control, dict):
         return dict(control)
-    if direct:
-        return {"state": direct}
+    if view.control_state:
+        return {"state": view.control_state}
     return {}
 
 
@@ -194,15 +190,10 @@ def runtime_control_state_from_task_run(
 def is_stopped_or_terminal_task_run(task_run: Any, *, runtime_host: Any | None = None) -> bool:
     if task_run is None:
         return True
-    if isinstance(task_run, dict):
-        status = task_run.get("status")
-        terminal_reason = task_run.get("terminal_reason")
-    else:
-        status = getattr(task_run, "status", "")
-        terminal_reason = getattr(task_run, "terminal_reason", "")
+    view = _task_run_read_view(task_run)
     return (
-        is_terminal_task_run_status(status)
-        or is_terminal_task_run_reason(terminal_reason)
+        is_terminal_task_run_status(view.status)
+        or is_terminal_task_run_reason(view.terminal_reason)
         or runtime_control_state_from_task_run(task_run, runtime_host=runtime_host) in STOP_CONTROL_STATES
     )
 
@@ -210,29 +201,56 @@ def is_stopped_or_terminal_task_run(task_run: Any, *, runtime_host: Any | None =
 def _stopped_by_durable_lifecycle(task_run: Any) -> bool:
     if task_run is None:
         return False
-    if isinstance(task_run, dict):
-        status = task_run.get("status")
-        terminal_reason = task_run.get("terminal_reason")
-    else:
-        status = getattr(task_run, "status", "")
-        terminal_reason = getattr(task_run, "terminal_reason", "")
-    if normalize_task_run_status(status) in STOPPED_TASK_RUN_STATUSES:
+    view = _task_run_read_view(task_run)
+    if normalize_task_run_status(view.status) in STOPPED_TASK_RUN_STATUSES:
         return True
-    reason = str(terminal_reason or "").strip().lower()
+    reason = str(view.terminal_reason or "").strip().lower()
     return normalize_task_run_status(reason) in STOPPED_TASK_RUN_STATUSES
 
 
 def _task_run_status(task_run: Any) -> str:
-    if task_run is None:
-        return ""
-    if isinstance(task_run, dict):
-        return normalize_task_run_status(task_run.get("status"))
-    return normalize_task_run_status(getattr(task_run, "status", ""))
+    return _task_run_read_view(task_run).status
 
 
 def _task_run_id(task_run: Any) -> str:
+    return _task_run_read_view(task_run).task_run_id
+
+
+@dataclass(frozen=True, slots=True)
+class _TaskRunReadView:
+    task_run_id: str = ""
+    status: str = ""
+    terminal_reason: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    runtime_control: dict[str, Any] = field(default_factory=dict)
+    control_state: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "diagnostics", dict(self.diagnostics or {}))
+        object.__setattr__(self, "runtime_control", dict(self.runtime_control or {}))
+
+
+def _task_run_read_view(task_run: Any) -> _TaskRunReadView:
     if task_run is None:
-        return ""
+        return _TaskRunReadView()
     if isinstance(task_run, dict):
-        return str(task_run.get("task_run_id") or task_run.get("task_run_ref") or "").strip()
-    return str(getattr(task_run, "task_run_id", "") or "").strip()
+        diagnostics = task_run.get("diagnostics")
+        runtime_control = task_run.get("runtime_control")
+        return _TaskRunReadView(
+            task_run_id=str(task_run.get("task_run_id") or task_run.get("task_run_ref") or "").strip(),
+            status=normalize_task_run_status(task_run.get("status")),
+            terminal_reason=str(task_run.get("terminal_reason") or "").strip(),
+            diagnostics=diagnostics if isinstance(diagnostics, dict) else {},
+            runtime_control=runtime_control if isinstance(runtime_control, dict) else {},
+            control_state=str(task_run.get("control_state") or "").strip(),
+        )
+    diagnostics = getattr(task_run, "diagnostics", None)
+    runtime_control = getattr(task_run, "runtime_control", None)
+    return _TaskRunReadView(
+        task_run_id=str(getattr(task_run, "task_run_id", "") or "").strip(),
+        status=normalize_task_run_status(getattr(task_run, "status", "")),
+        terminal_reason=str(getattr(task_run, "terminal_reason", "") or "").strip(),
+        diagnostics=diagnostics if isinstance(diagnostics, dict) else {},
+        runtime_control=runtime_control if isinstance(runtime_control, dict) else {},
+        control_state=str(getattr(task_run, "control_state", "") or "").strip(),
+    )

@@ -48,7 +48,7 @@ export function allRunMonitorSignals(monitor: RunMonitorEnvelope | null | undefi
   }
   const seen = new Set<string>();
   return rows.filter((signal) => {
-    const key = signal.signal_id || signal.task_instance_id || signal.task_run_id || signal.graph_run_id;
+    const key = signal.signal_id || signal.monitor_item_id || signal.task_instance_id || signal.task_run_id || signal.turn_run_id || signal.graph_run_id;
     if (!key) return true;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -61,8 +61,10 @@ export function findRunMonitorSignal(monitor: RunMonitorEnvelope | null | undefi
   if (!normalized) return null;
   return allRunMonitorSignals(monitor).find((signal) =>
     signal.signal_id === normalized
+    || signal.monitor_item_id === normalized
     || signal.task_instance_id === normalized
     || signal.task_run_id === normalized
+    || signal.turn_run_id === normalized
   ) ?? null;
 }
 
@@ -104,9 +106,18 @@ export function selectRunMonitorSignal(state: RunMonitorState, signalId: string)
 
 export function signalDetailTaskRunId(signal: RunMonitorSignal | null | undefined) {
   const detail = signal?.detail_ref;
+  const kind = String(detail?.kind || signal?.source_kind || "").trim();
+  if (kind === "turn_run") return "";
   return String(detail?.task_run_id || signal?.task_run_id || "").trim();
 }
 
+export function signalDetailTurnRunId(signal: RunMonitorSignal | null | undefined) {
+  const detail = signal?.detail_ref;
+  const kind = String(detail?.kind || signal?.source_kind || "").trim();
+  if (kind !== "turn_run") return "";
+  return String(detail?.turn_run_id || signal?.turn_run_id || "").trim();
+}
+
 function signalKey(signal: RunMonitorSignal | null | undefined) {
-  return signal?.signal_id || signal?.task_instance_id || signal?.task_run_id || signal?.graph_run_id || "";
+  return signal?.signal_id || signal?.monitor_item_id || signal?.task_instance_id || signal?.task_run_id || signal?.turn_run_id || signal?.graph_run_id || "";
 }

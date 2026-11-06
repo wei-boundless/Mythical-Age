@@ -174,7 +174,7 @@ def _request_from_task_run(
         task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
         session_id=str(getattr(task_run, "session_id", "") or ""),
         parent_agent_run_ref=str(subagent.get("parent_agent_run_ref") or origin.get("parent_agent_run_ref") or getattr(agent_run, "parent_agent_run_ref", "") or ""),
-        source_agent_id=str(origin.get("source_agent_id") or "agent:0"),
+        source_agent_id=str(origin.get("source_agent_id") or getattr(agent_run, "source_agent_id", "") or ""),
         target_agent_id=str(getattr(profile, "agent_id", "") or getattr(task_run, "agent_id", "") or getattr(agent_run, "agent_id", "") or ""),
         subagent_task_kind=str(_profile_metadata(profile).get("subagent_task_kind") or subagent.get("subagent_task_kind") or route),
         instruction=instruction,

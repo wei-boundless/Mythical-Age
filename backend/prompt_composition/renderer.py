@@ -26,6 +26,11 @@ def render_model_messages_from_projection(
     source_messages: list[Any] | tuple[Any, ...] = (),
 ) -> PromptCompositionRenderResult:
     manifest_payload = manifest.to_dict() if hasattr(manifest, "to_dict") else dict(manifest or {})
+    prompt_source_audit = [
+        dict(item)
+        for item in list(dict(manifest_payload.get("diagnostics") or {}).get("prompt_source_audit") or [])
+        if isinstance(item, dict)
+    ]
     projection = [
         dict(item)
         for item in list(manifest_payload.get("message_projection") or [])
@@ -117,6 +122,7 @@ def render_model_messages_from_projection(
             "content_hash_mismatch_samples": content_hash_mismatches[:5],
             "hash_mismatch_count": len(hash_mismatches),
             "hash_mismatch_samples": hash_mismatches[:5],
+            "prompt_source_audit_samples": prompt_source_audit[:20],
             "rendered_message_hash_sequence": [_stable_text_hash(_canonical_json(item)) for item in rendered],
             "authority": "prompt_composition.message_projection_renderer",
         },

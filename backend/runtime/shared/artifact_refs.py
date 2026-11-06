@@ -47,9 +47,9 @@ class ArtifactRefIndex:
             return []
         matches: list[tuple[float, list[str]]] = []
         for task_run in self.state_index.list_task_runs():
-            task_contract_ref = str(task_run.task_contract_ref or "").strip()
+            task_run_contract_ref = str(task_run.task_run_contract_ref or "").strip()
             task_id = str(task_run.task_id or "").strip()
-            if task_contract_ref != target and task_id != target and not task_id.endswith(f":{target.split('.')[-1]}"):
+            if task_run_contract_ref != target and task_id != target and not task_id.endswith(f":{target.split('.')[-1]}"):
                 continue
             trace = self.trace_reader.get_trace(task_run.task_run_id, include_payloads=True)
             if not trace:

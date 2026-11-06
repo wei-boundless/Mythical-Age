@@ -8,19 +8,16 @@ from .queued_user_input_store import QueuedUserInput
 def queued_input_admission_target(runtime_host: Any, *, session_id: str) -> dict[str, str]:
     active_turn = _resolve_active_turn(runtime_host, session_id)
     turn_id = str(getattr(active_turn, "turn_id", "") or "").strip() if active_turn is not None else ""
-    task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip() if active_turn is not None else ""
     steerable = bool(getattr(active_turn, "steerable", False)) if active_turn is not None else False
     if turn_id and steerable:
         return {
             "input_policy": "steer",
             "expected_active_turn_id": turn_id,
-            "task_run_id": task_run_id,
             "authority": "runtime.queued_user_input_dispatcher.admission_target",
         }
     return {
         "input_policy": "auto",
         "expected_active_turn_id": "",
-        "task_run_id": "",
         "authority": "runtime.queued_user_input_dispatcher.admission_target",
     }
 
@@ -62,13 +59,9 @@ def validate_queued_steer(runtime_host: Any, item: QueuedUserInput) -> tuple[boo
     if active_turn is None:
         return False, "active_turn_unavailable"
     actual_turn_id = str(getattr(active_turn, "turn_id", "") or "").strip()
-    actual_task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip()
     expected_turn_id = str(item.expected_active_turn_id or "").strip()
-    expected_task_run_id = str(item.task_run_id or "").strip()
     if expected_turn_id and actual_turn_id != expected_turn_id:
         return False, "expected_active_turn_mismatch"
-    if expected_task_run_id and actual_task_run_id != expected_task_run_id:
-        return False, "expected_task_run_mismatch"
     if not bool(getattr(active_turn, "steerable", False)):
         return False, "active_turn_not_steerable"
     return True, ""

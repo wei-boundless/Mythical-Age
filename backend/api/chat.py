@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -17,18 +16,17 @@ from api.deps import require_runtime
 from harness.continuation import select_session_continuation
 from harness.entrypoint import HarnessRuntimeRequest
 from harness.runtime.control_events import RuntimeSignalScope
-from harness.runtime.projection.projector import ProjectionLifecycleState, attach_public_projection_event
-from harness.runtime.public_progress import public_runtime_progress_summary
-from harness.runtime.runtime_private_text import looks_like_runtime_private_artifact_text
-from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 from harness.task_run_status import is_stopped_or_terminal_task_run
-from harness.runtime.output_boundary import (
-    contains_inline_pseudo_tool_call,
-    contains_internal_protocol,
-    sanitize_visible_assistant_content,
-)
 from runtime.model_gateway.assistant_stream_frame import (
     assistant_message_ref,
+)
+from runtime.output_stream.public_stream_compiler import (
+    ProjectionLifecycleState,
+    attach_public_projection_frame,
+    project_public_stream_event,
+    public_replay_stream_data,
+    public_terminal_reason,
+    turn_completed_data,
 )
 from runtime.output_stream.public_contract import (
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
@@ -50,18 +48,17 @@ from runtime.output_stream.public_contract import (
     TURN_COMPLETED_EVENT,
     event_requires_public_projection,
 )
-from runtime.shared.tool_identity import permission_decision_id
 from runtime.shared.queued_user_input_dispatcher import (
     chat_run_execution_attached,
     has_active_primary_chat_run,
-    queued_input_admission_target,
+    queued_input_admission_target as runtime_queued_input_admission_target,
     validate_queued_steer,
 )
 from runtime.shared.queued_user_input_store import QueuedUserInput
-from runtime.shared.runtime_run_registry import RuntimeRun, TERMINAL_RUNTIME_RUN_STATUSES
-from runtime.shared.stream_replay import sanitize_public_stream_event_data_for_replay
-from sessions import SessionProjectBindingConflict, validate_session_id
+from runtime.shared.runtime_run_registry import RuntimeRun, TERMINAL_RUNTIME_RUN_STATUSES, is_recoverable_runtime_run_interruption
+from sessions import SessionProjectBindingConflict, SessionUserMessageConflict, validate_session_id
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
+from task_system.work_environments.repository import TaskEnvironmentRepository
 from capability_system.capabilities.attachments import SUPPORTED_ATTACHMENT_IMAGE_SUFFIXES
 from core.config import runtime_config
 from core.project_layout import ProjectLayout
@@ -70,7 +67,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 TERMINAL_STREAM_EVENTS = {TURN_COMPLETED_EVENT}
 TERMINAL_RUN_STATUSES = TERMINAL_RUNTIME_RUN_STATUSES
-TASK_EXECUTOR_HANDOFF_REASONS = {"task_executor_scheduled"}
+QUEUED_INPUT_DISPATCH_RECOVERY_SECONDS = 30.0
 TASK_BRIDGE_PUBLIC_EVENT_TYPES = {
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_STREAM_REPAIR_EVENT,
@@ -102,398 +99,6 @@ TURN_CONTEXT_REQUIRED_PUBLIC_EVENTS = {
     TOOL_ITEM_STARTED_EVENT,
     TOOL_PERMISSION_DECIDED_EVENT,
 }
-INTERNAL_STREAM_EVENTS = {
-    "debug",
-    "runtime_assembly_compiled",
-    "runtime_assembly_bound",
-    "runtime_invocation_packet",
-    "runtime_control_signal_published",
-    "runtime_control_signal_observed",
-    "runtime_control_signal_consumed",
-}
-INTERNAL_PUBLIC_DATA_KEYS = {
-    "runtime_assembly",
-    "compilation",
-    "model_messages",
-    "messages",
-    "prompt_manifest",
-    "segment_plan",
-    "operation_authorization",
-}
-TOOL_FAILURE_FEEDBACK_RE = re.compile(
-    r"^(?:[A-Za-z][A-Za-z0-9 _./-]{0,80}\s+failed|tool_policy_rejection):",
-    flags=re.IGNORECASE,
-)
-LINE_NUMBERED_TOOL_OUTPUT_RE = re.compile(r"(?m)^\s*\d{1,6}\s*\|")
-PUBLIC_EVENT_DATA_ALLOWLIST = {
-    "chat_run_started": {"status"},
-    CHAT_TURN_BOUND_EVENT: {
-        "context_id",
-        "status",
-        "stream_run_id",
-        "session_id",
-        "turn_id",
-        "active_turn_id",
-        "turn_run_id",
-        "message_id",
-        "message_ref",
-        "source_turn_event_id",
-        "source_turn_event_offset",
-        "runtime_event_id",
-        "public_sequence_started_at",
-        "created_at",
-    },
-    TASK_ORIGIN_BOUND_EVENT: {
-        "status",
-        "stream_run_id",
-        "session_id",
-        "turn_id",
-        "active_turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "runtime_task_run_id",
-        "message_id",
-        "message_ref",
-        "task_origin_binding",
-        "active_turn",
-        "source_handoff_event_id",
-        "source_handoff_event_offset",
-        "runtime_event_id",
-        "created_at",
-    },
-    TASK_BRIDGE_STARTED_EVENT: {
-        "bridge_id",
-        "status",
-        "stream_run_id",
-        "event_log_id",
-        "session_id",
-        "turn_id",
-        "active_turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "runtime_task_run_id",
-        "message_id",
-        "message_ref",
-        "source_handoff_event_id",
-        "source_handoff_event_offset",
-        "runtime_event_id",
-        "task_event_start_offset",
-        "public_sequence_base",
-        "created_at",
-    },
-    TASK_BRIDGE_TERMINAL_EVENT: {
-        "bridge_id",
-        "status",
-        "stream_run_id",
-        "session_id",
-        "turn_id",
-        "active_turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "runtime_task_run_id",
-        "message_id",
-        "message_ref",
-        "terminal_reason",
-        "completion_state",
-        "source_task_event_id",
-        "source_task_event_offset",
-        "runtime_event_id",
-        "commit_observed",
-        "created_at",
-    },
-    "input_commit_gate": {"status", "message_ref"},
-    "runtime_branch_decided": {"runtime_branch"},
-    "single_agent_turn_started": {"runtime_branch", "allowed_action_types"},
-    "model_action_request": {
-        "request_id",
-        "action_type",
-        "public_progress_note",
-        "public_action_state",
-        "task_run_contract_seed",
-        "active_work_control",
-        "recovery_resume",
-    },
-    "model_action_admission": {
-        "request_id",
-        "action_type",
-        "model_action_request",
-        "admission",
-        "runtime_event_id",
-        "source_event_id",
-    },
-    "active_task_steer_accepted": {
-        "summary",
-        "status",
-    },
-    "runtime_status": {
-        "title",
-        "detail",
-        "state",
-        "status_kind",
-        "phase",
-        "reasoning_content_present",
-        "reasoning_content",
-        "reasoning_content_chars",
-        "reasoning_content_estimated_tokens",
-        "reasoning_content_sha256",
-        "reasoning_projection_policy",
-        "answer_channel",
-        "answer_source",
-        "runtime_task_run_id",
-        "task_run_id",
-        "runtime_event_id",
-        "runtime_run_id",
-        "created_at",
-        "active_turn_id",
-        "active_turn",
-    },
-    "stream_recovery": {
-        "status",
-        "reason",
-        "code",
-        "provider",
-        "model",
-        "stream_ref",
-        "partial_utf8_bytes",
-        "continuation_utf8_bytes",
-        "recovery_mode",
-        "recovery_call_status",
-        "fallback_timeout_seconds",
-        "directive_ref",
-    },
-    "harness_run_started": {"task_run", "turn_run", "event"},
-    "runtime_step_summary": {
-        "step",
-        "status",
-        "summary",
-        "public_progress_note",
-        "agent_brief_output",
-        "current_judgment",
-        "next_action",
-        "completion_status",
-        "presentation_source",
-        "feedback_identity",
-        "event",
-    },
-    ASSISTANT_PUBLIC_FEEDBACK_EVENT: {
-        "step",
-        "status",
-        "summary",
-        "public_progress_note",
-        "agent_brief_output",
-        "current_judgment",
-        "next_action",
-        "completion_status",
-        "presentation_source",
-        "feedback_identity",
-        "event",
-    },
-    "bounded_observation": {"event"},
-    "registered_engagement": {"event"},
-    "task_run_lifecycle_started": {"event"},
-    "task_run_lifecycle_event": {"event"},
-    "retrieval": {"results"},
-    "output_boundary": {"boundary", "summary", "artifacts"},
-    "token": {"content"},
-    ASSISTANT_TEXT_DELTA_EVENT: {
-        "frame_schema_version",
-        "event_type",
-        "frame_id",
-        "stream_ref",
-        "message_ref",
-        "turn_run_id",
-        "task_run_id",
-        "sequence",
-        "content",
-        "content_utf8_start",
-        "content_utf8_end",
-        "content_utf8_bytes",
-        "accumulated_utf8_bytes",
-        "accumulated_sha256",
-        "answer_channel",
-        "answer_source",
-        "visibility",
-        "markdown_state",
-        "display_hint",
-        "body_segment_id",
-        "body_sequence",
-        "segment_sequence",
-        "segment_role",
-    },
-    ASSISTANT_TEXT_FINAL_EVENT: {
-        "frame_schema_version",
-        "event_type",
-        "stream_ref",
-        "message_ref",
-        "turn_run_id",
-        "task_run_id",
-        "sequence",
-        "content",
-        "content_utf8_bytes",
-        "content_sha256",
-        "answer_channel",
-        "answer_source",
-        "answer_canonical_state",
-        "answer_persist_policy",
-        "answer_finalization_policy",
-        "answer_fallback_reason",
-        "answer_selected_channel",
-        "answer_selected_source",
-        "answer_leak_flags",
-        "terminal_reason",
-        "body_segment_id",
-        "body_sequence",
-        "segment_sequence",
-        "segment_role",
-    },
-    ASSISTANT_STREAM_REPAIR_EVENT: {
-        "frame_schema_version",
-        "event_type",
-        "stream_ref",
-        "message_ref",
-        "turn_run_id",
-        "task_run_id",
-        "repair_sequence",
-        "applies_after_sequence",
-        "reason",
-        "expected_content_sha256",
-        "replacement_content",
-        "replacement_content_sha256",
-        "body_segment_id",
-        "body_sequence",
-        "segment_sequence",
-        "segment_role",
-    },
-    TOOL_CALL_REQUESTED_EVENT: {
-        "item_id",
-        "request_id",
-        "tool_lifecycle_id",
-        "tool_call_id",
-        "turn_run_id",
-        "task_run_id",
-        "tool_name",
-        "target",
-        "arguments_preview",
-        "runtime_event_id",
-    },
-    TOOL_PERMISSION_DECIDED_EVENT: {
-        "item_id",
-        "request_id",
-        "tool_call_id",
-        "turn_run_id",
-        "task_run_id",
-        "tool_name",
-        "permission_decision_id",
-        "permission_decision",
-        "permission_reason",
-        "system_reason",
-        "runtime_event_id",
-    },
-    TOOL_ITEM_STARTED_EVENT: {
-        "item_id",
-        "tool_lifecycle_id",
-        "tool_call_id",
-        "permission_decision_id",
-        "turn_run_id",
-        "task_run_id",
-        "tool_name",
-        "title",
-        "target",
-        "arguments_preview",
-        "state",
-        "runtime_event_id",
-    },
-    TOOL_ITEM_COMPLETED_EVENT: {
-        "item_id",
-        "tool_lifecycle_id",
-        "tool_call_id",
-        "permission_decision_id",
-        "turn_run_id",
-        "task_run_id",
-        "tool_name",
-        "title",
-        "target",
-        "arguments_preview",
-        "state",
-        "observation",
-        "error",
-        "duration_ms",
-        "runtime_event_id",
-    },
-    TURN_COMPLETED_EVENT: {
-        "turn_run_id",
-        "task_run_id",
-        "status",
-        "final_message_ref",
-        "terminal_reason",
-        "completion_state",
-        "error_summary",
-        "failure_code",
-        "model_error_code",
-        "provider",
-        "model",
-        "retryable",
-        "stopped_reason",
-        "runtime_event_id",
-        "source_task_event_id",
-        "source_task_event_offset",
-        "source_event_type",
-    },
-    SESSION_OUTPUT_COMMIT_CHECKED_EVENT: {
-        "state",
-        "status",
-        "turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "message_id",
-        "message_ref",
-        "content_sha256",
-        "commit_event_offset",
-        "runtime_event_id",
-    },
-    SESSION_OUTPUT_COMMIT_ACK_EVENT: {
-        "state",
-        "status",
-        "turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "message_id",
-        "message_ref",
-        "content_sha256",
-        "commit_event_offset",
-        "runtime_event_id",
-    },
-    SESSION_OUTPUT_COMMIT_FAILED_EVENT: {
-        "state",
-        "status",
-        "turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "message_id",
-        "message_ref",
-        "content_sha256",
-        "commit_event_offset",
-        "reason",
-        "error",
-        "summary",
-        "runtime_event_id",
-    },
-    SESSION_OUTPUT_COMMIT_SKIPPED_EVENT: {
-        "state",
-        "status",
-        "turn_id",
-        "turn_run_id",
-        "task_run_id",
-        "message_id",
-        "message_ref",
-        "content_sha256",
-        "commit_event_offset",
-        "reason",
-        "runtime_event_id",
-    },
-}
-
-
 @dataclass(frozen=True, slots=True)
 class PublicTurnOutputContext:
     context_id: str
@@ -590,8 +195,6 @@ class ChatRunInterruptRequest(BaseModel):
     mode: str = Field(default="interrupt_for_resume", max_length=80)
     reason: str = Field(default="user_stop_from_chat", max_length=240)
     expected_active_turn_id: str = Field(default="", max_length=240)
-    expected_task_run_id: str = Field(default="", max_length=240)
-    cascade_subagents: str = Field(default="interrupt_for_resume", max_length=80)
 
 
 @router.post("/chat/runs")
@@ -605,7 +208,19 @@ async def create_chat_run(payload: ChatRequest):
     queued_active_response = await _enqueue_request_for_attached_active_session(runtime, request)
     if queued_active_response is not None:
         return queued_active_response
-    run = _create_and_schedule_run(runtime, request)
+    try:
+        run = _create_and_schedule_run(runtime, request)
+    except SessionUserMessageConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "turn_content_conflict",
+                "retryable": False,
+                "session_id": exc.session_id,
+                "turn_id": exc.turn_id,
+                "identity": exc.identity,
+            },
+        ) from exc
     return _run_response(runtime, run)
 
 
@@ -618,7 +233,7 @@ async def enqueue_queued_chat_input(session_id: str, payload: QueuedChatInputReq
     _bind_or_validate_editor_project(runtime, validated_session_id, editor_context)
     attachments = _normalize_chat_attachments(payload.attachments, session_id=validated_session_id, base_dir=runtime.base_dir)
     host = runtime.harness_runtime.single_agent_runtime_host
-    admission = queued_input_admission_target(host, session_id=validated_session_id)
+    admission = _queued_input_admission_target(runtime, session_id=validated_session_id)
     item = await asyncio.to_thread(
         host.queued_user_inputs.enqueue,
         session_id=validated_session_id,
@@ -626,7 +241,7 @@ async def enqueue_queued_chat_input(session_id: str, payload: QueuedChatInputReq
         client_message_id=payload.client_message_id,
         input_policy=str(admission.get("input_policy") or "auto"),
         expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
-        task_run_id=str(admission.get("task_run_id") or ""),
+        task_environment_id=str(admission.get("task_environment_id") or ""),
         attachments=attachments,
         session_scope=dict(payload.session_scope or {}),
         environment_binding=dict(payload.environment_binding or {}),
@@ -711,54 +326,36 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
     request = payload or ChatRunInterruptRequest()
     run = _get_run_or_404(runtime, stream_run_id)
     mode = _validated_interrupt_mode(request.mode)
-    cascade_policy = _validated_interrupt_cascade(request.cascade_subagents, mode=mode)
     reason = str(request.reason or "user_stop_from_chat").strip() or "user_stop_from_chat"
     host = runtime.harness_runtime.single_agent_runtime_host
     registry = host.run_registry
     active_turn = host.active_turn_registry.snapshot(run.session_id)
     expected_turn_id = str(request.expected_active_turn_id or "").strip()
-    expected_task_run_id = str(request.expected_task_run_id or "").strip()
     active_turn_control: dict[str, Any] = {}
     if active_turn is not None:
         active_turn_control = host.active_turn_registry.mark_interrupting(
             session_id=run.session_id,
             expected_turn_id=expected_turn_id,
-            expected_task_run_id=expected_task_run_id,
             reason=reason,
         )
         if not active_turn_control.get("accepted"):
             raise HTTPException(status_code=409, detail=active_turn_control)
         active_turn = host.active_turn_registry.snapshot(run.session_id)
-    elif expected_turn_id or expected_task_run_id:
+    elif expected_turn_id and str(getattr(run, "status", "") or "").strip() not in TERMINAL_RUN_STATUSES:
         raise HTTPException(
             status_code=409,
             detail={
                 "reason": "active_turn_unavailable",
                 "expected_active_turn_id": expected_turn_id,
-                "expected_task_run_id": expected_task_run_id,
                 "authority": "api.chat.runtime_interruption",
             },
         )
 
-    root_task_run_id = _interrupt_root_task_run_id(
-        run,
-        active_turn=active_turn,
-        expected_task_run_id=expected_task_run_id,
-    )
     stream_control = await asyncio.to_thread(
         host.cancel_runtime_run_cells,
         runtime_run_sessions={run.stream_run_id: run.session_id},
         reason=reason,
     )
-    task_control: dict[str, Any] = {}
-    if root_task_run_id:
-        gateway = TaskRunControlGateway(runtime_host=host, schedule_task_run_executor=None)
-        task_control = await asyncio.to_thread(
-            gateway.stop_task_run if mode == "hard_stop" else gateway.pause_task_run,
-            root_task_run_id,
-            reason=reason,
-            requested_by="user",
-        )
     interruption_record: dict[str, Any] = {}
     if mode == "interrupt_for_resume":
         interruption_record = await asyncio.to_thread(
@@ -782,15 +379,6 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
                 "runtime_interruption_reason": reason,
             },
         )
-    subagent_controls = await asyncio.to_thread(
-        _cascade_interrupted_subagents,
-        host,
-        root_task_run_id=root_task_run_id,
-        session_id=run.session_id,
-        mode=mode,
-        cascade_policy=cascade_policy,
-        reason=reason,
-    )
     context_status = _session_context_recovery_status(runtime, run.session_id)
     selection = select_session_continuation(
         host,
@@ -808,18 +396,23 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
     runtime_signal = _publish_chat_interruption_fact_signal(
         host,
         run=current_run,
-        root_task_run_id=root_task_run_id,
         mode=mode,
         reason=reason,
         stream_control=stream_control,
-        task_control=task_control,
-        subagent_controls=subagent_controls,
         context_recovery_status=context_status,
         checkpoint=checkpoint,
     )
+    # The interrupted turn is now closed.  Any message accepted while the
+    # resume boundary was closing must be dispatched after the old turn lock
+    # is released; the cell completion callback can run before that happens.
+    if mode == "interrupt_for_resume":
+        _schedule_queued_input_dispatch(
+            runtime,
+            run.session_id,
+            reason="runtime_interruption_closed",
+        )
     accepted = bool(
-        (not task_control or task_control.get("ok") is True)
-        and (not stream_control or not stream_control.get("rejected"))
+        not stream_control or not stream_control.get("rejected")
     )
     return {
         "ok": accepted,
@@ -830,9 +423,7 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
         "reason": reason,
         "active_turn": active_turn.to_dict() if active_turn is not None else {},
         "active_turn_control": active_turn_control,
-        "task_control": task_control,
         "stream_control": stream_control,
-        "subagent_controls": subagent_controls,
         "interruption_record": interruption_record,
         "continuation": selection.to_dict(),
         "runtime_signal": runtime_signal,
@@ -846,6 +437,7 @@ async def interrupt_chat_run(stream_run_id: str, payload: ChatRunInterruptReques
 async def get_latest_chat_run_for_session(
     session_id: str,
     active_only: bool = Query(default=True),
+    restore_only: bool = Query(default=False),
 ):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
@@ -864,6 +456,14 @@ async def get_latest_chat_run_for_session(
             for run in candidates
             if chat_run_execution_attached(host, run, terminal_statuses=TERMINAL_RUN_STATUSES)
         ]
+    if restore_only:
+        candidates = [
+            run
+            for run in candidates
+            if is_recoverable_runtime_run_interruption(run)
+            and str(run.event_log_id or "").strip()
+            and int(getattr(run, "latest_event_offset", -1) or -1) >= 0
+        ]
     if not candidates:
         if active_only:
             return Response(status_code=204)
@@ -876,7 +476,7 @@ async def get_latest_session_continuation(session_id: str):
     runtime = require_runtime()
     validated_session_id = validate_session_id(session_id)
     host = runtime.harness_runtime.single_agent_runtime_host
-    active_work_present = _active_work_blocks_continuation(runtime, validated_session_id)
+    active_work_present = _continuable_active_work_present(runtime, validated_session_id)
     context_status = _session_context_recovery_status(runtime, validated_session_id)
     selection = select_session_continuation(
         host,
@@ -884,15 +484,16 @@ async def get_latest_session_continuation(session_id: str):
         active_work_present=active_work_present,
         context_recovery_status=context_status,
     )
-    record = selection.record.to_dict() if selection.record is not None else {}
-    interrupted_turn = selection.interrupted_turn.to_dict() if selection.interrupted_turn is not None else {}
+    continuation_available = bool(
+        active_work_present or context_status.get("available") is True
+    )
     return {
         "session_id": validated_session_id,
-        "available": bool(record or interrupted_turn),
-        "record": record,
-        "interrupted_turn": interrupted_turn,
+        "available": continuation_available,
         "context_recovery_status": context_status,
         "reason": selection.reason,
+        "task_continuation_authority": "task_system.task_work_environment",
+        "legacy_task_run_selector": "removed",
         "authority": "api.chat.session_continuation_projection",
     }
 
@@ -1068,6 +669,7 @@ def _bind_or_validate_editor_project(runtime: Any, session_id: str, editor_conte
 
 def _create_and_schedule_run(runtime: Any, request: HarnessRuntimeRequest) -> RuntimeRun:
     host = runtime.harness_runtime.single_agent_runtime_host
+    _raise_if_resume_boundary_pending(runtime, request.session_id)
     host.bind_control_loop()
     request_runtime_profile = dict(request.runtime_profile or {})
     run = host.run_registry.create_run(
@@ -1127,13 +729,13 @@ async def _enqueue_request_for_attached_active_session(
     session_id = str(request.session_id or "").strip()
     if not session_id:
         return None
-    if not has_active_primary_chat_run(host, session_id=session_id, terminal_statuses=TERMINAL_RUN_STATUSES):
+    if not has_active_primary_chat_run(host, session_id=session_id, terminal_statuses=TERMINAL_RUN_STATUSES) and not _resume_boundary_pending(runtime, session_id):
         return None
     store = getattr(host, "queued_user_inputs", None)
     enqueue = getattr(store, "enqueue", None)
     if not callable(enqueue):
         return None
-    admission = queued_input_admission_target(host, session_id=session_id)
+    admission = _queued_input_admission_target(runtime, session_id=session_id)
     item = await asyncio.to_thread(
         enqueue,
         session_id=session_id,
@@ -1141,7 +743,7 @@ async def _enqueue_request_for_attached_active_session(
         client_message_id=str(request.client_message_id or ""),
         input_policy=str(admission.get("input_policy") or "auto"),
         expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
-        task_run_id=str(admission.get("task_run_id") or ""),
+        task_environment_id=str(admission.get("task_environment_id") or ""),
         attachments=[dict(entry) for entry in list(request.attachments or []) if isinstance(entry, dict)],
         session_scope=dict(getattr(request, "session_scope", {}) or {}),
         environment_binding=dict(request.environment_binding or {}),
@@ -1186,7 +788,7 @@ def _fail_chat_run_schedule(runtime: Any, run: RuntimeRun, *, schedule_result: d
     replay = host.stream_replay
     reason = str(schedule_result.get("reason") or "runtime_cell_schedule_failed")
     start_data = {"status": "running"}
-    _attach_public_projection_frame(
+    attach_public_projection_frame(
         "chat_run_started",
         start_data,
         session_id=run.session_id,
@@ -1194,7 +796,7 @@ def _fail_chat_run_schedule(runtime: Any, run: RuntimeRun, *, schedule_result: d
     )
     start_event = replay.append_public_event(run, public_event_type="chat_run_started", data=start_data)
     current = registry.mark_event(run, latest_event_offset=start_event.offset, status="running")
-    data = _turn_completed_data(
+    data = turn_completed_data(
         "error",
         {
             "error": "运行未能启动",
@@ -1228,6 +830,30 @@ def _queued_input_response(runtime: Any, session_id: str, item: QueuedUserInput)
     }
 
 
+def _queued_input_admission_target(runtime: Any, *, session_id: str) -> dict[str, str]:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    admission = dict(runtime_queued_input_admission_target(host, session_id=session_id))
+    if str(admission.get("input_policy") or "").strip().lower() == "steer":
+        admission["task_environment_id"] = _foreground_task_environment_id(runtime, session_id)
+    else:
+        admission["task_environment_id"] = ""
+    admission.pop("task_run_id", None)
+    admission["authority"] = "api.chat.queued_input_admission_target"
+    return admission
+
+
+def _foreground_task_environment_id(runtime: Any, session_id: str) -> str:
+    try:
+        repository = TaskEnvironmentRepository(runtime.base_dir)
+        binding = repository.get_foreground_session_binding(session_id)
+    except Exception:
+        logger.debug("Failed to read foreground task environment binding for queued input.", exc_info=True)
+        return ""
+    if binding is None:
+        return ""
+    return str(getattr(binding, "task_environment_id", "") or "").strip()
+
+
 def _schedule_queued_input_dispatch(runtime: Any, session_id: str, *, reason: str) -> None:
     normalized = str(session_id or "").strip()
     if not normalized:
@@ -1249,7 +875,16 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
     normalized = str(session_id or "").strip()
     if not normalized:
         return None
-    await asyncio.to_thread(store.reset_stale_dispatching, normalized)
+    if _resume_boundary_pending(runtime, normalized):
+        return None
+    # A crashed dispatch must not leave the next steer permanently invisible.
+    # Keep this recovery window short enough for interactive input, while still
+    # avoiding duplicate dispatch during normal scheduling.
+    await asyncio.to_thread(
+        store.reset_stale_dispatching,
+        normalized,
+        max_age_seconds=QUEUED_INPUT_DISPATCH_RECOVERY_SECONDS,
+    )
     for _attempt in range(8):
         queued_items = [
             item
@@ -1262,7 +897,7 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
         if has_active_primary_chat_run(host, session_id=normalized, terminal_statuses=TERMINAL_RUN_STATUSES):
             return None
         if next_item.input_policy == "auto":
-            admission = queued_input_admission_target(host, session_id=normalized)
+            admission = _queued_input_admission_target(runtime, session_id=normalized)
             if str(admission.get("input_policy") or "").strip().lower() == "steer":
                 retargeted = await asyncio.to_thread(
                     store.retarget_for_dispatch,
@@ -1270,7 +905,7 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
                     next_item.queue_item_id,
                     input_policy="steer",
                     expected_active_turn_id=str(admission.get("expected_active_turn_id") or ""),
-                    task_run_id=str(admission.get("task_run_id") or ""),
+                    task_environment_id=str(admission.get("task_environment_id") or ""),
                 )
                 if retargeted is None:
                     continue
@@ -1287,6 +922,35 @@ async def _dispatch_next_queued_input(runtime: Any, session_id: str, *, reason: 
             await asyncio.to_thread(store.mark_failed, normalized, claimed.queue_item_id, reason=denied_reason or "queued_steer_not_dispatchable")
         continue
     return None
+
+
+def _resume_boundary_pending(runtime: Any, session_id: str) -> dict[str, Any] | None:
+    host = runtime.harness_runtime.single_agent_runtime_host
+    registry = getattr(host, "active_turn_registry", None)
+    snapshot = getattr(registry, "snapshot", None)
+    if not callable(snapshot):
+        return None
+    try:
+        record = snapshot(str(session_id or "").strip())
+    except Exception:
+        logger.debug("failed to inspect resume boundary", exc_info=True)
+        return None
+    if record is None or str(getattr(record, "state", "") or "").strip() != "interrupting":
+        return None
+    return {
+        "code": "resume_boundary_pending",
+        "retryable": True,
+        "session_id": str(session_id or "").strip(),
+        "turn_id": str(getattr(record, "turn_id", "") or "").strip(),
+        "stream_run_id": str(getattr(record, "stream_run_id", "") or "").strip(),
+        "authority": "api.chat.resume_boundary",
+    }
+
+
+def _raise_if_resume_boundary_pending(runtime: Any, session_id: str) -> None:
+    detail = _resume_boundary_pending(runtime, session_id)
+    if detail:
+        raise HTTPException(status_code=409, detail=detail)
 
 
 async def _dispatch_claimed_queued_input(runtime: Any, item: QueuedUserInput, *, reason: str) -> RuntimeRun | None:
@@ -1331,7 +995,6 @@ def _request_from_queued_input(item: QueuedUserInput, *, reason: str) -> Harness
         permission_mode=str(item.permission_mode or ""),
         expected_active_turn_id=str(item.expected_active_turn_id or "") if item.input_policy == "steer" else "",
         active_turn_input_policy=str(item.input_policy or "auto"),
-        expected_task_run_id=str(item.task_run_id or "") if item.input_policy == "steer" else "",
         editor_context=dict(item.editor_context or {}),
     )
 
@@ -1343,12 +1006,11 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     terminal_event = ""
     bridge_context: ChatTaskBridgeContext | None = None
     turn_context: PublicTurnOutputContext | None = None
-    task_handoff_observed = False
     projection_lifecycle = ProjectionLifecycleState()
     current = _safe_mark_run_running(registry, run)
     try:
         start_data = {"status": "running"}
-        _attach_public_projection_frame(
+        attach_public_projection_frame(
             "chat_run_started",
             start_data,
             session_id=request.session_id,
@@ -1391,7 +1053,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                         public_anchor=turn_context.anchor(),
                     )
                     await _allow_public_stream_flush(previous_offset, current)
-            projections = _project_public_stream_event(event_type, event)
+            projections = project_public_stream_event(event_type, event)
             if not projections:
                 continue
             for public_event_type, data in projections:
@@ -1493,57 +1155,6 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                             },
                         )
                     continue
-                if _is_task_executor_handoff_terminal(public_event_type, data):
-                    bridged_task_run_id = _task_run_id_from_public_data(data) or event_task_run_id
-                    if turn_context is None:
-                        host.record_chat_turn_run_runtime_interruption_best_effort(
-                            current,
-                            code="task_bridge_context_missing",
-                            reason="Task bridge handoff arrived before a public turn context was available.",
-                            orphaned_by="api.chat.run_chat_to_event_log.task_bridge_context_missing",
-                        )
-                        return
-                    if bridge_context is None:
-                        bridge_context = _chat_task_bridge_context_from_handoff(
-                            run=run,
-                            request=request,
-                            turn_context=turn_context,
-                            public_data=data,
-                            source_event=event,
-                            task_run_id=bridged_task_run_id,
-                            public_sequence_base=int(getattr(current, "latest_event_offset", -1) or -1) + 1,
-                        )
-                        previous_offset = _latest_public_event_offset(current)
-                        current = _append_chat_public_event(
-                            registry=registry,
-                            replay=replay,
-                            current=current,
-                            public_event_type=TASK_BRIDGE_STARTED_EVENT,
-                            data=_task_bridge_started_event_data(bridge_context),
-                            session_id=request.session_id,
-                            projection_lifecycle=projection_lifecycle,
-                            runtime_task_run_id=bridge_context.task_run_id,
-                            runtime_turn_run_id=bridge_context.turn_run_id,
-                            runtime_active_turn_id=bridge_context.turn_id,
-                            public_anchor=bridge_context.anchor(),
-                        )
-                        await _allow_public_stream_flush(previous_offset, current)
-                        current = _safe_update_run(
-                            registry,
-                            run.stream_run_id,
-                            fallback=current,
-                            status="running",
-                            terminal_event="",
-                            diagnostics={
-                                "runtime_task_run_id": bridge_context.task_run_id,
-                                "runtime_turn_run_id": bridge_context.turn_run_id,
-                                "active_turn_id": bridge_context.turn_id,
-                                "task_bridge_id": bridge_context.bridge_id,
-                                "chat_stream_bridge": "task_run",
-                            },
-                        )
-                    task_handoff_observed = True
-                    break
                 previous_offset = _latest_public_event_offset(current)
                 public_anchor = (
                     bridge_context.anchor()
@@ -1567,7 +1178,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
                 terminal_event = public_event_type if public_event_type in TERMINAL_STREAM_EVENTS else terminal_event
                 if public_event_type in TERMINAL_STREAM_EVENTS:
                     break
-            if terminal_event or task_handoff_observed:
+            if terminal_event:
                 break
         if bridge_context is not None and not terminal_event:
             current = await _bridge_task_run_to_chat_stream(
@@ -1592,7 +1203,7 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
     except Exception as exc:
         logger.exception("Chat run failed before terminal event.", extra={"stream_run_id": run.stream_run_id})
         current = registry.get_run(run.stream_run_id) or current
-        if _bridge_context_has_live_bound_task(runtime, bridge_context) or _active_turn_has_live_bound_task(runtime, request.session_id):
+        if _bridge_context_requires_task_bridge_terminal(runtime, bridge_context):
             host.record_chat_turn_run_runtime_interruption_best_effort(
                 current,
                 code="projection_stream_exception",
@@ -1609,12 +1220,12 @@ async def _run_chat_to_event_log(runtime: Any, run: RuntimeRun, request: Harness
         return
     if not terminal_event:
         current = registry.get_run(run.stream_run_id) or current
-        if _bridge_context_has_live_bound_task(runtime, bridge_context) or _active_turn_has_live_bound_task(runtime, request.session_id):
+        if _bridge_context_requires_task_bridge_terminal(runtime, bridge_context):
             host.record_chat_turn_run_runtime_interruption_best_effort(
                 current,
                 code="projection_stream_missing_task_bridge_terminal",
-                reason="Chat stream ended while the active turn still had a live bound task.",
-                orphaned_by="api.chat.run_chat_to_event_log.active_turn_task_missing_terminal",
+                reason="Chat stream ended before the explicit task bridge emitted a terminal event.",
+                orphaned_by="api.chat.run_chat_to_event_log.task_bridge_missing_terminal",
             )
             return
         host.record_chat_turn_run_runtime_interruption_best_effort(
@@ -1644,12 +1255,12 @@ def _append_chat_public_event(
     payload.setdefault("runtime_run_id", current.stream_run_id)
     anchor = dict(public_anchor or {})
     if anchor:
-        payload.setdefault("session_id", str(anchor.get("session_id") or session_id))
-        payload.setdefault("turn_id", str(anchor.get("turn_id") or ""))
-        payload.setdefault("active_turn_id", str(anchor.get("turn_id") or ""))
-        payload.setdefault("turn_run_id", str(anchor.get("turn_run_id") or ""))
-        payload.setdefault("message_id", str(anchor.get("message_id") or anchor.get("message_ref") or ""))
-        payload.setdefault("message_ref", str(anchor.get("message_ref") or anchor.get("message_id") or ""))
+        payload["session_id"] = str(anchor.get("session_id") or session_id)
+        payload["turn_id"] = str(anchor.get("turn_id") or "")
+        payload["active_turn_id"] = str(anchor.get("turn_id") or "")
+        payload["turn_run_id"] = str(anchor.get("turn_run_id") or "")
+        payload["message_id"] = str(anchor.get("message_id") or anchor.get("message_ref") or "")
+        payload["message_ref"] = str(anchor.get("message_ref") or anchor.get("message_id") or "")
         if str(anchor.get("task_run_id") or "").strip():
             runtime_task_run_id = runtime_task_run_id or str(anchor.get("task_run_id") or "").strip()
     if runtime_task_run_id:
@@ -1666,7 +1277,7 @@ def _append_chat_public_event(
         return current
     next_sequence = int(getattr(current, "latest_event_offset", -1) or -1) + 1
     if event_requires_public_projection(public_event_type):
-        _attach_public_projection_frame(
+        attach_public_projection_frame(
             public_event_type,
             payload,
             session_id=session_id,
@@ -1674,7 +1285,7 @@ def _append_chat_public_event(
             lifecycle_state=projection_lifecycle,
             public_anchor=public_anchor,
         )
-    replay_payload = _public_replay_stream_data(public_event_type, payload)
+    replay_payload = public_replay_stream_data(public_event_type, payload)
     logged = replay.append_public_event(current, public_event_type=public_event_type, data=replay_payload)
     diagnostics = {
         key: value
@@ -1719,11 +1330,39 @@ def _public_turn_context_from_event(
     public_sequence_started_at: int = 0,
 ) -> PublicTurnOutputContext | None:
     event_type = str(event.get("type") or "").strip()
-    if event_type not in {"harness_run_started", "single_agent_turn_started"}:
+    turn_anchor_event_types = {
+        ASSISTANT_PUBLIC_FEEDBACK_EVENT,
+        "input_commit_gate",
+        "current_work_boundary_decided",
+        "runtime_branch_decided",
+        "harness_run_started",
+        "single_agent_turn_started",
+        "model_action_request",
+        "model_action_admission",
+        "model_action_admission_checked",
+        "task_origin_bound",
+        "task_run_lifecycle_event",
+    }
+    if event_type not in turn_anchor_event_types:
         return None
     refs = _runtime_run_refs_from_event(event)
-    turn_run_id = str(refs.get("turn_run_id") or "").strip()
-    turn_id = str(refs.get("active_turn_id") or _turn_id_from_turn_run_id(turn_run_id)).strip()
+    diagnostics = dict(getattr(run, "diagnostics", {}) or {})
+    agent_scope = dict(diagnostics.get("agent_run_scope") or {}) if isinstance(diagnostics.get("agent_run_scope"), dict) else {}
+    turn_run_id = str(
+        refs.get("turn_run_id")
+        or diagnostics.get("runtime_turn_run_id")
+        or diagnostics.get("turn_run_id")
+        or agent_scope.get("turn_run_id")
+        or ""
+    ).strip()
+    turn_id = str(
+        refs.get("active_turn_id")
+        or event.get("turn_id")
+        or event.get("active_turn_id")
+        or diagnostics.get("active_turn_id")
+        or agent_scope.get("turn_id")
+        or _turn_id_from_turn_run_id(turn_run_id)
+    ).strip()
     if not turn_run_id or not turn_id:
         return None
     stream_ref = f"chat-turn:{run.stream_run_id}:{turn_run_id}"
@@ -1952,7 +1591,7 @@ def _project_task_runtime_event_to_chat(
         )
         return current, False, terminal_output_state
     if event_type in TASK_BRIDGE_PUBLIC_EVENT_TYPES:
-        for public_event_type, data in _project_public_stream_event(event_type, stream_event):
+        for public_event_type, data in project_public_stream_event(event_type, stream_event):
             _apply_bridge_context_to_public_data(data, bridge_context, task_event=task_event, source_event_type=event_type)
             if public_event_type in {ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
                 terminal_output_state["output_observed"] = True
@@ -2071,7 +1710,7 @@ def _append_task_bridge_terminal(
         )
     raw_task_status = str(context.get("status") or "completed").strip() or "completed"
     raw_terminal_reason = str(context.get("terminal_reason") or raw_task_status or "completed").strip()
-    public_terminal_reason = _public_terminal_reason(raw_terminal_reason)
+    public_terminal_reason_value = public_terminal_reason(raw_terminal_reason)
     terminal_bridge_data = {
         "bridge_id": bridge_context.bridge_id,
         "status": raw_task_status,
@@ -2084,7 +1723,7 @@ def _append_task_bridge_terminal(
         "runtime_task_run_id": task_run_id,
         "message_id": bridge_context.assistant_message_ref,
         "message_ref": bridge_context.assistant_message_ref,
-        "terminal_reason": public_terminal_reason,
+        "terminal_reason": public_terminal_reason_value,
         "completion_state": raw_task_status,
         "source_task_event_id": source_task_event_id,
         "source_task_event_offset": source_task_event_offset,
@@ -2106,13 +1745,13 @@ def _append_task_bridge_terminal(
         public_anchor=bridge_context.anchor(),
     )
     status = _public_turn_status_for_task_status(raw_task_status)
-    terminal_data = _turn_completed_data(
+    terminal_data = turn_completed_data(
         "task_run_lifecycle_finished",
         {
             "status": status,
             "turn_run_id": turn_run_id,
             "task_run_id": task_run_id,
-            "terminal_reason": public_terminal_reason,
+            "terminal_reason": public_terminal_reason_value,
             "completion_state": raw_task_status,
             "error": "处理失败" if status == "failed" else "",
             "runtime_event_id": source_task_event_id,
@@ -2173,7 +1812,7 @@ def _apply_bridge_context_to_public_data(
     data["bridge_id"] = context.bridge_id
 
 
-def _bridge_context_has_live_bound_task(runtime: Any, bridge_context: ChatTaskBridgeContext | None) -> bool:
+def _bridge_context_requires_task_bridge_terminal(runtime: Any, bridge_context: ChatTaskBridgeContext | None) -> bool:
     if bridge_context is None:
         return False
     task_run_id = str(bridge_context.task_run_id or "").strip()
@@ -2184,23 +1823,23 @@ def _bridge_context_has_live_bound_task(runtime: Any, bridge_context: ChatTaskBr
         task_run = host.state_index.get_task_run(task_run_id)
     except Exception:
         return False
-    return task_run is not None and not is_stopped_or_terminal_task_run(task_run, runtime_host=host)
+    return _task_run_requires_task_bridge_terminal(task_run, runtime_host=host)
 
 
-def _active_turn_has_live_bound_task(runtime: Any, session_id: str) -> bool:
-    try:
-        host = runtime.harness_runtime.single_agent_runtime_host
-        active_turn = host.active_turn_registry.resolve_current(str(session_id or "").strip())
-    except Exception:
+def _task_run_requires_task_bridge_terminal(task_run: Any, *, runtime_host: Any) -> bool:
+    if task_run is None or is_stopped_or_terminal_task_run(task_run, runtime_host=runtime_host):
         return False
-    task_run_id = str(getattr(active_turn, "bound_task_run_id", "") or "").strip() if active_turn is not None else ""
-    if not task_run_id:
+    status = str(getattr(task_run, "status", "") or (task_run.get("status") if isinstance(task_run, dict) else "") or "").strip().lower()
+    diagnostics = _record(getattr(task_run, "diagnostics", {}) if not isinstance(task_run, dict) else task_run.get("diagnostics"))
+    allocation = _record(diagnostics.get("resource_allocation"))
+    if status == "admitted":
         return False
-    try:
-        task_run = host.state_index.get_task_run(task_run_id)
-    except Exception:
+    if (
+        str(allocation.get("allocated_by") or "").strip() == "request_task_run"
+        and allocation.get("executor_scheduled") is False
+    ):
         return False
-    return task_run is not None and not is_stopped_or_terminal_task_run(task_run, runtime_host=host)
+    return True
 
 
 def _task_terminal_context_from_stream_event(stream_event: dict[str, Any], *, fallback_task_run_id: str = "") -> dict[str, Any]:
@@ -2241,17 +1880,6 @@ def _public_turn_status_for_task_status(value: Any) -> str:
     if status in {"aborted", "cancelled", "canceled", "stopped", "blocked"}:
         return "stopped"
     return "failed" if status else "failed"
-
-
-def _is_task_executor_handoff_terminal(public_event_type: str, data: dict[str, Any]) -> bool:
-    if public_event_type != TURN_COMPLETED_EVENT:
-        return False
-    candidates = (
-        data.get("completion_state"),
-        data.get("terminal_reason"),
-        data.get("status"),
-    )
-    return any(str(candidate or "").strip().lower() in TASK_EXECUTOR_HANDOFF_REASONS for candidate in candidates) and bool(_task_run_id_from_public_data(data))
 
 
 def _is_task_origin_bound_public_event(public_event_type: str, data: dict[str, Any]) -> bool:
@@ -2364,112 +1992,28 @@ def _active_work_blocks_continuation(runtime: Any, session_id: str) -> bool:
     return _validated_active_work_context(runtime, session_id) is not None
 
 
+def _continuable_active_work_present(runtime: Any, session_id: str) -> bool:
+    """Report whether a paused or resumable work environment still exists.
+
+    A paused turn is not a finished turn: the task environment stays in the
+    paused state and remains resumable. Continuation must therefore look at the
+    work environment itself instead of the active turn state, otherwise a
+    pause looks identical to "no work left" and a new session cannot attach.
+    """
+    context = _validated_active_work_context(runtime, session_id)
+    if context is None:
+        return False
+    status = str(getattr(context, "status", "") or "").strip()
+    if status in {"completed", "failed", "aborted", "archived"}:
+        return False
+    return True
+
+
 def _validated_interrupt_mode(value: str) -> str:
     mode = str(value or "interrupt_for_resume").strip() or "interrupt_for_resume"
     if mode not in {"interrupt_for_resume", "hard_stop"}:
         raise HTTPException(status_code=400, detail="unsupported_interrupt_mode")
     return mode
-
-
-def _validated_interrupt_cascade(value: str, *, mode: str) -> str:
-    cascade = str(value or "interrupt_for_resume").strip() or "interrupt_for_resume"
-    if cascade not in {"interrupt_for_resume", "hard_stop", "leave_running"}:
-        raise HTTPException(status_code=400, detail="unsupported_interrupt_cascade")
-    if cascade == "leave_running" and mode != "hard_stop":
-        raise HTTPException(status_code=400, detail="leave_running_cascade_not_allowed_for_chat_interrupt")
-    return cascade
-
-
-def _interrupt_root_task_run_id(
-    run: RuntimeRun,
-    *,
-    active_turn: Any | None,
-    expected_task_run_id: str = "",
-) -> str:
-    diagnostics = dict(run.diagnostics or {})
-    candidates = [
-        expected_task_run_id,
-        getattr(active_turn, "bound_task_run_id", "") if active_turn is not None else "",
-        diagnostics.get("runtime_task_run_id"),
-        diagnostics.get("task_run_id"),
-        diagnostics.get("public_anchor_task_run_id"),
-    ]
-    for candidate in candidates:
-        normalized = str(candidate or "").strip()
-        if normalized:
-            return normalized
-    return ""
-
-
-def _cascade_interrupted_subagents(
-    host: Any,
-    *,
-    root_task_run_id: str,
-    session_id: str,
-    mode: str,
-    cascade_policy: str,
-    reason: str,
-) -> list[dict[str, Any]]:
-    root_id = str(root_task_run_id or "").strip()
-    if not root_id or cascade_policy == "leave_running":
-        return []
-    gateway = TaskRunControlGateway(runtime_host=host, schedule_task_run_executor=None)
-    controls: list[dict[str, Any]] = []
-    for child in _subagent_task_runs_for_parent(host, root_task_run_id=root_id, session_id=session_id):
-        child_id = str(getattr(child, "task_run_id", "") or "").strip()
-        if not child_id or child_id == root_id:
-            continue
-        if cascade_policy == "hard_stop" or mode == "hard_stop":
-            result = gateway.stop_task_run(child_id, reason=reason, requested_by="parent_agent")
-        else:
-            result = gateway.pause_task_run(child_id, reason=reason, requested_by="parent_agent")
-        controls.append(
-            {
-                "task_run_id": child_id,
-                "parent_task_run_id": root_id,
-                "control": result,
-                "authority": "api.chat.runtime_interruption.subagent_cascade",
-            }
-        )
-    return controls
-
-
-def _subagent_task_runs_for_parent(host: Any, *, root_task_run_id: str, session_id: str) -> list[Any]:
-    state_index = getattr(host, "state_index", None)
-    list_session_task_runs = getattr(state_index, "list_session_task_runs", None)
-    if not callable(list_session_task_runs):
-        return []
-    try:
-        task_runs = list(list_session_task_runs(session_id) or [])
-    except Exception:
-        return []
-    root_id = str(root_task_run_id or "").strip()
-    children: list[Any] = []
-    for task_run in task_runs:
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "subagent_task":
-            continue
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        parent_ids = _subagent_parent_task_run_ids(diagnostics)
-        if root_id in parent_ids:
-            children.append(task_run)
-    return children
-
-
-def _subagent_parent_task_run_ids(diagnostics: dict[str, Any]) -> set[str]:
-    parent_ids: set[str] = set()
-    for key in ("parent_task_run_id", "root_task_run_id", "supervisor_task_run_id"):
-        value = str(diagnostics.get(key) or "").strip()
-        if value:
-            parent_ids.add(value)
-    for key in ("origin", "subagent_control", "agent_control", "parent_agent"):
-        payload = diagnostics.get(key)
-        if not isinstance(payload, dict):
-            continue
-        for nested_key in ("parent_task_run_id", "root_task_run_id", "supervisor_task_run_id"):
-            value = str(payload.get(nested_key) or "").strip()
-            if value:
-                parent_ids.add(value)
-    return parent_ids
 
 
 def _session_context_recovery_status(runtime: Any, session_id: str) -> dict[str, Any]:
@@ -2523,7 +2067,7 @@ def _session_context_recovery_status(runtime: Any, session_id: str) -> dict[str,
             "present": True,
             "fresh": True,
             "source": str(package.get("source") or "context_recovery_package"),
-            "schema_version": str(package.get("schema_version") or ""),
+            "package_schema_id": str(package.get("package_schema_id") or ""),
             "covered_message_count": int(coverage.get("covered_message_count") or 0),
             "covered_event_run_id": str(coverage.get("covered_event_run_id") or ""),
             "covered_event_offset_end": coverage.get("covered_event_offset_end"),
@@ -2548,12 +2092,9 @@ def _publish_chat_interruption_fact_signal(
     host: Any,
     *,
     run: RuntimeRun,
-    root_task_run_id: str,
     mode: str,
     reason: str,
     stream_control: dict[str, Any],
-    task_control: dict[str, Any],
-    subagent_controls: list[dict[str, Any]],
     context_recovery_status: dict[str, Any],
     checkpoint: dict[str, Any],
 ) -> dict[str, Any]:
@@ -2567,7 +2108,6 @@ def _publish_chat_interruption_fact_signal(
         }
     diagnostics = dict(run.diagnostics or {})
     active_turn = getattr(getattr(host, "active_turn_registry", None), "snapshot", lambda _session_id: None)(run.session_id)
-    task_run_id = str(root_task_run_id or "").strip()
     turn_id = str(getattr(active_turn, "turn_id", "") or diagnostics.get("turn_id") or diagnostics.get("active_turn_id") or "")
     turn_run_id = str(getattr(active_turn, "turn_run_id", "") or diagnostics.get("turn_run_id") or "")
     payload = {
@@ -2576,28 +2116,24 @@ def _publish_chat_interruption_fact_signal(
         "reason": reason,
         "stream_run_id": run.stream_run_id,
         "session_id": run.session_id,
-        "task_run_id": task_run_id,
         "turn_id": turn_id,
         "turn_run_id": turn_run_id,
         "stream_control": dict(stream_control or {}),
-        "task_control": _control_fact(task_control),
-        "subagent_controls": [_control_fact(dict(item.get("control") or item)) for item in list(subagent_controls or [])],
         "context_recovery_status": dict(context_recovery_status or {}),
         "checkpoint": dict(checkpoint or {}),
         "contract": {
             "system_role": "carry_runtime_facts_and_feedback_only",
             "agent_role": "decide_next_action_from_facts",
-            "semantic_decision_owner": "agent",
+            "decision_owner": "agent",
         },
         "authority": "api.chat.runtime_interruption.signal",
     }
     try:
         event = publish(
-            task_run_id or run.event_log_id,
+            run.event_log_id,
             signal_type="runtime.interruption.fact",
             scope=RuntimeSignalScope(
                 session_id=run.session_id,
-                task_run_id=task_run_id,
                 turn_id=turn_id,
                 turn_run_id=turn_run_id,
             ),
@@ -2606,7 +2142,6 @@ def _publish_chat_interruption_fact_signal(
             visibility="model_visible",
             refs={
                 "stream_run_ref": run.stream_run_id,
-                **({"task_run_ref": task_run_id} if task_run_id else {}),
                 **({"turn_ref": turn_id} if turn_id else {}),
                 **({"turn_run_ref": turn_run_id} if turn_run_id else {}),
             },
@@ -2627,41 +2162,82 @@ def _publish_chat_interruption_fact_signal(
     }
 
 
-def _control_fact(value: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(value or {})
-    return {
-        key: payload.get(key)
-        for key in (
-            "ok",
-            "accepted",
-            "task_run_id",
-            "error",
-            "reason",
-            "authority",
-            "control",
-            "recovery_state",
-        )
-        if key in payload
-    }
-
-
 def _run_response(runtime: Any, run: RuntimeRun) -> dict[str, Any]:
     payload = run.to_dict()
     payload.pop("owner_process_id", None)
     payload.pop("owner_instance_id", None)
+    now = time.time()
     execution_attached = chat_run_execution_attached(
         runtime.harness_runtime.single_agent_runtime_host,
         run,
         terminal_statuses=TERMINAL_RUN_STATUSES,
     )
+    restore_contract = _run_restore_contract(
+        runtime,
+        run,
+        execution_attached=execution_attached,
+        now=now,
+    )
     return {
         **payload,
         "chat_run_execution_attached": execution_attached,
-        "is_reconnectable": run.reconnectable_until >= time.time()
-        and run.status not in TERMINAL_RUN_STATUSES
-        and execution_attached,
+        **restore_contract,
         "replay_url": f"/api/chat/runs/{run.stream_run_id}/events/replay",
         "live_ws_url": f"/api/chat/sessions/{run.session_id}/live",
+    }
+
+
+def _run_restore_contract(
+    runtime: Any,
+    run: RuntimeRun,
+    *,
+    execution_attached: bool,
+    now: float,
+) -> dict[str, Any]:
+    diagnostics = dict(run.diagnostics or {})
+    terminal = str(run.status or "").strip() in TERMINAL_RUN_STATUSES
+    latest_event_offset = int(getattr(run, "latest_event_offset", -1) or -1)
+    live_reconnectable = bool(
+        run.reconnectable_until >= now
+        and not terminal
+        and execution_attached
+    )
+    replay_available = bool(str(run.event_log_id or "").strip() and latest_event_offset >= 0)
+    recoverable_interruption = bool(
+        diagnostics.get("recoverable") is True
+        and diagnostics.get("agent_decision_terminal") is False
+    )
+    continuation_ref: dict[str, Any] = {}
+    continuation_available = False
+    if recoverable_interruption:
+        try:
+            host = runtime.harness_runtime.single_agent_runtime_host
+            context_status = _session_context_recovery_status(runtime, run.session_id)
+            selection = select_session_continuation(
+                host,
+                session_id=run.session_id,
+                active_work_present=_active_work_blocks_continuation(runtime, run.session_id),
+                context_recovery_status=context_status,
+            )
+            continuation_ref = selection.to_dict()
+            continuation_available = False
+        except Exception:
+            logger.debug(
+                "Failed to project chat run continuation contract.",
+                exc_info=True,
+                extra={"stream_run_id": run.stream_run_id},
+            )
+            continuation_ref = {
+                "reason": "continuation_projection_failed",
+                "authority": "api.chat.run_restore_contract",
+            }
+    return {
+        "live_reconnectable": live_reconnectable,
+        "replay_available": replay_available,
+        "recoverable_interruption": recoverable_interruption,
+        "continuation_available": continuation_available,
+        "continuation_ref": continuation_ref,
+        "restore_contract_authority": "api.chat.run_restore_contract",
     }
 
 
@@ -2676,1101 +2252,8 @@ def _status_for_public_event(event_type: str, data: dict[str, Any] | None = None
     return "running"
 
 
-def _project_public_stream_event(event_type: str, event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    normalized = str(event_type or "message").strip() or "message"
-    raw_data = {key: value for key, value in dict(event).items() if key != "type"}
-    if normalized in INTERNAL_STREAM_EVENTS:
-        return []
-    if normalized == "model_action_request":
-        data = _model_action_request_public_data(raw_data)
-        return [(normalized, data)] if data else []
-    if normalized == "agent_turn_terminal":
-        return []
-    if normalized == "runtime_evidence_projection_published":
-        data = _runtime_evidence_projection_public_data(raw_data)
-        return [(normalized, data)] if data else []
-    if normalized == "agent_contract_feedback_required":
-        data = _agent_contract_feedback_status_public_data(raw_data)
-        return [("runtime_status", data)] if data else []
-    if normalized == "harness_run_started" and _is_turn_trace_only_harness_start(event):
-        return []
-    if normalized in {"step_summary_recorded", "runtime_step_summary"}:
-        data = _runtime_step_summary_data(raw_data)
-        return [("runtime_step_summary", data)] if data else []
-    if normalized == "stream_recovery":
-        data = _stream_recovery_public_data(raw_data)
-        return [(normalized, data)] if data else []
-    if normalized == "task_model_action_wait_heartbeat":
-        return []
-    if normalized in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT, ASSISTANT_STREAM_REPAIR_EVENT}:
-        data = _assistant_stream_public_data(normalized, raw_data)
-        return [(normalized, data)] if data else []
-    if _is_runtime_status_only_error_event(normalized, raw_data):
-        return []
-    if normalized in {"done", "error", "stopped"}:
-        return [(TURN_COMPLETED_EVENT, _turn_completed_data(normalized, raw_data))]
-    if normalized in {"answer_candidate", "assistant_text", "token"}:
-        return []
-    if normalized in {"model_action_admission", "model_action_admission_checked"}:
-        control_events = _control_action_public_events(raw_data)
-        return control_events or _tool_action_public_events(raw_data)
-    if normalized == TOOL_ITEM_STARTED_EVENT:
-        data = _tool_item_started_data(raw_data)
-        return [(TOOL_ITEM_STARTED_EVENT, data)] if data else []
-    if normalized in {"turn_tool_observation_recorded", "task_tool_observation_recorded", "tool_observation"}:
-        data = _tool_item_completed_data(raw_data)
-        return [(TOOL_ITEM_COMPLETED_EVENT, data)] if data else []
-    if normalized in {
-        SESSION_OUTPUT_COMMIT_CHECKED_EVENT,
-        SESSION_OUTPUT_COMMIT_ACK_EVENT,
-        SESSION_OUTPUT_COMMIT_FAILED_EVENT,
-        SESSION_OUTPUT_COMMIT_SKIPPED_EVENT,
-    }:
-        data = _session_output_commit_data(normalized, raw_data)
-        return [(normalized, data)] if data else []
-    allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get(normalized)
-    if allowed is None:
-        data = {
-            key: value
-            for key, value in raw_data.items()
-            if key not in INTERNAL_PUBLIC_DATA_KEYS
-        }
-    else:
-        data = {key: raw_data[key] for key in allowed if key in raw_data}
-    data = _redact_public_stream_data(data)
-    if "terminal_reason" in data:
-        data["terminal_reason"] = _public_terminal_reason(data.get("terminal_reason"))
-    if normalized == "runtime_branch_decided":
-        branch = dict(data.get("runtime_branch") or {})
-        data["runtime_branch"] = _public_runtime_branch(branch)
-    elif normalized == "single_agent_turn_started":
-        branch = dict(data.get("runtime_branch") or {})
-        data = {
-            "runtime_branch": _public_runtime_branch(branch),
-            "allowed_action_types": list(data.get("allowed_action_types") or []),
-            "turn_id": str(raw_data.get("turn_id") or ""),
-            "turn_run_id": str(raw_data.get("turn_run_id") or ""),
-            "active_turn_id": str(raw_data.get("active_turn_id") or raw_data.get("turn_id") or ""),
-        }
-    return [(normalized, data)]
-
-
-def _is_runtime_status_only_error_event(event_type: str, raw_data: dict[str, Any]) -> bool:
-    if str(event_type or "").strip().lower() != "error":
-        return False
-    persist_policy = str(raw_data.get("answer_persist_policy") or "").strip().lower()
-    finalization_policy = str(raw_data.get("answer_finalization_policy") or "").strip().lower()
-    return (
-        persist_policy == "runtime_status_only"
-        or finalization_policy
-        in {
-            "no_agent_answer_runtime_unavailable",
-            "no_agent_answer_runtime_status",
-        }
-    )
-
-
-def _assistant_stream_public_data(event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get(event_type, set())
-    data: dict[str, Any] = {}
-    for key in allowed:
-        value = payload.get(key)
-        if value in ("", None):
-            value = raw_data.get(key)
-        if value not in ("", None):
-            data[key] = value
-    data.setdefault("turn_run_id", str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""))
-    data.setdefault("task_run_id", str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""))
-    data.setdefault("runtime_event_id", str(raw_event.get("event_id") or raw_data.get("event_id") or ""))
-    if event_type in {ASSISTANT_TEXT_DELTA_EVENT, ASSISTANT_TEXT_FINAL_EVENT} and not str(data.get("content") or ""):
-        return {}
-    if event_type == ASSISTANT_STREAM_REPAIR_EVENT and not str(data.get("replacement_content") or ""):
-        return {}
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _stream_recovery_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    allowed = PUBLIC_EVENT_DATA_ALLOWLIST.get("stream_recovery", set())
-    data = {key: payload[key] for key in allowed if key in payload and payload[key] not in ("", None)}
-    data["status"] = str(data.get("status") or payload.get("status") or "started")
-    data["reason"] = str(data.get("reason") or payload.get("reason") or "partial_stream_error")
-    data["runtime_event_id"] = str(raw_event.get("event_id") or raw_data.get("event_id") or "")
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _agent_contract_feedback_status_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    feedback = _record(payload.get("agent_contract_feedback") or raw_data.get("agent_contract_feedback"))
-    if not feedback:
-        return {}
-    failure = _record(feedback.get("contract_failure"))
-    reason = str(feedback.get("reason") or failure.get("reason") or "").strip()
-    detail = _safe_public_action_text(feedback.get("agent_feedback") or reason)
-    if not detail:
-        detail = "需要 agent 根据执行契约重新选择下一步动作。"
-    data = {
-        "title": "动作契约需要修正",
-        "detail": detail[:260],
-        "state": "waiting",
-        "status_kind": "agent_contract_feedback",
-        "phase": str(feedback.get("phase") or ""),
-        "turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or refs.get("turn_ref") or ""),
-        "active_turn_id": str(payload.get("turn_id") or feedback.get("turn_id") or refs.get("turn_ref") or ""),
-        "turn_run_id": str(refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
-    }
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _runtime_evidence_projection_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    projection = _record(payload.get("evidence_projection") or raw_data.get("evidence_projection"))
-    if not projection:
-        return {}
-    evidence_summary = _record(projection.get("evidence_projection"))
-    file_summary = _record(projection.get("file_state_summary"))
-    read_payload = _record(projection.get("read_evidence_payload"))
-    file_state_count = file_summary.get("file_count")
-    if file_state_count in ("", None):
-        file_state_count = evidence_summary.get("file_state_count")
-    read_evidence_ref_count = evidence_summary.get("read_evidence_ref_count")
-    if read_evidence_ref_count in ("", None):
-        read_evidence_refs = read_payload.get("read_evidence_refs")
-        read_evidence_ref_count = len(read_evidence_refs) if isinstance(read_evidence_refs, list) else ""
-    compact_projection = {
-        "projection_ref": str(projection.get("projection_ref") or refs.get("evidence_projection_ref") or ""),
-        "packet_id": str(projection.get("packet_id") or evidence_summary.get("read_evidence_packet_id") or refs.get("runtime_invocation_packet_ref") or ""),
-        "file_state_summary": {
-            "file_count": file_state_count,
-            "truncated": bool(file_summary.get("truncated") is True),
-        },
-        "read_evidence_payload": {
-            "read_evidence_injection_count": read_payload.get("read_evidence_injection_count"),
-            "read_evidence_ref_count": read_evidence_ref_count,
-            "read_evidence_injections_redacted": bool(read_payload.get("read_evidence_injections_redacted") is True),
-        },
-    }
-    data = {
-        "evidence_projection": compact_projection,
-        "turn_id": str(projection.get("turn_id") or raw_data.get("turn_id") or ""),
-        "active_turn_id": str(projection.get("turn_id") or raw_data.get("active_turn_id") or raw_data.get("turn_id") or ""),
-        "turn_run_id": str(refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(projection.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "runtime_event_id": str(raw_event.get("event_id") or raw_data.get("event_id") or ""),
-    }
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None, [], {})})
-
-
-def _turn_completed_data(source_event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
-    source = str(source_event_type or "").strip().lower()
-    requested_status = str(raw_data.get("status") or "").strip().lower()
-    status = requested_status if requested_status in {"completed", "failed", "stopped"} else "completed"
-    if source == "error":
-        status = "failed"
-    elif source == "stopped":
-        status = "stopped"
-    terminal_reason = _public_terminal_reason(
-        raw_data.get("terminal_reason")
-        or raw_data.get("completion_state")
-        or raw_data.get("code")
-        or raw_data.get("reason")
-        or source
-    )
-    payload = {
-        "status": status,
-        "turn_run_id": str(raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "final_message_ref": str(raw_data.get("message_ref") or raw_data.get("stream_ref") or ""),
-        "terminal_reason": terminal_reason,
-        "completion_state": str(raw_data.get("completion_state") or ""),
-        "error_summary": _turn_error_summary(raw_data, fallback=terminal_reason) if status == "failed" else "",
-        "failure_code": str(raw_data.get("failure_code") or raw_data.get("model_error_code") or raw_data.get("code") or ""),
-        "model_error_code": str(raw_data.get("model_error_code") or ""),
-        "provider": str(raw_data.get("provider") or ""),
-        "model": str(raw_data.get("model") or ""),
-        "retryable": raw_data.get("retryable") if isinstance(raw_data.get("retryable"), bool) else None,
-        "stopped_reason": _safe_public_action_text(raw_data.get("reason") or raw_data.get("content")) if status == "stopped" else "",
-        "runtime_event_id": str(raw_data.get("runtime_event_id") or raw_data.get("event_id") or ""),
-        "source_task_event_id": str(raw_data.get("source_task_event_id") or ""),
-        "source_task_event_offset": raw_data.get("source_task_event_offset"),
-        "source_event_type": str(raw_data.get("source_event_type") or ""),
-    }
-    return {key: value for key, value in payload.items() if value not in ("", None)}
-
-
-def _turn_error_summary(raw_data: dict[str, Any], *, fallback: str = "") -> str:
-    for value in (
-        raw_data.get("error_summary"),
-        raw_data.get("user_message"),
-        raw_data.get("message"),
-        raw_data.get("error"),
-        raw_data.get("content"),
-        fallback,
-    ):
-        text = _safe_public_action_text(value)
-        if text:
-            return text[:260]
-    return "处理失败"
-
-
-def _model_action_request_public_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    request = _record(raw_data.get("model_action_request") or raw_data.get("action_request"))
-    if not request:
-        return {}
-    action_type = str(request.get("action_type") or "").strip()
-    if not action_type or action_type == "tool_call":
-        return {}
-    return _redact_public_stream_data(
-        _drop_empty_public_data(
-            {
-                "request_id": str(request.get("request_id") or "").strip(),
-                "action_type": action_type,
-                "public_progress_note": _safe_public_action_text(request.get("public_progress_note")),
-                "public_action_state": _record(request.get("public_action_state")),
-                "task_run_contract_seed": _record(request.get("task_run_contract_seed")),
-                "active_work_control": _record(request.get("active_work_control")),
-                "recovery_resume": _record(request.get("recovery_resume")),
-            }
-        )
-    )
-
-
-def _control_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _semantic_event_payload(raw_data)
-    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
-    if not request:
-        return []
-    action_type = str(request.get("action_type") or "").strip()
-    if action_type in {"", "tool_call", "tool_calls"}:
-        return []
-    admission = _record(payload.get("admission") or raw_data.get("admission"))
-    runtime_event_id = str(raw_event.get("event_id") or "").strip()
-    data = _drop_empty_public_data(
-        {
-            "request_id": str(request.get("request_id") or "").strip(),
-            "action_type": action_type,
-            "model_action_request": _model_action_request_public_data({"model_action_request": request}),
-            "admission": _public_admission_data(admission),
-            "runtime_event_id": runtime_event_id,
-            "source_event_id": runtime_event_id,
-        }
-    )
-    return [("model_action_admission", _redact_public_stream_data(data))] if data else []
-
-
-def _public_admission_data(admission: dict[str, Any]) -> dict[str, Any]:
-    if not admission:
-        return {}
-    return _drop_empty_public_data(
-        {
-            "admission_id": str(admission.get("admission_id") or "").strip(),
-            "action_request_ref": str(admission.get("action_request_ref") or "").strip(),
-            "decision": str(admission.get("decision") or "").strip(),
-            "user_visible_reason": _safe_public_action_text(admission.get("user_visible_reason")),
-            "system_reason": str(admission.get("system_reason") or "").strip(),
-            "contract_errors": [
-                str(item) for item in list(admission.get("contract_errors") or []) if str(item or "").strip()
-            ],
-            "resource_errors": [
-                str(item) for item in list(admission.get("resource_errors") or []) if str(item or "").strip()
-            ],
-            "issue_category": str(admission.get("issue_category") or "").strip(),
-            "issue_code": str(admission.get("issue_code") or "").strip(),
-        }
-    )
-
-
-def _drop_empty_public_data(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in dict(payload or {}).items()
-        if value not in ("", None, [], {}, ())
-    }
-
-
-def _tool_action_public_events(raw_data: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    events: list[tuple[str, dict[str, Any]]] = []
-    request_items = _tool_call_requested_items(raw_data)
-    if not request_items:
-        return events
-    for request_data in request_items:
-        permission_data = _tool_permission_decided_data(raw_data, request_data=request_data)
-        events.append((TOOL_CALL_REQUESTED_EVENT, request_data))
-        if permission_data:
-            events.append((TOOL_PERMISSION_DECIDED_EVENT, permission_data))
-    return events
-
-
-def _tool_call_requested_items(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _semantic_event_payload(raw_data)
-    refs = _record(raw_event.get("refs"))
-    request = _record(payload.get("model_action_request") or raw_data.get("model_action_request"))
-    if not request:
-        return []
-    action_type = str(request.get("action_type") or "").strip().lower()
-    if action_type not in {"tool_call", "tool_calls"}:
-        return []
-    tool_calls = _model_action_tool_calls(request)
-    if not tool_calls:
-        return []
-    runtime_event_id = str(raw_event.get("event_id") or "").strip()
-    request_id = str(
-        request.get("request_id")
-        or refs.get("action_request_ref")
-        or refs.get("batch_action_request_ref")
-        or runtime_event_id
-        or ""
-    ).strip()
-    result: list[dict[str, Any]] = []
-    for index, raw_tool in enumerate(tool_calls):
-        tool = _record(raw_tool)
-        tool_name = str(tool.get("tool_name") or tool.get("name") or "").strip()
-        tool_call_id = str(tool.get("id") or tool.get("tool_call_id") or "").strip()
-        if not tool_name or not tool_call_id or _is_agent_todo_tool_name(tool_name):
-            continue
-        args = _tool_call_args(tool, request=request if len(tool_calls) == 1 else {})
-        target = _safe_public_tool_target(args, tool_name=tool_name)
-        data: dict[str, Any] = {
-            "item_id": tool_call_id,
-            "request_id": request_id or tool_call_id,
-            "tool_lifecycle_id": tool_call_id,
-            "tool_call_id": tool_call_id,
-            "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-            "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-            "tool_name": tool_name,
-            "target": target,
-            "arguments_preview": _tool_arguments_preview(args),
-        }
-        if runtime_event_id:
-            data["runtime_event_id"] = f"{runtime_event_id}:tool:{index + 1}" if len(tool_calls) > 1 else runtime_event_id
-            data["source_task_event_id"] = runtime_event_id
-        result.append(_redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)}))
-    return result
-
-
-def _model_action_tool_calls(request: dict[str, Any]) -> list[dict[str, Any]]:
-    action_type = str(request.get("action_type") or "").strip().lower()
-    if action_type == "tool_call":
-        tool = _record(request.get("tool_call"))
-        return [tool] if tool else []
-    raw_calls = request.get("tool_calls")
-    if not isinstance(raw_calls, list):
-        return []
-    return [_record(item) for item in raw_calls if _record(item)]
-
-
-def _tool_call_args(tool: dict[str, Any], *, request: dict[str, Any]) -> dict[str, Any]:
-    for value in (
-        tool.get("args"),
-        tool.get("arguments"),
-        tool.get("input"),
-    ):
-        parsed = _record_or_json_object(value)
-        if parsed:
-            return parsed
-    return {}
-
-
-def _record_or_json_object(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return dict(value)
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return {}
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            return {}
-        return dict(parsed) if isinstance(parsed, dict) else {}
-    return {}
-
-
-def _tool_permission_decided_data(raw_data: dict[str, Any], *, request_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _semantic_event_payload(raw_data)
-    refs = _record(raw_event.get("refs"))
-    admission = _record(payload.get("admission") or payload.get("admission_decision") or raw_data.get("admission"))
-    if not admission:
-        return {}
-    decision = str(admission.get("decision") or "").strip()
-    tool_call_id = str(request_data.get("tool_call_id") or "").strip()
-    if not tool_call_id:
-        return {}
-    permission_decision_id = _canonical_permission_decision_id(admission, tool_call_id=tool_call_id)
-    data: dict[str, Any] = {
-        "item_id": permission_decision_id,
-        "request_id": str(request_data.get("request_id") or admission.get("action_request_ref") or ""),
-        "tool_call_id": tool_call_id,
-        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or request_data.get("turn_run_id") or ""),
-        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or request_data.get("task_run_id") or ""),
-        "tool_name": str(request_data.get("tool_name") or ""),
-        "permission_decision_id": permission_decision_id,
-        "permission_decision": decision,
-        "permission_reason": _safe_public_action_text(admission.get("user_visible_reason")),
-        "system_reason": _safe_public_action_text(admission.get("system_reason")),
-    }
-    event_id = str(raw_event.get("event_id") or "").strip()
-    if event_id:
-        data["runtime_event_id"] = event_id
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _tool_item_started_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    tool_call_id = str(payload.get("tool_call_id") or "").strip()
-    permission_decision_id = str(payload.get("permission_decision_id") or "").strip()
-    tool_name = str(payload.get("tool_name") or "").strip()
-    if not tool_call_id or not permission_decision_id or not tool_name:
-        return {}
-    data: dict[str, Any] = {
-        "item_id": tool_call_id,
-        "tool_lifecycle_id": str(payload.get("tool_lifecycle_id") or payload.get("item_id") or tool_call_id),
-        "tool_call_id": tool_call_id,
-        "permission_decision_id": permission_decision_id,
-        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "tool_name": tool_name,
-        "title": _safe_public_action_text(payload.get("title")),
-        "target": _safe_public_action_text(payload.get("target")),
-        "arguments_preview": _safe_public_action_text(payload.get("arguments_preview")),
-        "state": str(payload.get("state") or "running"),
-    }
-    event_id = str(raw_event.get("event_id") or "").strip()
-    if event_id:
-        data["runtime_event_id"] = event_id
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _tool_item_completed_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    observation, raw_event = _tool_observation_payload(raw_data)
-    if not observation:
-        return {}
-    tool_observation = _tool_runtime_observation_payload(observation)
-    tool_name = str(
-        tool_observation.get("tool_name")
-        or tool_observation.get("tool")
-        or observation.get("tool_name")
-        or observation.get("tool")
-        or _record(tool_observation.get("result_envelope")).get("tool_name")
-        or _record(observation.get("result_envelope")).get("tool_name")
-        or ""
-    ).strip()
-    tool_call_id = _tool_call_id_from_observation(tool_observation) or _tool_call_id_from_observation(observation)
-    if not tool_name or not tool_call_id:
-        return {}
-    tool_lifecycle_id = _tool_lifecycle_id_from_observation(
-        tool_observation,
-        observation,
-        tool_call_id=tool_call_id,
-        tool_name=tool_name,
-    )
-    status = str(tool_observation.get("status") or observation.get("status") or "").strip().lower()
-    state = "error" if status and status not in {"ok", "done", "completed", "success"} else "done"
-    result_envelope = _record(tool_observation.get("result_envelope") or observation.get("result_envelope"))
-    execution_receipt = _record(tool_observation.get("execution_receipt") or observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
-    operation_gate = _record(tool_observation.get("operation_gate") or observation.get("operation_gate"))
-    admission = _record(operation_gate.get("admission"))
-    refs = _record(raw_event.get("refs"))
-    tool_args = _tool_args_from_observation(
-        tool_observation,
-        observation,
-        result_envelope=result_envelope,
-        execution_receipt=execution_receipt,
-        tool_call_id=tool_call_id,
-    )
-    error_source = (
-        tool_observation.get("error")
-        or observation.get("error")
-        or result_envelope.get("error")
-        or execution_receipt.get("error")
-    )
-    error = _safe_tool_feedback_text(error_source) or _safe_public_action_text(error_source)
-    observation_text = _safe_tool_observation_text(
-        tool_observation,
-        result_envelope=result_envelope,
-        tool_name=tool_name,
-    )
-    data: dict[str, Any] = {
-        "item_id": tool_call_id,
-        "tool_lifecycle_id": tool_lifecycle_id,
-        "tool_call_id": tool_call_id,
-        "permission_decision_id": _permission_decision_id_from_observation(
-            tool_observation,
-            raw_observation=observation,
-            admission=admission,
-        ),
-        "turn_run_id": str(tool_observation.get("caller_ref") or observation.get("caller_ref") or execution_receipt.get("caller_ref") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(observation.get("task_run_id") or tool_observation.get("task_run_id") or execution_receipt.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "tool_name": tool_name,
-        "title": _safe_public_action_text(tool_observation.get("title") or observation.get("title") or result_envelope.get("title")),
-        "target": _safe_public_tool_target(tool_args, tool_name=tool_name),
-        "arguments_preview": _tool_arguments_preview(tool_args),
-        "state": state,
-        "observation": observation_text,
-        "error": error if state == "error" else "",
-        "duration_ms": execution_receipt.get("duration_ms"),
-    }
-    event_id = str(raw_event.get("event_id") or "").strip()
-    if event_id:
-        data["runtime_event_id"] = event_id
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _permission_decision_id_from_observation(
-    observation: dict[str, Any],
-    *,
-    raw_observation: dict[str, Any],
-    admission: dict[str, Any],
-) -> str:
-    observation = _tool_runtime_observation_payload(observation)
-    result_envelope = _record(observation.get("result_envelope"))
-    execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
-    admission_id = str(admission.get("admission_id") or admission.get("permission_decision_id") or "").strip()
-    if admission_id:
-        return admission_id
-    admission_ref = _public_permission_decision_ref(
-        execution_receipt.get("admission_ref") or result_envelope.get("admission_ref")
-    )
-    if admission_ref:
-        return admission_ref
-    request_ref = _public_permission_decision_ref(
-        raw_observation.get("request_ref")
-        or observation.get("request_ref")
-        or result_envelope.get("action_request_id")
-        or observation.get("action_request_id")
-        or execution_receipt.get("action_request_id")
-        or ""
-    )
-    if request_ref:
-        return request_ref
-    return ""
-
-
-def _public_permission_decision_ref(value: Any) -> str:
-    ref = str(value or "").strip()
-    if not ref:
-        return ""
-    if ref.startswith("admission:toolinv:") or ref.startswith("toolinv:"):
-        return ""
-    if ref.startswith("admission:"):
-        return ref
-    return f"admission:{ref}"
-
-
-def _canonical_permission_decision_id(admission: dict[str, Any] | None = None, *, tool_call_id: str = "") -> str:
-    payload = admission or {}
-    admission_id = str(payload.get("admission_id") or payload.get("permission_decision_id") or "").strip()
-    normalized_tool_call_id = str(tool_call_id or "").strip()
-    if admission_id and normalized_tool_call_id:
-        return admission_id if normalized_tool_call_id in admission_id else f"{admission_id}:{normalized_tool_call_id}"
-    return permission_decision_id(payload, tool_call_id=normalized_tool_call_id)
-
-
-def _tool_lifecycle_id_from_observation(
-    observation: dict[str, Any],
-    raw_observation: dict[str, Any],
-    *,
-    tool_call_id: str,
-    tool_name: str,
-) -> str:
-    observation = _tool_runtime_observation_payload(observation)
-    result_envelope = _record(observation.get("result_envelope"))
-    execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
-    lifecycle_id = str(
-        observation.get("invocation_id")
-        or raw_observation.get("invocation_id")
-        or observation.get("tool_lifecycle_id")
-        or result_envelope.get("tool_lifecycle_id")
-        or execution_receipt.get("tool_lifecycle_id")
-        or execution_receipt.get("tool_invocation_id")
-        or ""
-    ).strip()
-    if lifecycle_id:
-        return lifecycle_id
-    return _tool_lifecycle_id(tool_call_id=tool_call_id, tool_name=tool_name)
-
-
-def _session_output_commit_data(event_type: str, raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    state = str(payload.get("state") or payload.get("status") or "").strip()
-    if not state:
-        if event_type == SESSION_OUTPUT_COMMIT_ACK_EVENT:
-            state = "committed"
-        elif event_type == SESSION_OUTPUT_COMMIT_FAILED_EVENT:
-            state = "failed"
-        elif event_type == SESSION_OUTPUT_COMMIT_SKIPPED_EVENT:
-            state = "skipped"
-        else:
-            state = "checked"
-    data: dict[str, Any] = {
-        "state": state,
-        "status": state,
-        "turn_id": str(payload.get("turn_id") or refs.get("turn_ref") or raw_data.get("turn_id") or ""),
-        "turn_run_id": str(payload.get("turn_run_id") or refs.get("turn_run_ref") or raw_data.get("turn_run_id") or ""),
-        "task_run_id": str(payload.get("task_run_id") or refs.get("task_run_ref") or raw_data.get("task_run_id") or raw_data.get("runtime_task_run_id") or ""),
-        "message_id": str(payload.get("message_id") or payload.get("anchor_message_id") or payload.get("message_ref") or refs.get("message_ref") or ""),
-        "message_ref": str(payload.get("message_ref") or payload.get("anchor_message_id") or refs.get("message_ref") or ""),
-        "content_sha256": str(payload.get("content_sha256") or payload.get("sha256") or ""),
-        "commit_event_offset": payload.get("commit_event_offset") or raw_event.get("offset") or raw_data.get("event_offset"),
-        "reason": _safe_public_action_text(payload.get("reason")),
-        "error": _safe_public_action_text(payload.get("error")),
-        "summary": _safe_public_action_text(payload.get("summary")),
-    }
-    event_id = str(raw_event.get("event_id") or "").strip()
-    if event_id:
-        data["runtime_event_id"] = event_id
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _runtime_step_summary_data(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    refs = _record(raw_event.get("refs"))
-    visible_fields = {
-        "summary": _safe_public_action_text(payload.get("summary")),
-        "public_progress_note": _safe_public_action_text(payload.get("public_progress_note")),
-        "agent_brief_output": _safe_public_action_text(payload.get("agent_brief_output")),
-        "current_judgment": _safe_public_action_text(payload.get("current_judgment")),
-        "next_action": _safe_public_action_text(payload.get("next_action")),
-        "completion_status": _safe_public_action_text(payload.get("completion_status")),
-    }
-    if not any(visible_fields.values()):
-        return {}
-    data: dict[str, Any] = {
-        "task_run_id": str(payload.get("task_run_id") or raw_event.get("task_run_id") or raw_data.get("task_run_id") or "").strip(),
-        "step": str(payload.get("step") or "").strip(),
-        "status": str(payload.get("status") or "running").strip() or "running",
-        "presentation_source": str(payload.get("presentation_source") or "").strip(),
-        "feedback_identity": str(
-            payload.get("feedback_identity")
-            or refs.get("action_request_ref")
-            or refs.get("batch_action_request_ref")
-            or refs.get("runtime_invocation_packet_ref")
-            or ""
-        ).strip(),
-        **{key: value for key, value in visible_fields.items() if value},
-    }
-    event_id = str(raw_event.get("event_id") or raw_data.get("runtime_event_id") or raw_data.get("event_id") or "").strip()
-    if event_id:
-        data["runtime_event_id"] = event_id
-    source_offset = raw_event.get("offset") or raw_data.get("source_task_event_offset") or raw_data.get("event_offset")
-    if source_offset not in (None, ""):
-        data["source_task_event_offset"] = source_offset
-    source_event_id = str(raw_event.get("event_id") or raw_data.get("source_task_event_id") or "").strip()
-    if source_event_id:
-        data["source_task_event_id"] = source_event_id
-    return _redact_public_stream_data({key: value for key, value in data.items() if value not in ("", None)})
-
-
-def _tool_observation_payload(raw_data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload"))
-    observation = _record(
-        raw_data.get("tool_observation")
-        or payload.get("tool_observation")
-        or payload.get("observation")
-        or raw_data.get("observation")
-    )
-    return observation, raw_event
-
-
-def _tool_runtime_observation_payload(observation: dict[str, Any]) -> dict[str, Any]:
-    payload = _record(observation.get("payload"))
-    if payload and (
-        payload.get("tool_name")
-        or payload.get("result_envelope")
-        or payload.get("execution_receipt")
-        or payload.get("operation_gate")
-    ):
-        return payload
-    return observation
-
-
-def _tool_call_id_from_observation(observation: dict[str, Any]) -> str:
-    observation = _tool_runtime_observation_payload(observation)
-    result_envelope = _record(observation.get("result_envelope"))
-    execution_receipt = _record(observation.get("execution_receipt") or result_envelope.get("execution_receipt"))
-    return str(
-        result_envelope.get("tool_call_id")
-        or execution_receipt.get("tool_call_id")
-        or ""
-    ).strip()
-
-
-def _tool_args_from_observation(
-    observation: dict[str, Any],
-    raw_observation: dict[str, Any],
-    *,
-    result_envelope: dict[str, Any],
-    execution_receipt: dict[str, Any],
-    tool_call_id: str,
-) -> dict[str, Any]:
-    for source in (observation, raw_observation, result_envelope, execution_receipt):
-        args = _tool_args_from_payload(source)
-        if args:
-            return args
-    operation_gate = _record(observation.get("operation_gate") or raw_observation.get("operation_gate") or result_envelope.get("operation_gate"))
-    action_permit = _record(operation_gate.get("action_permit"))
-    return _tool_args_from_payload(action_permit)
-
-
-def _tool_args_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    source = _record(payload)
-    for key in ("tool_args", "args", "arguments", "input"):
-        parsed = _record_or_json_object(source.get(key))
-        if parsed:
-            return parsed
-    tool_call = _record(source.get("tool_call"))
-    if tool_call:
-        return _tool_call_args(tool_call, request={})
-    return {}
-
-
-def _tool_lifecycle_id(*, tool_call_id: str, tool_name: str) -> str:
-    normalized_call_id = str(tool_call_id or "").strip()
-    if normalized_call_id:
-        return normalized_call_id
-    normalized_tool = str(tool_name or "tool").strip() or "tool"
-    return f"tool:{normalized_tool}"
-
-
-def _is_agent_todo_tool_name(tool_name: Any) -> bool:
-    return str(tool_name or "").strip().lower() == "agent_todo"
-
-
-def _safe_tool_observation_text(
-    observation: dict[str, Any],
-    *,
-    result_envelope: dict[str, Any],
-    tool_name: str = "",
-) -> str:
-    if str(tool_name or "").strip().lower() == "agent_todo":
-        todo_summary = _agent_todo_observation_summary(observation, result_envelope=result_envelope)
-        if todo_summary:
-            return todo_summary
-    for value in (
-        result_envelope.get("text"),
-        observation.get("text"),
-        result_envelope.get("summary"),
-        result_envelope.get("result"),
-    ):
-        text = _safe_public_action_text(value) or _safe_tool_feedback_text(value)
-        if text:
-            return text[:500]
-    structured = _record(result_envelope.get("structured_payload"))
-    for key in ("summary", "message", "error"):
-        text = _safe_public_action_text(structured.get(key)) or _safe_tool_feedback_text(structured.get(key))
-        if text:
-            return text[:500]
-    return ""
-
-
-def _safe_tool_feedback_text(value: Any) -> str:
-    text = sanitize_visible_assistant_content(str(value or "")).strip()
-    if not text:
-        return ""
-    if LINE_NUMBERED_TOOL_OUTPUT_RE.search(text):
-        return ""
-    normalized = " ".join(text.split()).strip()
-    if not TOOL_FAILURE_FEEDBACK_RE.match(normalized):
-        return ""
-    if looks_like_runtime_private_artifact_text(normalized):
-        return ""
-    if contains_internal_protocol(normalized) or contains_inline_pseudo_tool_call(normalized):
-        return ""
-    return normalized[:500]
-
-
-def _agent_todo_observation_summary(observation: dict[str, Any], *, result_envelope: dict[str, Any]) -> str:
-    payload = _record(observation.get("payload"))
-    parsed: dict[str, Any] = {}
-    for value in (
-        result_envelope.get("structured_payload"),
-        result_envelope.get("result"),
-        result_envelope.get("text"),
-        result_envelope.get("summary"),
-        observation.get("structured_payload"),
-        observation.get("result"),
-        observation.get("text"),
-        observation.get("summary"),
-        payload.get("result"),
-        payload.get("text"),
-        payload.get("summary"),
-    ):
-        candidate = _record_or_json_object(value)
-        if _is_agent_todo_payload(candidate):
-            parsed = candidate
-            break
-    if not parsed:
-        return ""
-    status = str(parsed.get("status") or "").strip().lower()
-    if status == "error":
-        error = _safe_public_action_text(parsed.get("error")) or "任务清单更新失败。"
-        return error[:240]
-    items = [dict(item) for item in list(parsed.get("items") or []) if isinstance(item, dict)]
-    total = len(items)
-    if total <= 0:
-        return "任务清单为空。"
-    completed = sum(1 for item in items if str(item.get("status") or "").strip() == "completed")
-    active_id = str(parsed.get("active_item_id") or "").strip()
-    active_item = next(
-        (
-            item
-            for item in items
-            if str(item.get("todo_id") or "").strip() == active_id
-            or str(item.get("status") or "").strip() == "in_progress"
-        ),
-        {},
-    )
-    active_text = _safe_public_action_text(active_item.get("active_form") or active_item.get("content"))
-    if active_text:
-        return f"任务清单：{completed}/{total} 已完成，正在：{active_text[:160]}。"
-    return f"任务清单：{completed}/{total} 已完成。"
-
-
-def _is_agent_todo_payload(value: dict[str, Any]) -> bool:
-    if not value:
-        return False
-    if isinstance(value.get("items"), list):
-        return True
-    return any(str(value.get(key) or "").strip() for key in ("plan_id", "active_item_id", "status", "error"))
-
-
-def _tool_arguments_preview(args: dict[str, Any]) -> str:
-    if not args:
-        return ""
-    parts: list[str] = []
-    priority = (
-        "path",
-        "file",
-        "file_path",
-        "target",
-        "start_line",
-        "line_count",
-        "end_line",
-        "range",
-        "query",
-        "pattern",
-        "cwd",
-        "command",
-        "cmd",
-        "script",
-        "code",
-        "url",
-    )
-    skipped = {"content", "replacement", "new_content", "old_content", "patch", "diff"}
-    ordered_keys = [key for key in priority if key in args]
-    ordered_keys.extend(key for key in sorted(args.keys()) if key not in ordered_keys and key not in skipped)
-    for key in ordered_keys:
-        value = args.get(key)
-        if isinstance(value, (dict, list, tuple)):
-            continue
-        text = _safe_public_action_text(f"{key}={value}")
-        if text:
-            parts.append(text[:120] if key in {"command", "cmd", "script", "code"} else text[:80])
-        if len(parts) >= 6:
-            break
-    return ", ".join(parts)[:240]
-
-
-def _safe_public_tool_target(args: dict[str, Any], *, tool_name: str = "") -> str:
-    keys = ["path", "file", "file_path", "target", "url", "query"]
-    if _is_public_command_tool(tool_name):
-        keys = ["command", "cmd", "script", "code", *keys]
-    for key in keys:
-        value = _safe_public_action_text(args.get(key))
-        if value:
-            return value[:180]
-    return ""
-
-
-def _is_public_command_tool(tool_name: str) -> bool:
-    return str(tool_name or "").strip().lower() in {
-        "bash",
-        "cmd",
-        "command",
-        "powershell",
-        "python_repl",
-        "shell",
-        "terminal",
-    }
-
-
-def _public_action_state(value: Any) -> dict[str, str]:
-    payload = _record(value)
-    result: dict[str, str] = {}
-    for key in ("current_judgment", "next_action"):
-        visible = _safe_public_action_text(payload.get(key))
-        if visible:
-            result[key] = visible[:220]
-    return result
-
-
 def _record(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
-
-
-def _semantic_event_payload(raw_data: dict[str, Any]) -> dict[str, Any]:
-    raw_event = _record(raw_data.get("event"))
-    payload = _record(raw_event.get("payload") or raw_data.get("payload") or raw_data)
-    preview = _record(payload.get("preview"))
-    return preview or payload
-
-
-def _int_value(value: Any, *, fallback: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _safe_public_action_text(value: Any) -> str:
-    text = sanitize_visible_assistant_content(str(value or "")).strip()
-    if not text:
-        return ""
-    text = public_runtime_progress_summary(text).strip()
-    if not text:
-        return ""
-    if contains_internal_protocol(text) or contains_inline_pseudo_tool_call(text):
-        return ""
-    return text[:360]
-
-
-def _public_terminal_reason(value: Any) -> str:
-    reason = str(value or "").strip()
-    label = _public_runtime_reason_label(reason)
-    if label:
-        return label
-    if reason in {
-        "continue_active_work",
-        "pause_active_work",
-        "stop_active_work",
-        "append_instruction_to_active_work",
-        "answer_about_active_work",
-        "answer_then_continue_active_work",
-        "active_work_control",
-        "active_work_control_denied",
-        "active_work_control_action_not_allowed",
-    }:
-        return "work_control"
-    if _looks_like_runtime_reason_code(reason):
-        return "状态已更新"
-    return reason
-
-
-def _public_runtime_reason_label(reason: str) -> str:
-    normalized = str(reason or "").strip()
-    return {
-        "insufficient_balance": "模型服务余额不足",
-        "payment_required": "模型服务余额不足",
-        "billing": "模型服务余额不足",
-        "rate_limit": "模型请求触发限流",
-        "timeout": "模型请求超时",
-        "provider_unavailable": "模型服务暂时不可用",
-        "provider_error": "模型调用失败",
-        "single_agent_turn_model_failed": "模型调用失败",
-        "model_runtime_unavailable": "模型运行时不可用",
-        "configuration": "模型配置有误",
-        "agent_contract_feedback_required": "动作合同未通过",
-        "model_action_contract_feedback_required": "动作合同未通过",
-        "model_action_recovery_required": "动作需要修正",
-        "user_input_required": "等待你的确认",
-        "waiting_executor": "等待继续",
-        "waiting_user": "等待你的确认",
-        "waiting_approval": "等待权限确认",
-        "task_executor_scheduled": "任务已进入执行流程",
-        "runtime_cell_missing_after_restart": "连接恢复后需要重新接续运行",
-        "runtime_cell_cancelled": "输出流已取消",
-        "missing_terminal_event": "输出流没有正常收口",
-        "stream_exception": "输出流异常中断",
-        "stream_cancelled": "输出流已取消",
-        "tool_budget_exhausted": "本轮工具预算已用完",
-        "single_turn_tool_iteration_limit": "本轮工具预算已用完",
-        "single_agent_turn_empty_response": "agent 未生成可发布回复",
-        "tool_limit_missing_answer": "agent 收口缺少可发布回复",
-        "completed": "已完成",
-        "failed": "处理失败",
-        "stopped": "运行已停止",
-        "aborted": "运行已停止",
-        "cancelled": "运行已停止",
-        "canceled": "运行已停止",
-    }.get(normalized, "")
-
-
-def _looks_like_runtime_reason_code(reason: str) -> bool:
-    normalized = str(reason or "").strip()
-    if not normalized:
-        return False
-    if any(ord(ch) > 127 for ch in normalized):
-        return False
-    return "_" in normalized or normalized.startswith(("task-", "task:", "stream-", "stream:", "runtime-", "runtime:"))
-
-
-def _is_turn_trace_only_harness_start(event: dict[str, Any]) -> bool:
-    refs = _runtime_run_refs_from_event(event)
-    return bool(refs["turn_run_id"]) and not bool(refs["task_run_id"])
-
-
-def _public_runtime_branch(branch: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: branch.get(key)
-        for key in ("branch_kind", "reason")
-        if key in branch
-    }
-
-
-def _attach_public_projection_frame(
-    public_event_type: str,
-    data: dict[str, Any],
-    *,
-    session_id: str,
-    sequence: int = 0,
-    lifecycle_state: ProjectionLifecycleState | None = None,
-    public_anchor: dict[str, Any] | None = None,
-) -> None:
-    attach_public_projection_event(
-        public_event_type,
-        data,
-        session_id=session_id,
-        sequence=sequence,
-        public_anchor=public_anchor,
-        lifecycle_state=lifecycle_state,
-    )
-
-
-def _redact_public_stream_data(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            if str(key) in INTERNAL_PUBLIC_DATA_KEYS:
-                continue
-            redacted[str(key)] = _redact_public_stream_data(item)
-        return redacted
-    if isinstance(value, list):
-        return [_redact_public_stream_data(item) for item in value]
-    return value
-
-
-def _public_replay_stream_data(public_event_type: str, data: dict[str, Any]) -> dict[str, Any]:
-    payload = _redact_public_stream_data(dict(data or {}))
-    return sanitize_public_stream_event_data_for_replay(public_event_type, payload)
 
 
 def _stream_event_id(event: dict[str, Any]) -> str:

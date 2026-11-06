@@ -18,6 +18,7 @@ from api.image_assets import router as image_assets_router
 from api.memory import router as memory_router
 from api.mcp_system import router as mcp_system_router
 from api.agent_system import router as agent_system_router
+from api.agent_control_network import router as agent_control_network_router
 from api.harness import router as harness_router
 from api.project_workspaces import router as project_workspaces_router
 from api.runtime_facts import router as runtime_facts_router
@@ -66,6 +67,7 @@ app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(task_system_router, prefix="/api", tags=["tasks"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(agent_system_router, prefix="/api", tags=["agent-system"])
+app.include_router(agent_control_network_router, prefix="/api", tags=["agent-control-network"])
 app.include_router(graph_system_router, prefix="/api", tags=["graph-system"])
 app.include_router(harness_router, prefix="/api", tags=["harness"])
 app.include_router(graph_task_instances_router, prefix="/api", tags=["graph-task-instances"])
@@ -99,6 +101,5 @@ async def session_storage_error_handler(_: Request, exc: SessionStorageError) ->
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
 
 

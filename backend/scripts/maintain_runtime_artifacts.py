@@ -36,7 +36,6 @@ FORMAL_TASK_FILES = {
     "task_execution_policies.json",
     "task_flow_contract_bindings.json",
     "task_flows.json",
-    "task_graphs.json",
     "task_memory_request_profiles.json",
     "task_workflows.json",
 }
@@ -598,4 +597,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

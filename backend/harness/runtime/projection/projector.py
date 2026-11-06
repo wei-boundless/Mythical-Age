@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from capability_system.tools.tool_surface import (
+    is_agent_state_tool_name,
+    is_local_execution_tool_name,
+    public_tool_label,
+)
 from .authority import build_public_projection_frame
 from .guards import compact, public_body_text, public_text, record, stable_id, text
 from .items import action_kind_for_tool
@@ -32,15 +37,13 @@ from runtime.output_stream.public_contract import (
 
 
 _TRACE_ONLY_TOOL_NAMES = {"read_persisted_tool_result"}
-_COMMAND_TOOL_NAMES = {"bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"}
+_COMMAND_TOOL_NAMES = {"local_execution"}
 _TRACE_ONLY_RUNTIME_STEP_SOURCES = {
-    "model_action.assistant_content_preamble",
     "runtime.protocol_repair",
     "system.tool_call_status",
     "tool_observation.summary",
 }
 _VISIBLE_RUNTIME_STATUS_KINDS = {
-    "agent_contract_feedback",
     "evidence_boundary_status",
     "reasoning_projection_state",
 }
@@ -66,10 +69,10 @@ class ProjectionLifecycleState:
             TOOL_PERMISSION_DECIDED_EVENT,
             TOOL_ITEM_STARTED_EVENT,
             TOOL_ITEM_COMPLETED_EVENT,
-        } and _is_agent_todo_tool(data.get("tool_name")):
+        } and _is_agent_state_tool(data.get("tool_name")):
             if event_type == TOOL_ITEM_COMPLETED_EVENT:
-                return _agent_todo_completed_status_spec(data)
-            return _agent_todo_hidden_trace_spec(data, state="running")
+                return _agent_state_completed_status_spec(data)
+            return _agent_state_hidden_trace_spec(data, state="running")
         if event_type == TOOL_CALL_REQUESTED_EVENT:
             spec = _tool_call_requested_spec(data)
             tool_call_id = text(spec.get("tool_call_id"))
@@ -95,13 +98,13 @@ class ProjectionLifecycleState:
             if not tool_call_id or not record:
                 return _protocol_diagnostic_spec(
                     data,
-                    code="tool_permission_without_model_request",
+                    code="tool_permission_without_tool_call_request",
                     detail="tool_permission_decided 没有绑定已存在的 ToolCallRequest，不能进入公开工具生命周期。",
                 )
             if offset <= int(record.get("requested_offset") or -1):
                 return _protocol_diagnostic_spec(
                     data,
-                    code="tool_permission_before_model_request",
+                    code="tool_permission_before_tool_call_request",
                     detail="tool_permission_decided 的 event_offset 不晚于 tool_call_requested，不能进入公开工具生命周期。",
                 )
             spec = _tool_permission_decided_spec(data)
@@ -254,10 +257,10 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         TOOL_PERMISSION_DECIDED_EVENT,
         TOOL_ITEM_STARTED_EVENT,
         TOOL_ITEM_COMPLETED_EVENT,
-    } and _is_agent_todo_tool(data.get("tool_name")):
+    } and _is_agent_state_tool(data.get("tool_name")):
         if event_type == TOOL_ITEM_COMPLETED_EVENT:
-            return _agent_todo_completed_status_spec(data)
-        return _agent_todo_hidden_trace_spec(data, state="running")
+            return _agent_state_completed_status_spec(data)
+        return _agent_state_hidden_trace_spec(data, state="running")
     if event_type == ASSISTANT_TEXT_DELTA_EVENT:
         return _assistant_body_spec(data, op="body_append", state="running", retention="transient")
     if event_type == ASSISTANT_PUBLIC_FEEDBACK_EVENT:
@@ -295,8 +298,6 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
         return _hidden_trace_spec(event_type, data)
     if event_type == "runtime_step_summary":
         return _runtime_step_summary_spec(data)
-    if event_type == "active_task_steer_accepted":
-        return _active_task_steer_status_spec(data)
     if event_type in {"error", "stopped"}:
         return _stream_terminal_status_spec(event_type, data)
     return _hidden_trace_spec(event_type, data)
@@ -304,28 +305,38 @@ def projection_spec_for_event(public_event_type: str, data: dict[str, Any]) -> d
 
 def _assistant_body_spec(data: dict[str, Any], *, op: str, state: str, retention: str) -> dict[str, Any]:
     content = str(data.get("content") or "")
+    body_ref = _body_item_id(data)
+    content_sha256 = text(data.get("content_sha256") or data.get("accumulated_sha256"))
     return {
         "op": op,
         "slot": "body",
         "source_authority": "model",
         "main_visibility": "visible_live" if op == "body_append" else "visible_final",
         "retention": retention,
-        "item_id": _body_item_id(data),
+        "item_id": body_ref,
+        "body_ref": body_ref,
+        "message_ref": text(data.get("message_ref")),
         "text": content,
+        "content_sha256": content_sha256,
+        "content_utf8_bytes": data.get("content_utf8_bytes") or data.get("accumulated_utf8_bytes"),
         "state": state,
         "trace_refs": _trace_refs(data),
     }
 
 
 def _assistant_repair_spec(data: dict[str, Any]) -> dict[str, Any]:
+    body_ref = _body_item_id(data)
     return {
         "op": "body_finalize",
         "slot": "body",
         "source_authority": "model",
         "main_visibility": "visible_live",
         "retention": "transient",
-        "item_id": _body_item_id(data),
+        "item_id": body_ref,
+        "body_ref": body_ref,
+        "message_ref": text(data.get("message_ref")),
         "text": str(data.get("replacement_content") or ""),
+        "content_sha256": text(data.get("replacement_content_sha256")),
         "state": "running",
         "trace_refs": _trace_refs(data),
     }
@@ -335,8 +346,8 @@ def _is_trace_only_tool(tool_name: str) -> bool:
     return text(tool_name).lower() in _TRACE_ONLY_TOOL_NAMES
 
 
-def _is_agent_todo_tool(tool_name: Any) -> bool:
-    return text(tool_name).lower() == "agent_todo"
+def _is_agent_state_tool(tool_name: Any) -> bool:
+    return is_agent_state_tool_name(tool_name)
 
 
 def _trace_only_tool_request_spec(
@@ -450,7 +461,7 @@ def _data_with_tool_record_public_fields(
     return merged
 
 
-def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[str, Any]:
+def _agent_state_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[str, Any]:
     return {
         "op": "item_upsert",
         "slot": "trace",
@@ -461,7 +472,7 @@ def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[s
         "channel": STATUS_PUBLIC_CHANNEL,
         "lossless": False,
         "item_id": stable_id(
-            "agent-todo-trace",
+            "agent-state-trace",
             data.get("runtime_event_id"),
             data.get("source_task_event_id"),
             data.get("tool_call_id"),
@@ -473,12 +484,12 @@ def _agent_todo_hidden_trace_spec(data: dict[str, Any], *, state: str) -> dict[s
     }
 
 
-def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "", failed: bool | None = None) -> dict[str, Any]:
+def _agent_state_completed_status_spec(data: dict[str, Any], *, detail: str = "", failed: bool | None = None) -> dict[str, Any]:
     anchor = record(data.get("public_anchor"))
     task_run_id = text(data.get("task_run_id")) or text(anchor.get("task_run_id")) or text(data.get("runtime_task_run_id"))
     raw_state = text(data.get("state")).lower()
     resolved_failed = raw_state in {"error", "failed", "blocked"} if failed is None else bool(failed)
-    todo_plan = _agent_todo_plan_projection(data.get("todo_plan"))
+    todo_plan = _agent_state_plan_projection(data.get("todo_plan"))
     if todo_plan and not resolved_failed:
         return {
             "op": "item_upsert",
@@ -489,10 +500,10 @@ def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "",
             "event_family": STATUS_TRACE_EVENT_FAMILY,
             "channel": STATUS_PUBLIC_CHANNEL,
             "lossless": False,
-            "item_id": stable_id("agent-todo-plan", task_run_id, todo_plan.get("plan_id") or "current"),
+            "item_id": stable_id("agent-state-plan", task_run_id, todo_plan.get("plan_id") or "current"),
             "title": "任务清单",
             "text": "任务清单",
-            "detail": _agent_todo_plan_detail(todo_plan),
+            "detail": _agent_state_plan_detail(todo_plan),
             "state": "done",
             "status_kind": "todo_plan",
             "plan_id": text(todo_plan.get("plan_id")),
@@ -503,11 +514,11 @@ def _agent_todo_completed_status_spec(data: dict[str, Any], *, detail: str = "",
         }
     visible_detail = public_text(detail or data.get("error") or data.get("observation"), limit=360)
     if not visible_detail and not resolved_failed:
-        return _agent_todo_hidden_trace_spec(data, state="done")
-    return _agent_todo_hidden_trace_spec(data, state="failed" if resolved_failed else "done")
+        return _agent_state_hidden_trace_spec(data, state="done")
+    return _agent_state_hidden_trace_spec(data, state="failed" if resolved_failed else "done")
 
 
-def _agent_todo_plan_projection(value: Any) -> dict[str, Any]:
+def _agent_state_plan_projection(value: Any) -> dict[str, Any]:
     source = record(value)
     if not source:
         return {}
@@ -538,12 +549,12 @@ def _agent_todo_plan_projection(value: Any) -> dict[str, Any]:
             "active_item_id": text(source.get("active_item_id")),
             "completion_ready": source.get("completion_ready") if isinstance(source.get("completion_ready"), bool) else None,
             "items": items,
-            "authority": text(source.get("authority")) or "agent.todo_plan",
+            "authority": text(source.get("authority")) or "agent.state_plan",
         }
     )
 
 
-def _agent_todo_plan_detail(plan: dict[str, Any]) -> str:
+def _agent_state_plan_detail(plan: dict[str, Any]) -> str:
     items = [dict(item) for item in list(plan.get("items") or []) if isinstance(item, dict)]
     total = len(items)
     completed = sum(1 for item in items if text(item.get("status")).lower() == "completed")
@@ -558,9 +569,9 @@ def _agent_todo_plan_detail(plan: dict[str, Any]) -> str:
 def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
     tool_name = text(data.get("tool_name")) or "tool"
     tool_call_id = text(data.get("tool_call_id"))
-    action_kind = action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
-    if _is_agent_todo_tool(tool_name):
-        return _agent_todo_hidden_trace_spec(data, state="running")
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    if _is_agent_state_tool(tool_name):
+        return _agent_state_hidden_trace_spec(data, state="running")
     if _is_trace_only_tool(tool_name):
         return _trace_only_tool_request_spec(
             data,
@@ -587,6 +598,7 @@ def _tool_call_requested_spec(data: dict[str, Any]) -> dict[str, Any]:
         "detail": subject,
         "subject_label": subject,
         "arguments_preview": text(data.get("arguments_preview")),
+        "polling": record(data.get("polling")),
         "target": text(data.get("target")),
         "state": "running",
         "trace_refs": _trace_refs(data),
@@ -646,20 +658,43 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
         tool_name=tool_name,
         subject=subject,
     )
-    if _is_agent_todo_tool(tool_name):
-        return _agent_todo_hidden_trace_spec(data, state="running")
+    if _is_agent_state_tool(tool_name):
+        return _agent_state_hidden_trace_spec(data, state="running")
     if not tool_call_id or not permission_decision_id:
         return _protocol_diagnostic_spec(
             data,
             code="tool_started_without_request_or_permission",
             detail="tool_item_started 缺少 tool_call_id 或 permission_decision_id，不能进入主视图。",
         )
+    if _is_trace_only_tool(tool_name):
+        return {
+            "op": "item_upsert",
+            "slot": "trace",
+            "source_authority": "tool",
+            "main_visibility": "trace_only",
+            "retention": "trace",
+            "item_id": tool_call_id,
+            "tool_call_id": tool_call_id,
+            "permission_decision_id": permission_decision_id,
+            "tool_name": tool_name,
+            "tool_lifecycle_id": text(data.get("tool_lifecycle_id")) or tool_call_id,
+            "action_kind": action_kind,
+            "title": title,
+            "text": title,
+            "detail": subject,
+            "subject_label": subject,
+            "arguments_preview": text(data.get("arguments_preview")),
+            "polling": record(data.get("polling")),
+            "target": text(data.get("target")),
+            "state": "running",
+            "trace_refs": _trace_refs(data),
+        }
     return {
         "op": "item_upsert",
-        "slot": "trace",
+        "slot": "current_action",
         "source_authority": "tool",
-        "main_visibility": "trace_only",
-        "retention": "trace",
+        "main_visibility": "visible_live",
+        "retention": "transient",
         "item_id": tool_call_id,
         "tool_call_id": tool_call_id,
         "permission_decision_id": permission_decision_id,
@@ -671,6 +706,7 @@ def _tool_started_spec(data: dict[str, Any]) -> dict[str, Any]:
         "detail": subject,
         "subject_label": subject,
         "arguments_preview": text(data.get("arguments_preview")),
+        "polling": record(data.get("polling")),
         "target": text(data.get("target")),
         "state": "running",
         "trace_refs": _trace_refs(data),
@@ -690,9 +726,11 @@ def _tool_completed_spec(data: dict[str, Any]) -> dict[str, Any]:
         "subject_label": subject,
         "arguments_preview": text(data.get("arguments_preview")),
         "target": text(data.get("target")),
+        "content_window": record(data.get("content_window")),
+        "duration_ms": data.get("duration_ms"),
     }
-    if _is_agent_todo_tool(tool_name):
-        return _agent_todo_completed_status_spec(data, detail=detail, failed=failed)
+    if _is_agent_state_tool(tool_name):
+        return _agent_state_completed_status_spec(data, detail=detail, failed=failed)
     if not tool_call_id or not permission_decision_id:
         return _protocol_diagnostic_spec(
             data,
@@ -875,6 +913,7 @@ def _runtime_step_summary_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
     title, detail, body_text = _assistant_public_feedback_parts(data)
+    item_id = _assistant_public_feedback_item_id(data, title=title, detail=detail)
     return {
         "op": "body_append",
         "slot": "body",
@@ -885,7 +924,9 @@ def _assistant_public_feedback_spec(data: dict[str, Any]) -> dict[str, Any]:
         "main_visibility": "visible_live",
         "retention": "transient",
         "frame_id": _assistant_public_feedback_frame_id(data, title=title, detail=detail),
-        "item_id": _assistant_public_feedback_item_id(data, title=title, detail=detail),
+        "item_id": item_id,
+        "body_ref": item_id,
+        "message_ref": text(data.get("message_ref")),
         "title": title,
         "text": body_text,
         "detail": detail,
@@ -915,25 +956,6 @@ def _assistant_public_feedback_parts(data: dict[str, Any]) -> tuple[str, str, st
     )
     body_text = _runtime_step_summary_body_text(title=primary_body, detail=detail)
     return title, detail, body_text
-
-
-def _active_task_steer_status_spec(data: dict[str, Any]) -> dict[str, Any]:
-    detail = public_text(data.get("summary") or data.get("message") or data.get("content"), limit=180)
-    return _typed_status_spec(
-        data,
-        kind="status_event",
-        state="done",
-        title="补充要求已接入当前任务",
-        detail=detail,
-        item_id=stable_id(
-            "active-task-steer",
-            data.get("runtime_event_id"),
-            data.get("task_run_id"),
-            data.get("turn_run_id"),
-            data.get("turn_id"),
-        ),
-        retention="transient",
-    )
 
 
 def _runtime_status_spec(data: dict[str, Any]) -> dict[str, Any]:
@@ -1048,11 +1070,13 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
     state = text(data.get("status") or data.get("state")).lower()
     if _is_runtime_transport_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
-    if state not in {"failed", "error", "stopped", "aborted", "cancelled", "canceled", "blocked"}:
+    if state not in {"failed", "error", "stopped", "aborted", "interrupted", "cancelled", "canceled", "blocked"}:
+        return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
+    if state in {"failed", "error", "blocked"}:
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
     if _is_runtime_protocol_terminal(data):
         return _hidden_trace_spec(TURN_COMPLETED_EVENT, data)
-    terminal_kind = "terminal_event" if state in {"stopped", "aborted", "cancelled", "canceled"} else "recovery_event"
+    terminal_kind = "terminal_event"
     detail = public_text(
         data.get("error_summary")
         or data.get("stopped_reason")
@@ -1061,11 +1085,11 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
         or data.get("error"),
         limit=260,
     )
-    title = "运行已停止" if terminal_kind == "terminal_event" else _runtime_recovery_title(detail)
+    title = "运行已停止"
     return _typed_status_spec(
         data,
         kind=terminal_kind,
-        state="stopped" if terminal_kind == "terminal_event" else "failed",
+        state="stopped",
         title=title,
         detail=detail,
         item_id=stable_id(
@@ -1082,7 +1106,7 @@ def _turn_terminal_spec(data: dict[str, Any]) -> dict[str, Any]:
 
 _RUNTIME_PROTOCOL_TERMINAL_REASONS = frozenset(
     {
-        "task_contract_invalid",
+        "task_run_contract_invalid",
         "model_action_invalid",
         "model_action_protocol_repair_required",
         "protocol_recovery_exhausted",
@@ -1177,12 +1201,13 @@ _RUNTIME_TRANSPORT_TERMINAL_REASONS = frozenset(
         "projection_stream_exception",
         "projection_stream_missing_terminal",
         "task_bridge_context_missing",
+        "runtime_interruption_closed",
     }
 )
 
 
 def _is_runtime_transport_terminal(data: dict[str, Any]) -> bool:
-    if data.get("semantic_terminal") is False:
+    if data.get("agent_decision_terminal") is False:
         return True
     if text(data.get("completion_state")) == "interrupted":
         return True
@@ -1316,30 +1341,25 @@ def _protocol_diagnostic_spec(data: dict[str, Any], *, code: str, detail: str) -
 
 def _tool_request_text(data: dict[str, Any], *, tool_name: str, subject: str = "") -> str:
     visible_subject = subject or public_text(data.get("target") or data.get("arguments_preview"), limit=180)
-    structured = _structured_tool_action_text(tool_name=tool_name, subject=visible_subject)
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    structured = _structured_tool_action_text(tool_name=tool_name, action_kind=action_kind, subject=visible_subject)
     return structured or visible_subject or text(tool_name)
 
 
-def _structured_tool_action_text(*, tool_name: str, subject: str) -> str:
+def _structured_tool_action_text(*, tool_name: str, action_kind: str = "", subject: str) -> str:
     visible_subject = public_text(subject, limit=140)
     normalized_tool = text(tool_name).lower()
-    if normalized_tool in {"path_exists", "stat_path"}:
-        return f"检查路径：{visible_subject}" if visible_subject else "检查路径"
-    if normalized_tool == "list_dir":
-        return f"列出目录：{visible_subject}" if visible_subject else "列出目录"
-    if normalized_tool in {"search_files", "search_text", "glob_paths"}:
-        verb = {
-            "search_files": "搜索文件",
-            "search_text": "搜索文本",
-            "glob_paths": "匹配路径",
-        }.get(normalized_tool, "搜索")
-        return f"{verb}：{visible_subject}" if visible_subject else verb
-    if normalized_tool in {"read_file", "read_files", "read_path"}:
-        return f"读取文件：{visible_subject}" if visible_subject else "读取文件"
-    if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
-        return f"更新文件：{visible_subject}" if visible_subject else "更新文件"
-    if normalized_tool in _COMMAND_TOOL_NAMES:
+    label = _tool_action_display_label(normalized_tool, action_kind) or public_tool_label(normalized_tool)
+    if normalized_tool == "workspace_search":
+        return f"{label}：{visible_subject}" if visible_subject else label
+    if normalized_tool in {"workspace_read", "code_structure", "project_network", "memory"}:
+        return f"{label}：{visible_subject}" if visible_subject else label
+    if normalized_tool in {"workspace_edit", "office_document"}:
+        return f"{label}：{visible_subject}" if visible_subject else label
+    if is_local_execution_tool_name(normalized_tool):
         return f"运行命令：{visible_subject}" if visible_subject else "运行命令"
+    if label:
+        return f"{label}：{visible_subject}" if visible_subject else label
     if visible_subject:
         return f"{tool_name}：{visible_subject}"
     return text(tool_name)
@@ -1349,16 +1369,17 @@ def _tool_completed_text(data: dict[str, Any], *, tool_name: str, failed: bool) 
     explicit = public_text(data.get("title") or data.get("summary"), limit=120)
     if explicit:
         return explicit
-    tool_label = _tool_display_label(tool_name)
+    action_kind = text(data.get("action_kind")) or action_kind_for_tool(tool_name, data.get("target") or data.get("arguments_preview"))
+    tool_label = _tool_action_display_label(tool_name, action_kind) or _tool_display_label(tool_name)
     normalized_tool = text(tool_name).lower()
     if failed:
         return f"{tool_label}失败" if tool_label else "工具执行失败"
-    if normalized_tool in {"search_files", "search_text", "glob_paths"}:
-        return "搜索完成"
-    if normalized_tool in {"read_file", "read_files", "read_path"}:
-        return "文件读取完成"
-    if normalized_tool in {"write_file", "edit_file", "batch_edit_file", "apply_patch"}:
-        return "文件更新完成"
+    if normalized_tool == "workspace_search":
+        return f"{tool_label}完成" if tool_label else "搜索完成"
+    if normalized_tool in {"workspace_read", "code_structure", "project_network", "memory"}:
+        return f"{tool_label}完成" if tool_label else "读取完成"
+    if normalized_tool in {"workspace_edit", "office_document", "image"}:
+        return f"{tool_label}完成" if tool_label else "文件更新完成"
     if tool_label:
         return f"{tool_label}完成"
     return "工具执行完成"
@@ -1383,28 +1404,39 @@ def _tool_completion_detail(value: Any, *, limit: int) -> str:
 
 def _tool_display_label(tool_name: str) -> str:
     normalized = text(tool_name).lower()
-    return {
-        "apply_patch": "更新文件",
-        "batch_edit_file": "更新文件",
-        "bash": "运行命令",
-        "cmd": "运行命令",
-        "command": "运行命令",
-        "edit_file": "更新文件",
-        "glob_paths": "匹配路径",
-        "list_dir": "列出目录",
-        "path_exists": "检查路径",
-        "powershell": "运行命令",
-        "python_repl": "运行命令",
-        "read_file": "读取文件",
-        "read_files": "读取文件",
-        "read_path": "读取文件",
-        "search_files": "搜索文件",
-        "search_text": "搜索文本",
-        "shell": "运行命令",
-        "stat_path": "检查路径",
-        "terminal": "运行命令",
-        "write_file": "写入文件",
-    }.get(normalized, "")
+    return public_tool_label(normalized)
+
+
+def _tool_action_display_label(tool_name: str, action_kind: str) -> str:
+    normalized_tool = text(tool_name).lower()
+    action = text(action_kind).lower()
+    if normalized_tool == "workspace_read":
+        if action in {"dir", "directory", "list", "list_dir"}:
+            return "列出目录"
+        if action in {"stat", "exists", "metadata"}:
+            return "检查路径"
+        if action in {"result", "tool_result"}:
+            return "读取工具结果"
+        if action in {"file", "read", "read_file"}:
+            return "读取文件"
+        return "读取工作区"
+    if normalized_tool == "workspace_search":
+        if action in {"path", "glob"}:
+            return "匹配路径"
+        if action == "text":
+            return "搜索文本"
+        if action == "symbol":
+            return "查找符号"
+        return "搜索工作区"
+    if normalized_tool == "workspace_edit":
+        if action == "write":
+            return "写入文件"
+        if action == "batch_edit":
+            return "批量编辑文件"
+        return "编辑文件"
+    if normalized_tool == "web":
+        return "读取网页" if action == "fetch" else "网络搜索"
+    return ""
 
 
 def _body_item_id(data: dict[str, Any]) -> str:

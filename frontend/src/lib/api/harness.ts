@@ -4,6 +4,7 @@ import type {
   HarnessSessionTaskRuns,
   HarnessTaskRunLiveMonitor,
   HarnessTaskRunTrace,
+  HarnessTurnRunLiveMonitor,
   HarnessTurnRunTrace,
   RunMonitorActionPayload,
   RunMonitorActionResult,
@@ -103,53 +104,9 @@ export async function getHarnessTaskRunLiveMonitor(taskRunId: string) {
   );
 }
 
-export async function pauseHarnessTaskRun(taskRunId: string, reason = "", expectedActiveTurnId = "") {
-  return request<Record<string, unknown>>(
-    `/harness/task-runs/${encodeURIComponent(taskRunId)}/pause`,
-    {
-      method: "POST",
-      body: JSON.stringify({ reason, expected_active_turn_id: expectedActiveTurnId }),
-    }
-  );
-}
-
-export async function resumeHarnessTaskRun(taskRunId: string, maxSteps = 12, expectedActiveTurnId = "") {
-  return request<Record<string, unknown>>(
-    `/harness/task-runs/${encodeURIComponent(taskRunId)}/resume`,
-    {
-      method: "POST",
-      body: JSON.stringify({ max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
-    }
-  );
-}
-
-export async function approveHarnessTaskRunToolCall(taskRunId: string, reason = "", maxSteps = 12, expectedActiveTurnId = "") {
-  return request<Record<string, unknown>>(
-    `/harness/task-runs/${encodeURIComponent(taskRunId)}/approve-tool-call`,
-    {
-      method: "POST",
-      body: JSON.stringify({ reason, max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
-    }
-  );
-}
-
-export async function approveHarnessTaskRunLaunch(taskRunId: string, reason = "", maxSteps = 12, expectedActiveTurnId = "") {
-  return request<Record<string, unknown>>(
-    `/harness/task-runs/${encodeURIComponent(taskRunId)}/approve-launch`,
-    {
-      method: "POST",
-      body: JSON.stringify({ reason, max_steps: maxSteps, expected_active_turn_id: expectedActiveTurnId }),
-    }
-  );
-}
-
-export async function stopHarnessTaskRun(taskRunId: string, reason = "", expectedActiveTurnId = "") {
-  return request<Record<string, unknown>>(
-    `/harness/task-runs/${encodeURIComponent(taskRunId)}/stop`,
-    {
-      method: "POST",
-      body: JSON.stringify({ reason, expected_active_turn_id: expectedActiveTurnId }),
-    }
+export async function getHarnessTurnRunLiveMonitor(turnRunId: string) {
+  return request<HarnessTurnRunLiveMonitor>(
+    `/harness/run-monitor/turn-runs/${encodeURIComponent(turnRunId)}`
   );
 }
 

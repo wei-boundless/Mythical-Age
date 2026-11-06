@@ -15,6 +15,7 @@ export type AgentSystemLayer =
   | "groups"
   | "runtime_permissions"
   | "runtime_config"
+  | "prompt_wiring"
   | "model_runtime"
   | "context_memory"
   | "collaboration"
@@ -102,6 +103,8 @@ export const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   trace_policy: "runtime_event_log",
   lifecycle_policy: "agent_system_managed",
   model_profile: {},
+  prompt_set_refs: [],
+  prompt_bindings: {},
   metadata: { managed_by: "agent_system_console" },
 };
 
@@ -153,7 +156,7 @@ export function displayAssemblyId(
     development: "开发任务",
     full_interactive: "完整交互运行",
     memory_trace_read: "记忆追踪读取",
-    session_memory_maintenance: "会话记忆维护",
+    conversation_continuity_maintenance: "对话连续性摘要维护",
     durable_memory_extraction: "长期记忆提取",
     memory_candidate_review: "记忆候选审核",
     op_model_response: "模型响应",
@@ -173,10 +176,10 @@ export function displayAssemblyId(
     prompt_manifest: "提示结构",
     memory_runtime_view: "记忆视图",
     assertions: "验收断言",
-    conversation_readonly: "会话记忆只读",
+    conversation_readonly: "对话连续性摘要只读",
     state_readonly: "状态记忆只读",
     long_term_candidate: "长期记忆候选",
-    session_memory_write_candidate: "会话记忆写入候选",
+    conversation_continuity_write_candidate: "对话连续性摘要写入候选",
     durable_memory_write_candidate: "长期记忆写入候选",
   };
   if (labels[raw]) return `${labels[raw]} · ${raw}`;
@@ -432,6 +435,8 @@ export function runtimeDraftFrom(
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "agent_system_managed"),
     model_profile: normalizeModelProfile(merged.model_profile),
+    prompt_set_refs: uniqueList(merged.prompt_set_refs ?? []),
+    prompt_bindings: merged.prompt_bindings ?? {},
     metadata: merged.metadata ?? { managed_by: "agent_system_console" },
   };
 }
@@ -449,6 +454,8 @@ export function runtimePayloadFromDraft(draft: RuntimeDraft) {
     trace_policy: draft.trace_policy,
     lifecycle_policy: draft.lifecycle_policy,
     model_profile: normalizeModelProfile(draft.model_profile),
+    prompt_set_refs: uniqueList(draft.prompt_set_refs ?? []),
+    prompt_bindings: draft.prompt_bindings ?? {},
     metadata: { ...(draft.metadata ?? {}), managed_by: "agent_system_console" },
   };
 }
@@ -491,6 +498,4 @@ export function searchText(agent: AssemblyAgentRecord) {
     .join(" ")
     .toLowerCase();
 }
-
-
 

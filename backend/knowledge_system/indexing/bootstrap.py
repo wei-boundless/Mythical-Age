@@ -4,14 +4,18 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import mean
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from knowledge_system.conversion import DocumentCacheLayout, DoclingConverter, discover_source_files
+from knowledge_system.conversion import DocumentCacheLayout, discover_source_files
 from knowledge_system.conversion.models import STRUCTURE_CONTRACT_VERSION, build_conversion_doc_id
 from core.config import get_settings
 from knowledge_system.ingestion import ChunkingPolicy, NormalizedDocumentBuilder, build_cleaning_manifest, build_indexable_units
 from capability_system.capabilities.retrieval.collections import CollectionConfig
 from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
+
+if TYPE_CHECKING:
+    from capability_system.capabilities.document_processing.adapters.conversion_resource import DocumentConversionResource
+    from capability_system.capabilities.document_processing.kernel import DocumentProcessingKernel
 
 
 @dataclass(slots=True)
@@ -35,14 +39,26 @@ class RetrievalBootstrapper:
         self,
         base_dir: Path,
         *,
-        converter: DoclingConverter | None = None,
+        parser_resource: "DocumentConversionResource | None" = None,
+        document_kernel: "DocumentProcessingKernel | None" = None,
         backend: LlamaIndexRetrievalBackend | None = None,
     ) -> None:
         self.base_dir = base_dir
-        self.converter = converter or DoclingConverter(
-            enabled=True,
-            repo_root=base_dir.parent,
-        )
+        if parser_resource is None:
+            from capability_system.capabilities.document_processing.adapters.conversion_resource import DocumentConversionResource
+
+            parser_resource = DocumentConversionResource(
+                enabled=True,
+                repo_root=base_dir.parent,
+            )
+        if document_kernel is None:
+            from capability_system.capabilities.document_processing.kernel import DocumentProcessingKernel
+
+            document_kernel = DocumentProcessingKernel(
+                parser_resource=parser_resource,
+                repo_root=base_dir.parent,
+            )
+        self.document_kernel = document_kernel
         self.backend = backend or LlamaIndexRetrievalBackend(base_dir)
         self.cache = DocumentCacheLayout(base_dir)
         self.builder = NormalizedDocumentBuilder()
@@ -117,18 +133,22 @@ class RetrievalBootstrapper:
         *,
         reuse_conversion_cache: bool,
     ):
+        from capability_system.capabilities.document_processing.models import DOCUMENT_KERNEL_VERSION
+
         doc_id = self._doc_id_for_record(record)
         if reuse_conversion_cache:
             manifest = self.cache.read_conversion_manifest(doc_id)
             if (
                 manifest.get("version_digest") == record.version_digest
                 and manifest.get("structure_contract_version") == STRUCTURE_CONTRACT_VERSION
+                and manifest.get("document_kernel_version") == DOCUMENT_KERNEL_VERSION
             ):
                 cached = self.cache.read_conversion_result(doc_id)
                 if cached is not None:
                     return cached
 
-        conversion = self.converter.convert(record)
+        bundle = self.document_kernel.parse(record)
+        conversion = bundle.rag_projection.conversion_result
         self.cache.write_conversion_result(conversion)
         return conversion
 

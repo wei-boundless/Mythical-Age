@@ -11,6 +11,8 @@ from .control_events import RuntimeSignalScope
 @dataclass(frozen=True, slots=True)
 class RuntimePacketModelActionSurface:
     allowed_action_types: tuple[str, ...]
+    surface_id: str = ""
+    contract_ref: str = "turn_operating_contract.action_surface"
     source_authority: str = "harness.runtime.packet_assembler.model_action_surface"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -48,6 +50,8 @@ class RuntimePacketContext:
     evidence_projection: dict[str, Any] = field(default_factory=dict)
     approval_projection: dict[str, Any] = field(default_factory=dict)
     control_signal_projection: dict[str, Any] = field(default_factory=dict)
+    project_semantic_space: dict[str, Any] = field(default_factory=dict)
+    project_network_control: dict[str, Any] = field(default_factory=dict)
     agent_scope: dict[str, Any] = field(default_factory=dict)
     agent_profile_ref: str = "main_interactive_agent"
     task_environment_ref: str = "env.general.workspace"

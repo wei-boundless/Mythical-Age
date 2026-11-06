@@ -19,12 +19,12 @@ def compile_runtime_semantics_manifest(graph: TaskGraphDefinition) -> RuntimeSem
     node_role_by_id = {item.node_id: item.semantic_role for item in node_semantics}
     edge_semantics = tuple(_edge_semantics(edge=edge, node_role_by_id=node_role_by_id) for edge in graph.edges)
     diagnostics = [
-        *_legacy_graph_diagnostics(graph),
-        *_legacy_node_diagnostics(graph.nodes),
-        *_legacy_edge_diagnostics(graph.edges),
+        *_superseded_graph_field_diagnostics(graph),
+        *_superseded_node_field_diagnostics(graph.nodes),
+        *_superseded_edge_field_diagnostics(graph.edges),
         *_semantic_shape_diagnostics(graph=graph, node_semantics=node_semantics, edge_semantics=edge_semantics),
     ]
-    legacy_fields = tuple(_legacy_field_payloads(graph=graph, diagnostics=diagnostics))
+    superseded_fields = tuple(_superseded_field_payloads(graph=graph, diagnostics=diagnostics))
     role_counts = Counter(item.semantic_role for item in node_semantics)
     edge_role_counts = Counter(item.semantic_role for item in edge_semantics)
     return RuntimeSemanticsManifest(
@@ -43,14 +43,14 @@ def compile_runtime_semantics_manifest(graph: TaskGraphDefinition) -> RuntimeSem
             "not_graph_semantics": True,
             "authority": "task_system.runtime_step_policy",
         },
-        legacy_fields=legacy_fields,
+        superseded_fields=superseded_fields,
         diagnostics=tuple(diagnostics),
         summary={
             "node_count": len(node_semantics),
             "edge_count": len(edge_semantics),
             "node_role_counts": dict(role_counts),
             "edge_role_counts": dict(edge_role_counts),
-            "legacy_field_count": len(legacy_fields),
+            "superseded_field_count": len(superseded_fields),
             "diagnostic_count": len(diagnostics),
             "step_editor_visible": False,
         },
@@ -247,13 +247,13 @@ def _looks_like_publisher(node: TaskGraphNodeDefinition) -> bool:
     return bool(metadata.get("publisher") or metadata.get("committer"))
 
 
-def _legacy_graph_diagnostics(graph: TaskGraphDefinition) -> list[RuntimeSemanticsDiagnostic]:
+def _superseded_graph_field_diagnostics(graph: TaskGraphDefinition) -> list[RuntimeSemanticsDiagnostic]:
     metadata = dict(graph.metadata or {})
     diagnostics: list[RuntimeSemanticsDiagnostic] = []
     if metadata.get("timeline_policy"):
         diagnostics.append(
             RuntimeSemanticsDiagnostic(
-                code="legacy_timeline_policy_not_runtime_semantics",
+                code="superseded_timeline_policy_not_runtime_semantics",
                 message="timeline_policy 不是通用运行语义权威；它只能作为旧配置或展示输入，不能表示 step 或调度边界。",
                 scope="graph",
                 ref_id=graph.graph_id,
@@ -275,7 +275,7 @@ def _legacy_graph_diagnostics(graph: TaskGraphDefinition) -> list[RuntimeSemanti
     return diagnostics
 
 
-def _legacy_node_diagnostics(nodes: tuple[TaskGraphNodeDefinition, ...]) -> list[RuntimeSemanticsDiagnostic]:
+def _superseded_node_field_diagnostics(nodes: tuple[TaskGraphNodeDefinition, ...]) -> list[RuntimeSemanticsDiagnostic]:
     diagnostics: list[RuntimeSemanticsDiagnostic] = []
     for node in nodes:
         node_id = str(node.node_id or "").strip()
@@ -285,7 +285,7 @@ def _legacy_node_diagnostics(nodes: tuple[TaskGraphNodeDefinition, ...]) -> list
         if sequence_index:
             diagnostics.append(
                 RuntimeSemanticsDiagnostic(
-                    code="sequence_index_legacy_lifecycle_coordinate",
+                    code="sequence_index_lifecycle_coordinate_not_dependency",
                     message="sequence_index 只是生命周期坐标/展示排序，不是通用因果依赖；需要阻塞关系时必须使用显式边和边语义。",
                     scope="node",
                     ref_id=node_id,
@@ -294,7 +294,7 @@ def _legacy_node_diagnostics(nodes: tuple[TaskGraphNodeDefinition, ...]) -> list
                 )
             )
         if timeline_group_id:
-            code = "timeline_group_legacy_display"
+            code = "timeline_group_display_coordinate_not_runtime_group"
             message = "timeline_group_id 不是真并发组；运行时不会按它自动同步启动或汇合。"
             if phase_id and timeline_group_id == phase_id:
                 code = "timeline_group_duplicates_phase"
@@ -312,7 +312,7 @@ def _legacy_node_diagnostics(nodes: tuple[TaskGraphNodeDefinition, ...]) -> list
     return diagnostics
 
 
-def _legacy_edge_diagnostics(edges: tuple[TaskGraphEdgeDefinition, ...]) -> list[RuntimeSemanticsDiagnostic]:
+def _superseded_edge_field_diagnostics(edges: tuple[TaskGraphEdgeDefinition, ...]) -> list[RuntimeSemanticsDiagnostic]:
     diagnostics: list[RuntimeSemanticsDiagnostic] = []
     for edge in edges:
         metadata = dict(edge.metadata or {})
@@ -320,7 +320,7 @@ def _legacy_edge_diagnostics(edges: tuple[TaskGraphEdgeDefinition, ...]) -> list
         if temporal:
             diagnostics.append(
                 RuntimeSemanticsDiagnostic(
-                    code="edge_temporal_semantics_legacy_projection",
+                    code="edge_temporal_semantics_superseded_projection",
                     message="edge temporal_semantics 是旧时序投影；通用图阻塞、可见性和恢复应由 edge semantic role 与产物状态表达。",
                     scope="edge",
                     ref_id=str(edge.edge_id or "").strip(),
@@ -377,7 +377,7 @@ def _semantic_shape_diagnostics(
     return diagnostics
 
 
-def _legacy_field_payloads(*, graph: TaskGraphDefinition, diagnostics: list[RuntimeSemanticsDiagnostic]) -> list[dict[str, Any]]:
+def _superseded_field_payloads(*, graph: TaskGraphDefinition, diagnostics: list[RuntimeSemanticsDiagnostic]) -> list[dict[str, Any]]:
     return [
         {
             "scope": item.scope,
@@ -385,17 +385,17 @@ def _legacy_field_payloads(*, graph: TaskGraphDefinition, diagnostics: list[Runt
             "field": item.field,
             "value": item.value,
             "code": item.code,
-            "authority": "task_system.runtime_semantics_legacy_field",
+            "authority": "task_system.runtime_semantics_superseded_field",
         }
         for item in diagnostics
         if item.code
         in {
-            "legacy_timeline_policy_not_runtime_semantics",
+            "superseded_timeline_policy_not_runtime_semantics",
             "phase_definitions_are_lifecycle_metadata",
-            "sequence_index_legacy_lifecycle_coordinate",
-            "timeline_group_legacy_display",
+            "sequence_index_lifecycle_coordinate_not_dependency",
+            "timeline_group_display_coordinate_not_runtime_group",
             "timeline_group_duplicates_phase",
-            "edge_temporal_semantics_legacy_projection",
+            "edge_temporal_semantics_superseded_projection",
         }
     ]
 

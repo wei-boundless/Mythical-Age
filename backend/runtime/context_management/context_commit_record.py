@@ -11,7 +11,7 @@ from core.project_layout import ProjectLayout
 from .tool_transcript import is_tool_transcript_kind
 
 
-CONTEXT_COMMIT_RECORD_SCHEMA_VERSION = 1
+CONTEXT_COMMIT_RECORD_SCHEMA_REVISION = 1
 
 
 def create_session_context_commit_record(
@@ -19,37 +19,37 @@ def create_session_context_commit_record(
     storage_root: Path | str | None,
     session_id: str,
     session_payload: dict[str, Any],
-    provider_visible_anchor: dict[str, Any] | None = None,
+    provider_visible_append_anchor: dict[str, Any] | None = None,
     reason: str = "session_snapshot",
 ) -> dict[str, Any]:
     normalized_session_id = str(session_id or "").strip()
     payload = dict(session_payload or {})
     public_messages = [dict(item) for item in list(payload.get("messages") or []) if isinstance(item, dict)]
-    api_transcript = [dict(item) for item in list(payload.get("api_transcript") or []) if isinstance(item, dict)]
+    provider_protocol_timeline = [dict(item) for item in list(payload.get("provider_protocol_timeline") or []) if isinstance(item, dict)]
     compressed_context = str(payload.get("compressed_context") or "")
-    anchor = dict(provider_visible_anchor or {})
+    anchor = dict(provider_visible_append_anchor or {})
     seed = {
         "session_id": normalized_session_id,
         "public_message_count": len(public_messages),
-        "api_transcript_count": len(api_transcript),
+        "provider_protocol_timeline_count": len(provider_protocol_timeline),
         "last_public_message_hash": _message_hash(public_messages[-1]) if public_messages else "",
-        "last_api_message_hash": _message_hash(api_transcript[-1]) if api_transcript else "",
+        "last_provider_protocol_message_hash": _message_hash(provider_protocol_timeline[-1]) if provider_protocol_timeline else "",
         "compressed_context_hash": _text_hash(compressed_context) if compressed_context else "",
-        "provider_visible_anchor_id": str(anchor.get("anchor_id") or ""),
-        "provider_visible_terminal_hash": str(anchor.get("terminal_cumulative_prefix_hash") or ""),
+        "provider_visible_append_anchor_id": str(anchor.get("anchor_id") or ""),
+        "provider_visible_append_terminal_hash": str(anchor.get("terminal_cumulative_prefix_hash") or ""),
         "reason": str(reason or ""),
     }
     record_hash = _stable_json_hash(seed)
     record = {
-        "schema_version": CONTEXT_COMMIT_RECORD_SCHEMA_VERSION,
+        "record_schema_revision": CONTEXT_COMMIT_RECORD_SCHEMA_REVISION,
         "record_id": "ctxcommit:" + record_hash.removeprefix("sha256:")[:16],
         "record_hash": record_hash,
         "session_id": normalized_session_id,
-        "turn_id": _last_turn_id(public_messages, api_transcript),
+        "turn_id": _last_turn_id(public_messages, provider_protocol_timeline),
         "public_message_count": len(public_messages),
-        "api_transcript_count": len(api_transcript),
+        "provider_protocol_timeline_count": len(provider_protocol_timeline),
         "compressed_context_hash": seed["compressed_context_hash"],
-        "provider_visible_ledger_anchor": anchor,
+        "provider_visible_append_anchor": anchor,
         "cache_spine_hash": str(
             anchor.get("provider_payload_prefix_hash")
             or anchor.get("terminal_cumulative_prefix_hash")
@@ -76,20 +76,20 @@ def create_provider_request_context_commit_record(
     session_id: str,
     request_id: str,
     status: str,
-    model_request: Any,
-    provider_visible_anchor_before: dict[str, Any] | None = None,
-    provider_visible_confirmation: dict[str, Any] | None = None,
+    provider_request: Any,
+    provider_visible_append_anchor_before: dict[str, Any] | None = None,
+    provider_visible_append_confirmation: dict[str, Any] | None = None,
     response_ref: str = "",
     error: BaseException | dict[str, Any] | str | None = None,
     reason: str = "provider_request",
 ) -> dict[str, Any]:
     normalized_session_id = str(session_id or "").strip()
     normalized_request_id = str(request_id or "").strip()
-    request_payload = _model_request_projection(model_request)
-    tool_context = _tool_context_projection(model_request)
-    confirmation = dict(provider_visible_confirmation or {})
-    anchor_before = dict(provider_visible_anchor_before or {})
-    anchor_after = _provider_visible_anchor_after(confirmation) or anchor_before
+    request_payload = _provider_request_projection(provider_request)
+    tool_context = _tool_context_projection(provider_request)
+    confirmation = dict(provider_visible_append_confirmation or {})
+    anchor_before = dict(provider_visible_append_anchor_before or {})
+    anchor_after = _provider_visible_append_anchor_after(confirmation) or anchor_before
     error_payload = _error_payload(error)
     provider_payload_segments = [
         dict(item)
@@ -104,8 +104,8 @@ def create_provider_request_context_commit_record(
         "provider_payload_prefix_hash": str(request_payload.get("provider_payload_prefix_hash") or ""),
         "provider_payload_messages_hash": str(request_payload.get("provider_payload_messages_hash") or ""),
         "provider_payload_segments_hash": provider_payload_segments_hash,
-        "provider_visible_anchor_before": str(anchor_before.get("anchor_id") or ""),
-        "provider_visible_anchor_after": str(anchor_after.get("anchor_id") or ""),
+        "provider_visible_append_anchor_before": str(anchor_before.get("anchor_id") or ""),
+        "provider_visible_append_anchor_after": str(anchor_after.get("anchor_id") or ""),
         "tool_context_hash": str(tool_context.get("tool_context_hash") or ""),
         "error": error_payload,
         "reason": str(reason or ""),
@@ -115,7 +115,7 @@ def create_provider_request_context_commit_record(
     context_physical = dict(prompt_manifest.get("context_physical_assembly") or {})
     provider_payload_cache_boundary = dict(request_payload.get("provider_payload_cache_boundary") or {})
     record = {
-        "schema_version": CONTEXT_COMMIT_RECORD_SCHEMA_VERSION,
+        "record_schema_revision": CONTEXT_COMMIT_RECORD_SCHEMA_REVISION,
         "record_type": "provider_request_context_commit",
         "record_id": "ctxcommitreq:" + record_hash.removeprefix("sha256:")[:16],
         "record_hash": record_hash,
@@ -129,7 +129,7 @@ def create_provider_request_context_commit_record(
         "tool_count": _safe_int(request_payload.get("tool_count")),
         "provider_payload_manifest_ref": str(request_payload.get("provider_payload_manifest_ref") or ""),
         "provider_payload_prefix_hash": str(request_payload.get("provider_payload_prefix_hash") or ""),
-        "provider_payload_message_prefix_hash": str(request_payload.get("provider_payload_message_prefix_hash") or ""),
+        "physical_cache_spine_message_subtotal_hash": str(request_payload.get("physical_cache_spine_message_subtotal_hash") or ""),
         "provider_payload_messages_hash": str(request_payload.get("provider_payload_messages_hash") or ""),
         "transport_contract_hash": str(request_payload.get("transport_contract_hash") or ""),
         "transport_contract_ref": str(request_payload.get("transport_contract_ref") or ""),
@@ -157,9 +157,9 @@ def create_provider_request_context_commit_record(
             or request_payload.get("compaction_generation")
             or ""
         ),
-        "provider_visible_ledger_anchor_before": anchor_before,
-        "provider_visible_ledger_confirmation": confirmation,
-        "provider_visible_ledger_anchor_after": anchor_after,
+        "provider_visible_append_anchor_before": anchor_before,
+        "provider_visible_append_confirmation": confirmation,
+        "provider_visible_append_anchor_after": anchor_after,
         "tool_context_anchor": str(tool_context.get("tool_context_hash") or ""),
         "tool_context_projection": tool_context,
         "response_ref": str(response_ref or ""),
@@ -239,8 +239,8 @@ def _context_commit_record_session_dir(*, storage_root: Path | str | None, sessi
     return runtime_state_dir / "context_commit_records" / safe_session
 
 
-def _model_request_projection(model_request: Any) -> dict[str, Any]:
-    payload = model_request.to_dict() if hasattr(model_request, "to_dict") else dict(model_request or {}) if isinstance(model_request, dict) else {}
+def _provider_request_projection(provider_request: Any) -> dict[str, Any]:
+    payload = provider_request.to_dict() if hasattr(provider_request, "to_dict") else dict(provider_request or {}) if isinstance(provider_request, dict) else {}
     diagnostics = dict(payload.get("diagnostics") or {})
     provider_transport = dict(diagnostics.get("provider_transport_payload") or {})
     prompt_manifest = dict(diagnostics.get("prompt_manifest") or {})
@@ -276,7 +276,7 @@ def _model_request_projection(model_request: Any) -> dict[str, Any]:
             or ""
         ),
         "provider_payload_prefix_hash": str(payload.get("provider_payload_prefix_hash") or ""),
-        "provider_payload_message_prefix_hash": str(payload.get("provider_payload_message_prefix_hash") or ""),
+        "physical_cache_spine_message_subtotal_hash": str(payload.get("physical_cache_spine_message_subtotal_hash") or ""),
         "provider_payload_messages_hash": str(provider_transport.get("messages_hash") or payload.get("canonical_hash") or ""),
         "transport_contract_hash": str(payload.get("transport_contract_hash") or ""),
         "transport_contract_ref": str(payload.get("transport_contract_ref") or provider_payload_cache_boundary.get("transport_contract_ref") or ""),
@@ -286,13 +286,13 @@ def _model_request_projection(model_request: Any) -> dict[str, Any]:
         "provider_payload_cache_boundary": provider_payload_cache_boundary,
         "provider_payload_segments": provider_payload_segments,
         "provider_payload_transport_contract": provider_payload_transport_contract,
-        "cache_spine_hash": str(provider_payload_cache_boundary.get("cache_spine_hash") or ""),
-        "compaction_generation": str(provider_payload_cache_boundary.get("cache_spine_generation") or ""),
+        "cache_spine_hash": str(provider_payload_cache_boundary.get("physical_cache_spine_hash") or ""),
+        "compaction_generation": "",
         "prompt_manifest": prompt_manifest,
     }
 
 
-def _provider_visible_anchor_after(confirmation: dict[str, Any]) -> dict[str, Any]:
+def _provider_visible_append_anchor_after(confirmation: dict[str, Any]) -> dict[str, Any]:
     anchors = [
         dict(item)
         for item in list(dict(confirmation or {}).get("provider_success_anchors") or [])
@@ -301,8 +301,8 @@ def _provider_visible_anchor_after(confirmation: dict[str, Any]) -> dict[str, An
     return anchors[-1] if anchors else {}
 
 
-def _tool_context_projection(model_request: Any) -> dict[str, Any]:
-    payload = model_request.to_dict() if hasattr(model_request, "to_dict") else dict(model_request or {}) if isinstance(model_request, dict) else {}
+def _tool_context_projection(provider_request: Any) -> dict[str, Any]:
+    payload = provider_request.to_dict() if hasattr(provider_request, "to_dict") else dict(provider_request or {}) if isinstance(provider_request, dict) else {}
     provider_payload_manifest = dict(payload.get("provider_payload_manifest") or {})
     segments = [
         dict(item)
@@ -314,11 +314,9 @@ def _tool_context_projection(model_request: Any) -> dict[str, Any]:
         metadata = dict(segment.get("metadata") or {})
         kind = str(segment.get("kind") or metadata.get("kind") or "").strip()
         semantic_slot = str(metadata.get("context_semantic_slot") or metadata.get("semantic_slot") or "").strip()
-        authority_class = str(metadata.get("authority_class") or "").strip()
         if not (
             is_tool_transcript_kind(kind, include_historical=True)
             or semantic_slot == "tool_transcript"
-            or authority_class == "append_only_tool_transcript_delta"
         ):
             continue
         tool_segments.append(
@@ -330,7 +328,7 @@ def _tool_context_projection(model_request: Any) -> dict[str, Any]:
                     "tool_observation_ref": str(metadata.get("tool_observation_ref") or ""),
                     "tool_call_id": str(metadata.get("tool_call_id") or ""),
                     "content_hash": str(segment.get("content_hash") or metadata.get("content_hash") or ""),
-                    "physical_prefix_lane": str(metadata.get("physical_prefix_lane") or ""),
+                    "physical_prefix_lane": str(segment.get("physical_prefix_lane") or metadata.get("physical_prefix_lane") or ""),
                     "compaction_generation": str(metadata.get("compaction_generation") or ""),
                 }
             )
@@ -357,8 +355,8 @@ def _error_payload(error: BaseException | dict[str, Any] | str | None) -> dict[s
     return {"message": str(error or "")}
 
 
-def _last_turn_id(public_messages: list[dict[str, Any]], api_transcript: list[dict[str, Any]]) -> str:
-    for collection in (api_transcript, public_messages):
+def _last_turn_id(public_messages: list[dict[str, Any]], provider_protocol_timeline: list[dict[str, Any]]) -> str:
+    for collection in (provider_protocol_timeline, public_messages):
         for message in reversed(collection):
             turn_id = str(dict(message).get("turn_id") or "").strip()
             if turn_id:

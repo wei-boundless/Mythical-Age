@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
-from context_system.policy import build_context_package_result
+from context_system.policy import build_turn_context_package_result
 from context_system.budget.presets import get_context_budget_preset
 from core.token_accounting import count_text_tokens
 
 from .contracts import MemoryContextCandidate
-from .continuity import SessionMemoryLayer
+from .continuity import ConversationContinuityLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .runtime_supply import (
     MemoryOrchestrator,
@@ -52,7 +52,7 @@ class MemoryBundleService:
     def __init__(
         self,
         *,
-        session_memory: SessionMemoryLayer,
+        conversation_continuity: ConversationContinuityLayer,
         conversation_memory: ConversationMemoryStoreAdapter,
         state_memory: StateMemoryStoreAdapter,
         working_memory: WorkingMemoryService,
@@ -60,7 +60,7 @@ class MemoryBundleService:
         durable_memory_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
-        self.session_memory = session_memory
+        self.conversation_continuity = conversation_continuity
         self.conversation_memory = conversation_memory
         self.state_memory = state_memory
         self.working_memory = working_memory
@@ -267,7 +267,7 @@ class MemoryBundleService:
             supplier=self.supplier,
         )
 
-    def build_memory_context_package_result(
+    def build_turn_memory_context_package_result(
         self,
         *,
         session_id: str,
@@ -289,7 +289,7 @@ class MemoryBundleService:
                 memory_request_profile=memory_request_profile,
                 note_limit=note_limit,
             )
-        return self._build_context_package_result_from_view(
+        return self._build_turn_context_package_result_from_view(
             memory_view,
             retrieval_results=retrieval_results,
             available_context_tokens=available_context_tokens,
@@ -297,7 +297,7 @@ class MemoryBundleService:
             long_term_token_cap=long_term_token_cap,
         )
 
-    async def abuild_memory_context_package_result(
+    async def abuild_turn_memory_context_package_result(
         self,
         *,
         session_id: str,
@@ -319,7 +319,7 @@ class MemoryBundleService:
                 memory_request_profile=memory_request_profile,
                 note_limit=note_limit,
             )
-        return self._build_context_package_result_from_view(
+        return self._build_turn_context_package_result_from_view(
             memory_view,
             retrieval_results=retrieval_results,
             available_context_tokens=available_context_tokens,
@@ -327,7 +327,7 @@ class MemoryBundleService:
             long_term_token_cap=long_term_token_cap,
         )
 
-    def _build_context_package_result_from_view(
+    def _build_turn_context_package_result_from_view(
         self,
         memory_view: Any,
         *,
@@ -337,9 +337,9 @@ class MemoryBundleService:
         long_term_token_cap: int | None = None,
     ):
         budget = self._context_budget()
-        return build_context_package_result(
+        return build_turn_context_package_result(
             memory_view,
-            rebuild_reason="memory_bundle_service_context_package_result",
+            rebuild_reason="memory_bundle_service_turn_context_package_result",
             retrieval_results=retrieval_results,
             available_context_tokens=available_context_tokens
             if available_context_tokens is not None
@@ -352,7 +352,7 @@ class MemoryBundleService:
             else int(budget["long_term_token_cap"]),
         )
 
-    def build_memory_context_package(
+    def build_turn_memory_context_package(
         self,
         *,
         session_id: str,
@@ -363,7 +363,7 @@ class MemoryBundleService:
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
     ):
-        return self.build_memory_context_package_result(
+        return self.build_turn_memory_context_package_result(
             session_id=session_id,
             query=pending_user_message,
             memory_intent=memory_intent,
@@ -403,7 +403,7 @@ class MemoryBundleService:
             memory_request_profile=request.to_dict(),
             note_limit=note_limit,
         )
-        context_result = self.build_memory_context_package_result(
+        context_result = self.build_turn_memory_context_package_result(
             session_id=session_id,
             query=query,
             memory_intent=memory_intent,
@@ -414,7 +414,7 @@ class MemoryBundleService:
         return build_memory_bundle(
             request=request,
             runtime_view=runtime_view,
-            context_policy_result=context_result,
+            turn_context_policy_result=context_result,
         )
 
     def build_memory_compaction_result(

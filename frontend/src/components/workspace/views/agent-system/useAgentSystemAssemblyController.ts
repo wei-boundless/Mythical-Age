@@ -175,7 +175,7 @@ export function useAgentSystemAssemblyController() {
                 : requestedLayer === "eligibility"
                   ? "diagnostics"
                   : requestedLayer;
-    const validLayers: AgentSystemLayer[] = ["identity", "groups", "runtime_permissions", "runtime_config", "model_runtime", "context_memory", "collaboration", "overview", "diagnostics"];
+    const validLayers: AgentSystemLayer[] = ["identity", "groups", "runtime_permissions", "runtime_config", "prompt_wiring", "model_runtime", "context_memory", "collaboration", "overview", "diagnostics"];
     if (focusLayer && validLayers.includes(focusLayer as AgentSystemLayer)) {
       setActiveLayer(focusLayer as AgentSystemLayer);
     }
@@ -332,6 +332,7 @@ export function useAgentSystemAssemblyController() {
     ["identity", "身份", agentMode === "new" ? "草稿" : "名册"],
     ["runtime_permissions", "权限", runtimeDraft.agent_profile_id && !runtimeSaveBlocked ? `${allowedOps.length} 项` : "待保存"],
     ["runtime_config", "运行配置", runtimeConfigMode],
+    ["prompt_wiring", "提示词", uniqueList(runtimeDraft.prompt_set_refs ?? []).length ? `${uniqueList(runtimeDraft.prompt_set_refs ?? []).length} 组` : "默认"],
     ["model_runtime", "模型", modelProfile.provider || modelProfile.model ? "覆盖" : "继承"],
     ["context_memory", "上下文", `${uniqueList(runtimeDraft.allowed_context_sections).length + uniqueList(runtimeDraft.allowed_memory_scopes).length}`],
     ["collaboration", "协作", runtimeDraft.subagent_policy.enabled ? "开放" : "关闭"],
@@ -343,11 +344,18 @@ export function useAgentSystemAssemblyController() {
     : activeSection === "custom_agent"
       ? [["groups", "分组", String(agentGroups.length)], ...agentLayerTabs]
       : agentLayerTabs;
+  const activeLayerAvailable = layerTabs.some(([value]) => value === activeLayer);
+  const fallbackActiveLayer = layerTabs[0]?.[0] ?? "identity";
+  useEffect(() => {
+    if (!activeLayerAvailable) {
+      setActiveLayer(fallbackActiveLayer);
+    }
+  }, [activeLayerAvailable, fallbackActiveLayer]);
   const assemblyNavGroups: LayerNavGroup[] = selectionKind === "group"
     ? [{ title: "Agent 组", items: layerTabs }]
     : [
         { title: "对象定义", items: layerTabs.filter(([value]) => value === "groups" || value === "identity" || value === "overview") },
-        { title: "运行边界", items: layerTabs.filter(([value]) => value === "runtime_permissions" || value === "runtime_config" || value === "model_runtime") },
+        { title: "运行边界", items: layerTabs.filter(([value]) => value === "runtime_permissions" || value === "runtime_config" || value === "prompt_wiring" || value === "model_runtime") },
         { title: "上下文协作", items: layerTabs.filter(([value]) => value === "context_memory" || value === "collaboration") },
         { title: "核验", items: layerTabs.filter(([value]) => value === "diagnostics") },
       ].filter((group) => group.items.length);
@@ -726,8 +734,6 @@ export function useAgentSystemAssemblyController() {
 }
 
 export type AgentSystemAssemblyController = ReturnType<typeof useAgentSystemAssemblyController>;
-
-
 
 
 

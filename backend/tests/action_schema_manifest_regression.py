@@ -22,6 +22,11 @@ def _message_payload_with_title(packet, title: str) -> dict[str, object]:
         content = str(dict(message).get("content") or "")
         if content.startswith(title + "\n"):
             return _payload_after_title(content, title)
+        title_marker = f'title="{title}"'
+        if title_marker in content and "<context_fragment " in content:
+            fragment_body = content.split(">\n", 1)[1].rsplit("\n</context_fragment>", 1)[0]
+            payload = json.loads(fragment_body)
+            return dict(payload.get("payload") or payload)
     raise AssertionError(f"missing model message title: {title}")
 
 
@@ -37,7 +42,7 @@ def test_action_schema_manifest_renders_task_execution_model_visible_payload() -
     assert manifest.source_ref == "task_execution_action_schema"
     assert manifest.schema_hash.startswith("sha256:")
     assert manifest.allowed_action_types == ("respond", "ask_user", "tool_call", "block")
-    assert "必须回应用户当前输入本身" in str(schema["public_response_obligation"]["rule"])
+    assert "服务用户当前输入" in str(schema["public_response_obligation"]["rule"])
     assert "must_explain_when" in schema["public_response_obligation"]["tool_observation_reporting"]
     assert manifest.to_model_visible_payload() == {"schema": schema}
 
@@ -46,37 +51,35 @@ def test_action_schemas_keep_long_running_observation_feedback_obligation() -> N
     single_turn_schema = model_action_request_schema("turn:feedback-obligation")
     task_schema = task_execution_action_schema()
 
-    for schema in (single_turn_schema, task_schema):
-        reporting = schema["public_response_obligation"]["tool_observation_reporting"]
-        assert any("多个工具批次" in item for item in reporting["must_explain_when"])
-        assert any("失败恢复、写入、验证" in item for item in reporting["must_explain_when"])
-        assert any("短链路" in item for item in reporting["may_keep_internal_when"])
-        assert "不允许长时间任务只剩工具列表" in reporting["explanation_shape"]
+    single_obligation = dict(single_turn_schema["public_response_obligation"])
+    assert "public_progress_note" in single_obligation
+    assert "public_action_state" in single_obligation
+
+    reporting = task_schema["public_response_obligation"]["tool_observation_reporting"]
+    assert any("多个文件、多个工具批次或多轮观察推进" in item for item in reporting["must_explain_when"])
+    assert any("失败恢复、写入、验证" in item for item in reporting["must_explain_when"])
+    assert any("短链路" in item for item in reporting["may_keep_internal_when"])
 
 
 def test_single_turn_request_task_run_schema_shows_nested_contract_shape() -> None:
     schema = model_action_request_schema("turn:request-task-run-shape")
 
-    shape_rules = [str(item) for item in list(schema.get("request_task_run_shape_rules") or [])]
-    example = dict(schema.get("minimal_valid_request_task_run_example") or {})
-    required_skeleton = dict(schema.get("request_task_run_required_skeleton") or {})
-    minimal_action = dict(required_skeleton.get("minimal_action") or {})
-    minimal_seed = dict(minimal_action.get("task_contract_seed") or {})
-    seed = dict(example.get("task_contract_seed") or {})
+    shape_rules = [str(item) for item in list(schema.get("action_shape_rules") or [])]
+    intent_contract = dict(schema.get("request_task_run_intent_contract") or {})
+    minimal_action = dict(intent_contract.get("minimal_action") or {})
+    minimal_seed = dict(minimal_action.get("task_run_contract_seed") or {})
+    seed = dict(schema.get("task_run_contract_seed") or {})
 
-    assert any("不要使用 payload" in rule for rule in shape_rules)
-    assert any("request_task_run_required_skeleton" in rule for rule in shape_rules)
-    assert any("provider-native canonical request_task_run" in rule for rule in shape_rules)
-    assert any("最小必填" in rule for rule in shape_rules)
+    assert any("task_run_contract_seed" in rule for rule in shape_rules)
+    assert "minimal_action" in intent_contract
+    assert minimal_action["action_type"] == "request_task_run"
+    assert minimal_seed["contract_shape"] == "compact_task_start_intent"
+    assert seed["contract_shape"] == "compact_task_start_intent"
     assert not any("系统执行设置" in rule for rule in shape_rules)
     assert not any("capability_intent" in rule or "skill_intent" in rule or "observation_contract" in rule for rule in shape_rules)
-    assert "minimal_action" in required_skeleton
     assert "capability_intent" not in minimal_seed
     assert "skill_intent" not in minimal_seed
     assert "observation_contract" not in minimal_seed
-    assert "capability_intent" not in example
-    assert "skill_intent" not in example
-    assert "observation_contract" not in example
     assert "capability_intent" not in seed
     assert "skill_intent" not in seed
     assert "observation_contract" not in seed
@@ -92,15 +95,21 @@ def test_single_turn_active_work_control_contract_exposes_canonical_control_fiel
         active_work_context={
             "session_id": "session:active-work-control-shape",
             "active_work_id": "turn:active",
-            "task_run_id": "taskrun:active-work-control-shape",
+            "task_environment_id": "taskenv:active-work-control-shape",
             "status": "waiting_executor",
             "resumable": True,
+            "authority": "harness.runtime.task_environment_active_work_context",
         },
         current_work_boundary_receipt={
             "receipt_id": "cwreceipt:active-work-control-shape",
+            "decision_id": "cwbd:active-work-control-shape",
             "boundary_decision": "current_work_control_required",
             "observation_state": "controllable_current_work",
-            "active_work_ref": {"task_run_id": "taskrun:active-work-control-shape", "actual_active_turn_id": "turn:active"},
+            "task_environment_ref": "taskenv:active-work-control-shape",
+            "active_work_ref": {
+                "task_environment_id": "taskenv:active-work-control-shape",
+                "actual_active_turn_id": "turn:active",
+            },
             "operation_availability": {"active_work_control": True},
             "authority": "harness.entrypoint.current_work_boundary_receipt",
         },
@@ -113,32 +122,10 @@ def test_single_turn_active_work_control_contract_exposes_canonical_control_fiel
 
     control_actions = dict(result.packet.output_contract.get("control_actions") or {})
     active_work = dict(control_actions.get("active_work_control") or {})
-    payload_schema = dict(active_work.get("payload_schema") or {})
 
-    assert payload_schema["relation_to_current_work"].startswith("current_work")
-    assert "turn_response_policy" in payload_schema
-    assert "user_turn_kind" in payload_schema
-    assert "answer_obligation" in payload_schema
-    assert "evidence" in payload_schema
-    assert "resume_strategy" not in payload_schema
-    assert "response_obligation" not in payload_schema
-    assert "routing_evidence" not in payload_schema
-
-
-def test_single_turn_resume_recoverable_work_schema_shows_nested_handle_shape() -> None:
-    schema = model_action_request_schema("turn:resume-shape")
-
-    shape_rules = [str(item) for item in list(schema.get("resume_recoverable_work_shape_rules") or [])]
-    example = dict(schema.get("minimal_valid_resume_recoverable_work_example") or {})
-    recovery_resume = dict(example.get("recovery_resume") or {})
-
-    assert "resume_recoverable_work" in str(schema.get("action_type") or "")
-    assert any("provider-native canonical resume_recoverable_work" in rule for rule in shape_rules)
-    assert any("必须放在 recovery_resume 对象内" in rule for rule in shape_rules)
-    assert "task_run_id" not in example
-    assert "continuation_id" not in example
-    assert recovery_resume["task_run_id"].startswith("taskrun:")
-    assert recovery_resume["continuation_id"].startswith("cont:")
+    assert active_work["enabled"] is True
+    assert "Current Request Context" in active_work["operation_availability_gate"]
+    assert "payload_schema" not in active_work
 
 
 def test_task_execution_packet_attaches_action_schema_manifest_without_prompt_drift() -> None:

@@ -29,8 +29,8 @@ class ExecutionRecipe:
     source_kind: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] = field(default_factory=dict)
-    default_agent_id: str = "agent:0"
-    allowed_agent_ids: tuple[str, ...] = ("agent:0",)
+    default_agent_id: str = ""
+    allowed_agent_ids: tuple[str, ...] = ()
     required_capability_tags: tuple[str, ...] = ()
     required_operations: tuple[str, ...] = ()
     optional_operations: tuple[str, ...] = ()

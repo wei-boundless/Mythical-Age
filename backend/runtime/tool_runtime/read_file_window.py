@@ -11,7 +11,7 @@ from runtime.shared.file_observation_policy import (
 )
 
 
-READ_FILE_WINDOW_AUTHORITY = "runtime.tool_result.read_file_window.v1"
+READ_FILE_WINDOW_AUTHORITY = "runtime.tool_result.read_file_window"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +27,7 @@ class ReadFileWindowResult:
     has_more: bool
     truncated: bool
     content_sha256: str
+    edit_target: dict[str, Any] | None = None
     status: str = "ok"
     kind: str = "text_file"
     repository_id: str = ""
@@ -53,7 +54,9 @@ def build_read_file_window_result(
     repository_id: str = "",
     managed_file_ref: dict[str, Any] | None = None,
 ) -> ReadFileWindowResult:
-    lines = str(content or "").splitlines()
+    raw_content = str(content or "")
+    raw_lines = raw_content.splitlines(keepends=True)
+    lines = [line.rstrip("\r\n") for line in raw_lines]
     total_lines = len(lines)
     selection = select_read_window(
         total_lines=total_lines,
@@ -74,6 +77,10 @@ def build_read_file_window_result(
     width = max(1, len(str(max(end_line, start, total_lines))))
     text = "\n".join(f"{line_no:>{width}} | {line}" for line_no, line in enumerate(selected, start=start))
     has_more = bool(total_lines and end_line < total_lines)
+    selected_raw = "".join(raw_lines[start - 1 : end_line]) if total_lines and start <= total_lines else ""
+    selected_raw = selected_raw.rstrip("\r\n")
+    start_byte = len("".join(raw_lines[: max(0, start - 1)]).encode("utf-8", errors="replace"))
+    range_sha256 = hashlib.sha256(selected_raw.encode("utf-8", errors="replace")).hexdigest()
     return ReadFileWindowResult(
         path=str(path or "").strip(),
         repository_id=str(repository_id or "").strip(),
@@ -87,7 +94,18 @@ def build_read_file_window_result(
         next_start_line=end_line + 1 if has_more else None,
         has_more=has_more,
         truncated=has_more,
-        content_sha256=hashlib.sha256(str(content or "").encode("utf-8", errors="replace")).hexdigest(),
+        content_sha256=hashlib.sha256(raw_content.encode("utf-8", errors="replace")).hexdigest(),
+        edit_target={
+            "path": str(path or "").strip(),
+            "repository_id": str(repository_id or "").strip(),
+            "start_line": start,
+            "end_line": end_line,
+            "start_byte": start_byte,
+            "end_byte": start_byte + len(selected_raw.encode("utf-8", errors="replace")),
+            "base_sha256": hashlib.sha256(raw_content.encode("utf-8", errors="replace")).hexdigest(),
+            "range_sha256": range_sha256,
+            "authority": READ_FILE_WINDOW_AUTHORITY,
+        },
     )
 
 

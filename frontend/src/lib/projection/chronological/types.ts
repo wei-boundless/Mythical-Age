@@ -1,4 +1,4 @@
-import type { PublicProjectionFrame, PublicTodoItem } from "@/lib/api";
+import type { PublicProjectionFrame, PublicTodoItem, PublicToolContentWindow } from "@/lib/api";
 
 export type ProjectionDisplayMode = "live" | "committed" | "closeout" | "recovery" | "log_only";
 
@@ -45,6 +45,9 @@ export type ProjectionDiagnostic = {
 
 export type BodySegment = {
   id: string;
+  bodyRef?: string;
+  messageRef?: string;
+  contentSha256?: string;
   text: string;
   firstOffset: number;
   lastOffset: number;
@@ -65,9 +68,20 @@ export type ToolLifecycle = {
   detail: string;
   target: string;
   argumentsPreview: string;
+  polling?: {
+    mode?: string;
+    poll_id?: string;
+    interval_ms?: number;
+    timeout_ms?: number;
+    success_condition?: string;
+  };
   commandLine: string;
   output: string;
+  contentWindow?: PublicToolContentWindow;
   state: string;
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
   sourceItemId: string;
   sourceEventType: string;
   sourceEventId: string;
@@ -143,6 +157,9 @@ export type ChronologicalProjectionLedger = {
 export type BodyProjectionBlock = {
   kind: "body_segment";
   id: string;
+  bodyRef?: string;
+  messageRef?: string;
+  contentSha256?: string;
   text: string;
   firstOffset: number;
   lastOffset: number;
@@ -161,11 +178,16 @@ export type ToolProjectionBlock = {
   target: string;
   commandLine: string;
   output: string;
+  contentWindow?: PublicToolContentWindow;
   toolCallId: string;
   toolLifecycleId: string;
   toolName: string;
   actionKind: string;
   argumentsPreview: string;
+  polling?: ToolLifecycle["polling"];
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
   sourceItemId: string;
   sourceEventType: string;
   sourceEventId: string;

@@ -14,7 +14,6 @@ class TaskContract:
     """
 
     task_id: str
-    schema_version: str = "task_contract.v1"
     contract_kind: str = "specific_task"
     session_id: str = ""
     user_goal: str = ""
@@ -61,14 +60,10 @@ class TaskContract:
     authority: str = "task_system.task_contract"
 
     def __post_init__(self) -> None:
-        if self.authority not in {"task_system.task_contract", "task_contract"}:
+        if self.authority != "task_system.task_contract":
             raise ValueError("TaskContract authority must be task_system.task_contract")
-        if self.authority == "task_contract":
-            object.__setattr__(self, "authority", "task_system.task_contract")
         if not str(self.task_id or "").strip():
             raise ValueError("TaskContract requires task_id")
-        if not str(self.schema_version or "").strip():
-            raise ValueError("TaskContract requires schema_version")
         if not str(self.contract_kind or "").strip():
             raise ValueError("TaskContract requires contract_kind")
         if not str(self.contract_id or "").strip():

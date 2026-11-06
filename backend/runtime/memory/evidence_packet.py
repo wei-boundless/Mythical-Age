@@ -117,6 +117,12 @@ def _structured_payload_data(observation: dict[str, Any]) -> Any | None:
     tool_result = dict(payload.get("tool_result") or {}) if isinstance(payload.get("tool_result"), dict) else {}
     if not tool_result:
         return None
+    sidecar = dict(payload.get("structured_file") or {}) if isinstance(payload.get("structured_file"), dict) else {}
+    if "data" in sidecar:
+        return sidecar.get("data")
+    nested_sidecar = dict(tool_result.get("structured_file") or {}) if isinstance(tool_result.get("structured_file"), dict) else {}
+    if "data" in nested_sidecar:
+        return nested_sidecar.get("data")
     if str(tool_result.get("kind") or "") == "structured_file" and "data" in tool_result:
         return tool_result.get("data")
     return tool_result.get("data")
@@ -348,5 +354,4 @@ def _observation_ref(observation: dict[str, Any]) -> str:
         or observation.get("ref")
         or ""
     ).strip()
-
 

@@ -118,7 +118,7 @@ async def edit_managed_file(payload: ManagedFileEditRequest) -> dict[str, Any]:
     return await asyncio.to_thread(
         ManagedFileService(runtime).edit,
         payload.target,
-        old_text=payload.old_text,
+        edit_target=payload.edit_target,
         new_text=payload.new_text,
         expected_sha256=payload.expected_sha256,
         source=payload.source,

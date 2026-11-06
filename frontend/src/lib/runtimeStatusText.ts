@@ -4,7 +4,6 @@ const PUBLIC_RUNTIME_STATUS_LABELS: Record<string, string> = {
   waiting_user: "等待你的确认",
   waiting_approval: "等待权限确认",
   waiting_safe_boundary: "等待安全边界",
-  task_executor_scheduled: "任务已进入执行流程",
   runtime_restart_waiting_resume: "连接恢复后待续跑",
   runtime_cell_missing_after_restart: "连接恢复后需要重新接续运行",
   background_executor_missing_after_restart: "连接恢复后需要重新接续运行",
@@ -26,6 +25,8 @@ const PUBLIC_RUNTIME_STATUS_LABELS: Record<string, string> = {
   blocked: "处理遇到阻塞",
   stopped: "运行已停止",
   aborted: "运行已停止",
+  interrupted: "运行已中断",
+  runtime_interruption_closed: "运行已中断",
   cancelled: "运行已停止",
   canceled: "运行已停止",
 };

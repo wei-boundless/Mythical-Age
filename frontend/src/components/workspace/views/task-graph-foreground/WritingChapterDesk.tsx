@@ -22,6 +22,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { workbenchMarkdownComponents } from "@/components/markdown/WorkbenchMarkdownComponents";
 import type {
   HumanEdgeControlView,
   HumanEdgeDecisionKind,
@@ -335,7 +336,7 @@ export function WritingChapterDesk({
               ) : (
                 <div className="graph-foreground-file-preview graph-foreground-file-preview--reader markdown">
                   {fileContent.trim() ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown components={workbenchMarkdownComponents} remarkPlugins={[remarkGfm]}>
                       {fileContent}
                     </ReactMarkdown>
                   ) : (

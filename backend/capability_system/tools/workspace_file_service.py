@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import fnmatch
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -35,9 +36,13 @@ DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
 )
 DEFAULT_SEARCH_EXCLUDED_PATHS: tuple[str, ...] = (
     "backend/knowledge",
+    "backend/runtime/context_management/design_docs",
     "output",
     "storage/runtime_cache",
     "storage/runtime_state/sandboxes",
+)
+DEFAULT_EXCLUDED_FILE_SUFFIXES: tuple[str, ...] = (
+    ".tsbuildinfo",
 )
 DEFAULT_RUNTIME_PRIVATE_PATHS: tuple[str, ...] = (
     "mythical-agent/sessions/**",
@@ -169,6 +174,32 @@ class WorkspaceFileService:
         file_path.write_text(content.replace(target, str(new_text or ""), 1), encoding="utf-8")
         return file_path
 
+    def edit_target(self, path: str, target: dict[str, Any], new_text: str) -> Path:
+        file_path = self.resolve(path, require_path=True)
+        if not file_path.exists():
+            raise FileNotFoundError("file does not exist")
+        if file_path.is_dir():
+            raise IsADirectoryError("path is a directory")
+        content = self.read_text(file_path)
+        encoded = content.encode("utf-8")
+        payload = dict(target or {})
+        if str(payload.get("base_sha256") or "").lower() != _file_sha256(file_path):
+            raise ValueError("target_version_conflict")
+        try:
+            start_byte = int(payload["start_byte"])
+            end_byte = int(payload["end_byte"])
+            if start_byte < 0 or end_byte < start_byte or end_byte > len(encoded):
+                raise ValueError("invalid_edit_target")
+            selected = encoded[start_byte:end_byte].decode("utf-8")
+            prefix = encoded[:start_byte].decode("utf-8")
+            suffix = encoded[end_byte:].decode("utf-8")
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
+            raise ValueError(str(exc) or "invalid_edit_target") from exc
+        if hashlib.sha256(selected.encode("utf-8")).hexdigest() != str(payload.get("range_sha256") or "").lower():
+            raise ValueError("target_range_changed")
+        file_path.write_text(prefix + str(new_text or "") + suffix, encoding="utf-8")
+        return file_path
+
     def list_dir(self, path: str = ".") -> list[Path]:
         directory = self.resolve(path)
         if not directory.exists():
@@ -254,6 +285,12 @@ class WorkspaceFileService:
                             return sorted(dict.fromkeys(matches))
         return sorted(dict.fromkeys(matches))[:limit]
 
+    def glob_search_roots(self, pattern: str) -> list[str]:
+        normalized = str(pattern or "").replace("\\", "/").strip()
+        if not normalized or normalized.startswith("/") or ".." in Path(normalized).parts:
+            raise ValueError("invalid pattern")
+        return [self.relative_path(root) or "." for root in self._glob_walk_roots(normalized)]
+
     def _glob_walk_roots(self, normalized_pattern: str) -> list[Path]:
         fixed_prefix = _fixed_glob_prefix(normalized_pattern)
         if fixed_prefix:
@@ -294,6 +331,8 @@ class WorkspaceFileService:
         if self.is_runtime_private_path(path):
             return True
         relative = self.relative_path(path).replace("\\", "/").strip("/")
+        if relative.lower().endswith(DEFAULT_EXCLUDED_FILE_SUFFIXES):
+            return True
         parts = {part.lower() for part in relative.split("/") if part}
         if any(excluded.lower() in parts for excluded in DEFAULT_EXCLUDED_DIRS):
             return True

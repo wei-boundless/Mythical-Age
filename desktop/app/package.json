@@ -1,0 +1,8 @@
+{
+  "name": "mythical-age",
+  "productName": "Mythical Age",
+  "version": "0.1.0",
+  "description": "Mythical Age · 洪荒智能",
+  "main": "main.cjs",
+  "private": true
+}

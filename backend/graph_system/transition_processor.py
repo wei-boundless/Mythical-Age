@@ -4,12 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from task_system.runtime_semantics.review_gate_verdict import (
-    extract_review_verdict,
-    review_verdict_is_rejected,
-)
-
-from .edge_contracts import edge_contract_or_projection
+from .edge_contracts import edge_contract_for_edge
 from .flow_edges import build_outbound_flow_edges
 from .flow_packet import build_flow_packet, edge_delivers_flow_packet
 from .language import REVISION_EDGE_TYPES
@@ -20,6 +15,7 @@ from .models import (
     GraphTransitionPlan,
     NodeResultEnvelope,
 )
+from .revision_signal_registry import source_result_revision_signal
 from .runtime_objects import flow_packet_summary, store_flow_packet
 from .scheduler_view import build_scheduler_view
 
@@ -72,9 +68,19 @@ class GraphTransitionProcessor:
         else:
             outgoing_edges = _outgoing_state_edges(graph_config, result.node_id)
         now = time.time()
-        review_verdict = extract_review_verdict(result.handoff_summary)
-        review_rejected = review_verdict_is_rejected(review_verdict)
-        review_routes_revision = bool(review_verdict and any(_edge_is_revision(dict(edge)) for edge in outgoing_edges))
+        review_signal = source_result_revision_signal(
+            source_result={
+                "node_id": result.node_id,
+                "result_id": result.result_id,
+                "handoff_summary": result.handoff_summary,
+                "outputs": dict(result.outputs or {}),
+                "decisions": dict(result.decisions or {}),
+                "diagnostics": dict(result.diagnostics or {}),
+            }
+        )
+        review_verdict = str(review_signal.get("verdict") or "").strip()
+        review_rejected = bool(review_signal.get("requests_revision", False))
+        review_routes_revision = bool(review_signal and any(_edge_is_revision(dict(edge)) for edge in outgoing_edges))
         edge_updates: list[dict[str, Any]] = []
         events: list[dict[str, Any]] = []
 
@@ -259,13 +265,13 @@ def _decision_ref(*, trigger: GraphTransitionInput, result: NodeResultEnvelope, 
 
 
 def _policy_snapshot(*, graph_config: ExecutableGraphConfig, edge: dict[str, Any]) -> dict[str, Any]:
-    contract = edge_contract_or_projection(graph_config, edge)
+    contract = edge_contract_for_edge(graph_config, edge)
     return _drop_empty(
         {
             "edge_id": str(edge.get("edge_id") or ""),
             "scheduler": dict(contract.get("scheduler") or {}),
-            "transition_policy": dict(contract.get("transition_policy") or dict(dict(edge.get("metadata") or {}).get("transition_policy") or {})),
-            "readiness_policy": dict(contract.get("readiness_policy") or dict(dict(edge.get("metadata") or {}).get("readiness_policy") or {})),
+            "transition_policy": dict(contract.get("transition_policy") or {}),
+            "readiness_policy": dict(contract.get("readiness_policy") or {}),
             "failure": dict(contract.get("failure") or {}),
             "human_control": dict(contract.get("human_control") or {}),
             "authority": "graph_system.transition_processor.policy_snapshot",

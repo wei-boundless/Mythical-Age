@@ -181,7 +181,7 @@ def _default_execution_policy(task: TaskAssignment) -> TaskExecutionPolicy:
         policy_id=f"taskexecpol:{task.task_id}",
         task_id=task.task_id,
         execution_mode="agent_harness" if not participant_ids else "task_graph",
-        default_agent_id=normalize_agent_id(str(task.default_agent_id or "agent:0").strip() or "agent:0"),
+        default_agent_id=normalize_agent_id(str(task.default_agent_id or "").strip()),
         allow_worker_agent_spawn=False,
         worker_agent_blueprint_id="",
         worker_agent_naming_rule="",
@@ -275,7 +275,7 @@ def _synthetic_task_from_general_profile(profile: GeneralTaskProfile) -> TaskAss
         task_kind="general_task",
         flow_id="flow.general.main_conversation",
         domain_id="domain.general",
-        default_agent_id=normalize_agent_id(str(profile.default_agent_id or "agent:0").strip() or "agent:0"),
+        default_agent_id=normalize_agent_id(str(profile.default_agent_id or "").strip()),
         participant_agent_ids=(),
         workflow_id=str(profile.default_workflow_id or ""),
         workflow_file_ref=f"workflow:{profile.default_workflow_id}" if profile.default_workflow_id else "",
@@ -583,7 +583,7 @@ class TaskFlowRegistry:
             title=record.task_title,
             input_contract_id=record.input_contract_id,
             output_contract_id=record.output_contract_id,
-            default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
+            default_agent_id=normalize_agent_id(str(default_agent_id or "").strip()),
             default_workflow_id=record.default_workflow_id,
             default_memory_scope=str(dict(record.task_policy or {}).get("task_structure", {}).get("memory_scope_hint") or ""),
             enabled=record.enabled,
@@ -596,7 +596,7 @@ class TaskFlowRegistry:
             flow_id=normalized_flow_id,
             domain_id=record.domain_id,
             task_environment_id=normalized_task_environment_id,
-            default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
+            default_agent_id=normalize_agent_id(str(default_agent_id or "").strip()),
             participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
             workflow_id=record.default_workflow_id,
             workflow_file_ref=str(workflow_file_ref or "").strip(),
@@ -683,7 +683,7 @@ class TaskFlowRegistry:
             task_kind="specific_task",
             flow_id=flow.flow_id,
             domain_id=str(flow.metadata.get("domain_id") or ""),
-            default_agent_id=flow.default_agent_id or "agent:0",
+            default_agent_id=normalize_agent_id(str(flow.default_agent_id or "").strip()),
             participant_agent_ids=(),
             workflow_id=flow.default_workflow_id,
             workflow_file_ref=f"workflow:{flow.default_workflow_id}" if flow.default_workflow_id else "",
@@ -750,7 +750,7 @@ class TaskFlowRegistry:
         *,
         task_id: str,
         execution_mode: str,
-        default_agent_id: str = "agent:0",
+        default_agent_id: str = "",
         allow_worker_agent_spawn: bool = False,
         worker_agent_blueprint_id: str = "",
         worker_agent_naming_rule: str = "",
@@ -1138,6 +1138,4 @@ class TaskFlowRegistry:
 
     def build_overview(self) -> dict[str, Any]:
         return self.overview_builder.build_overview()
-
-
 

@@ -408,12 +408,32 @@ def build_tool_invocation_idempotency_key(
             "tool_call_id": str(tool_call_id or ""),
             "tool_invocation_id": str(tool_invocation_id or ""),
             "tool_name": str(tool_name or ""),
+            "tool_args": _canonical_tool_args(tool_args),
         },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _canonical_tool_args(tool_args: dict[str, Any] | None) -> Any:
+    """Return a stable, order-insensitive form of tool arguments.
+
+    The idempotency key must identify the semantic tool call, so argument
+    ordering and non-semantic whitespace must not change the digest.
+    """
+    if not isinstance(tool_args, dict):
+        return {}
+    return json.loads(
+        json.dumps(
+            dict(tool_args),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    )
 
 
 def _signal_kind(value: str) -> ToolInvocationSignalKind:

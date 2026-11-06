@@ -5,21 +5,12 @@ from typing import Any, Literal
 
 
 TokenUsageSource = Literal["provider_usage", "local_prediction", "trace_estimate"]
+TokenUsagePhase = Literal["provider_usage", "local_prediction", "trace_estimate", ""]
 PromptCacheStatus = Literal["eligible", "hit", "miss", "bypassed", "invalidated"]
-PromptCacheScope = Literal["global", "org", "session", "task", "none"]
+PromptCacheScope = Literal["global", "org", "session", "none"]
 PromptCacheRole = Literal["cacheable_prefix", "session_stable", "volatile", "never_cache"]
-PromptPrefixTier = Literal["provider_global", "session", "task", "volatile", "none"]
+PromptPrefixTier = Literal["provider_global", "session", "volatile", "none"]
 CompressionRole = Literal["preserve", "summarize", "drop_if_cold", "ref_only"]
-PromptAuthorityClass = Literal[
-    "contract",
-    "permission",
-    "current_user_intent",
-    "runtime_state",
-    "evidence_ref",
-    "natural_history",
-    "bulk_output",
-    "unknown",
-]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,12 +24,25 @@ class PromptSegment:
     ordinal: int = 0
     role: str = ""
     content_hash: str = ""
+    content_version_hash: str = ""
+    provider_serialized_hash: str = ""
     byte_length: int = 0
     predicted_tokens: int = 0
     cache_role: PromptCacheRole = "volatile"
     prefix_tier: PromptPrefixTier = "volatile"
     compression_role: CompressionRole = "summarize"
-    authority_class: PromptAuthorityClass = "unknown"
+    transport_location: str = ""
+    prefix_family: str = ""
+    semantic_source: str = ""
+    logical_segment_ref: str = ""
+    prefix_segment_ref: str = ""
+    semantic_slot: str = ""
+    physical_prefix_lane: str = ""
+    prefix_identity: dict[str, Any] = field(default_factory=dict)
+    boundary_participation: str = "excluded"
+    exclusion_reason: str = ""
+    consumer_contracts: tuple[str, ...] = ()
+    forbidden_authorities: tuple[str, ...] = ()
     source: str = ""
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -62,7 +66,7 @@ class PromptSegmentMap:
     predicted_prompt_tokens: int = 0
     created_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.prompt_segment_map"
+    authority: str = "runtime.prompt_accounting.prompt_manifest"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -80,6 +84,7 @@ class ModelTokenUsageRecord:
     provider: str = ""
     model: str = ""
     source: TokenUsageSource = "local_prediction"
+    phase: TokenUsagePhase = ""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     reasoning_tokens: int = 0
@@ -106,6 +111,7 @@ class ModelTokenUsageRecord:
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
             source=_usage_source(payload.get("source")),
+            phase=_usage_phase(payload.get("phase") or payload.get("source")),
             prompt_tokens=_int(payload.get("prompt_tokens")),
             completion_tokens=_int(payload.get("completion_tokens")),
             reasoning_tokens=_int(payload.get("reasoning_tokens")),
@@ -121,8 +127,8 @@ class ModelTokenUsageRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptCacheRecord:
-    cache_record_id: str
+class CachePlanRecord:
+    cache_plan_id: str
     request_id: str
     provider: str = ""
     model: str = ""
@@ -141,7 +147,7 @@ class PromptCacheRecord:
     cache_safety_reasons: tuple[str, ...] = ()
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.prompt_accounting.prompt_cache_record"
+    authority: str = "runtime.prompt_accounting.cache_plan"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -149,9 +155,9 @@ class PromptCacheRecord:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "PromptCacheRecord":
+    def from_dict(cls, payload: dict[str, Any]) -> "CachePlanRecord":
         return cls(
-            cache_record_id=str(payload.get("cache_record_id") or ""),
+            cache_plan_id=str(payload.get("cache_plan_id") or ""),
             request_id=str(payload.get("request_id") or ""),
             provider=str(payload.get("provider") or ""),
             model=str(payload.get("model") or ""),
@@ -170,7 +176,7 @@ class PromptCacheRecord:
             cache_safety_reasons=tuple(str(item) for item in list(payload.get("cache_safety_reasons") or [])),
             created_at=float(payload.get("created_at") or 0.0),
             diagnostics=dict(payload.get("diagnostics") or {}),
-            authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_cache_record"),
+            authority=str(payload.get("authority") or "runtime.prompt_accounting.cache_plan"),
         )
 
 
@@ -188,6 +194,13 @@ def _usage_source(value: Any) -> TokenUsageSource:
     return "local_prediction"
 
 
+def _usage_phase(value: Any) -> TokenUsagePhase:
+    phase = str(value or "").strip()
+    if phase in {"provider_usage", "local_prediction", "trace_estimate"}:
+        return phase  # type: ignore[return-value]
+    return ""
+
+
 def _cache_status(value: Any) -> PromptCacheStatus:
     status = str(value or "").strip()
     if status in {"eligible", "hit", "miss", "bypassed", "invalidated"}:
@@ -197,6 +210,6 @@ def _cache_status(value: Any) -> PromptCacheStatus:
 
 def _cache_scope(value: Any) -> PromptCacheScope:
     scope = str(value or "").strip()
-    if scope in {"global", "org", "session", "task", "none"}:
+    if scope in {"global", "org", "session", "none"}:
         return scope  # type: ignore[return-value]
     return "none"

@@ -11,6 +11,7 @@ import "../styles/06-task-workbench.css";
 import "../styles/07-agent-management.css";
 import "@xyflow/react/dist/style.css";
 import "../styles/08-graph-repository.css";
+import "../styles/09-agent-network.css";
 
 const APPEARANCE_BOOTSTRAP_SCRIPT = `(function(){try{
 var root=document.documentElement;
@@ -83,11 +84,6 @@ export default function RootLayout({
 }>) {
   return (
     <html data-workbench-density="standard" data-workbench-theme="clean-light" lang="zh-CN" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;500;700&display=swap" rel="stylesheet" />
-      </head>
       <body>
         <script dangerouslySetInnerHTML={{
           __html: APPEARANCE_BOOTSTRAP_SCRIPT,

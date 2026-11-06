@@ -47,14 +47,15 @@ def build_tool_followup_evidence_delta_summary(
     ]
     if not new_observations:
         return {}
-    boundary = _cumulative_file_evidence_boundary(
+    relevant_paths = _paths_from_evidence_items(new_observations)
+    boundary_cursor = _cumulative_file_evidence_boundary(
         accumulated_payloads,
-        relevant_paths=_paths_from_evidence_items(new_observations),
+        relevant_paths=relevant_paths,
     )
     summary_seed = {
         "tool_iteration": int(tool_iteration or 0),
         "new_observations": new_observations,
-        "boundary": boundary,
+        "boundary_cursor": boundary_cursor,
     }
     return _drop_empty(
         {
@@ -62,15 +63,10 @@ def build_tool_followup_evidence_delta_summary(
             "tool_iteration": int(tool_iteration or 0),
             "current_observation_count": len(current_payloads),
             "cumulative_observation_count": len(accumulated_payloads),
-            "new_observations": new_observations[:8],
-            "cumulative_ledger_summary": _compact_ledger_summary(ledger.summary()),
-            "cumulative_evidence_boundary": boundary,
-            "agent_contract": [
-                "如果证据只覆盖文件窗口，不要声称已经通读、完整审查或确认整个文件。",
-                "如果需要完整结论，请继续读取 missing_ranges、required_read_windows 或搜索推荐窗口。",
-                "如果直接回答，请在自然语言中说明已确认范围和未确认边界。",
-                "如果动作没有执行回执，不要声称动作已经完成。",
-            ],
+            "new_observations": _bounded_dicts(new_observations, limit=4),
+            "ledger_cursor": _compact_ledger_cursor(ledger.summary(), relevant_paths=relevant_paths),
+            "evidence_boundary_cursor": boundary_cursor,
+            "contract_ref": "answer_evidence_alignment_contract",
             "authority": "runtime.memory.evidence_delta_summary",
         }
     )
@@ -264,10 +260,14 @@ def _cumulative_file_evidence_boundary(observations: list[dict[str, Any]], *, re
         if str(item.get("path") or "").replace("\\", "/").strip("/") in relevant_paths
     ] if relevant_paths else []
     if not selected:
-        selected = projection[-6:]
+        selected = projection[-4:]
+    files = [item for item in (_file_boundary_item(item) for item in selected[:4]) if item]
     return _drop_empty(
         {
-            "files": [item for item in (_file_boundary_item(item) for item in selected[:8]) if item],
+            "file_count": len(projection),
+            "selected_file_count": len(files),
+            "selected_paths": _bounded_texts([item.get("path") for item in files], limit=4),
+            "files": files,
             "authority": "runtime.memory.file_state_authority",
         }
     )
@@ -290,6 +290,13 @@ def _file_boundary_item(file_payload: dict[str, Any]) -> dict[str, Any]:
         for item in list(payload.get("read_ranges") or [])
         if isinstance(item, dict)
     ]
+    missing_ranges = [dict(item) for item in list(coverage.get("missing_ranges") or []) if isinstance(item, dict)]
+    recommended = [
+        _read_window_hint(item)
+        for item in list(payload.get("recommended_read_windows") or [])
+        if isinstance(item, dict)
+    ]
+    candidate_windows = [*recommended]
     return _drop_empty(
         {
             "path": str(payload.get("path") or ""),
@@ -297,33 +304,39 @@ def _file_boundary_item(file_payload: dict[str, Any]) -> dict[str, Any]:
             "total_lines": payload.get("total_lines"),
             "coverage_complete": coverage.get("complete"),
             "covered_lines": coverage.get("covered_lines"),
-            "covered_ranges": _bounded_dicts(list(coverage.get("merged_ranges") or []), limit=6),
-            "missing_ranges": _bounded_dicts(list(coverage.get("missing_ranges") or []), limit=6),
-            "exact_coverage_complete": exact_coverage.get("complete"),
-            "read_ranges": _bounded_dicts(read_ranges, limit=6),
-            "next_suggested_read": _read_window_hint(dict(payload.get("next_suggested_read") or {})),
-            "recommended_read_windows": _bounded_dicts(
-                [
-                    _read_window_hint(item)
-                    for item in list(payload.get("recommended_read_windows") or [])
-                    if isinstance(item, dict)
-                ],
-                limit=4,
+            "covered_range_count": len(list(coverage.get("merged_ranges") or [])),
+            "partial_coverage": bool(missing_ranges),
+            "coverage_caution": (
+                "coverage gaps are diagnostic only; read another window only when the current claim target is outside reusable exact coverage"
+                if missing_ranges
+                else ""
             ),
+            "exact_coverage_complete": exact_coverage.get("complete"),
+            "latest_read_range": _bounded_dicts(read_ranges[-1:], limit=1),
+            "candidate_window_count": len(candidate_windows),
+            "candidate_read_windows": _bounded_dicts(candidate_windows, limit=2),
         }
     )
 
 
-def _compact_ledger_summary(summary: dict[str, Any]) -> dict[str, Any]:
+def _compact_ledger_cursor(summary: dict[str, Any], *, relevant_paths: set[str]) -> dict[str, Any]:
     payload = dict(summary or {})
+    observed_paths = _bounded_texts(payload.get("observed_paths"), limit=8)
+    matched_paths = _bounded_texts(payload.get("matched_paths"), limit=8)
+    relevant = sorted(
+        path
+        for path in set(observed_paths + matched_paths)
+        if str(path).replace("\\", "/").strip("/") in relevant_paths
+    )
     return _drop_empty(
         {
             "record_count": payload.get("record_count"),
             "read_count": payload.get("read_count"),
             "write_count": payload.get("write_count"),
             "verification_count": payload.get("verification_count"),
-            "observed_paths": _bounded_texts(payload.get("observed_paths"), limit=12),
-            "matched_paths": _bounded_texts(payload.get("matched_paths"), limit=12),
+            "relevant_paths": _bounded_texts(relevant or observed_paths or matched_paths, limit=4),
+            "observed_path_count": len(observed_paths),
+            "matched_path_count": len(matched_paths),
             "verification_passed": payload.get("verification_passed") if int(payload.get("verification_count") or 0) else None,
         }
     )

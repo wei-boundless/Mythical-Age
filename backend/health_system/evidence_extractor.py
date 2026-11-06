@@ -9,13 +9,8 @@ from .evidence_scorer import score_negative_observation, score_runtime_event
 from .maintenance.experiments.artifacts import read_json_file
 
 
-_SUBAGENT_LIFECYCLE_TOOLS = {
-    "spawn_subagent",
-    "send_subagent_message",
-    "wait_subagent",
-    "list_subagents",
-    "close_subagent",
-}
+_SUBAGENT_TOOL_NAME = "subagent"
+_SUBAGENT_LIFECYCLE_ACTIONS = {"spawn", "send", "wait", "list", "close"}
 
 
 def build_runtime_trace_evidence_packet(
@@ -167,6 +162,9 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
         metadata: dict[str, Any] = {"offset": int(event.get("offset") or time_index)}
         if tool_name:
             metadata["tool_name"] = tool_name
+            tool_action = _tool_action(event)
+            if tool_action:
+                metadata["tool_action"] = tool_action
         candidate = EvidenceCandidate(
             candidate_id=f"evcand:{event_id}",
             source_kind="runtime_event",
@@ -189,7 +187,8 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
 
     subagent_lifecycle_observed = any(
         item.event_type == "tool_call_requested"
-        and _tool_name_from_candidate(item) in _SUBAGENT_LIFECYCLE_TOOLS
+        and _tool_name_from_candidate(item) == _SUBAGENT_TOOL_NAME
+        and str(item.metadata.get("tool_action") or "").strip().lower() in _SUBAGENT_LIFECYCLE_ACTIONS
         for item in candidates
     )
     if not subagent_lifecycle_observed and events:
@@ -242,7 +241,7 @@ def _collect_coordination_candidates(coordination_runs: list[dict[str, Any]], *,
                 source_ref=coordination_run_id,
                 subject_type="task_graph",
                 subject_id=coordination_run_id or task_run_id,
-                event_type="coordination_recovery_boundary",
+                event_type="coordination_boundary",
                 time_index=index,
                 summary="; ".join(item for item in summary_parts if item),
                 raw_ref=coordination_run_id,
@@ -533,9 +532,14 @@ def _tool_name(event: dict[str, Any]) -> str:
     return str(action_payload.get("tool_name") or "")
 
 
+def _tool_action(event: dict[str, Any]) -> str:
+    action_request = dict(event.get("payload") or {}).get("action_request") or {}
+    action_payload = dict(action_request.get("payload") or {})
+    tool_args = dict(action_payload.get("tool_args") or action_payload.get("arguments") or {})
+    return str(tool_args.get("action") or action_payload.get("action") or "").strip().lower()
+
+
 def _tool_name_from_candidate(candidate: EvidenceCandidate) -> str:
     if candidate.event_type != "tool_call_requested":
         return ""
     return str(candidate.metadata.get("tool_name") or "")
-
-

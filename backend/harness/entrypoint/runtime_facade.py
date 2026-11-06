@@ -10,16 +10,11 @@ from typing import Any
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tools.authorization import build_tool_authorization_index
 from graph_system.facade import GraphSystem
-from harness.current_work_receipt import current_work_control_availability_from_receipt
+from harness.receipt_payload import receipt_payload
 from harness.continuation import (
-    build_recovery_boundary_input,
-    build_recovery_packet,
-    decide_recovery_boundary,
-    recovery_boundary_receipt_from_decision,
     select_session_continuation,
 )
-from harness.runtime import AgentRuntimeServices, RuntimeCompiler, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
-from harness.runtime.task_run_control_gateway import TaskRunControlGateway
+from harness.runtime import AgentRuntimeServices, RuntimeCompiler, SingleAgentRuntimeHost, assemble_runtime
 from harness.runtime.request_facts import build_turn_input_facts
 from harness.runtime.public_progress import public_runtime_progress_summary
 from harness.runtime.output_commit_authority import OutputCommitAuthority, OutputCommitRequest, OutputCommitResult
@@ -33,24 +28,20 @@ from harness.entrypoint.current_work_boundary import (
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.context_management.session_compaction import auto_compact_session_if_needed, compact_session_history
 from runtime.shared.history_assembler import assemble_runtime_history
+from runtime.turn_memory import build_prior_work_memory_context, build_turn_memory_recovery_context
 from permissions.policy import normalize_permission_mode
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from agent_system.identity import normalize_agent_id
 from capability_system.catalog_projection import build_base_unit_catalog
-from harness.task_contract_normalization import contract_dict_tuple, contract_string_tuple
+from harness.task_run_contract_normalization import contract_dict_tuple, contract_string_tuple
 from harness.runtime.commit_gate import build_user_message_commit_decision
 from core.project_layout import ProjectLayout
 from harness.entrypoint.models import HarnessRuntimeRequest
 from api.chat_direct_routes import run_direct_system_route
-from harness.task_run_status import is_stopped_or_terminal_task_run
 from harness.loop.active_work import (
     ActiveWorkContext,
-    ActiveWorkTurnDecision,
     active_work_control_denial_observation,
-    active_work_status_reply,
     active_work_turn_decision_from_payload,
     default_reply_for_action,
-    public_active_work_text,
 )
 from harness.loop.model_action_protocol import ModelActionRequest
 from harness.loop.model_action_runtime import call_model_invoker
@@ -59,43 +50,27 @@ from harness.loop.execution_kernel import (
     build_action_lifecycle_event_record,
     decide_model_action_lifecycle,
 )
-from harness.loop.presentation import error_event, final_answer_event
+from harness.loop.presentation import error_event, final_answer_event, turn_completed_event
 from harness.loop.single_agent_turn import run_single_agent_turn
-from harness.loop.task_executor import (
-    append_user_work_instruction,
-    execute_task_run,
-)
 from harness.entrypoint.task_mode_slash_command import TaskModeSlashSignal, task_mode_slash_signal_from_message
-from harness.loop.task_executor_controller import TaskExecutorController
-from harness.loop.task_run_recovery_state import recovery_state_for_task_run
+from harness.entrypoint.graph_node_work_order_bridge import GraphNodeWorkOrderBridge
+from harness.entrypoint.task_environment_episode_bridge import TaskEnvironmentEpisodeBridge
 from harness.loop.task_lifecycle import (
-    TaskLifecycleRecord,
     TaskRunContract,
     contract_from_action_request,
-    start_task_lifecycle_from_action_request,
-    start_task_lifecycle_from_contract,
 )
-from graph_system.models import safe_id
-from harness.runtime.graph_node_contract import (
-    _graph_coordinator_profile_ref,
-    _graph_node_agent_id,
-    _graph_node_clock_seq,
-    _graph_node_contract_from_work_order,
-    _graph_node_origin,
-    _graph_node_public_scope_fields,
-    _graph_node_runtime_contract,
-    _graph_node_runtime_scope,
-    _graph_node_task_run_id,
-    _validate_existing_graph_node_task_run,
-)
-from runtime.shared.models import AgentRun, TaskRun
+from task_system.work_environments.models import SessionTaskBinding, stable_task_environment_id
+from task_system.work_environments.repository import TaskEnvironmentRepository
+from task_system.work_environments.scheduler import TaskScheduler
+from task_system.work_environments.service import TaskWorkEnvironmentService
+from task_system.work_environments.view_service import TaskEnvironmentViewService
+from graph_system.runtime_effect_registry import handle_runtime_algorithm_effects
 from memory_system.runtime_context_provider import RuntimeMemoryContextProvider, should_inject_session_emphasis
 from runtime.model_gateway.model_response_protocol import model_response_protocol_from_response
 
 logger = logging.getLogger(__name__)
 
-_CONVERSATION_TASK_EXECUTION_STEPS = 50
-
+DEFAULT_INTERACTIVE_AGENT_PROFILE_ID = "main_interactive_agent"
 
 class HarnessRuntimeFacade:
     """Thin API adapter for the agent runtime chain.
@@ -126,7 +101,7 @@ class HarnessRuntimeFacade:
         self.runtime_memory_context_provider = RuntimeMemoryContextProvider(
             bundle_service_getter=lambda: getattr(getattr(self, "memory_facade", None), "bundle_service", None),
             session_record_loader=lambda session_id: self.session_manager.load_session_record(session_id),
-            recent_messages_loader=self._load_recent_api_messages_for_memory,
+            recent_messages_loader=self._load_recent_provider_protocol_messages_for_memory,
             logger=logger,
         )
         self.model_runtime = model_runtime
@@ -166,30 +141,71 @@ class HarnessRuntimeFacade:
         attach_observability = getattr(self.model_runtime, "attach_runtime_observability", None)
         if callable(attach_observability):
             attach_observability(self.single_agent_runtime_host.observability)
+        attach_turn_memory = getattr(self.model_runtime, "attach_turn_memory_store", None)
+        if callable(attach_turn_memory):
+            attach_turn_memory(self.single_agent_runtime_host.turn_memory_store)
         self.agent_runtime_services = AgentRuntimeServices.from_runtime_host(
             self.single_agent_runtime_host,
-            execute_task_run_callback=self.execute_task_run,
-            execute_graph_agent_work_order_callback=self.execute_graph_agent_work_order,
+            execute_graph_agent_work_order_callback=self._execute_graph_agent_work_order,
             model_runtime=self.model_runtime,
             tool_runtime_executor=self.tool_runtime_executor,
             tool_instances=tuple(self._all_tool_instances()),
             agent_runtime_profile_resolver=self.agent_runtime_registry.get_profile,
-        )
-        self.task_executor_controller = TaskExecutorController(
-            runtime_host=self.single_agent_runtime_host,
-            execute_task_run_callback=lambda task_run_id, **kwargs: self.execute_task_run(task_run_id, **kwargs),
+            runtime_algorithm_effect_sink=self._handle_runtime_algorithm_effects,
         )
         self.graph_system = GraphSystem(
             services=self.agent_runtime_services,
         )
         self.single_agent_runtime_host.run_monitor_service.attach_graph_system(self.graph_system)
-        self.task_executor_recovery = self.task_executor_controller.recover_interrupted_executor_leases()
         self.runtime_components = {
             "harness.entrypoint": "application_runtime_facade",
             "graph_system": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
-            "task_executor_recovery": self.task_executor_recovery,
+            "task_environment_episode_bridge": "active",
+            "graph_node_work_order_bridge": "active",
         }
+
+    def _handle_runtime_algorithm_effects(
+        self,
+        *,
+        effect_requests: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+        graph_config: Any,
+        graph_state: Any,
+        node_result: Any,
+    ) -> dict[str, Any]:
+        return handle_runtime_algorithm_effects(
+            effect_requests=effect_requests,
+            graph_config=graph_config,
+            graph_state=graph_state,
+            node_result=node_result,
+            backend_dir=self.base_dir,
+        )
+
+    async def execute_task_environment_episode(
+        self,
+        *,
+        task_environment_id: str,
+        episode_id: str = "",
+        max_steps: int = 12,
+    ) -> dict[str, Any]:
+        return await TaskEnvironmentEpisodeBridge(self).execute(
+            task_environment_id=task_environment_id,
+            episode_id=episode_id,
+            max_steps=max_steps,
+        )
+
+    async def _execute_graph_agent_work_order(
+        self,
+        *,
+        graph_config: Any,
+        work_order: Any,
+        max_steps: int = 12,
+    ) -> dict[str, Any]:
+        return await GraphNodeWorkOrderBridge(self).execute(
+            graph_config=graph_config,
+            work_order=work_order,
+            max_steps=max_steps,
+        )
 
     @property
     def evidence_orchestrator(self):
@@ -201,6 +217,7 @@ class HarnessRuntimeFacade:
 
     def _build_evidence_orchestrator(self):
         from evidence.orchestrator import EvidenceOrchestrator
+        from evidence.office_document_worker import OfficeDocumentWorker
         from evidence.output_policy import RAGEvidenceOutputPolicy
         from evidence.pdf_worker import PDFWorker
         from evidence.retrieval_worker import RetrievalWorker
@@ -210,6 +227,7 @@ class HarnessRuntimeFacade:
             retrieval_worker=RetrievalWorker(retrieval_service=self._retrieval_service),
             pdf_worker=PDFWorker(root_dir=self.base_dir),
             structured_data_worker=StructuredDataWorker(root_dir=self.base_dir),
+            office_document_worker=OfficeDocumentWorker(root_dir=self.base_dir),
             output_policy=RAGEvidenceOutputPolicy(model_runtime=self.model_runtime),
         )
 
@@ -236,8 +254,8 @@ class HarnessRuntimeFacade:
         *,
         raw_messages: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
     ) -> dict[str, Any]:
-        session_memory = getattr(getattr(self, "memory_facade", None), "session_memory", None)
-        manager_factory = getattr(session_memory, "manager", None)
+        conversation_continuity = getattr(getattr(self, "memory_facade", None), "conversation_continuity", None)
+        manager_factory = getattr(conversation_continuity, "manager", None)
         if not callable(manager_factory):
             return {}
         try:
@@ -282,21 +300,27 @@ class HarnessRuntimeFacade:
             turn_id=exclude_current_user_turn_id,
             user_message=exclude_current_user_message,
         )
-        api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
-        api_transcript = (
-            api_transcript_loader(session_id)
-            if callable(api_transcript_loader)
+        provider_protocol_timeline_loader = getattr(self.session_manager, "load_provider_protocol_timeline", None)
+        provider_protocol_timeline = (
+            provider_protocol_timeline_loader(session_id)
+            if callable(provider_protocol_timeline_loader)
             else list(raw_history or [])
         )
+        if exclude_current_user_turn_id:
+            provider_protocol_timeline = _history_without_current_user_request(
+                list(provider_protocol_timeline or []),
+                turn_id=exclude_current_user_turn_id,
+                user_message=exclude_current_user_message,
+            )
         history_assembly = assemble_runtime_history(
             history=raw_history,
             compressed_context=str(history_record.get("compressed_context") or ""),
         )
         session_context = dict(base_session_context or {})
         session_context["compressed_context"] = history_assembly.compressed_context
-        session_context["api_transcript"] = [
+        session_context["provider_protocol_timeline"] = [
             dict(item)
-            for item in list(api_transcript or [])
+            for item in list(provider_protocol_timeline or [])
             if isinstance(item, dict)
         ]
         session_context = _attach_fork_snapshot_to_session_context(session_context, history_record)
@@ -406,31 +430,36 @@ class HarnessRuntimeFacade:
         }
 
     def prepare_chat_run_request_for_schedule(self, request: HarnessRuntimeRequest, *, stream_run_id: str) -> HarnessRuntimeRequest:
-        runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        runtime_profile = request.runtime_profile_payload()
         if str(runtime_profile.get("precommitted_user_message_turn_id") or "").strip():
             return request
-        history_record = self.session_manager.load_session_record(request.session_id)
-        turn_index = len(history_record.get("messages", [])) + 1
-        turn_id = f"turn:{request.session_id}:{turn_index}"
         message_id = str(getattr(request, "client_message_id", "") or "").strip() or f"user:{stream_run_id}"
         attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
-        self._commit_user_message(
-            session_id=request.session_id,
+        client_message_id = str(getattr(request, "client_message_id", "") or "").strip()
+        reservation = self.session_manager.reserve_user_message(
+            request.session_id,
             content=request.message,
-            api_content=str(request.message or ""),
             attachments=attachments,
-            turn_id=turn_id,
             message_id=message_id,
-            client_message_id=str(getattr(request, "client_message_id", "") or "").strip(),
+            client_message_id=client_message_id,
+            provider_protocol_content=str(request.message or ""),
             source="harness.entrypoint.chat_run_schedule",
+            turn_allocator=lambda payload: _next_session_turn_id(
+                request.session_id,
+                history_record=dict(payload or {}),
+                turn_memory_store=self.single_agent_runtime_host.turn_memory_store,
+            ),
         )
+        turn_id = str(reservation.get("turn_id") or "").strip()
+        canonical_message_id = str(reservation.get("message_id") or message_id).strip()
         return replace(
             request,
             runtime_profile={
                 **runtime_profile,
                 "precommitted_user_message": True,
                 "precommitted_user_message_turn_id": turn_id,
-                "precommitted_user_message_id": message_id,
+                "precommitted_user_message_id": canonical_message_id,
+                "precommitted_user_message_reservation_state": str(reservation.get("state") or "committed"),
                 "precommitted_user_message_source": "harness.entrypoint.chat_run_schedule",
                 "precommitted_user_message_defer_auto_compaction": not bool(request.history),
                 "precommitted_user_message_auto_compaction": {
@@ -442,7 +471,7 @@ class HarnessRuntimeFacade:
         )
 
     async def astream(self, request: HarnessRuntimeRequest):
-        request_runtime_profile = dict(getattr(request, "runtime_profile", {}) or {})
+        request_runtime_profile = request.runtime_profile_payload()
         model_user_message = str(request.message or "")
         precommitted_turn_id = str(request_runtime_profile.get("precommitted_user_message_turn_id") or "").strip()
         history_record = self.session_manager.load_session_record(request.session_id)
@@ -480,15 +509,15 @@ class HarnessRuntimeFacade:
                 turn_id=precommitted_turn_id,
                 user_message=model_user_message,
             )
-        api_transcript_loader = getattr(self.session_manager, "load_session_for_api", None)
-        api_transcript = (
-            api_transcript_loader(request.session_id)
-            if callable(api_transcript_loader) and not request.history
+        provider_protocol_timeline_loader = getattr(self.session_manager, "load_provider_protocol_timeline", None)
+        provider_protocol_timeline = (
+            provider_protocol_timeline_loader(request.session_id)
+            if callable(provider_protocol_timeline_loader) and not request.history
             else list(raw_history or [])
         )
         if precommitted_turn_id:
-            api_transcript = _history_without_current_user_request(
-                list(api_transcript or []),
+            provider_protocol_timeline = _history_without_current_user_request(
+                list(provider_protocol_timeline or []),
                 turn_id=precommitted_turn_id,
                 user_message=model_user_message,
             )
@@ -499,7 +528,7 @@ class HarnessRuntimeFacade:
         history = [dict(item) for item in history_assembly.model_history]
         session_context = {
             "compressed_context": history_assembly.compressed_context,
-            "api_transcript": [dict(item) for item in list(api_transcript or []) if isinstance(item, dict)],
+            "provider_protocol_timeline": [dict(item) for item in list(provider_protocol_timeline or []) if isinstance(item, dict)],
         }
         session_context = _attach_fork_snapshot_to_session_context(session_context, history_record)
         context_recovery_package = (
@@ -528,15 +557,18 @@ class HarnessRuntimeFacade:
         project_binding = dict(conversation_state.get("project_binding") or {})
         if project_binding:
             session_context["project_binding"] = project_binding
-        editor_context = dict(getattr(request, "editor_context", {}) or {})
+        editor_context = request.editor_context_payload()
         if editor_context:
             session_context["editor_context"] = editor_context
         attachments = _normalized_turn_attachments(getattr(request, "attachments", []) or [])
         if attachments:
             session_context["turn_input_attachments"] = attachments
         semantic_request = replace(request, message=model_user_message)
-        turn_index = len(history_record.get("messages", [])) + 1
-        turn_id = precommitted_turn_id or f"turn:{request.session_id}:{turn_index}"
+        turn_id = precommitted_turn_id or _next_session_turn_id(
+            request.session_id,
+            history_record=history_record,
+            turn_memory_store=self.single_agent_runtime_host.turn_memory_store,
+        )
         started_active_turn_id = ""
         request_permission_mode = _request_permission_mode(
             request,
@@ -548,7 +580,7 @@ class HarnessRuntimeFacade:
             input_commit_gate = self._commit_user_message(
                 session_id=request.session_id,
                 content=request.message,
-                api_content=model_user_message,
+                provider_protocol_content=model_user_message,
                 attachments=attachments,
                 turn_id=turn_id,
                 message_id=str(
@@ -562,7 +594,7 @@ class HarnessRuntimeFacade:
                 self.single_agent_runtime_host.active_turn_registry.start(
                     session_id=request.session_id,
                     turn_id=turn_id,
-                    stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
+                    stream_run_id=str(request_runtime_profile.get("stream_run_id") or ""),
                     state="starting",
                 )
                 started_active_turn_id = turn_id
@@ -604,12 +636,15 @@ class HarnessRuntimeFacade:
                     return
 
                 active_work_context = self._active_work_context_from_active_turn(request.session_id)
+                active_work_context_payload = active_work_context.to_dict() if active_work_context is not None else {}
                 agent_runtime_profile = self._resolve_request_agent_runtime_profile(request)
-                request_environment_binding = dict(getattr(request, "environment_binding", {}) or {})
+                request_environment_binding = request.environment_binding_payload()
+                request_runtime_contract = request.runtime_contract_payload()
+                request_model_selection = request.model_selection_payload()
                 runtime_contract = _runtime_contract_for_turn(
-                    request_runtime_contract=dict(request.runtime_contract or {}),
+                    request_runtime_contract=request_runtime_contract,
                     turn_id=turn_id,
-                    runtime_profile=dict(request.runtime_profile or {}),
+                    runtime_profile=request_runtime_profile,
                     active_turn_present=active_turn is not None,
                 )
                 agent_invocation_id = f"aginvoke:{turn_id}:main"
@@ -620,7 +655,7 @@ class HarnessRuntimeFacade:
                     turn_id=turn_id,
                     agent_invocation_id=agent_invocation_id,
                     runtime_contract=runtime_contract,
-                    model_selection=dict(request.model_selection or {}),
+                    model_selection=request_model_selection,
                     environment_binding=request_environment_binding,
                     agent_runtime_profile=agent_runtime_profile,
                     tool_instances=tool_instances,
@@ -647,23 +682,33 @@ class HarnessRuntimeFacade:
                     session_id=request.session_id,
                     active_work_present=active_work_context is not None,
                 )
-                continuation_record = continuation_selection.record
-                interrupted_turn_record = continuation_selection.interrupted_turn
-                if continuation_record is not None or interrupted_turn_record is not None:
-                    session_context["continuation_selection"] = continuation_selection.to_dict()
-                if interrupted_turn_record is not None:
-                    session_context["interrupted_turn_work"] = interrupted_turn_record.to_dict()
+                turn_memory_recovery_context = build_turn_memory_recovery_context(
+                    self.single_agent_runtime_host.turn_memory_store,
+                    session_id=request.session_id,
+                )
+                prior_work_memory_context = (
+                    build_prior_work_memory_context(
+                        self.single_agent_runtime_host.turn_memory_store,
+                        session_id=request.session_id,
+                    )
+                    if active_work_context is None
+                    else {}
+                )
+                if turn_memory_recovery_context:
+                    selection_payload = continuation_selection.to_dict()
+                    selection_payload["turn_memory_recovery"] = {
+                        "selected_turn_id": str(turn_memory_recovery_context.get("previous_turn_id") or ""),
+                        "decision": dict(turn_memory_recovery_context.get("recovery_decision") or {}),
+                        "authority": str(turn_memory_recovery_context.get("authority") or ""),
+                    }
+                    session_context["continuation_selection"] = selection_payload
+                if turn_memory_recovery_context:
+                    session_context["turn_memory_recovery"] = turn_memory_recovery_context
+                if prior_work_memory_context:
+                    session_context["prior_work_memory_context"] = prior_work_memory_context
                 recent_work_outcome: dict[str, Any] = {}
-                recoverable_work_candidate: dict[str, Any] = {}
-                if continuation_record is not None and continuation_record.state != "terminal_read_only":
-                    recoverable_work_candidate = continuation_record.to_dict()
-                    session_context["recoverable_work"] = recoverable_work_candidate
-                elif continuation_record is not None and continuation_record.state == "terminal_read_only":
-                    recent_work_outcome = self._recent_work_outcome_from_continuation_record(continuation_record.to_dict())
-                    if recent_work_outcome:
-                        session_context["recent_work_outcome"] = recent_work_outcome
-                elif active_work_context is None:
-                    recent_work_outcome = self._recent_work_outcome_from_latest_task(request.session_id)
+                if active_work_context is None:
+                    recent_work_outcome = self._recent_work_outcome_from_latest_task_environment(request.session_id)
                     if recent_work_outcome:
                         session_context["recent_work_outcome"] = recent_work_outcome
                 turn_input_facts = build_turn_input_facts(
@@ -672,15 +717,13 @@ class HarnessRuntimeFacade:
                     user_message=model_user_message,
                     expected_active_turn_id=str(getattr(request, "expected_active_turn_id", "") or "").strip(),
                     active_turn_input_policy=str(getattr(request, "active_turn_input_policy", "") or "auto").strip() or "auto",
-                    expected_task_run_id=str(getattr(request, "expected_task_run_id", "") or "").strip(),
                     expected_continuation_id=str(getattr(request, "expected_continuation_id", "") or "").strip(),
                     recovery_input_policy=str(getattr(request, "recovery_input_policy", "") or "auto").strip() or "auto",
                     active_turn=active_turn,
                     active_work_candidate=active_work_context,
-                    recoverable_work_candidate=recoverable_work_candidate,
                     recent_work_outcome_candidate=recent_work_outcome,
                     environment_binding=request_environment_binding,
-                    runtime_profile=dict(request.runtime_profile or {}),
+                    runtime_profile=request_runtime_profile,
                     editor_context=editor_context,
                 )
                 session_context["turn_id"] = turn_id
@@ -692,7 +735,7 @@ class HarnessRuntimeFacade:
                     active_work_context=active_work_context,
                     runtime_branch=runtime_branch,
                     runtime_assembly=runtime_assembly,
-                    model_selection=dict(request.model_selection or {}),
+                    model_selection=request_model_selection,
                 )
                 session_context["current_work_boundary_receipt"] = current_work_receipt.to_dict()
                 yield {
@@ -705,7 +748,7 @@ class HarnessRuntimeFacade:
                     turn_id=turn_id,
                     user_message=model_user_message,
                     environment_binding=request_environment_binding,
-                    active_work_context=active_work_context,
+                    active_work_context=active_work_context_payload,
                     recent_work_outcome=recent_work_outcome,
                     runtime_assembly=runtime_assembly,
                 )
@@ -719,7 +762,7 @@ class HarnessRuntimeFacade:
                     agent_runtime_profile=agent_runtime_profile,
                     runtime_assembly=runtime_assembly,
                     environment_binding=request_environment_binding,
-                    active_work_context=active_work_context,
+                    active_work_context=active_work_context_payload,
                     recent_work_outcome=recent_work_outcome,
                 )
                 if memory_context:
@@ -752,7 +795,6 @@ class HarnessRuntimeFacade:
                         runtime_branch=runtime_branch,
                         active_work_context=active_work_context,
                         current_work_boundary_receipt=current_work_receipt.to_dict(),
-                        continuation_record=continuation_record,
                     ):
                         yield event
                     return
@@ -855,36 +897,27 @@ class HarnessRuntimeFacade:
         runtime_branch: dict[str, Any],
         active_work_context: ActiveWorkContext | None,
         current_work_boundary_receipt: dict[str, Any],
-        continuation_record: Any | None = None,
+        max_steps: int | None = None,
     ):
         async def start_task(action_request: ModelActionRequest, start_context_handoff: dict[str, Any]):
-            async for event in start_task_lifecycle_from_action_request(
-                runtime_host=self.single_agent_runtime_host,
+            for event in _task_environment_receipt_events(
+                base_dir=self.base_dir,
                 session_id=request.session_id,
                 turn_id=turn_id,
-                runtime_contract=dict(request.runtime_contract or {}),
-                model_selection=dict(request.model_selection or {}),
                 action_request=action_request,
-                agent_runtime_profile=agent_runtime_profile,
-                runtime_assembly=runtime_assembly,
                 runtime_branch=runtime_branch,
-                editor_context=dict(getattr(request, "editor_context", {}) or {}),
-                start_context_handoff=dict(start_context_handoff or {}),
-                answer_source="harness.single_agent_turn.request_task_run",
-                scheduler="single_agent_turn",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-                commit_assistant_message=self._apply_assistant_message_commit_async,
-                initialize_task_todo=self._initialize_task_todo_for_contract,
-                schedule_task_run_executor=self.schedule_task_run_executor,
+                source="harness.single_agent_turn.request_task_run",
             ):
-                task_run_id = _task_run_id_from_lifecycle_event(event)
-                if task_run_id:
-                    self._record_turn_environment_snapshot(
-                        session_id=request.session_id,
-                        turn_id=turn_id,
-                        runtime_assembly=runtime_assembly,
-                        task_run_id=task_run_id,
-                    )
+                yield event
+
+        async def apply_active_work_control(action_request: ModelActionRequest):
+            async for event in self._apply_task_environment_active_work_control(
+                request=request,
+                turn_id=turn_id,
+                action_request=action_request,
+                active_work_context=active_work_context,
+                runtime_branch=runtime_branch,
+            ):
                 yield event
 
         async for event in run_single_agent_turn(
@@ -895,7 +928,7 @@ class HarnessRuntimeFacade:
             session_context=session_context,
             agent_invocation_id=agent_invocation_id,
             agent_runtime_profile=agent_runtime_profile,
-            model_selection=dict(request.model_selection or {}),
+            model_selection=request.model_selection_payload(),
             runtime_assembly=runtime_assembly,
             runtime_host=self.single_agent_runtime_host,
             runtime_branch=runtime_branch,
@@ -903,23 +936,11 @@ class HarnessRuntimeFacade:
             current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
             model_runtime=getattr(self.model_response_executor, "model_runtime", None),
             commit_assistant_message=self._apply_assistant_message_commit_async,
-            stream_run_id=str(dict(getattr(request, "runtime_profile", {}) or {}).get("stream_run_id") or ""),
+            stream_run_id=request.stream_run_id(),
             start_task_from_action_request=start_task,
-            apply_active_work_control=lambda action_request: self._run_current_work_control_action_request(
-                request=request,
-                turn_id=turn_id,
-                action_request=action_request,
-                current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
-                active_work_context=active_work_context,
-            ),
-            apply_recoverable_work_resume=lambda action_request: self._run_recoverable_work_resume_action_request(
-                request=request,
-                turn_id=turn_id,
-                action_request=action_request,
-                continuation_record=continuation_record,
-                current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
-            ),
+            apply_active_work_control=apply_active_work_control if active_work_context is not None else None,
             compact_session_context=self._compact_session_context_for_single_agent_followup,
+            max_tool_iterations=max_steps,
         ):
             yield event
 
@@ -963,323 +984,6 @@ class HarnessRuntimeFacade:
             committer=self._apply_assistant_message_commit_async,
         )
 
-    async def _run_recoverable_work_resume_action_request(
-        self,
-        *,
-        request: HarnessRuntimeRequest,
-        turn_id: str,
-        action_request: ModelActionRequest,
-        continuation_record: Any | None,
-        current_work_boundary_receipt: dict[str, Any],
-    ):
-        resume_payload = dict(action_request.recovery_resume or {})
-        expected_task_run_id = str(resume_payload.get("task_run_id") or getattr(request, "expected_task_run_id", "") or "").strip()
-        expected_continuation_id = str(resume_payload.get("continuation_id") or getattr(request, "expected_continuation_id", "") or "").strip()
-        recovery_boundary_input = build_recovery_boundary_input(
-            session_id=request.session_id,
-            turn_id=turn_id,
-            recovery_input_policy="resume",
-            expected_task_run_id=expected_task_run_id,
-            expected_continuation_id=expected_continuation_id,
-            continuation_record=continuation_record,
-            current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
-        )
-        recovery_decision = decide_recovery_boundary(recovery_boundary_input)
-        recovery_receipt = recovery_boundary_receipt_from_decision(recovery_decision)
-        yield {
-            "type": "recovery_boundary_decided",
-            "decision": recovery_decision.to_dict(),
-            "receipt": recovery_receipt.to_dict(),
-            "model_action_request": action_request.to_dict(),
-        }
-        if recovery_decision.action == "resume_recoverable_work":
-            async for event in self._run_recovery_resume_request(
-                request=request,
-                turn_id=turn_id,
-                recovery_decision=recovery_decision.to_dict(),
-                recovery_receipt=recovery_receipt.to_dict(),
-            ):
-                yield event
-            return
-        async for event in self._run_recovery_boundary_status_response(
-            request=request,
-            turn_id=turn_id,
-            recovery_decision=recovery_decision.to_dict(),
-            recovery_receipt=recovery_receipt.to_dict(),
-        ):
-            yield event
-
-    async def _run_recovery_boundary_status_response(
-        self,
-        *,
-        request: HarnessRuntimeRequest,
-        turn_id: str,
-        recovery_decision: dict[str, Any],
-        recovery_receipt: dict[str, Any],
-    ):
-        content = str(
-            recovery_decision.get("response")
-            or recovery_decision.get("reason")
-            or "当前恢复请求没有执行。"
-        ).strip()
-        commit_result = await self._commit_facade_assistant_output(
-            request=request,
-            turn_id=turn_id,
-            content=content,
-            answer_source="harness.continuation.recovery_boundary",
-            execution_posture="recovery_boundary_status",
-            terminal_reason=str(recovery_decision.get("reason") or recovery_decision.get("action") or "recovery_boundary_status"),
-            refs={"recovery_boundary_receipt_ref": str(recovery_receipt.get("receipt_id") or "")},
-        )
-        output_content = commit_result.decision.content
-        yield {
-            "type": "runtime_status",
-            "title": "恢复请求未执行",
-            "detail": output_content,
-            "state": "warning",
-            "phase": "recovery_boundary",
-            "terminal_reason": str(recovery_decision.get("reason") or ""),
-            "recovery_boundary_receipt": recovery_receipt,
-        }
-        yield final_answer_event(
-            content=output_content,
-            answer_channel="conversation",
-            answer_source="harness.continuation.recovery_boundary",
-            terminal_reason=str(recovery_decision.get("reason") or ""),
-            execution_posture="recovery_boundary_status",
-            extra={"recovery_boundary_receipt": recovery_receipt},
-        )
-
-    async def _run_recovery_resume_request(
-        self,
-        *,
-        request: HarnessRuntimeRequest,
-        turn_id: str,
-        recovery_decision: dict[str, Any],
-        recovery_receipt: dict[str, Any],
-    ):
-        record = dict(recovery_decision.get("continuation_record") or {})
-        task_run_id = str(recovery_decision.get("task_run_id") or record.get("task_run_id") or "").strip()
-        if not task_run_id:
-            for event in await self._recovery_resume_failure_events(
-                request=request,
-                turn_id=turn_id,
-                content="恢复请求缺少 task_run_id。",
-                title="恢复请求未执行",
-                terminal_reason="recovery_task_run_missing",
-                recovery_receipt=recovery_receipt,
-            ):
-                yield event
-            return
-        recovery_packet = build_recovery_packet(
-            record,
-            resume_intent="user_requested_resume",
-            user_resume_instruction=str(getattr(request, "message", "") or ""),
-        )
-        packet_ref = self._attach_recovery_packet_to_task_run(
-            task_run_id=task_run_id,
-            recovery_packet=recovery_packet,
-            recovery_receipt=recovery_receipt,
-        )
-        try:
-            self.single_agent_runtime_host.event_log.append(
-                task_run_id,
-                "task_run_recovery_packet_attached",
-                payload={
-                    "task_run_id": task_run_id,
-                    "continuation_id": str(record.get("continuation_id") or ""),
-                    "recovery_packet_ref": packet_ref,
-                    "turn_id": turn_id,
-                },
-                refs={"task_run_ref": task_run_id, "turn_ref": turn_id, "recovery_packet_ref": packet_ref},
-            )
-        except Exception:
-            logger.debug("failed to append recovery packet event", exc_info=True)
-        resume_result = self._resume_task_run_through_control_gateway(
-            session_id=request.session_id,
-            task_run_id=task_run_id,
-            reason="conversation_recovery_resume",
-            turn_id=turn_id,
-            scheduler="conversation_recovery_resume",
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-        )
-        if not resume_result.get("ok"):
-            payload = _active_work_control_failure_payload(resume_result)
-            for event in await self._recovery_resume_failure_events(
-                request=request,
-                turn_id=turn_id,
-                content=str(payload.get("content") or "当前工作没有成功恢复。"),
-                title="恢复请求未执行",
-                terminal_reason=str(payload.get("terminal_reason") or "recovery_resume_failed"),
-                recovery_receipt=recovery_receipt,
-                extra={"resume_result": resume_result},
-            ):
-                yield event
-            return
-        self._attach_recovery_packet_to_task_run(
-            task_run_id=task_run_id,
-            recovery_packet=recovery_packet,
-            recovery_receipt=recovery_receipt,
-            recovery_packet_ref=packet_ref,
-        )
-        schedule_result = dict(resume_result.get("schedule") or {})
-        if not _schedule_result_allows_progress(schedule_result):
-            payload = _active_work_schedule_failure_payload(schedule_result)
-            for event in await self._recovery_resume_failure_events(
-                request=request,
-                turn_id=turn_id,
-                content=str(payload.get("content") or "恢复请求已记录，但任务调度没有启动。"),
-                title="恢复调度失败",
-                terminal_reason=str(payload.get("terminal_reason") or "recovery_schedule_failed"),
-                recovery_receipt=recovery_receipt,
-                extra={"schedule_result": schedule_result},
-            ):
-                yield event
-            return
-        self._bind_current_turn_to_task_run(
-            session_id=request.session_id,
-            turn_id=turn_id,
-            task_run_id=task_run_id,
-            state="running_task",
-        )
-        response = str(recovery_decision.get("response") or "已接入恢复断点，我会从原任务进度继续调度。").strip()
-        commit_result = await self._commit_facade_assistant_output(
-            request=request,
-            turn_id=turn_id,
-            content=response,
-            answer_source="harness.continuation.recovery_boundary",
-            execution_posture="recovery_resume",
-            terminal_reason="conversation_recovery_resume",
-            run_id=task_run_id,
-            task_run_id=task_run_id,
-            refs={
-                "task_run_ref": task_run_id,
-                "recovery_packet_ref": packet_ref,
-                "recovery_boundary_receipt_ref": str(recovery_receipt.get("receipt_id") or ""),
-            },
-        )
-        output_content = commit_result.decision.content
-        yield {
-            "type": "recovery_resume_accepted",
-            "summary": output_content,
-            "status": "accepted",
-            "runtime_task_run_id": task_run_id,
-            "task_run_id": task_run_id,
-            "turn_id": turn_id,
-            "recovery_packet_ref": packet_ref,
-            "recovery_boundary_receipt": recovery_receipt,
-            "schedule_result": schedule_result,
-        }
-        yield {
-            "type": "runtime_status",
-            "title": "恢复续跑已启动",
-            "detail": output_content,
-            "state": "running",
-            "phase": "recovery_resume",
-            "terminal_reason": "conversation_recovery_resume",
-            "runtime_task_run_id": task_run_id,
-            "task_run_id": task_run_id,
-            "turn_id": turn_id,
-            "recovery_packet_ref": packet_ref,
-            "recovery_boundary_receipt": recovery_receipt,
-        }
-        yield final_answer_event(
-            content=output_content,
-            answer_channel="conversation",
-            answer_source="harness.continuation.recovery_boundary",
-            terminal_reason="conversation_recovery_resume",
-            execution_posture="recovery_resume",
-            extra={
-                "runtime_task_run_id": task_run_id,
-                "task_run_id": task_run_id,
-                "recovery_packet_ref": packet_ref,
-                "recovery_boundary_receipt": recovery_receipt,
-            },
-        )
-
-    async def _recovery_resume_failure_events(
-        self,
-        *,
-        request: HarnessRuntimeRequest,
-        turn_id: str,
-        content: str,
-        title: str,
-        terminal_reason: str,
-        recovery_receipt: dict[str, Any],
-        extra: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        commit_result = await self._commit_facade_assistant_output(
-            request=request,
-            turn_id=turn_id,
-            content=str(content or "恢复请求未执行。").strip(),
-            answer_source="harness.continuation.recovery_boundary",
-            execution_posture="recovery_resume_failed",
-            terminal_reason=terminal_reason,
-            refs={"recovery_boundary_receipt_ref": str(recovery_receipt.get("receipt_id") or "")},
-        )
-        output_content = commit_result.decision.content
-        event_extra = {
-            "recovery_boundary_receipt": recovery_receipt,
-            **dict(extra or {}),
-        }
-        return [
-            {
-                "type": "runtime_status",
-                "title": title,
-                "detail": output_content,
-                "state": "blocked",
-                "phase": "recovery_resume",
-                "terminal_reason": terminal_reason,
-                **event_extra,
-            },
-            final_answer_event(
-                content=output_content,
-                answer_channel="conversation",
-                answer_source="harness.continuation.recovery_boundary",
-                terminal_reason=terminal_reason,
-                execution_posture="recovery_resume_failed",
-                extra=event_extra,
-            ),
-        ]
-
-    def _attach_recovery_packet_to_task_run(
-        self,
-        *,
-        task_run_id: str,
-        recovery_packet: dict[str, Any],
-        recovery_receipt: dict[str, Any],
-        recovery_packet_ref: str = "",
-    ) -> str:
-        task_run = self.single_agent_runtime_host.state_index.get_task_run(task_run_id)
-        if task_run is None:
-            return recovery_packet_ref
-        packet = dict(recovery_packet or {})
-        packet_id = str(packet.get("packet_id") or f"recpacket:{task_run_id}").strip()
-        packet_ref = str(recovery_packet_ref or "").strip()
-        if not packet_ref and packet:
-            try:
-                packet_ref = self.single_agent_runtime_host.runtime_objects.put_object(
-                    "recovery_packet",
-                    packet_id,
-                    packet,
-                )
-            except Exception:
-                packet_ref = ""
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        updated = replace(
-            task_run,
-            diagnostics={
-                **diagnostics,
-                "continuation_id": str(packet.get("continuation_id") or diagnostics.get("continuation_id") or ""),
-                "recovery_packet": packet,
-                "recovery_packet_ref": packet_ref,
-                "recovery_boundary_receipt": dict(recovery_receipt or {}),
-                "recovery_resume_authority": "harness.continuation.recovery_boundary",
-            },
-        )
-        self.single_agent_runtime_host.state_index.upsert_task_run(updated)
-        return packet_ref
-
     async def _decide_current_work_boundary_for_turn(
         self,
         *,
@@ -1294,13 +998,10 @@ class HarnessRuntimeFacade:
         assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
         profile_payload = dict(assembly_payload.get("profile") or {})
         expected_turn_id = str(getattr(request, "expected_active_turn_id", "") or "").strip()
-        expected_task_run_id = str(getattr(active_work_context, "task_run_id", "") or "").strip()
         request_policy = str(getattr(request, "active_turn_input_policy", "") or "auto").strip().lower() or "auto"
         active_turn_check = self.single_agent_runtime_host.active_turn_registry.compare_and_update_current_turn(
             session_id=request.session_id,
             expected_turn_id=expected_turn_id,
-            expected_task_run_id=expected_task_run_id,
-            require_bound_task=request_policy == "steer",
         )
         boundary_input = build_current_work_boundary_input(
             turn_input_facts=turn_input_facts,
@@ -1313,258 +1014,11 @@ class HarnessRuntimeFacade:
             runtime_branch=runtime_branch,
             control_capabilities=dict(assembly_payload.get("control_capabilities") or {}),
             context_policy=dict(profile_payload.get("context_policy") or {}),
-            editor_context_summary=dict(getattr(request, "editor_context", {}) or {}),
+            editor_context_summary=request.editor_context_payload(),
         )
         decision = decide_current_work_boundary(boundary_input)
         receipt = current_work_boundary_receipt_from_decision(decision)
         return decision, receipt
-
-    async def _run_current_work_control_action_request(
-        self,
-        *,
-        request: HarnessRuntimeRequest,
-        turn_id: str,
-        action_request: ModelActionRequest,
-        current_work_boundary_receipt: dict[str, Any],
-        active_work_context: ActiveWorkContext | None,
-    ):
-        receipt = dict(current_work_boundary_receipt or {})
-        fresh_context, denied_reason = self._validated_active_work_context_for_control_receipt(
-            session_id=request.session_id,
-            receipt=receipt,
-            active_work_context=active_work_context,
-        )
-        control_payload = {
-            **dict(action_request.active_work_control or {}),
-            "authority": "harness.loop.active_work_turn_decision",
-        }
-        active_decision = active_work_turn_decision_from_payload(
-            control_payload,
-            user_message=request.message,
-        )
-        if fresh_context is None:
-            active_decision = replace(
-                active_decision,
-                action="ask_user",
-                accepted=False,
-                denied_reason=denied_reason or "active_work_control_unavailable",
-                reason=denied_reason or "active_work_control_unavailable",
-            )
-        if active_decision.accepted is not True:
-            content = active_work_control_denial_observation(active_decision)
-            yield {
-                "type": "runtime_status",
-                "title": "当前工作控制未执行",
-                "detail": content,
-                "state": "blocked",
-                "phase": "work_control",
-                "terminal_reason": active_decision.denied_reason or active_decision.reason,
-                "current_work_boundary_receipt": receipt,
-            }
-            yield {
-                "type": "active_work_control_observation",
-                "content": content,
-                "status": "unavailable",
-                "terminal_reason": active_decision.denied_reason or active_decision.reason or "active_work_control_unavailable",
-                "current_work_boundary_receipt": receipt,
-                "action_request": action_request.to_dict(),
-            }
-            return
-        assert fresh_context is not None
-        result = await self._apply_active_work_turn_decision(
-            decision=active_decision,
-            context=fresh_context,
-            turn_id=turn_id,
-            user_message=request.message,
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
-        )
-        if isinstance(result, dict):
-            content = str(result.get("content") or result.get("message") or "").strip()
-            status = str(result.get("status") or "completed").strip()
-            terminal_reason = str(result.get("terminal_reason") or result.get("reason") or active_decision.action).strip()
-        else:
-            content = str(result or "").strip()
-            status = "completed"
-            terminal_reason = str(active_decision.action or "active_work_control").strip()
-        has_agent_authored_control_response = bool(str(active_decision.response or "").strip())
-        refs = self._active_work_control_event_refs(
-            active_work_context=fresh_context,
-            active_turn_id=str(
-                receipt.get("actual_active_turn_id")
-                or dict(receipt.get("active_work_ref") or {}).get("actual_active_turn_id")
-                or fresh_context.active_work_id
-                or ""
-            ),
-        )
-        if status == "blocked":
-            title, detail, state = _current_work_control_status_projection(
-                action=active_decision.action,
-                status=status,
-                content=content,
-            )
-            yield {
-                "type": "runtime_status",
-                "title": title,
-                "detail": detail,
-                "state": state,
-                "phase": "work_control",
-                "terminal_reason": terminal_reason,
-                **refs,
-                "current_work_boundary_receipt": receipt,
-            }
-            yield {
-                "type": "active_work_control_observation",
-                "content": content or "当前工作控制请求没有执行成功。",
-                "status": "blocked",
-                "terminal_reason": terminal_reason or "active_work_control_blocked",
-                "current_work_boundary_receipt": receipt,
-                "action_request": action_request.to_dict(),
-                **refs,
-            }
-            return
-        needs_agent_response = active_decision.action in {"answer_about_active_work", "answer_then_continue_active_work"}
-        public_control_content = content if needs_agent_response and has_agent_authored_control_response else ""
-        if needs_agent_response and not has_agent_authored_control_response:
-            yield {
-                "type": "active_work_control_observation",
-                "content": "模型请求对当前工作给出正文回应，但没有提供可见正文；系统只返回当前工作控制观察，不替模型生成回答。",
-                "status": "needs_agent_response",
-                "terminal_reason": "active_work_control_response_missing",
-                "current_work_boundary_receipt": receipt,
-                "action_request": action_request.to_dict(),
-                **refs,
-            }
-            return
-        if public_control_content:
-            commit_result = await self._commit_facade_assistant_output(
-                request=request,
-                turn_id=turn_id,
-                content=public_control_content,
-                answer_source="harness.current_work_boundary_receipt.control",
-                execution_posture="active_work_control",
-                terminal_reason=terminal_reason,
-                run_id=str(refs.get("task_run_id") or turn_id or request.session_id),
-                task_run_id=str(refs.get("task_run_id") or ""),
-                refs={
-                    **refs,
-                    "current_work_boundary_receipt_ref": str(receipt.get("receipt_id") or ""),
-                    "action_request_ref": action_request.request_id,
-                },
-            )
-            public_control_content = commit_result.decision.content
-        else:
-            commit_result = None
-        if active_decision.action in {"continue_active_work", "append_instruction_to_active_work", "answer_then_continue_active_work"} and status != "blocked":
-            yield {
-                "type": "active_task_steer_accepted",
-                "summary": content,
-                "status": "accepted",
-                "terminal_reason": terminal_reason,
-                **refs,
-                "runtime_branch": dict(receipt.get("runtime_branch_ref") or {}),
-                "active_work": dict(action_request.active_work_control or {}),
-                "current_work_boundary_receipt": receipt,
-            }
-        title, detail, state = _current_work_control_status_projection(
-            action=active_decision.action,
-            status=status,
-            content=content,
-        )
-        runtime_status = {
-            "type": "runtime_status",
-            "title": title,
-            "detail": detail,
-            "state": state,
-            "phase": "work_control",
-            "terminal_reason": terminal_reason,
-            **refs,
-            "current_work_boundary_receipt": receipt,
-        }
-        yield runtime_status
-        if public_control_content:
-            yield final_answer_event(
-                content=public_control_content,
-                answer_channel="conversation",
-                answer_source="harness.current_work_boundary_receipt.control",
-                terminal_reason=terminal_reason,
-                execution_posture="active_work_control",
-                extra={
-                    "runtime_branch": dict(receipt.get("runtime_branch_ref") or {}),
-                    "active_work": dict(action_request.active_work_control or {}),
-                    "current_work_boundary_receipt": receipt,
-                    **refs,
-                },
-            )
-
-    def _validated_active_work_context_for_control_receipt(
-        self,
-        *,
-        session_id: str,
-        receipt: dict[str, Any],
-        active_work_context: ActiveWorkContext | None,
-    ) -> tuple[ActiveWorkContext | None, str]:
-        if active_work_context is None:
-            return None, "active_work_context_missing_for_control"
-        active_work_availability = current_work_control_availability_from_receipt(receipt)
-        if not active_work_availability.available:
-            return None, active_work_availability.reason or "active_work_control_unavailable"
-        refs = dict(receipt.get("active_work_ref") or {})
-        expected_task_run_id = str(receipt.get("task_run_ref") or refs.get("task_run_id") or active_work_context.task_run_id or "").strip()
-        expected_active_turn_id = str(
-            receipt.get("actual_active_turn_id")
-            or refs.get("actual_active_turn_id")
-            or refs.get("active_work_id")
-            or active_work_context.active_work_id
-            or ""
-        ).strip()
-        if not expected_task_run_id:
-            return None, "active_work_control_task_ref_missing"
-        if not expected_active_turn_id:
-            return None, "active_work_control_active_turn_ref_missing"
-        active_turn_check = self.single_agent_runtime_host.active_turn_registry.compare_and_update_current_turn(
-            session_id=session_id,
-            expected_turn_id=expected_active_turn_id,
-            expected_task_run_id=expected_task_run_id,
-            require_bound_task=True,
-        )
-        if active_turn_check.get("accepted") is not True:
-            return None, str(active_turn_check.get("denied_reason") or "active_turn_unavailable")
-        task_run = self.single_agent_runtime_host.state_index.get_task_run(expected_task_run_id)
-        if task_run is None:
-            return None, "current_work_task_run_missing"
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
-            return None, "current_work_task_run_not_single_agent"
-        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.single_agent_runtime_host):
-            return None, "current_work_task_run_terminal"
-        context = self._active_work_context_from_task_run(
-            session_id=session_id,
-            task_run=task_run,
-            active_work_id=expected_active_turn_id,
-            authority="harness.runtime.active_turn_context",
-        )
-        if context is None:
-            return None, "current_work_context_unavailable"
-        return context, ""
-
-    def _active_work_control_event_refs(
-        self,
-        *,
-        active_work_context: ActiveWorkContext,
-        active_turn_id: str,
-    ) -> dict[str, Any]:
-        task_run_id = str(active_work_context.task_run_id or "").strip()
-        active_turn_id = str(active_turn_id or active_work_context.active_work_id or "").strip()
-        return {
-            "runtime_task_run_id": task_run_id,
-            "task_run_id": task_run_id,
-            "active_turn_id": active_turn_id,
-            "active_turn": {
-                "session_id": active_work_context.session_id,
-                "turn_id": active_turn_id,
-                "bound_task_run_id": task_run_id,
-                "state": "running_task" if active_work_context.running else "waiting_executor",
-            },
-        }
 
     async def _run_slash_task_action_signal(
         self,
@@ -1620,7 +1074,6 @@ class HarnessRuntimeFacade:
             allowed_tool_names=set(),
             runtime_profile=_runtime_profile_payload_from_assembly(launch_runtime_assembly),
             permission_mode=_runtime_permission_mode_from_assembly(launch_runtime_assembly),
-            side_effect_policy="runtime_authorized",
             current_work_boundary_receipt=dict(current_work_boundary_receipt or {}),
             session_id=request.session_id,
             turn_id=turn_id,
@@ -1670,33 +1123,14 @@ class HarnessRuntimeFacade:
             )
             return
 
-        async for event in start_task_lifecycle_from_action_request(
-            runtime_host=self.single_agent_runtime_host,
+        for event in _task_environment_receipt_events(
+            base_dir=self.base_dir,
             session_id=request.session_id,
             turn_id=turn_id,
-            runtime_contract=dict(request.runtime_contract or {}),
-            model_selection=dict(request.model_selection or {}),
             action_request=action_request,
-            agent_runtime_profile=agent_runtime_profile,
-            runtime_assembly=launch_runtime_assembly,
             runtime_branch=runtime_branch,
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
-            start_context_handoff={},
-            answer_source="harness.slash_task_command.request_task_run",
-            scheduler="slash_task_command",
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            commit_assistant_message=self._apply_assistant_message_commit_async,
-            initialize_task_todo=self._initialize_task_todo_for_contract,
-            schedule_task_run_executor=self.schedule_task_run_executor,
+            source="harness.slash_task_command.request_task_run",
         ):
-            task_run_id = _task_run_id_from_lifecycle_event(event)
-            if task_run_id:
-                self._record_turn_environment_snapshot(
-                    session_id=request.session_id,
-                    turn_id=turn_id,
-                    runtime_assembly=launch_runtime_assembly,
-                    task_run_id=task_run_id,
-                )
             yield event
 
     async def _run_explicit_contract_task_turn(
@@ -1755,128 +1189,246 @@ class HarnessRuntimeFacade:
                 },
             )
             return
-        async for event in start_task_lifecycle_from_contract(
-            runtime_host=self.single_agent_runtime_host,
+        for event in _task_environment_receipt_events(
+            base_dir=self.base_dir,
             session_id=request.session_id,
             turn_id=turn_id,
-            model_selection=dict(request.model_selection or {}),
             action_request=action_request,
-            contract=contract,
-            agent_runtime_profile=agent_runtime_profile,
-            runtime_assembly=runtime_assembly,
             runtime_branch=runtime_branch,
-            editor_context=dict(getattr(request, "editor_context", {}) or {}),
-            answer_source="harness.explicit_contract_task",
-            scheduler="explicit_contract_task",
-            task_id=str(contract.source_contract_ref or contract.contract_id or f"task:{turn_id}"),
-            max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            commit_assistant_message=self._apply_assistant_message_commit_async,
-            initialize_task_todo=self._initialize_task_todo_for_contract,
-            schedule_task_run_executor=self.schedule_task_run_executor,
+            source="harness.explicit_contract_task",
+            contract=contract,
         ):
-            task_run_id = _task_run_id_from_lifecycle_event(event)
-            if task_run_id:
-                self._record_turn_environment_snapshot(
-                    session_id=request.session_id,
-                    turn_id=turn_id,
-                    runtime_assembly=runtime_assembly,
-                    task_run_id=task_run_id,
-                )
             yield event
 
     def _active_work_context_from_active_turn(self, session_id: str) -> ActiveWorkContext | None:
-        active_turn = self.single_agent_runtime_host.active_turn_registry.resolve_current(session_id)
-        if active_turn is None or not active_turn.bound_task_run_id:
+        repository = TaskEnvironmentRepository(self.base_dir)
+        binding = repository.get_foreground_session_binding(session_id)
+        if binding is None:
             return None
-        task_run = self.single_agent_runtime_host.state_index.get_task_run(active_turn.bound_task_run_id)
-        if task_run is None:
+        environment = repository.get_task_environment(binding.task_environment_id)
+        if environment is None or _task_environment_status_is_terminal(environment.status):
             return None
-        status = str(getattr(task_run, "status", "") or "")
-        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.single_agent_runtime_host):
-            return None
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
-            return None
-        return self._active_work_context_from_task_run(
-            session_id=session_id,
-            task_run=task_run,
-            active_work_id=active_turn.turn_id,
-            authority="harness.runtime.active_turn_context",
+        task_instance = repository.get_task_instance(environment.task_instance_id)
+        now = time.time()
+        leases = repository.list_leases(environment.task_environment_id, limit=10)
+        active_leases = [
+            lease
+            for lease in leases
+            if str(lease.status or "") == "active" and float(lease.expires_at or 0.0) > now
+        ]
+        pending_signals = repository.list_control_signals(
+            environment.task_environment_id,
+            status="pending",
+            limit=20,
         )
-
-    def _active_work_context_from_task_run(
-        self,
-        *,
-        session_id: str,
-        task_run: Any,
-        active_work_id: str,
-        authority: str,
-    ) -> ActiveWorkContext | None:
-        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-        status = str(getattr(task_run, "status", "") or "")
-        if is_stopped_or_terminal_task_run(task_run, runtime_host=self.single_agent_runtime_host):
-            return None
-        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
-            return None
-        recovery_state = recovery_state_for_task_run(task_run, runtime_host=self.single_agent_runtime_host)
-        control_state = str(recovery_state.control_state or "")
-        same_run_allowed = bool(recovery_state.same_run_resumable)
-        running = bool(recovery_state.running_claimed)
-        paused = bool(recovery_state.paused)
-        if not (running or same_run_allowed or paused):
-            return None
-        if paused:
-            continuation_kind = "paused"
-        elif running:
-            continuation_kind = "active"
-        else:
-            continuation_kind = "waiting"
-        contract = {}
-        try:
-            contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(str(getattr(task_run, "task_contract_ref", "") or "")) or {})
-        except Exception:
-            contract = {}
-        goal = str(
-            diagnostics.get("goal")
-            or contract.get("user_visible_goal")
-            or contract.get("task_run_goal")
-            or ""
-        ).strip()
+        pending_signal_kinds = {
+            str(signal.signal_kind or "").strip()
+            for signal in pending_signals
+            if str(signal.signal_kind or "").strip()
+        }
+        running = bool(active_leases) or environment.status == "leased"
+        paused = environment.status == "paused"
+        resumable = environment.status in {"ready", "paused", "blocked"} and not running
+        control_state = _active_task_environment_control_state(pending_signal_kinds)
         return ActiveWorkContext(
-            session_id=session_id,
-            active_work_id=active_work_id,
-            task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
-            status=status,
+            session_id=str(session_id or "").strip(),
+            active_work_id=environment.task_environment_id,
+            task_environment_id=environment.task_environment_id,
+            task_instance_id=environment.task_instance_id,
+            session_binding_id=binding.binding_id,
+            status=environment.status,
             control_state=control_state,
-            user_visible_goal=goal,
-            latest_progress=str(
-                diagnostics.get("latest_public_progress_note")
-                or diagnostics.get("latest_step_summary")
-                or ""
-            ).strip(),
-            latest_step_name=str(diagnostics.get("latest_step") or ""),
-            resumable=bool(same_run_allowed),
+            environment_kind=environment.environment_kind,
+            user_visible_goal=_task_environment_user_visible_goal(task_instance, environment.to_dict()),
+            latest_progress=_task_environment_latest_progress(environment.to_dict()),
+            latest_step_name=environment.current_step,
+            resumable=resumable,
             running=running,
             paused=paused,
-            queued_user_instruction_count=int(diagnostics.get("pending_user_steer_count") or 0),
-            execution_runtime_kind=str(getattr(task_run, "execution_runtime_kind", "") or ""),
-            continuation_kind=continuation_kind,
-            same_run_allowed=same_run_allowed,
-            authority=authority,
+            queued_user_instruction_count=len(pending_signals),
+            execution_runtime_kind="task_work_environment",
+            continuation_kind="task_environment",
+            control_capabilities=_task_environment_active_work_capabilities(
+                environment=environment.to_dict(),
+                running=running,
+                pending_signal_kinds=pending_signal_kinds,
+            ),
+        )
+
+    async def _apply_task_environment_active_work_control(
+        self,
+        *,
+        request: HarnessRuntimeRequest,
+        turn_id: str,
+        action_request: ModelActionRequest,
+        active_work_context: ActiveWorkContext | None,
+        runtime_branch: dict[str, Any],
+    ):
+        decision = active_work_turn_decision_from_payload(
+            dict(action_request.active_work_control or {}),
+            user_message=request.message,
+        )
+        if not decision.accepted:
+            yield {
+                "type": "active_work_control_observation",
+                "terminal_reason": decision.denied_reason or decision.reason or "active_work_control_denied",
+                "content": active_work_control_denial_observation(decision),
+                "decision": decision.to_dict(),
+                "authority": "harness.entrypoint.task_environment_active_work_control",
+            }
+            return
+        if active_work_context is None or not str(active_work_context.task_environment_id or "").strip():
+            yield {
+                "type": "active_work_control_observation",
+                "terminal_reason": "task_environment_active_work_unavailable",
+                "content": "当前没有可控制的任务环境。",
+                "decision": decision.to_dict(),
+                "authority": "harness.entrypoint.task_environment_active_work_control",
+            }
+            return
+
+        content = decision.response or default_reply_for_action(decision.action, active_work_context)
+        if decision.action == "answer_about_active_work":
+            commit_result = await self._commit_facade_assistant_output(
+                request=request,
+                turn_id=turn_id,
+                content=content,
+                answer_source="harness.entrypoint.task_environment_active_work_control.answer",
+                execution_posture="active_work_status_answer",
+                terminal_reason="active_work_status_answered",
+                refs={
+                    "task_environment_ref": active_work_context.task_environment_id,
+                    "active_work_ref": active_work_context.active_work_id,
+                },
+            )
+            yield final_answer_event(
+                content=commit_result.decision.content,
+                answer_source="harness.entrypoint.task_environment_active_work_control.answer",
+                answer_channel="conversation",
+                terminal_reason="active_work_status_answered",
+                execution_posture="active_work_status_answer",
+                extra={
+                    "task_environment_id": active_work_context.task_environment_id,
+                    "active_work_control_decision": decision.to_dict(),
+                    "runtime_branch": dict(runtime_branch or {}),
+                },
+            )
+            return
+
+        signal_kind = _task_environment_control_signal_kind(decision.action)
+        if not signal_kind:
+            yield {
+                "type": "active_work_control_observation",
+                "terminal_reason": "active_work_control_action_not_mapped",
+                "content": "当前控制动作没有可写入的任务环境信号。",
+                "decision": decision.to_dict(),
+                "authority": "harness.entrypoint.task_environment_active_work_control",
+            }
+            return
+        try:
+            scheduler = TaskScheduler(
+                self.base_dir,
+                harness_runtime=self,
+                graph_system=self.graph_system,
+            )
+            submitted = scheduler.submit_command(
+                command_kind="request_control_signal",
+                task_environment_id=active_work_context.task_environment_id,
+                requested_by="user",
+                payload={
+                    "signal_kind": signal_kind,
+                    "requested_by": "user",
+                    "reason": decision.reason or decision.action,
+                    "active_work_action": decision.action,
+                    "payload": {
+                        "active_work_action": decision.action,
+                        "appended_instruction": decision.appended_instruction,
+                        "relation_to_current_work": decision.relation_to_current_work,
+                        "evidence": decision.evidence,
+                        "turn_id": turn_id,
+                        "request_id": action_request.request_id,
+                        "session_id": request.session_id,
+                    },
+                    "bridge_graph_control": True,
+                    "signal_idempotency_key": stable_task_environment_id(
+                        "controlkey",
+                        active_work_context.task_environment_id,
+                        turn_id,
+                        action_request.request_id,
+                        signal_kind,
+                    ),
+                },
+                idempotency_key=stable_task_environment_id(
+                    "taskcmdkey",
+                    active_work_context.task_environment_id,
+                    turn_id,
+                    action_request.request_id,
+                    signal_kind,
+                ),
+            )
+            dispatched = await scheduler.dispatch_command(str(dict(submitted.get("command") or {}).get("command_id") or ""))
+            command_result = dict(dispatched.get("result") or {})
+            request_result = dict(command_result.get("request") or {})
+            signal = dict(request_result.get("control_signal") or {})
+            bridge = dict(command_result.get("bridge") or {})
+            handling = dict(command_result.get("handling") or {})
+        except Exception as exc:
+            yield {
+                "type": "active_work_control_observation",
+                "terminal_reason": "task_environment_control_signal_failed",
+                "content": "当前工作控制信号写入失败。",
+                "error": {"reason": str(exc) or type(exc).__name__, "exception_type": type(exc).__name__},
+                "decision": decision.to_dict(),
+                "task_environment_id": active_work_context.task_environment_id,
+                "authority": "harness.entrypoint.task_environment_active_work_control",
+            }
+            return
+
+        commit_result = await self._commit_facade_assistant_output(
+            request=request,
+            turn_id=turn_id,
+            content=content,
+            answer_source="harness.entrypoint.task_environment_active_work_control",
+            execution_posture="task_environment_control_signal_requested",
+            terminal_reason="active_work_control_signal_requested",
+            refs={
+                "task_environment_ref": active_work_context.task_environment_id,
+                "active_work_ref": active_work_context.active_work_id,
+                "control_signal_ref": str(signal.get("signal_id") or ""),
+                "task_command_ref": str(dict(submitted.get("command") or {}).get("command_id") or ""),
+                "task_dispatch_ref": str(dict(dispatched.get("dispatch") or {}).get("dispatch_id") or ""),
+            },
+        )
+        yield {
+            "type": "active_work_control_requested",
+            "task_environment_id": active_work_context.task_environment_id,
+            "control_signal": signal,
+            "request": dict(request_result or {}),
+            "bridge": dict(bridge or {}),
+            "handling": dict(handling or {}),
+            "task_command": dict(submitted.get("command") or {}),
+            "task_dispatch": dict(dispatched.get("dispatch") or {}),
+            "decision": decision.to_dict(),
+            "authority": "harness.entrypoint.task_environment_active_work_control",
+        }
+        yield final_answer_event(
+            content=commit_result.decision.content,
+            answer_source="harness.entrypoint.task_environment_active_work_control",
+            answer_channel="conversation",
+            terminal_reason="active_work_control_signal_requested",
+            execution_posture="task_environment_control_signal_requested",
+            extra={
+                "task_environment_id": active_work_context.task_environment_id,
+                "control_signal_id": str(signal.get("signal_id") or ""),
+                "task_command_id": str(dict(submitted.get("command") or {}).get("command_id") or ""),
+                "runtime_branch": dict(runtime_branch or {}),
+            },
         )
 
     def _release_transient_active_turn(self, *, session_id: str, turn_id: str, terminal_reason: str) -> None:
         record = self.single_agent_runtime_host.active_turn_registry.snapshot(session_id)
         if record is None or record.turn_id != turn_id:
             return
-        if record.bound_task_run_id:
-            task_run = self.single_agent_runtime_host.state_index.get_task_run(record.bound_task_run_id)
-            task_status = str(getattr(task_run, "status", "") or "").strip()
-            if task_run is not None and task_status not in {
-                "completed",
-                "failed",
-                "aborted",
-            }:
-                return
         try:
             self.single_agent_runtime_host.active_turn_registry.complete(
                 session_id=session_id,
@@ -1886,545 +1438,109 @@ class HarnessRuntimeFacade:
         except Exception:
             logger.debug("failed to release transient active turn", exc_info=True)
 
-    def _recent_work_outcome_from_latest_task(self, session_id: str) -> dict[str, Any]:
-        """Return a read-only status fact for the latest non-active formal task.
-
-        This is context, not routing. The model still decides how to answer the
-        current user turn, but it no longer has to rediscover why the last task
-        stopped.
-        """
-        task_runs = [
-            item
-            for item in list(self.single_agent_runtime_host.state_index.list_session_task_runs(session_id) or [])
-            if str(getattr(item, "execution_runtime_kind", "") or "") == "single_agent_task"
-        ]
-        if not task_runs:
+    def _recent_work_outcome_from_latest_task_environment(self, session_id: str) -> dict[str, Any]:
+        """Return a read-only status fact for the latest terminal TaskWorkEnvironment."""
+        repository = TaskEnvironmentRepository(self.base_dir)
+        bindings = repository.list_session_bindings(
+            session_id,
+            visibility="foreground",
+            control_role="controller",
+            limit=20,
+        )
+        if not bindings:
+            bindings = repository.list_session_bindings(
+                session_id,
+                control_role="controller",
+                limit=20,
+            )
+        candidates: list[tuple[float, Any, Any, Any | None]] = []
+        for binding in bindings:
+            environment = repository.get_task_environment(binding.task_environment_id)
+            if environment is None:
+                continue
+            candidate_status = str(environment.status or "").strip()
+            candidate_reason = str(environment.blocked_reason or environment.continuation_hint or "").strip()
+            if not _recent_work_outcome_status(status=candidate_status, terminal_reason=candidate_reason):
+                continue
+            instance = repository.get_task_instance(environment.task_instance_id)
+            recency = max(
+                float(environment.updated_at or 0.0),
+                float(getattr(binding, "updated_at", 0.0) or 0.0),
+                float(getattr(binding, "last_focused_at", 0.0) or 0.0),
+            )
+            candidates.append((recency, binding, environment, instance))
+        if not candidates:
             return {}
-        formal = [item for item in task_runs if _looks_like_chat_task_run(item)]
-        candidates = formal or task_runs
-        latest = sorted(candidates, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)[0]
-        status = str(getattr(latest, "status", "") or "").strip()
-        terminal_reason = str(getattr(latest, "terminal_reason", "") or "").strip()
+        _, binding, latest, task_instance = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+        status = str(latest.status or "").strip()
+        terminal_reason = str(latest.blocked_reason or latest.continuation_hint or status).strip()
         if not _recent_work_outcome_status(status=status, terminal_reason=terminal_reason):
             return {}
-        diagnostics = dict(getattr(latest, "diagnostics", {}) or {})
-        monitor = {}
-        try:
-            monitor = dict(self.single_agent_runtime_host.monitor_projector.project_task_run(latest, now=time.time()))
-        except Exception:
-            monitor = {}
-        contract = {}
-        contract_ref = str(getattr(latest, "task_contract_ref", "") or "").strip()
-        if contract_ref:
-            try:
-                contract = dict(self.single_agent_runtime_host.runtime_objects.get_object(contract_ref) or {})
-            except Exception:
-                contract = {}
+        metadata = dict(latest.metadata or {})
+        contract = dict(metadata.get("contract") or {})
+        latest_events = list(repository.list_events(latest.task_environment_id, limit=80))
+        latest_event = latest_events[-1] if latest_events else None
+        latest_event_payload = dict(getattr(latest_event, "payload", {}) or {}) if latest_event is not None else {}
         goal = _public_status_text(
-            diagnostics.get("goal")
+            contract.get("goal")
             or contract.get("user_visible_goal")
             or contract.get("task_run_goal")
-            or monitor.get("title")
-            or getattr(latest, "task_id", "")
+            or getattr(task_instance, "goal", "")
+            or getattr(task_instance, "title", "")
+            or latest.task_environment_id
         )
-        latest_step = dict(monitor.get("latest_step") or {})
         latest_progress = _public_status_text(
-            diagnostics.get("latest_public_progress_note")
-            or latest_step.get("public_progress_note")
-            or monitor.get("latest_public_progress_note")
-            or diagnostics.get("latest_step_summary")
-            or monitor.get("latest_step_summary")
-            or diagnostics.get("summary")
-            or monitor.get("summary")
+            latest.progress_label
+            or latest_event_payload.get("public_progress_note")
+            or latest_event_payload.get("latest_step_summary")
+            or latest_event_payload.get("summary")
+            or latest.blocked_reason
+            or latest.continuation_hint
             or terminal_reason
             or status
         )
         agent_brief = _public_status_text(
-            monitor.get("agent_brief_output")
-            or latest_step.get("agent_brief_output")
-            or diagnostics.get("agent_brief_output")
+            latest_event_payload.get("agent_brief_output")
+            or metadata.get("agent_brief_output")
         )
         return _drop_empty_entrypoint_payload(
             {
-                "task_run_id": str(getattr(latest, "task_run_id", "") or ""),
-                "task_id": str(getattr(latest, "task_id", "") or ""),
+                "task_environment_id": latest.task_environment_id,
+                "task_instance_id": latest.task_instance_id,
+                "session_task_binding_id": str(getattr(binding, "binding_id", "") or ""),
+                "task_kind": str(getattr(task_instance, "task_kind", "") or ""),
                 "status": status,
                 "terminal_reason": terminal_reason,
-                "lifecycle": str(monitor.get("lifecycle") or ""),
-                "bucket": str(monitor.get("bucket") or ""),
+                "lifecycle": "task_work_environment",
+                "bucket": "task_environment",
                 "user_visible_goal": goal,
                 "latest_progress": latest_progress,
-                "latest_step_name": str(monitor.get("latest_step_name") or latest_step.get("step") or diagnostics.get("latest_step") or ""),
-                "latest_step_status": str(monitor.get("latest_step_status") or latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
-                "latest_event_type": str(monitor.get("latest_event_type") or ""),
+                "latest_step_name": str(latest.current_step or latest.current_phase or ""),
+                "latest_step_status": status,
+                "latest_event_type": str(getattr(latest_event, "event_type", "") or ""),
                 "agent_brief_output": agent_brief,
-                "artifact_refs": list(monitor.get("artifact_refs") or diagnostics.get("artifact_refs") or [])[:6],
-                "updated_at": float(getattr(latest, "updated_at", 0.0) or 0.0),
-                "continuation_state": "terminal_or_interrupted_task_record",
-                "decision_boundary": (
-                    "只读事实：这是最近一个已结束、受阻或中断任务的结果记录。"
-                    "你可以用它回答状态或失败原因问题，但不能把它当成 active work，"
-                    "也不能基于这条记录直接续跑任务。"
+                "work_product_refs": (
+                    [{"work_product_id": latest.latest_work_product_id}]
+                    if latest.latest_work_product_id
+                    else []
                 ),
-                "authority": "harness.runtime.recent_work_outcome",
-            }
-        )
-
-    def _recent_work_outcome_from_continuation_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(record or {})
-        if str(payload.get("state") or "") != "terminal_read_only":
-            return {}
-        return _drop_empty_entrypoint_payload(
-            {
-                "task_run_id": str(payload.get("task_run_id") or ""),
-                "status": str(payload.get("task_status") or ""),
-                "terminal_reason": str(dict(payload.get("diagnostics") or {}).get("terminal_reason") or ""),
-                "user_visible_goal": _public_status_text(payload.get("user_visible_goal")),
-                "latest_progress": _public_status_text(payload.get("latest_progress") or payload.get("model_visible_summary")),
-                "latest_step_name": str(payload.get("last_completed_step") or ""),
-                "artifact_refs": list(payload.get("artifact_refs") or [])[:6],
-                "updated_at": float(payload.get("updated_at") or 0.0),
-                "continuation_state": "terminal_read_only",
+                "updated_at": float(latest.updated_at or 0.0),
+                "continuation_state": "terminal_or_interrupted_task_environment",
                 "decision_boundary": (
-                    "只读事实：这是最近一个已结束任务的结果记录。"
+                    "只读事实：这是最近一个已结束、受阻或中断 TaskWorkEnvironment 的结果记录。"
                     "你可以用它回答状态或失败原因问题，但不能把它当成 active work，"
-                    "也不能基于这条记录直接续跑任务。"
+                    "也不能基于这条记录直接续跑任务；恢复或控制必须走 TaskWorkEnvironment 控制面。"
                 ),
-                "authority": "harness.continuation.recent_work_outcome",
+                "authority": "task_system.task_environment.recent_work_outcome",
             }
-        )
-
-    def _initialize_task_todo_for_contract(
-        self,
-        *,
-        session_id: str,
-        task_run_id: str,
-        contract: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        try:
-            from capability_system.tools.tool_units.agent_todo_tool import AgentTodoTool
-
-            tool = AgentTodoTool(Path(self.single_agent_runtime_host.root_dir))
-            result = tool._run(
-                operation="replace",
-                session_id=session_id,
-                task_id=task_run_id,
-                items=[
-                    {
-                        "content": str(contract.get("user_visible_goal") or contract.get("task_run_goal") or "继续处理当前工作"),
-                        "status": "in_progress",
-                        "evidence_expectations": [
-                            *contract_string_tuple(contract.get("completion_criteria")),
-                            *[
-                                str(item.get("user_visible_name") or item.get("artifact_kind") or item)
-                                for item in list(contract.get("required_artifacts") or [])
-                                if isinstance(item, dict)
-                            ],
-                        ],
-                        "contract_refs": [str(contract.get("contract_id") or "")],
-                    }
-                ],
-            )
-            event = self.single_agent_runtime_host.event_log.append(
-                task_run_id,
-                "agent_todo_initialized",
-                payload={
-                    "observation": {
-                        "observation_id": f"todoobs:{task_run_id}:initial",
-                        "observation_type": "tool_result",
-                        "source": "system:agent_todo",
-                        "tool_name": "agent_todo",
-                        "summary": str(result or "")[:300],
-                        "payload": {
-                            "tool_name": "agent_todo",
-                            "tool_args": {
-                                "operation": "replace",
-                                "session_id": session_id,
-                                "task_id": task_run_id,
-                            },
-                            "result": str(result or ""),
-                        },
-                    },
-                },
-                refs={"task_run_ref": task_run_id},
-            )
-            return event.to_dict()
-        except Exception as exc:
-            event = self.single_agent_runtime_host.event_log.append(
-                task_run_id,
-                "agent_todo_initialization_failed",
-                payload={
-                    "observation": {
-                        "source": "system:agent_todo",
-                        "summary": "任务待办初始化失败。",
-                        "payload": {"error": str(exc)},
-                        "error": str(exc),
-                    },
-                },
-                refs={"task_run_ref": task_run_id},
-            )
-            return event.to_dict()
-
-    def _apply_append_instruction_to_active_work(
-        self,
-        *,
-        decision: ActiveWorkTurnDecision,
-        context: ActiveWorkContext,
-        turn_id: str,
-        user_message: str,
-        default_response: str,
-        editor_context: dict[str, Any] | None = None,
-    ) -> str | dict[str, Any]:
-        host = self.single_agent_runtime_host
-        instruction = decision.appended_instruction or str(user_message or "").strip()
-        result = append_user_work_instruction(
-            host,
-            context.task_run_id,
-            content=instruction,
-            turn_id=turn_id,
-            intent="append_instruction_to_active_work",
-            editor_context=dict(editor_context or {}),
-        )
-        if result.get("ok"):
-            self._bind_current_turn_to_task_run(
-                session_id=context.session_id,
-                turn_id=turn_id,
-                task_run_id=context.task_run_id,
-                state="running_task" if context.running else "waiting_executor",
-            )
-        if result.get("ok") and context.resumable:
-            resume_result = self._resume_task_run_through_control_gateway(
-                session_id=context.session_id,
-                task_run_id=context.task_run_id,
-                reason="conversation_instruction",
-                turn_id=turn_id,
-                scheduler="conversation_instruction",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            )
-            if resume_result.get("ok"):
-                schedule_result = dict(resume_result.get("schedule") or {})
-                if not _schedule_result_allows_progress(schedule_result):
-                    return _active_work_schedule_failure_payload(schedule_result)
-                self._bind_current_turn_to_task_run(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                    task_run_id=context.task_run_id,
-                    state="running_task",
-                )
-            else:
-                return _active_work_control_failure_payload(resume_result)
-        if not result.get("ok"):
-            return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-        if result.get("ok") and not context.running and not context.resumable:
-            latest_context = self._active_work_context_from_active_turn(context.session_id) or context
-            return "补充要求已记录。\n" + active_work_status_reply(latest_context)
-        return default_response
-
-    async def _apply_active_work_turn_decision(
-        self,
-        *,
-        decision: ActiveWorkTurnDecision,
-        context: ActiveWorkContext,
-        turn_id: str,
-        user_message: str,
-        editor_context: dict[str, Any] | None = None,
-    ) -> str | dict[str, Any]:
-        action = decision.action
-        response = public_active_work_text(decision.response) or default_reply_for_action(action, context)
-        if action == "continue_active_work":
-            response = self._apply_continue_active_work(
-                context=context,
-                turn_id=turn_id,
-                user_message=user_message,
-                appended_instruction=decision.appended_instruction,
-                continuation_strategy=decision.continuation_strategy,
-                default_response=response,
-                editor_context=dict(editor_context or {}),
-            )
-        elif action == "pause_active_work":
-            result = self._task_run_control_gateway(schedule_task_run_executor=None).pause_task_run(
-                context.task_run_id,
-                reason="conversation_pause",
-                requested_by="agent",
-            )
-            if not result.get("ok"):
-                response = active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-            else:
-                control_state = str(dict(result.get("control") or {}).get("state") or "").strip()
-                self._bind_current_turn_to_task_run(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                    task_run_id=context.task_run_id,
-                    state="waiting_executor" if control_state == "paused" else "waiting_safe_boundary",
-                )
-        elif action == "stop_active_work":
-            result = self._task_run_control_gateway(schedule_task_run_executor=None).stop_task_run(
-                context.task_run_id,
-                reason="conversation_stop",
-                requested_by="user",
-            )
-            if not result.get("ok"):
-                response = active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-            else:
-                self._complete_active_turn_for_task_run(
-                    session_id=context.session_id,
-                    task_run_id=context.task_run_id,
-                    terminal_reason="conversation_stop",
-                )
-        elif action == "append_instruction_to_active_work":
-            response = self._apply_append_instruction_to_active_work(
-                decision=decision,
-                context=context,
-                turn_id=turn_id,
-                user_message=user_message,
-                default_response=response,
-                editor_context=dict(editor_context or {}),
-            )
-        elif action == "answer_then_continue_active_work":
-            response = self._apply_continue_active_work(
-                context=context,
-                turn_id=turn_id,
-                user_message=user_message,
-                appended_instruction=decision.appended_instruction,
-                continuation_strategy=decision.continuation_strategy,
-                default_response=response,
-                editor_context=dict(editor_context or {}),
-            )
-        elif action == "answer_about_active_work":
-            response = decision.response or active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-        elif action == "ask_user":
-            response = decision.response or default_reply_for_action(action, context)
-        if isinstance(response, dict):
-            return {
-                **response,
-                "content": public_active_work_text(str(response.get("content") or "")),
-            }
-        return public_active_work_text(response)
-
-    def _apply_continue_active_work(
-        self,
-        *,
-        context: ActiveWorkContext,
-        turn_id: str,
-        user_message: str,
-        appended_instruction: str = "",
-        continuation_strategy: str = "",
-        default_response: str,
-        editor_context: dict[str, Any] | None = None,
-    ) -> str | dict[str, Any]:
-        host = self.single_agent_runtime_host
-        strategy = _continuation_strategy_for_execution(
-            decision_strategy=continuation_strategy,
-            context=context,
-        )
-        if strategy == "same_run_resume":
-            if not (context.same_run_allowed or context.resumable):
-                return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-            instruction = str(appended_instruction or "").strip()
-            if instruction:
-                append_user_work_instruction(
-                    host,
-                    context.task_run_id,
-                    content=instruction,
-                    turn_id=turn_id,
-                    intent="conversation_continue",
-                    editor_context=dict(editor_context or {}),
-                )
-            result = self._resume_task_run_through_control_gateway(
-                session_id=context.session_id,
-                task_run_id=context.task_run_id,
-                reason="conversation_continue",
-                turn_id=turn_id,
-                scheduler="conversation_continue",
-                max_steps=_CONVERSATION_TASK_EXECUTION_STEPS,
-            )
-            if result.get("ok"):
-                schedule_result = dict(result.get("schedule") or {})
-                if not _schedule_result_allows_progress(schedule_result):
-                    return _active_work_schedule_failure_payload(schedule_result)
-                self._bind_current_turn_to_task_run(
-                    session_id=context.session_id,
-                    turn_id=turn_id,
-                    task_run_id=context.task_run_id,
-                    state="running_task",
-                )
-                return default_response or "好，我接着处理。"
-            return _active_work_control_failure_payload(result)
-        if strategy == "already_running":
-            if not context.running:
-                return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-            self._bind_current_turn_to_task_run(
-                session_id=context.session_id,
-                turn_id=turn_id,
-                task_run_id=context.task_run_id,
-                state="running_task",
-            )
-            instruction = str(appended_instruction or "").strip()
-            if instruction:
-                append_user_work_instruction(
-                    host,
-                    context.task_run_id,
-                    content=instruction,
-                    turn_id=turn_id,
-                    intent="conversation_steer_while_running",
-                    editor_context=dict(editor_context or {}),
-                )
-            return default_response or "我正在接着处理，新的进展会继续更新在这里。"
-        return active_work_status_reply(self._active_work_context_from_active_turn(context.session_id) or context)
-
-    def _bind_current_turn_to_task_run(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        task_run_id: str,
-        state: str,
-    ) -> None:
-        active_registry = self.single_agent_runtime_host.active_turn_registry
-        try:
-            record = active_registry.resolve_current(session_id)
-            if record is None:
-                return
-            if str(getattr(record, "turn_id", "") or "") != str(turn_id or ""):
-                return
-            active_registry.bind_task_run(
-                session_id=session_id,
-                turn_id=turn_id,
-                task_run_id=task_run_id,
-                state=state if state in {"running_task", "waiting_executor", "waiting_approval", "waiting_safe_boundary"} else "waiting_executor",
-            )
-        except Exception:
-            logger.debug("failed to bind current active turn to task run", exc_info=True)
-
-    def _complete_active_turn_for_task_run(self, *, session_id: str, task_run_id: str, terminal_reason: str) -> None:
-        try:
-            self.single_agent_runtime_host.active_turn_registry.complete_bound_task(
-                session_id=session_id,
-                task_run_id=task_run_id,
-                terminal_reason=terminal_reason,
-            )
-        except Exception:
-            logger.debug("failed to complete active turn for task run", exc_info=True)
-
-    def _task_run_control_gateway(
-        self,
-        *,
-        schedule_task_run_executor: Any | None,
-    ) -> TaskRunControlGateway:
-        return TaskRunControlGateway(
-            runtime_host=self.single_agent_runtime_host,
-            schedule_task_run_executor=schedule_task_run_executor,
-        )
-
-    def _resume_task_run_through_control_gateway(
-        self,
-        *,
-        session_id: str,
-        task_run_id: str,
-        reason: str,
-        turn_id: str,
-        scheduler: str,
-        max_steps: int,
-    ) -> dict[str, Any]:
-        def _schedule_after_active_turn_bind(candidate_task_run_id: str, **kwargs: Any) -> dict[str, Any]:
-            self._bind_current_turn_to_task_run(
-                session_id=session_id,
-                turn_id=turn_id,
-                task_run_id=candidate_task_run_id,
-                state="waiting_executor",
-            )
-            return self.schedule_task_run_executor(candidate_task_run_id, **kwargs)
-
-        return self._task_run_control_gateway(
-            schedule_task_run_executor=_schedule_after_active_turn_bind,
-        ).resume_task_run(
-            task_run_id,
-            reason=reason,
-            requested_by="user",
-            turn_id=turn_id,
-            max_steps=max_steps,
-            scheduler=scheduler,
-        )
-
-    def _schedule_active_task_run_executor(
-        self,
-        task_run_id: str,
-        *,
-        scheduler: str,
-        turn_id: str = "",
-        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
-    ) -> dict[str, Any]:
-        return self.schedule_task_run_executor(task_run_id, scheduler=scheduler, turn_id=turn_id, max_steps=max_steps)
-
-    def schedule_task_run_executor(
-        self,
-        task_run_id: str,
-        *,
-        scheduler: str,
-        turn_id: str = "",
-        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
-    ) -> dict[str, Any]:
-        return self.task_executor_controller.schedule(
-            task_run_id,
-            scheduler=scheduler,
-            turn_id=turn_id,
-            max_steps=max_steps,
-        )
-
-    def recover_scheduled_task_run_executor(
-        self,
-        task_run_id: str,
-        *,
-        scheduler: str,
-        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
-        recovered_from: str = "scheduled_executor_claim",
-    ) -> dict[str, Any]:
-        return self.task_executor_controller.recover_scheduled(
-            task_run_id,
-            scheduler=scheduler,
-            max_steps=max_steps,
-            recovered_from=recovered_from,
-        )
-
-    def schedule_or_recover_task_run_executor(
-        self,
-        task_run_id: str,
-        *,
-        scheduler: str,
-        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
-        recovered_from: str = "scheduled_executor_claim",
-    ) -> dict[str, Any]:
-        return self.task_executor_controller.recover_scheduled(
-            task_run_id,
-            scheduler=scheduler,
-            max_steps=max_steps,
-            recovered_from=recovered_from,
         )
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
 
-    async def execute_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
-        task_run = self.single_agent_runtime_host.state_index.get_task_run(task_run_id)
-        services = self._task_executor_services_for_task_run(task_run) if task_run is not None else self._task_executor_services()
-        return await execute_task_run(services, task_run_id, max_steps=max_steps)
-
-    async def execute_graph_agent_work_order(self, *, graph_config: Any, work_order: Any, max_steps: int = 12) -> dict[str, Any]:
-        task_run = self._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
-        return await execute_task_run(
-            self._task_executor_services_for_task_run(task_run),
-            task_run.task_run_id,
-            max_steps=max(1, int(max_steps or 12)),
-            graph_node_authorization={
-                "graph_run_id": work_order.graph_run_id,
-                "graph_work_order_id": work_order.work_order_id,
-                "graph_node_id": work_order.node_id,
-            },
-        )
-
     def _resolve_request_agent_runtime_profile(self, request: Any) -> Any:
-        request_profile = dict(getattr(request, "runtime_profile", {}) or {})
-        runtime_contract = dict(getattr(request, "runtime_contract", {}) or {})
+        request_profile = _request_payload(request, "runtime_profile")
+        runtime_contract = _request_payload(request, "runtime_contract")
         contract_profile = dict(runtime_contract.get("runtime_profile") or {})
         profile_id = _first_non_empty_string(
             request_profile.get("agent_profile_id"),
@@ -2436,240 +1552,30 @@ class HarnessRuntimeFacade:
         )
         if profile_id:
             profile = self.agent_runtime_registry.get_profile_by_profile_id(profile_id)
-            if profile is not None:
-                return profile
+            if profile is None:
+                raise ValueError(f"request_agent_profile_not_registered:{profile_id}")
+            explicit_agent_id = _first_non_empty_string(
+                request_profile.get("agent_id"),
+                contract_profile.get("agent_id"),
+            )
+            if explicit_agent_id and str(getattr(profile, "agent_id", "") or "").strip() != explicit_agent_id:
+                raise ValueError(
+                    "request_agent_profile_agent_mismatch:"
+                    f"{profile_id}:{explicit_agent_id}:{str(getattr(profile, 'agent_id', '') or '').strip()}"
+                )
+            return profile
         agent_id = _first_non_empty_string(
             request_profile.get("agent_id"),
             contract_profile.get("agent_id"),
         )
-        profile = self.agent_runtime_registry.get_profile(agent_id or "agent:0")
-        return profile or self.agent_runtime_registry.get_profile("agent:0")
-
-    def _task_executor_services(self, *, agent_id: str = "agent:0") -> TaskExecutorServices:
-        profile = self.agent_runtime_registry.get_profile(agent_id) or self.agent_runtime_registry.get_profile("agent:0")
-        if profile is None:
-            raise ValueError("AgentRuntimeProfile not found: agent:0")
-        return self._task_executor_services_with_profile(profile)
-
-    def _task_executor_services_for_task_run(self, task_run: TaskRun) -> TaskExecutorServices:
-        return self._task_executor_services_with_profile(self._resolve_task_run_runtime_profile(task_run))
-
-    def _resolve_task_run_runtime_profile(self, task_run: TaskRun) -> Any:
-        explicit_profile_id = str(getattr(task_run, "agent_profile_id", "") or "").strip()
-        profile = None
-        if explicit_profile_id:
-            profile = self.agent_runtime_registry.get_profile_by_profile_id(explicit_profile_id)
+        if agent_id:
+            profile = self.agent_runtime_registry.get_profile(agent_id)
             if profile is None:
-                raise ValueError(f"AgentRuntimeProfile not found: {explicit_profile_id}")
-        if profile is None:
-            profile = self.agent_runtime_registry.get_profile(getattr(task_run, "agent_id", "") or "agent:0")
-        if profile is None:
-            profile = self.agent_runtime_registry.get_profile("agent:0")
-        if profile is None:
-            raise ValueError("AgentRuntimeProfile not found: agent:0")
-        return profile
-
-    def _task_executor_backend_config(self) -> dict[str, Any]:
-        provider = getattr(self.settings_service, "task_executor_backend_config", None)
-        if callable(provider):
-            payload = provider()
-            if isinstance(payload, dict):
-                return dict(payload)
-        return dict(getattr(self, "config", {}) or {})
-
-    def _task_executor_services_with_profile(self, profile: Any) -> TaskExecutorServices:
-        return TaskExecutorServices(
-            runtime_host=self.single_agent_runtime_host,
-            backend_dir=self.base_dir,
-            model_runtime=self.model_runtime,
-            tool_control_plane=getattr(self.single_agent_runtime_host, "tool_control_plane", None),
-            tool_runtime_executor=self.tool_runtime_executor,
-            tool_instances=tuple(self._all_tool_instances()),
-            agent_runtime_profile=profile,
-            backend_config=self._task_executor_backend_config(),
-            assistant_message_committer=lambda payload: self._apply_assistant_message_commit(
-                str(dict(payload or {}).get("session_id") or ""),
-                payload,
-            ),
-            execute_task_run_callback=self.execute_task_run,
-            schedule_task_run_executor_callback=self.schedule_task_run_executor,
-            memory_context_provider=lambda payload: self._runtime_memory_context_for_task_execution(dict(payload or {})),
-        )
-
-    def _create_graph_node_task_run(self, *, graph_config: Any, work_order: Any) -> TaskRun:
-        runtime_host = self.single_agent_runtime_host
-        now = time.time()
-        node_task_run_id = _graph_node_task_run_id(work_order)
-        existing = runtime_host.state_index.get_task_run(node_task_run_id)
-        if existing is not None:
-            _validate_existing_graph_node_task_run(existing, graph_run_id=work_order.graph_run_id, work_order_id=work_order.work_order_id)
-            return _refresh_existing_graph_node_task_run(
-                runtime_host=runtime_host,
-                graph_config=graph_config,
-                work_order=work_order,
-                task_run=existing,
-                now=now,
-            )
-        origin = _graph_node_origin(work_order)
-        contract = _graph_node_contract_from_work_order(work_order)
-        runtime_contract = _graph_node_runtime_contract(graph_config, work_order)
-        model_override_diagnostics = _graph_model_override_diagnostics(work_order)
-        node_agent_id = _graph_node_agent_id(graph_config, work_order)
-        node_profile = self._resolve_graph_node_profile(node_agent_id=node_agent_id, work_order=work_order, graph_config=graph_config)
-        node_profile_id = str(getattr(node_profile, "agent_profile_id", "") or "")
-        contract_ref = runtime_host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
-        lifecycle = TaskLifecycleRecord(
-            task_run_id=node_task_run_id,
-            contract_ref=contract_ref,
-            status="waiting_executor",
-            created_at=now,
-            updated_at=now,
-        )
-        runtime_host.runtime_objects.put_object("task_lifecycle", node_task_run_id, lifecycle.to_dict())
-        graph_run = runtime_host.runtime_objects.get_object(f"rtobj:graph_run:{safe_id(work_order.graph_run_id)}")
-        node_session_id = str(getattr(work_order, "node_session_id", "") or "")
-        if node_session_id:
-            self._ensure_graph_node_session(
-                node_session_id=node_session_id,
-                graph_config=graph_config,
-                work_order=work_order,
-                graph_run=dict(graph_run or {}),
-            )
-        task_run = TaskRun(
-            task_run_id=node_task_run_id,
-            session_id=node_session_id or str(dict(graph_run or {}).get("session_id") or work_order.graph_run_id),
-            task_id=work_order.task_ref,
-            task_contract_ref=contract_ref,
-            owner_agent_seat_id=work_order.node_id,
-            agent_id=node_agent_id,
-            agent_profile_id=node_profile_id,
-            execution_runtime_kind="single_agent_task",
-            status="waiting_executor",
-            created_at=now,
-            updated_at=now,
-            diagnostics={
-                "source": "harness.entrypoint.graph_agent_work_order_adapter",
-                "origin": origin,
-                **origin,
-                "graph_run_id": work_order.graph_run_id,
-                "graph_config_id": graph_config.config_id,
-                "graph_node_id": work_order.node_id,
-                "graph_work_order_id": work_order.work_order_id,
-                "graph_root_session_id": str(dict(graph_run or {}).get("session_id") or ""),
-                "node_session_id": node_session_id,
-                "node_session_policy": dict(getattr(work_order, "node_session_policy", {}) or {}),
-                "graph_clock_seq": _graph_node_clock_seq(work_order),
-                "runtime_scope": _graph_node_runtime_scope(work_order),
-                **_graph_node_public_scope_fields(work_order),
-                "runtime_contract": runtime_contract,
-                "contract": contract.to_dict(),
-                **({"graph_model_override": model_override_diagnostics} if model_override_diagnostics else {}),
-            },
-        )
-        agent_run = AgentRun(
-            agent_run_id=f"agrun:{node_task_run_id}:main",
-            task_run_id=node_task_run_id,
-            agent_id=task_run.agent_id,
-            agent_profile_id=task_run.agent_profile_id,
-            role="graph_node_executor",
-            spawn_mode="graph_node",
-            context_scope="graph_node_work_order",
-            execution_runtime_kind="single_agent_task",
-            parent_agent_run_ref=work_order.graph_run_id,
-            status="pending",
-            created_at=now,
-            updated_at=now,
-            diagnostics={
-                "origin": origin,
-                **origin,
-                "graph_run_id": work_order.graph_run_id,
-                "graph_node_id": work_order.node_id,
-                "graph_work_order_id": work_order.work_order_id,
-            },
-        )
-        runtime_host.state_index.upsert_task_run(task_run)
-        runtime_host.state_index.upsert_agent_run(agent_run)
-        event = runtime_host.event_log.append(
-            work_order.task_run_id,
-            "graph_node_agent_task_run_created",
-            payload={
-                "graph_run_id": work_order.graph_run_id,
-                "node_id": work_order.node_id,
-                "work_order_id": work_order.work_order_id,
-                "node_executor_task_run": task_run.to_dict(),
-                "node_executor_agent_run": agent_run.to_dict(),
-            },
-            refs={
-                "graph_run_ref": work_order.graph_run_id,
-                "work_order_ref": work_order.work_order_id,
-                "node_executor_task_run_ref": task_run.task_run_id,
-            },
-        )
-        runtime_host.state_index.upsert_task_run(
-            TaskRun(
-                **{
-                    **task_run.to_dict(),
-                    "updated_at": event.created_at,
-                    "latest_event_offset": event.offset,
-                }
-            )
-        )
-        return runtime_host.state_index.get_task_run(node_task_run_id) or task_run
-
-    def _ensure_graph_node_session(
-        self,
-        *,
-        node_session_id: str,
-        graph_config: Any,
-        work_order: Any,
-        graph_run: dict[str, Any],
-    ) -> None:
-        session_id = str(node_session_id or "").strip()
-        if not session_id:
-            return
-        try:
-            self.session_manager.load_session_record(session_id)
-            return
-        except Exception:
-            pass
-        runtime_scope = _graph_node_runtime_scope(work_order)
-        project_id = str(
-            dict(runtime_scope or {}).get("project_id")
-            or dict(graph_run or {}).get("project_id")
-            or ""
-        )
-        create = getattr(self.session_manager, "create_session", None)
-        if not callable(create):
-            return
-        create(
-            session_id=session_id,
-            title=f"Graph node {getattr(work_order, 'node_id', '')}",
-            scope={
-                "workspace_view": "graph_task",
-                "task_environment_id": "",
-                "project_id": project_id,
-            },
-        )
-
-    def _resolve_graph_node_profile(self, *, node_agent_id: str, work_order: Any, graph_config: Any) -> Any:
-        explicit_profile_id = str(getattr(work_order, "agent_profile_id", "") or "").strip()
-        if explicit_profile_id:
-            profile = self.agent_runtime_registry.get_profile_by_profile_id(explicit_profile_id)
-            if profile is None:
-                raise ValueError(f"AgentRuntimeProfile not found: {explicit_profile_id}")
-            if normalize_agent_id(str(getattr(profile, "agent_id", "") or "")) != normalize_agent_id(node_agent_id):
-                raise ValueError("Graph node agent_profile_id does not belong to node agent_id")
+                raise ValueError(f"request_agent_id_not_registered:{agent_id}")
             return profile
-        coordinator_profile_id = _graph_coordinator_profile_ref(graph_config)
-        if coordinator_profile_id:
-            profile = self.agent_runtime_registry.get_profile_by_profile_id(coordinator_profile_id)
-            if profile is not None and normalize_agent_id(str(getattr(profile, "agent_id", "") or "")) == normalize_agent_id(node_agent_id):
-                return profile
-        profile = self.agent_runtime_registry.get_profile(node_agent_id)
+        profile = self.agent_runtime_registry.get_profile_by_profile_id(DEFAULT_INTERACTIVE_AGENT_PROFILE_ID)
         if profile is None:
-            profile = self.agent_runtime_registry.get_profile("agent:0")
-        if profile is None:
-            raise ValueError(f"AgentRuntimeProfile not found for agent_id: {node_agent_id}")
+            raise ValueError(f"default_interactive_agent_profile_missing:{DEFAULT_INTERACTIVE_AGENT_PROFILE_ID}")
         return profile
 
     def _commit_user_message(
@@ -2678,7 +1584,7 @@ class HarnessRuntimeFacade:
         session_id: str,
         content: str,
         turn_id: str,
-        api_content: str | None = None,
+        provider_protocol_content: str | None = None,
         attachments: list[dict[str, Any]] | None = None,
         message_id: str = "",
         client_message_id: str = "",
@@ -2712,14 +1618,14 @@ class HarnessRuntimeFacade:
                 client_message_id=normalized_client_message_id,
                 turn_id=turn_id,
                 content=str(payload.get("content") or ""),
-                api_transcript=False,
+                use_provider_protocol_timeline=False,
             ):
                 self.session_manager.append_messages(session_id, [public_payload])
-            append_api = getattr(self.session_manager, "append_api_messages", None)
-            if callable(append_api):
-                api_payload = {
+            append_provider_protocol = getattr(self.session_manager, "append_provider_protocol_messages", None)
+            if callable(append_provider_protocol):
+                provider_protocol_payload = {
                     "role": payload.get("role"),
-                    "content": str(api_content if api_content is not None else payload.get("content") or ""),
+                    "content": str(provider_protocol_content if provider_protocol_content is not None else payload.get("content") or ""),
                     "turn_id": turn_id,
                     "source": source,
                 }
@@ -2728,10 +1634,10 @@ class HarnessRuntimeFacade:
                     message_id=normalized_message_id,
                     client_message_id=normalized_client_message_id,
                     turn_id=turn_id,
-                    content=str(api_payload.get("content") or ""),
-                    api_transcript=True,
+                    content=str(provider_protocol_payload.get("content") or ""),
+                    use_provider_protocol_timeline=True,
                 ):
-                    append_api(session_id, [api_payload])
+                    append_provider_protocol(session_id, [provider_protocol_payload])
         return decision
 
     def _session_contains_user_message(
@@ -2742,11 +1648,11 @@ class HarnessRuntimeFacade:
         client_message_id: str,
         turn_id: str,
         content: str,
-        api_transcript: bool,
+        use_provider_protocol_timeline: bool,
     ) -> bool:
         loader = (
-            getattr(self.session_manager, "load_session_for_api", None)
-            if api_transcript
+            getattr(self.session_manager, "load_provider_protocol_timeline", None)
+            if use_provider_protocol_timeline
             else getattr(self.session_manager, "load_session", None)
         )
         if not callable(loader):
@@ -2778,7 +1684,14 @@ class HarnessRuntimeFacade:
                 return True
         return False
 
-    def _record_turn_environment_snapshot(self, *, session_id: str, turn_id: str, runtime_assembly: Any, task_run_id: str = "") -> None:
+    def _record_turn_environment_snapshot(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        runtime_assembly: Any,
+        execution_scope: dict[str, Any] | None = None,
+    ) -> None:
         update_snapshot = getattr(self.session_manager, "update_turn_environment_snapshot", None)
         if not callable(update_snapshot):
             return
@@ -2787,21 +1700,32 @@ class HarnessRuntimeFacade:
             environment = dict(assembly_payload.get("task_environment") or {})
             boundary = dict(environment.get("environment_boundary") or {})
             prompt_refs = assembly_payload.get("environment_prompt_refs") or boundary.get("prompt_refs") or []
+            scope = dict(execution_scope or {})
+            execution_scope_kind = str(scope.get("execution_scope_kind") or scope.get("scope_kind") or "single_agent_turn").strip()
+            task_environment_id = str(
+                scope.get("task_environment_id")
+                or environment.get("environment_id")
+                or environment.get("task_environment_id")
+                or environment.get("requested_environment_id")
+                or ""
+            ).strip()
             update_snapshot(
                 session_id,
                 turn_id=turn_id,
                 snapshot={
                     "turn_id": turn_id,
-                    "task_environment_id": str(
-                        environment.get("environment_id")
-                        or environment.get("task_environment_id")
-                        or environment.get("requested_environment_id")
-                        or ""
-                    ).strip(),
+                    "execution_scope_kind": execution_scope_kind,
+                    "task_environment_id": task_environment_id,
+                    "task_instance_id": str(scope.get("task_instance_id") or "").strip(),
+                    "episode_id": str(scope.get("episode_id") or "").strip(),
+                    "graph_run_id": str(scope.get("graph_run_id") or "").strip(),
+                    "node_id": str(scope.get("node_id") or "").strip(),
+                    "work_order_id": str(scope.get("work_order_id") or "").strip(),
+                    "context_package_id": str(scope.get("context_package_id") or "").strip(),
                     "environment_kind": str(environment.get("environment_kind") or "").strip(),
                     "environment_prompt_refs": list(prompt_refs or []),
                     "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "").strip(),
-                    "task_run_id": str(task_run_id or "").strip(),
+                    "task_run_id": str(scope.get("task_run_id") or "").strip(),
                 },
             )
         except Exception:
@@ -2832,17 +1756,17 @@ class HarnessRuntimeFacade:
                 }
             ],
         )
-        append_api = getattr(self.session_manager, "append_api_messages", None)
-        if callable(append_api):
+        append_provider_protocol = getattr(self.session_manager, "append_provider_protocol_messages", None)
+        if callable(append_provider_protocol):
             protocol_messages = [
                 dict(item)
-                for item in list(payload.get("api_protocol_messages") or [])
+                for item in list(payload.get("provider_protocol_messages_to_append") or [])
                 if isinstance(item, dict)
             ]
             if protocol_messages:
-                append_api(session_id, protocol_messages)
+                append_provider_protocol(session_id, protocol_messages)
             else:
-                append_api(
+                append_provider_protocol(
                     session_id,
                     [
                         {
@@ -2911,7 +1835,7 @@ class HarnessRuntimeFacade:
     ) -> None:
         if not (main_context or task_summary_refs or bundle_summary_refs):
             return
-        updater = getattr(getattr(self.memory_facade, "session_memory", None), "update_runtime_state_from_context_state", None)
+        updater = getattr(getattr(self.memory_facade, "conversation_continuity", None), "update_runtime_state_from_context_state", None)
         if not callable(updater):
             return
         updater(
@@ -3006,8 +1930,8 @@ class HarnessRuntimeFacade:
             recent_work_outcome=recent_work_outcome,
         )
 
-    def _load_recent_api_messages_for_memory(self, session_id: str) -> list[dict[str, Any]]:
-        loader = getattr(self.session_manager, "load_session_for_api", None)
+    def _load_recent_provider_protocol_messages_for_memory(self, session_id: str) -> list[dict[str, Any]]:
+        loader = getattr(self.session_manager, "load_provider_protocol_timeline", None)
         if not callable(loader):
             return []
         try:
@@ -3023,26 +1947,26 @@ class HarnessRuntimeFacade:
         return await self.runtime_memory_context_provider.for_task_execution(dict(payload or {}))
 
     def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
-        payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
-        session_succeeded = bool(payload.get("session_memory_succeeded") is True)
+        payload = receipt_payload(receipt)
+        continuity_succeeded = bool(payload.get("conversation_continuity_succeeded") is True)
         durable_succeeded = bool(payload.get("durable_memory_succeeded") is True)
         durable_write_count = int(payload.get("durable_write_count") or 0)
         attempted = bool(payload.get("attempted") is True)
         failed = str(payload.get("status") or "") == "failed"
-        session_memory_chars = 0
+        conversation_continuity_chars = 0
         try:
-            session_memory_chars = len(self.memory_facade.session_memory.manager(str(payload.get("session_id") or "")).load() or "") if session_succeeded else 0
+            conversation_continuity_chars = len(self.memory_facade.conversation_continuity.manager(str(payload.get("session_id") or "")).load() or "") if continuity_succeeded else 0
         except Exception:
-            session_memory_chars = 0
+            conversation_continuity_chars = 0
         return {
             "memory_maintenance_attempted": attempted,
             "memory_maintenance_status": str(payload.get("status") or ""),
             "memory_maintenance_receipt": payload,
             "memory_maintenance_error": str(payload.get("error") or ""),
-            "session_memory_succeeded": session_succeeded,
+            "conversation_continuity_succeeded": continuity_succeeded,
             "durable_memory_succeeded": durable_succeeded,
             "durable_write_count": durable_write_count,
-            "session_memory_chars": session_memory_chars,
+            "conversation_continuity_chars": conversation_continuity_chars,
             "durable_saved_count": durable_write_count,
             "durable_memory_commit_attempted": attempted,
             "durable_memory_commit_failed": failed,
@@ -3061,81 +1985,13 @@ class HarnessRuntimeFacade:
             return None
         return getter(name)
 
-def _active_work_schedule_failure_reply(result: dict[str, Any]) -> str:
-    reason = str(result.get("reason") or result.get("error") or "unknown").strip()
-    if not reason:
-        reason = "unknown"
-    return f"当前工作恢复调度没有成功：{reason}。断点已保留；需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
 
-
-def _current_work_control_status_projection(*, action: str, status: str, content: str) -> tuple[str, str, str]:
-    normalized_action = str(action or "").strip()
-    normalized_status = str(status or "").strip().lower()
-    detail = public_active_work_text(content)
-    if normalized_status == "blocked":
-        return "当前工作控制未执行", detail or "当前工作控制请求没有执行成功。", "warning"
-    if normalized_action == "pause_active_work":
-        return "当前工作已暂停", detail or "当前工作已暂停。", "done"
-    if normalized_action == "stop_active_work":
-        return "当前工作已停止", detail or "当前工作已停止。", "stopped"
-    if normalized_action == "append_instruction_to_active_work":
-        return "当前工作已接收补充", detail or "补充要求已接入当前工作。", "running"
-    if normalized_action == "answer_about_active_work":
-        return "当前工作状态", detail or "已返回当前工作状态。", "done"
-    if normalized_action == "answer_then_continue_active_work":
-        return "当前工作继续执行", detail or "已回应并继续当前工作。", "running"
-    if normalized_action == "continue_active_work":
-        return "继续当前工作", detail or "当前工作将继续执行。", "running"
-    return "当前工作控制", detail or "当前工作控制请求已处理。", "done"
-
-
-def _active_work_schedule_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
-    reason = str(result.get("reason") or result.get("error") or "unknown").strip() or "unknown"
-    return {
-        "status": "blocked",
-        "terminal_reason": "active_work_schedule_failed",
-        "reason": reason,
-        "content": _active_work_schedule_failure_reply(result),
-    }
-
-
-def _active_work_resume_failure_reply(result: dict[str, Any]) -> str:
-    reason = str(result.get("reason") or result.get("error") or "unknown").strip()
-    if not reason:
-        reason = "unknown"
-    return f"当前工作没有成功恢复：{reason}。断点已保留；如本轮包含补充要求，也已保留。需要先修复这个运行问题，再由 agent 在新的模型轮次中继续处理。"
-
-
-def _active_work_resume_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
-    reason = str(result.get("reason") or result.get("error") or "unknown").strip() or "unknown"
-    return {
-        "status": "blocked",
-        "terminal_reason": "active_work_resume_failed",
-        "reason": reason,
-        "content": _active_work_resume_failure_reply(result),
-    }
-
-
-def _active_work_control_failure_payload(result: dict[str, Any]) -> dict[str, Any]:
-    if "schedule" in dict(result or {}):
-        return _active_work_schedule_failure_payload(result)
-    return _active_work_resume_failure_payload(result)
-
-
-def _schedule_result_allows_progress(result: dict[str, Any]) -> bool:
-    payload = dict(result or {})
-    if not payload.get("ok"):
-        return False
-    if payload.get("scheduled"):
-        return True
-    return str(payload.get("reason") or "").strip() == "already_running"
-
-
-def _task_run_identity(task_run: Any) -> dict[str, str]:
-    return {
-        "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
-        "status": str(getattr(task_run, "status", "") or ""),
-    }
+def _request_payload(request: Any, field_name: str) -> dict[str, Any]:
+    payload_reader = getattr(request, f"{field_name}_payload", None)
+    if callable(payload_reader):
+        return payload_reader()
+    value = getattr(request, field_name, {})
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _permission_mode_provider(*, permission_service: Any | None, settings_service: Any | None):
@@ -3194,10 +2050,9 @@ def _history_without_current_user_request(
         content = str(item.get("content") or "")
         current_turn_match = item_turn_id == target_turn_id
         content_matches = not target_content or content == target_content or content.strip() == target_content.strip()
-        compacted_current_request_match = not item_turn_id and bool(target_content) and content_matches
         is_current_user_request = (
             role == "user"
-            and (current_turn_match or compacted_current_request_match)
+            and current_turn_match
             and content_matches
         )
         if is_current_user_request:
@@ -3223,46 +2078,6 @@ def _attach_fork_snapshot_to_session_context(
     else:
         payload.pop("forked_from", None)
     return payload
-
-
-def _graph_model_override_diagnostics(work_order: Any) -> dict[str, Any]:
-    dispatch_context = dict(getattr(work_order, "dispatch_context", {}) or {})
-    diagnostics = dispatch_context.get("model_override_diagnostics")
-    return dict(diagnostics or {}) if isinstance(diagnostics, dict) else {}
-
-
-def _refresh_existing_graph_node_task_run(
-    *,
-    runtime_host: Any,
-    graph_config: Any,
-    work_order: Any,
-    task_run: TaskRun,
-    now: float,
-) -> TaskRun:
-    model_override_diagnostics = _graph_model_override_diagnostics(work_order)
-    if not model_override_diagnostics:
-        return task_run
-    if str(getattr(task_run, "status", "") or "") not in {"created", "waiting_executor"}:
-        return task_run
-
-    contract = _graph_node_contract_from_work_order(work_order)
-    runtime_contract = _graph_node_runtime_contract(graph_config, work_order)
-    contract_ref = runtime_host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
-    diagnostics.pop("model_selection", None)
-    diagnostics["runtime_contract"] = runtime_contract
-    diagnostics["contract"] = contract.to_dict()
-    diagnostics["graph_model_override"] = model_override_diagnostics
-    updated = TaskRun(
-        **{
-            **task_run.to_dict(),
-            "task_contract_ref": contract_ref,
-            "updated_at": now,
-            "diagnostics": diagnostics,
-        }
-    )
-    runtime_host.state_index.upsert_task_run(updated)
-    return runtime_host.state_index.get_task_run(updated.task_run_id) or updated
 
 
 def _runtime_contract_for_turn(
@@ -3328,7 +2143,7 @@ def _runtime_assembly_with_task_launch_supervision(runtime_assembly: Any) -> Any
         "enabled": True,
         "allow_direct_pass": True,
         "gate_type": str(supervision.get("gate_type") or "slash_task_command_launch"),
-        "user_prompt": str(supervision.get("user_prompt") or "任务模式已建立。你可以补充约束，或直接继续执行。"),
+        "user_prompt": str(supervision.get("user_prompt") or "长任务资源已建立。你可以补充约束，或直接继续执行。"),
     }
     profile["task_lifecycle_policy"] = lifecycle_policy
     payload["profile"] = profile
@@ -3378,17 +2193,6 @@ def _slash_task_action_runtime_branch(signal: TaskModeSlashSignal) -> dict[str, 
     }
 
 
-def _continuation_strategy_for_execution(*, decision_strategy: str, context: ActiveWorkContext) -> str:
-    strategy = str(decision_strategy or "").strip()
-    if strategy in {"same_run_resume", "already_running", "defer", "none"}:
-        return strategy
-    if context.running:
-        return "already_running"
-    if context.same_run_allowed or context.resumable:
-        return "same_run_resume"
-    return "defer"
-
-
 def _explicit_contract_action_request(
     *,
     request: HarnessRuntimeRequest,
@@ -3414,7 +2218,7 @@ def _explicit_contract_action_request(
             runtime_contract=runtime_contract,
         ),
         diagnostics={
-            "origin_kind": "explicit_contract",
+            "origin_kind": "user_direct_request",
             "origin_authority": "harness.explicit_contract_task",
             "source_contract_ref": str(source.get("contract_id") or source.get("source_ref") or ""),
         },
@@ -3479,11 +2283,11 @@ def _explicit_contract_task_seed(
     )
     primary_ref = "work-mode:plan:primary"
     return {
-        "contract_version": "task_run_contract_v1",
+        "contract_id": "task_run_contract",
         "container_contract": {
             "entry_reason": _first_contract_text(
                 source.get("entry_reason"),
-                f"显式任务合同已提供，当前工作需要绑定持续任务生命周期：{user_visible_goal}",
+                f"显式任务合同已提供，当前工作需要绑定长任务资源：{user_visible_goal}",
             ),
             "continuity_required": True,
             "control_required": True,
@@ -3582,11 +2386,11 @@ def _task_run_contract_from_explicit_contract(
         return None, errors
     contract = replace(
         contract,
-        contract_source="explicit_contract",
+        contract_source="user_direct_request",
         source_contract_ref=str(source.get("contract_id") or source.get("source_ref") or "").strip(),
         external_plan_ref=str(source.get("plan_id") or source.get("external_plan_ref") or "").strip(),
         origin={
-            "origin_kind": "explicit_contract",
+            "origin_kind": "user_direct_request",
             "origin_authority": "harness.explicit_contract_task",
             "turn_id": turn_id,
         },
@@ -3635,10 +2439,76 @@ def _runtime_branch_projection(*, runtime_assembly: Any) -> dict[str, Any]:
     }
 
 
-def _looks_like_chat_task_run(task_run: Any) -> bool:
-    task_run_id = str(getattr(task_run, "task_run_id", "") or "")
-    task_id = str(getattr(task_run, "task_id", "") or "")
-    return task_run_id.startswith("taskrun:turn:") or task_id.startswith("task:turn:")
+def _task_environment_status_is_terminal(status: str) -> bool:
+    return str(status or "").strip() in {"completed", "failed", "aborted", "archived"}
+
+
+def _active_task_environment_control_state(pending_signal_kinds: set[str]) -> str:
+    for signal_kind in (
+        "stop_requested",
+        "abort_requested",
+        "pause_requested",
+        "resume_requested",
+        "replan_requested",
+        "instruction_appended",
+    ):
+        if signal_kind in pending_signal_kinds:
+            return signal_kind
+    return ""
+
+
+def _task_environment_user_visible_goal(task_instance: Any | None, environment: dict[str, Any]) -> str:
+    title = str(getattr(task_instance, "title", "") or "").strip() if task_instance is not None else ""
+    goal = str(getattr(task_instance, "goal", "") or "").strip() if task_instance is not None else ""
+    return _first_non_empty_string(
+        title,
+        goal,
+        dict(environment.get("metadata") or {}).get("title"),
+        dict(environment.get("metadata") or {}).get("goal"),
+        environment.get("task_environment_id"),
+    )
+
+
+def _task_environment_latest_progress(environment: dict[str, Any]) -> str:
+    return _first_non_empty_string(
+        environment.get("progress_label"),
+        environment.get("blocked_reason"),
+        environment.get("continuation_hint"),
+        environment.get("current_step"),
+        environment.get("status"),
+    )
+
+
+def _task_environment_active_work_capabilities(
+    *,
+    environment: dict[str, Any],
+    running: bool,
+    pending_signal_kinds: set[str],
+) -> dict[str, Any]:
+    status = str(environment.get("status") or "").strip()
+    terminal = _task_environment_status_is_terminal(status)
+    return {
+        "pause_active_work": bool(running and not terminal and "pause_requested" not in pending_signal_kinds),
+        "stop_active_work": bool(
+            not terminal
+            and "stop_requested" not in pending_signal_kinds
+            and "abort_requested" not in pending_signal_kinds
+        ),
+        "append_instruction_to_active_work": bool(not terminal),
+        "answer_about_active_work": True,
+        "pending_control_signal_kinds": sorted(item for item in pending_signal_kinds if item),
+        "authority": "harness.entrypoint.task_environment_active_work_capabilities",
+    }
+
+
+def _task_environment_control_signal_kind(action: str) -> str:
+    if action == "pause_active_work":
+        return "pause_requested"
+    if action == "stop_active_work":
+        return "stop_requested"
+    if action == "append_instruction_to_active_work":
+        return "instruction_appended"
+    return ""
 
 
 def _task_run_id_from_lifecycle_event(event: dict[str, Any]) -> str:
@@ -3650,6 +2520,227 @@ def _task_run_id_from_lifecycle_event(event: dict[str, Any]) -> str:
     runtime_payload = dict(runtime_event.get("payload") or {})
     task_run = dict(runtime_payload.get("task_run") or {})
     return str(task_run.get("task_run_id") or "").strip()
+
+
+def _task_environment_receipt_events(
+    *,
+    base_dir: Path,
+    session_id: str,
+    turn_id: str,
+    action_request: ModelActionRequest,
+    runtime_branch: dict[str, Any],
+    source: str,
+    contract: TaskRunContract | None = None,
+) -> list[dict[str, Any]]:
+    request_id = str(getattr(action_request, "request_id", "") or f"request-task-run:{turn_id}").strip()
+    resolved_contract = contract
+    contract_errors: list[str] = []
+    if resolved_contract is None:
+        resolved_contract, contract_errors = contract_from_action_request(
+            action_request,
+            packet_ref=request_id,
+            task_environment_id="",
+        )
+    if resolved_contract is None:
+        reason = ";".join(str(item) for item in contract_errors if str(item)) or "task_environment_contract_invalid"
+        return [
+            {
+                "type": "runtime_status",
+                "title": "任务环境未创建",
+                "detail": "request_task_run 缺少可持久化的目标、范围或验收边界，未创建任务环境。",
+                "state": "blocked",
+                "status_kind": "task_environment_contract_invalid",
+                "phase": "request_task_run",
+                "terminal_reason": "task_environment_contract_invalid",
+                "contract_errors": list(contract_errors),
+                "runtime_branch": dict(runtime_branch or {}),
+                "model_action_request": action_request.to_dict() if hasattr(action_request, "to_dict") else {},
+                "request_id": request_id,
+                "session_id": str(session_id or ""),
+                "turn_id": str(turn_id or ""),
+                "authority": "harness.entrypoint.task_environment_allocation",
+            },
+            error_event(
+                content="任务环境未创建：任务目标、范围或验收边界不完整。",
+                code="task_environment_contract_invalid",
+                reason=reason,
+                extra={
+                    "answer_source": "harness.entrypoint.task_environment_allocation",
+                    "answer_persist_policy": "runtime_status_only",
+                    "answer_finalization_policy": "fail_closed_visible_message",
+                    "contract_errors": list(contract_errors),
+                },
+            ),
+        ]
+    try:
+        service = TaskWorkEnvironmentService(base_dir)
+        contract_payload = resolved_contract.to_dict()
+        task_environment = service.create_task_environment(
+            task_kind=_task_environment_task_kind(resolved_contract),
+            title=_task_environment_title(resolved_contract),
+            goal=_task_environment_goal(resolved_contract),
+            environment_kind=_task_environment_kind(source=source, contract=resolved_contract),
+            caller_kind=_task_environment_caller_kind(source),
+            idempotency_key=f"{source}:{session_id}:{turn_id}:{request_id}",
+            project_id=_task_environment_project_id(resolved_contract),
+            workspace_view=_task_environment_workspace_view(resolved_contract),
+            acceptance_contract_ref=str(resolved_contract.source_contract_ref or ""),
+            metadata={
+                "source": str(source or ""),
+                "turn_id": str(turn_id or ""),
+                "request_id": request_id,
+                "contract_id": str(resolved_contract.contract_id or ""),
+                "contract": contract_payload,
+                "public_progress_note": str(getattr(action_request, "public_progress_note", "") or ""),
+                "public_action_state": dict(getattr(action_request, "public_action_state", {}) or {}),
+                "runtime_branch": dict(runtime_branch or {}),
+                "authority": "harness.entrypoint.task_environment_allocation",
+            },
+        )
+        repository = TaskEnvironmentRepository(base_dir)
+        session_binding = repository.upsert_session_binding(
+            SessionTaskBinding(
+                binding_id=stable_task_environment_id("sessiontask", session_id, task_environment.task_environment_id),
+                session_id=str(session_id or ""),
+                task_environment_id=task_environment.task_environment_id,
+                task_instance_id=task_environment.task_instance_id,
+                binding_kind="origin",
+                control_role="controller",
+                visibility="foreground",
+                created_from_turn_id=str(turn_id or ""),
+                last_focused_at=time.time(),
+                status="active",
+                metadata={
+                    "source": str(source or ""),
+                    "request_id": request_id,
+                    "authority": "harness.entrypoint.task_environment_session_binding",
+                },
+            )
+        )
+    except Exception as exc:
+        return [
+            {
+                "type": "runtime_status",
+                "title": "任务环境创建失败",
+                "detail": "request_task_run 已通过动作准入，但任务环境持久化失败。",
+                "state": "blocked",
+                "status_kind": "task_environment_allocation_failed",
+                "phase": "request_task_run",
+                "terminal_reason": "task_environment_allocation_failed",
+                "request_id": request_id,
+                "session_id": str(session_id or ""),
+                "turn_id": str(turn_id or ""),
+                "error": {"reason": str(exc) or type(exc).__name__, "exception_type": type(exc).__name__},
+                "authority": "harness.entrypoint.task_environment_allocation",
+            },
+            error_event(
+                content="任务环境创建失败，本轮没有创建可恢复的 TaskWorkEnvironment。",
+                code="task_environment_allocation_failed",
+                reason=str(exc) or type(exc).__name__,
+                extra={
+                    "answer_source": "harness.entrypoint.task_environment_allocation",
+                    "answer_persist_policy": "runtime_status_only",
+                    "answer_finalization_policy": "fail_closed_visible_message",
+                },
+            ),
+        ]
+    return [
+        {
+            "type": "runtime_status",
+            "title": "任务环境已创建",
+            "detail": "已接收 request_task_run 控制信号，并创建可恢复的 TaskWorkEnvironment；当前动作只完成任务环境分配，不在同一动作内执行 episode。",
+            "state": "completed",
+            "status_kind": "task_environment_allocated",
+            "phase": "request_task_run",
+            "runtime_branch": dict(runtime_branch or {}),
+            "model_action_request": action_request.to_dict() if hasattr(action_request, "to_dict") else {},
+            "request_id": request_id,
+            "session_id": str(session_id or ""),
+            "turn_id": str(turn_id or ""),
+            "task_environment_id": task_environment.task_environment_id,
+            "task_instance_id": task_environment.task_instance_id,
+            "session_task_binding_id": session_binding.binding_id,
+            "task_environment": task_environment.to_dict(),
+            "session_task_binding": session_binding.to_dict(),
+            "contract_summary": {
+                "contract_id": str(resolved_contract.contract_id or ""),
+                "user_visible_goal": str(resolved_contract.user_visible_goal or ""),
+                "task_run_goal": str(resolved_contract.task_run_goal or ""),
+                "working_scope": dict(resolved_contract.working_scope or {}),
+                "acceptance_contract": dict(resolved_contract.acceptance_contract or {}),
+            },
+            "authority": "harness.entrypoint.task_environment_allocation",
+        },
+        turn_completed_event(
+            status="completed",
+            terminal_reason="task_environment_allocated",
+            completion_state="task_environment_allocated",
+        ),
+    ]
+
+
+def _task_environment_task_kind(contract: TaskRunContract) -> str:
+    task_shape = str(dict(contract.container_contract or {}).get("task_shape") or "standard").strip() or "standard"
+    return f"agent_task.{task_shape}"
+
+
+def _task_environment_title(contract: TaskRunContract) -> str:
+    return _first_contract_text(
+        contract.user_visible_goal,
+        contract.task_run_goal,
+        dict(contract.container_contract or {}).get("entry_reason"),
+        "持续任务环境",
+    )
+
+
+def _task_environment_goal(contract: TaskRunContract) -> str:
+    return _first_contract_text(
+        contract.task_run_goal,
+        contract.user_visible_goal,
+        dict(contract.container_contract or {}).get("minimum_viable_next_step"),
+        "持续推进当前任务。",
+    )
+
+
+def _task_environment_kind(*, source: str, contract: TaskRunContract) -> str:
+    source_text = str(source or "")
+    if "slash_task_command" in source_text:
+        return "session_slash_task"
+    if "explicit_contract" in source_text:
+        return "explicit_contract_task"
+    primary_kind = ""
+    for mode in tuple(contract.work_modes or ()):
+        if str(dict(mode).get("mode_role") or "") == "primary":
+            primary_kind = str(dict(mode).get("mode_kind") or "").strip()
+            break
+    return f"agent_requested_{primary_kind or 'task'}"
+
+
+def _task_environment_caller_kind(source: str) -> str:
+    source_text = str(source or "")
+    if "graph" in source_text:
+        return "graph_node"
+    if "slash_task_command" in source_text:
+        return "session_command"
+    if "explicit_contract" in source_text:
+        return "system_contract"
+    return "session_turn"
+
+
+
+def _task_environment_project_id(contract: TaskRunContract) -> str:
+    scope = dict(contract.working_scope or {})
+    for item in list(scope.get("workspace_refs") or []):
+        text = str(item or "").strip()
+        if text.startswith("project:"):
+            return text
+    return str(dict(contract.origin or {}).get("project_id") or "").strip()
+
+
+def _task_environment_workspace_view(contract: TaskRunContract) -> str:
+    scope = dict(contract.working_scope or {})
+    workspace_refs = [str(item or "").strip() for item in list(scope.get("workspace_refs") or []) if str(item or "").strip()]
+    return workspace_refs[0] if workspace_refs else "chat"
 
 
 def _normalized_turn_attachments(value: Any) -> list[dict[str, Any]]:
@@ -3717,7 +2808,6 @@ def _recent_work_outcome_status(*, status: str, terminal_reason: str) -> bool:
         "model_action_protocol_repair_required",
         "task_execution_step_budget_exhausted",
         "task_execution_step_budget_exceeded",
-        "task_executor_schedule_failed",
         "executor_failed",
         "runtime_cell_missing_after_restart",
     }
@@ -3734,6 +2824,39 @@ def _public_status_text(value: Any, *, limit: int = 900) -> str:
 
 def _drop_empty_entrypoint_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+def _next_session_turn_id(session_id: str, *, history_record: dict[str, Any], turn_memory_store: Any | None) -> str:
+    normalized_session = str(session_id or "").strip()
+    prefix = f"turn:{normalized_session}:"
+    max_index = len(list(dict(history_record or {}).get("messages") or []))
+    for message in list(dict(history_record or {}).get("messages") or []):
+        if not isinstance(message, dict):
+            continue
+        for key in ("turn_id", "sourceTurnId", "source_turn_id", "active_turn_id"):
+            max_index = max(max_index, _turn_id_index(message.get(key), prefix=prefix))
+    lister = getattr(turn_memory_store, "list_session_turns", None)
+    if callable(lister):
+        try:
+            records = list(lister(normalized_session, include_released=True) or [])
+        except Exception:
+            records = []
+        for record in records:
+            max_index = max(max_index, _turn_id_index(getattr(record, "turn_id", ""), prefix=prefix))
+    return f"{prefix}{max_index + 1}"
+
+
+def _turn_id_index(value: Any, *, prefix: str) -> int:
+    text = str(value or "").strip()
+    if not text.startswith(prefix):
+        return 0
+    suffix = text[len(prefix):]
+    if not suffix.isdigit():
+        return 0
+    try:
+        return max(0, int(suffix))
+    except ValueError:
+        return 0
 
 
 def _safe_compaction_boundary_timestamp(value: Any) -> float:

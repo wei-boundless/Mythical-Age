@@ -14,7 +14,7 @@ def test_model_response_protocol_extracts_json_action_candidate() -> None:
 
     protocol = model_response_protocol_from_response(
         response,
-        request_id="modelreq:one",
+        request_id="providerreq:one",
         turn_id="turn:one",
         require_json_action=True,
         allow_native_tool_calls=False,
@@ -33,7 +33,7 @@ def test_model_response_protocol_keeps_plain_text_as_transport_content() -> None
 
     protocol = model_response_protocol_from_response(
         response,
-        request_id="modelreq:bad",
+        request_id="providerreq:bad",
         turn_id="turn:bad",
         require_json_action=True,
         allow_native_tool_calls=False,
@@ -54,7 +54,7 @@ def test_model_response_protocol_reports_unmounted_native_tool_transport_as_serv
 
     protocol = model_response_protocol_from_response(
         response,
-        request_id="modelreq:native-tool-transport",
+        request_id="providerreq:native-tool-transport",
         turn_id="turn:native-tool-transport",
         require_json_action=True,
         allow_native_tool_calls=False,
@@ -70,7 +70,7 @@ def test_model_response_protocol_accepts_surrounding_text_when_one_action_is_una
 
     protocol = model_response_protocol_from_response(
         response,
-        request_id="modelreq:surrounding-text",
+        request_id="providerreq:surrounding-text",
         turn_id="turn:surrounding-text",
         require_json_action=True,
         allow_native_tool_calls=False,
@@ -86,14 +86,14 @@ def test_model_response_protocol_accepts_fenced_action_inside_surrounding_text()
         content=(
             '我已经判断需要开启任务。\n'
             '```json\n'
-            '{"authority":"harness.loop.model_action_request","action_type":"request_task_run","task_contract_seed":{"task_run_goal":"fix runtime"}}\n'
+            '{"authority":"harness.loop.model_action_request","action_type":"request_task_run","task_run_contract_seed":{"contract_shape":"compact_task_start_intent","primary_mode":"plan","task_shape":"standard","minimum_viable_next_step":"fix runtime","working_scope":{"target_objects":[],"workspace_refs":[],"source_refs":[],"excluded_scope":[],"known_constraints":[]},"acceptance":{"mode":"checkpoint","criteria":[],"final_answer_requirements":[]},"mode_payload":{"summary":"fix runtime","steps":["inspect runtime"],"success_definition":"","notes":[]}}}\n'
             '```'
         )
     )
 
     protocol = model_response_protocol_from_response(
         response,
-        request_id="modelreq:fenced-surrounding-action",
+        request_id="providerreq:fenced-surrounding-action",
         turn_id="turn:fenced-surrounding-action",
         require_json_action=True,
     )

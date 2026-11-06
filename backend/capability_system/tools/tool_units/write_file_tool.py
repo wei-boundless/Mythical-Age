@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Type
+from typing import Any, Type
 
 from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, BaseTool, CallbackManagerForToolRun
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
@@ -29,7 +29,7 @@ class EditFileInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(..., description="Relative path inside the project root.")
-    old_text: str = Field(..., description="Exact current text to replace. Read the file first and pass a unique verbatim span, including whitespace and line breaks.")
+    target: dict[str, Any] = Field(..., description="Target object returned by workspace_read for the current file version.")
     new_text: str = Field(..., description="Replacement text. Keep unchanged surrounding content out of this value unless it is part of the exact replacement span.")
 
 
@@ -91,8 +91,8 @@ class EditFileTool(_WorkspacePathMixin, BaseTool):
     name: str = "edit_file"
     description: str = (
         "Replace exact text in an existing local workspace file after runtime authorization. "
-        "Read the file first in the current task before editing, then provide a unique verbatim old_text span with exact whitespace and line breaks. "
-        "If old_text is not found, read or search the current file again and retry with the actual current text instead of guessing."
+        "Read the file first in the current task, then pass its target object unchanged. "
+        "If the target version or range changed, read the current target again before retrying."
     )
     args_schema: Type[BaseModel] = EditFileInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -104,18 +104,18 @@ class EditFileTool(_WorkspacePathMixin, BaseTool):
     def _run(
         self,
         path: str,
-        old_text: str,
+        target: dict[str, Any],
         new_text: str,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = self._files.edit_text(path, old_text, new_text)
+            file_path = self._files.edit_target(path, target, new_text)
         except FileNotFoundError:
             return "Edit failed: file does not exist."
         except IsADirectoryError:
             return "Edit failed: path is a directory."
         except LookupError:
-            return "Edit failed: old_text not found. Read the current file content and retry with exact current text."
+            return "Edit failed: target is stale or invalid. Read the current target and retry."
         except ValueError as exc:
             return f"Edit failed: {exc}"
         except Exception as exc:
@@ -125,10 +125,10 @@ class EditFileTool(_WorkspacePathMixin, BaseTool):
     async def _arun(
         self,
         path: str,
-        old_text: str,
+        target: dict[str, Any],
         new_text: str,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, path, old_text, new_text, None)
+        return await asyncio.to_thread(self._run, path, target, new_text, None)
 
 

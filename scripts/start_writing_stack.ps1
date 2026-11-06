@@ -11,8 +11,11 @@ param(
     [string]$WorkspaceView = "task_environment",
     [string]$TaskEnvironmentId = "env.creation.writing",
     [string]$ProjectId = "project.creation.writing.honghuang",
+    [string]$GraphTaskInstanceId = "",
+    [string]$ProjectPath = "",
     [string]$ProjectTitle = "洪荒时代",
-    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
+    [string]$RawCreativeText = "",
+    [string]$RawCreativeFile = "",
     [int]$TargetGroupCount = 2,
     [int]$UnitsPerGroup = 100,
     [int]$TargetMeasureUnits = 700000,
@@ -83,8 +86,11 @@ if (-not $SkipRunStart) {
         -WorkspaceView $WorkspaceView `
         -TaskEnvironmentId $TaskEnvironmentId `
         -ProjectId $ProjectId `
+        -GraphTaskInstanceId $GraphTaskInstanceId `
+        -ProjectPath $ProjectPath `
         -ProjectTitle $ProjectTitle `
-        -ProjectBriefFile $ProjectBriefFile `
+        -RawCreativeText $RawCreativeText `
+        -RawCreativeFile $RawCreativeFile `
         -TargetMeasureUnits $TargetMeasureUnits `
         -UnitTargetMeasure $UnitTargetMeasure `
         -TargetGroupCount $TargetGroupCount `

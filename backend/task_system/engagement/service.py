@@ -66,7 +66,6 @@ class EngagementService:
             session_id=session_id,
             turn_id=turn_id or f"engagement:{request.request_id}",
             contract=contract,
-            agent_profile_ref=str(resolved.assignee_profile.get("agent_profile_id") or "main_interactive_agent"),
         )
         return {
             **result,

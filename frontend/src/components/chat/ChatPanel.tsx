@@ -1,13 +1,13 @@
 "use client";
 
 import { ArrowDown, ExternalLink } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { SessionTodoPanel } from "@/components/chat/SessionTodoPanel";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { messagesWithActiveProjectionViews, type ProjectedMessage } from "@/components/chat/projectedMessages";
 import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { openSessionProjectInVSCode } from "@/lib/api";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
@@ -161,6 +161,18 @@ export function ChatPanel() {
     setAutoFollowPaused(!shouldFollow);
   }, []);
 
+  const pauseAutoFollowForTextSelection = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, select, [role=button]")) {
+      return;
+    }
+    autoFollowRef.current = false;
+    setAutoFollowPaused(true);
+  }, []);
+
   const handleSendMessage = useCallback(async (value: string, options?: { files?: File[] }) => {
     scrollToConversationEnd("auto");
     await sendMessage(value, options);
@@ -223,6 +235,7 @@ export function ChatPanel() {
       <div className="chat-thread flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div
           className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+          onPointerDown={pauseAutoFollowForTextSelection}
           onScroll={updateAutoFollowFromScroll}
           ref={messagesScrollRef}
         >
@@ -289,7 +302,6 @@ export function ChatPanel() {
             {suppressFooterActivity ? null : <SessionActivityBar activity={footerActivity} active={currentSessionActive} />}
           </div>
           <div className="chat-panel-status-row__right">
-            <ThemeToggle />
             <button
               aria-label={openingVSCode ? "正在打开 VS Code" : "打开 VS Code 项目"}
               className="chat-vscode-open-button"
@@ -305,6 +317,7 @@ export function ChatPanel() {
           </div>
         </div>
         <ChatInput
+          key={currentSessionId ?? "no-session"}
           disabled={workspaceInitializing}
           streaming={currentSessionReceivingStream}
           onSend={handleSendMessage}
@@ -346,21 +359,6 @@ function chatScrollerIsNearBottom(scroller: HTMLElement) {
   return distanceFromBottom <= 96;
 }
 
-function messagesWithActiveProjectionViews(
-  messages: Message[],
-  activeProjectionsByKey: StoreState["activeProjectionsByKey"],
-) {
-  return messages.map((message) => {
-    const key = message.projectionKeyString ?? "";
-    const projection = key ? activeProjectionsByKey[key] : undefined;
-    const projectionView = projection?.view ?? message.projectionView;
-    if (!projectionView || projectionView === message.projectionView) {
-      return message;
-    }
-    return { ...message, projectionView };
-  });
-}
-
 function readableActionError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
   if (!message) return fallback;
@@ -374,7 +372,7 @@ function readableActionError(error: unknown, fallback: string) {
 }
 
 export function shouldSuppressSessionActivityBar(
-  messages: Message[],
+  messages: ProjectedMessage[],
   active: boolean,
   activity?: StoreState["sessionActivity"],
 ) {
@@ -457,6 +455,7 @@ function sessionActivityShouldStayVisible(activity: StoreState["sessionActivity"
     || event === "user_input_queued"
     || event === "user_input_queue_failed"
     || event === "stream_reconnecting"
+    || event === "stream_recoverable_interruption"
     || event === "stream_reconnect_failed";
 }
 
@@ -534,7 +533,7 @@ function liveAssistantBindingFromState(
 ): LiveAssistantBinding {
   const monitorBinding = liveAssistantBindingFromMonitor(taskGraphLiveMonitor);
   return {
-    streamRunId: monitorBinding.streamRunId,
+    streamRunId: textValue(activeTurnSnapshot?.stream_run_id) || monitorBinding.streamRunId,
     taskRunId: textValue(activeTurnSnapshot?.task_run_id) || monitorBinding.taskRunId,
     turnId: textValue(activeTurnSnapshot?.turn_id) || monitorBinding.turnId,
     turnRunId: textValue(activeTurnSnapshot?.turn_run_id) || monitorBinding.turnRunId,
@@ -554,8 +553,7 @@ function liveAssistantBindingFromMonitor(
     streamRunId: textValue(activeTurnSnapshot.stream_run_id)
       || textValue(monitor.stream_run_id)
       || textValue(monitor.streamRunId),
-    taskRunId: textValue(activeTurnSnapshot.bound_task_run_id)
-      || textValue(activeTurnSnapshot.task_run_id)
+    taskRunId: textValue(activeTurnSnapshot.task_run_id)
       || textValue(taskRun.task_run_id)
       || textValue(monitor.task_run_id)
       || textValue(monitor.runtime_task_run_id),
@@ -708,7 +706,9 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   const thresholdRatio = contextThresholdRatio(displayTokens, thresholdTokens);
   const usedPercent = percentFromRatio(thresholdRatio);
   const thresholdPercentText = thresholdTokens > 0 ? `${usedPercent}%` : "--";
-  const levelClass = contextThresholdLevelClass(thresholdRatio);
+  const prefixCacheWarningTitle = providerPrefixCacheWarningTitle(tokenStats);
+  const cachePayloadTitle = providerCachePayloadBreakdownTitle(tokenStats);
+  const levelClass = prefixCacheWarningTitle ? "cache_under_read" : contextThresholdLevelClass(thresholdRatio);
   const remainingTokens = Math.max(0, thresholdTokens - displayTokens);
   const usedTokenText = formatTokenCount(displayTokens);
   const thresholdTokenText = thresholdTokens > 0 ? formatTokenCount(thresholdTokens) : "--";
@@ -718,6 +718,8 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
     thresholdTokens > 0 ? `阈值占比 ${thresholdPercentText}` : "",
     contextWindowTokens > 0 ? `模型窗口 ${formatExactTokenCount(contextWindowTokens)} tokens` : "",
     thresholdTokens > 0 ? `距自动压缩还剩 ${formatExactTokenCount(remainingTokens)} tokens` : "",
+    prefixCacheWarningTitle,
+    cachePayloadTitle,
   ].filter(Boolean).join("；");
   return {
     usedPercent,
@@ -728,8 +730,64 @@ export function sessionContextMeterPresentation(tokenStats: TokenStats | null) {
   };
 }
 
+function providerPrefixCacheWarningTitle(tokenStats: TokenStats) {
+  const cacheLog = tokenStats.provider_cache_log;
+  if (!cacheLog) {
+    return "";
+  }
+  const records = Array.isArray(cacheLog.records) ? cacheLog.records : [];
+  const latest = records[0];
+  const latestHealth = recordValue(cacheLog.summary?.latest_prefix_health ?? latest?.provider_prefix_cache_health);
+  const latestStatus = textValue(cacheLog.summary?.latest_status ?? latest?.cache_status);
+  const latestVerdict = textValue(latestHealth.verdict);
+  const latestUnderReadTokens = nonNegativeTokenCount(
+    cacheLog.summary?.latest_under_read_tokens
+      ?? latest?.provider_under_read_tokens
+      ?? latestHealth.under_read_tokens,
+  );
+  if (
+    latestStatus === "provider_under_read" ||
+    latestVerdict === "provider_under_read" ||
+    latestUnderReadTokens > 0
+  ) {
+    return `最新前缀缓存未完整命中，under-read ${formatExactTokenCount(latestUnderReadTokens)} tokens`;
+  }
+  return "";
+}
+
+function providerCachePayloadBreakdownTitle(tokenStats: TokenStats) {
+  const cacheLog = tokenStats.provider_cache_log;
+  const summary = cacheLog?.summary;
+  if (!summary) {
+    return "";
+  }
+  const volatileTokens = nonNegativeTokenCount(summary.latest_volatile_tokens);
+  if (volatileTokens <= 0) {
+    return "";
+  }
+  if (summary.latest_non_cache_payload_breakdown_available !== true) {
+    return `非缓存 payload ${formatExactTokenCount(volatileTokens)} tokens，拆分将在下一次 provider response 后可用`;
+  }
+  const currentAppendTokens = nonNegativeTokenCount(
+    summary.latest_current_context_append_tokens ?? summary.latest_current_turn_tail_tokens,
+  );
+  const pendingReplayTokens = nonNegativeTokenCount(summary.latest_unconfirmed_provider_replay_tokens);
+  const neverReplayTailTokens = nonNegativeTokenCount(summary.latest_never_replay_tail_tokens);
+  return [
+    `非缓存 payload ${formatExactTokenCount(volatileTokens)} tokens`,
+    `current append ${formatExactTokenCount(currentAppendTokens)}`,
+    `degraded replay ${formatExactTokenCount(pendingReplayTokens)}`,
+    `永不重放尾部 ${formatExactTokenCount(neverReplayTailTokens)}`,
+  ].join("，");
+}
+
 function percentFromRatio(value: unknown) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100)));
+}
+
+function nonNegativeTokenCount(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0;
 }
 
 function compactionPressureTokens(tokenStats: TokenStats) {

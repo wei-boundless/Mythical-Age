@@ -19,6 +19,15 @@ def is_terminal_runtime_run_status(status: Any) -> bool:
     return str(status or "").strip().lower() in TERMINAL_RUNTIME_RUN_STATUSES
 
 
+def is_recoverable_runtime_run_interruption(run: Any) -> bool:
+    diagnostics = dict(getattr(run, "diagnostics", None) or {})
+    return (
+        str(getattr(run, "status", "") or "").strip().lower() == "orphaned"
+        and diagnostics.get("recoverable") is True
+        and diagnostics.get("agent_decision_terminal") is False
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeRun:
     stream_run_id: str

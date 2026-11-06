@@ -102,13 +102,13 @@ describe("RunTaskLane", () => {
 
   it("renders monitor actions inline inside each task row", () => {
     const html = renderLane([
-      signal({ signal_id: "taskrun:1", title: "任务一", actions: [{ action: "stop_task", enabled: true, label: "停止" }] }),
-      signal({ signal_id: "taskrun:2", title: "任务二", actions: [{ action: "close_runtime", enabled: true, label: "关闭运行" }] }),
+      signal({ signal_id: "taskrun:1", title: "任务一", actions: [{ action: "clear_from_monitor", enabled: true, label: "清出" }] }),
+      signal({ signal_id: "taskrun:2", title: "任务二", actions: [{ action: "delete_record", enabled: true, label: "删除记录" }] }),
     ]);
 
     expect(html).toContain("run-monitor-task__actions");
-    expect(html).toContain("停止");
-    expect(html).toContain("关闭运行");
+    expect(html).toContain("清出");
+    expect(html).toContain("删除记录");
     expect(html).not.toContain("run-monitor-action-menu");
   });
 

@@ -1,23 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .taxonomy import normalize_conflict_policy, normalize_contract_priority, normalize_prompt_scope
+
 
 @dataclass(frozen=True, slots=True)
-class PromptResource:
-    prompt_id: str = ""
-    category: str = ""
-    subtype: str = ""
-    owner_layer: str = ""
-    allowed_invocation_kinds: tuple[str, ...] = ()
-    allowed_agent_refs: tuple[str, ...] = ()
-    allowed_environment_refs: tuple[str, ...] = ()
-    status: str = "active"
-    resource_id: str = ""
-    resource_type: str = ""
-    title: str = ""
-    content: str = ""
+class PromptResourceOrigin:
+    origin_type: str = ""
     workflow_id: str = ""
     task_id: str = ""
     graph_id: str = ""
@@ -26,10 +18,82 @@ class PromptResource:
     phase_id: str = ""
     step_id: str = ""
     step_kind: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for key in (
+            "origin_type",
+            "workflow_id",
+            "task_id",
+            "graph_id",
+            "node_id",
+            "stage_id",
+            "phase_id",
+            "step_id",
+            "step_kind",
+        ):
+            object.__setattr__(self, key, str(getattr(self, key) or "").strip())
+        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+
+    @property
+    def has_value(self) -> bool:
+        return any(
+            (
+                self.origin_type,
+                self.workflow_id,
+                self.task_id,
+                self.graph_id,
+                self.node_id,
+                self.stage_id,
+                self.phase_id,
+                self.step_id,
+                self.step_kind,
+                bool(self.metadata),
+            )
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "origin_type": self.origin_type,
+            "workflow_id": self.workflow_id,
+            "task_id": self.task_id,
+            "graph_id": self.graph_id,
+            "node_id": self.node_id,
+            "stage_id": self.stage_id,
+            "phase_id": self.phase_id,
+            "step_id": self.step_id,
+            "step_kind": self.step_kind,
+        }
+        result = {key: value for key, value in payload.items() if value}
+        if self.metadata:
+            result["metadata"] = dict(self.metadata)
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class PromptResource:
+    prompt_id: str = ""
+    category: str = ""
+    subtype: str = ""
+    owner_layer: str = ""
+    owner_kind: str = ""
+    owner_ref: str = ""
+    allowed_invocation_kinds: tuple[str, ...] = ()
+    allowed_agent_refs: tuple[str, ...] = ()
+    allowed_environment_refs: tuple[str, ...] = ()
+    status: str = "active"
+    resource_id: str = ""
+    resource_type: str = ""
+    title: str = ""
+    content: str = ""
+    origin: PromptResourceOrigin = field(default_factory=PromptResourceOrigin)
     tags: tuple[str, ...] = ()
     priority: int = 100
     cache_scope: str = "static"
     model_visible: bool = True
+    contract_priority: str = ""
+    conflict_policy: str = ""
+    scope: str = ""
     source_ref: str = ""
     version: str = "v1"
     enabled: bool = True
@@ -43,17 +107,41 @@ class PromptResource:
         category = str(self.category or _category_from_resource_type(self.resource_type)).strip()
         subtype = str(self.subtype or _subtype_from_resource_type(self.resource_type)).strip()
         owner_layer = str(self.owner_layer or _owner_layer_from_category(category)).strip()
+        owner_kind = str(self.owner_kind or dict(self.metadata or {}).get("owner_kind") or owner_layer).strip()
+        owner_ref = str(self.owner_ref or dict(self.metadata or {}).get("owner_ref") or "").strip()
+        contract_priority = normalize_contract_priority(
+            self.contract_priority or dict(self.metadata or {}).get("contract_priority"),
+            category=category,
+            resource_type=resource_type,
+        )
+        conflict_policy = normalize_conflict_policy(
+            self.conflict_policy or dict(self.metadata or {}).get("conflict_policy"),
+            contract_priority=contract_priority,
+        )
+        scope = normalize_prompt_scope(
+            self.scope or dict(self.metadata or {}).get("scope"),
+            owner_kind=owner_kind,
+            owner_ref=owner_ref,
+        )
         status = str(self.status or ("active" if self.enabled else "deprecated")).strip()
+        origin = _prompt_resource_origin(self.origin)
         object.__setattr__(self, "prompt_id", prompt_id)
         object.__setattr__(self, "resource_id", resource_id)
         object.__setattr__(self, "resource_type", resource_type)
         object.__setattr__(self, "category", category)
         object.__setattr__(self, "subtype", subtype)
         object.__setattr__(self, "owner_layer", owner_layer)
+        object.__setattr__(self, "owner_kind", owner_kind)
+        object.__setattr__(self, "owner_ref", owner_ref)
+        object.__setattr__(self, "contract_priority", contract_priority)
+        object.__setattr__(self, "conflict_policy", conflict_policy)
+        object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "status", status)
+        object.__setattr__(self, "origin", origin)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["origin"] = self.origin.to_dict()
         for key in (
             "allowed_invocation_kinds",
             "allowed_agent_refs",
@@ -62,6 +150,8 @@ class PromptResource:
         ):
             payload[key] = list(payload[key])
         payload["chars"] = len(self.content)
+        payload["content_hash"] = _content_hash(self.content)
+        payload["version_label"] = self.version
         return payload
 
     @property
@@ -207,6 +297,244 @@ class PromptRuleAssemblyResult:
 
 
 @dataclass(frozen=True, slots=True)
+class PromptBindingSlot:
+    """Prompt-set binding declared by prompt_library before runtime wiring."""
+
+    slot: str
+    prompt_refs: tuple[str, ...] = ()
+    prompt_pack_refs: tuple[str, ...] = ()
+    prompt_refs_by_invocation: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    prompt_pack_refs_by_invocation: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    owner_layer: str = ""
+    cache_scope: str = ""
+    visibility: str = "model_visible"
+    locked: bool = False
+    contract_priority: str = ""
+    conflict_policy: str = ""
+    scope: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "slot", str(self.slot or "").strip())
+        object.__setattr__(self, "prompt_refs", _string_tuple(self.prompt_refs))
+        object.__setattr__(self, "prompt_pack_refs", _string_tuple(self.prompt_pack_refs))
+        object.__setattr__(self, "prompt_refs_by_invocation", _string_tuple_map(self.prompt_refs_by_invocation))
+        object.__setattr__(self, "prompt_pack_refs_by_invocation", _string_tuple_map(self.prompt_pack_refs_by_invocation))
+        contract_priority = normalize_contract_priority(
+            self.contract_priority or dict(self.metadata or {}).get("contract_priority"),
+            category=str(self.owner_layer or ""),
+        )
+        conflict_policy = normalize_conflict_policy(
+            self.conflict_policy or dict(self.metadata or {}).get("conflict_policy"),
+            contract_priority=contract_priority,
+        )
+        object.__setattr__(self, "contract_priority", contract_priority)
+        object.__setattr__(self, "conflict_policy", conflict_policy)
+        object.__setattr__(
+            self,
+            "scope",
+            normalize_prompt_scope(self.scope or dict(self.metadata or {}).get("scope"), owner_kind=str(self.owner_layer or "")),
+        )
+
+    def refs_for_invocation(self, invocation_kind: str) -> tuple[str, ...]:
+        invocation = str(invocation_kind or "").strip()
+        return tuple(self.prompt_refs_by_invocation.get(invocation) or self.prompt_refs_by_invocation.get("default") or self.prompt_refs)
+
+    def packs_for_invocation(self, invocation_kind: str) -> tuple[str, ...]:
+        invocation = str(invocation_kind or "").strip()
+        return tuple(
+            self.prompt_pack_refs_by_invocation.get(invocation)
+            or self.prompt_pack_refs_by_invocation.get("default")
+            or self.prompt_pack_refs
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "slot": self.slot,
+            "prompt_refs": list(self.prompt_refs),
+            "prompt_pack_refs": list(self.prompt_pack_refs),
+            "prompt_refs_by_invocation": {key: list(value) for key, value in self.prompt_refs_by_invocation.items()},
+            "prompt_pack_refs_by_invocation": {
+                key: list(value) for key, value in self.prompt_pack_refs_by_invocation.items()
+            },
+            "owner_layer": self.owner_layer,
+            "cache_scope": self.cache_scope,
+            "visibility": self.visibility,
+            "locked": self.locked,
+            "contract_priority": self.contract_priority,
+            "conflict_policy": self.conflict_policy,
+            "scope": self.scope,
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSet:
+    prompt_set_id: str
+    owner_kind: str = ""
+    owner_ref: str = ""
+    extends: tuple[str, ...] = ()
+    slots: dict[str, PromptBindingSlot] = field(default_factory=dict)
+    policies: dict[str, Any] = field(default_factory=dict)
+    status: str = "active"
+    title: str = ""
+    allowed_agent_refs: tuple[str, ...] = ()
+    allowed_environment_refs: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_library.prompt_set"
+
+    def __post_init__(self) -> None:
+        prompt_set_id = str(self.prompt_set_id or "").strip()
+        if not prompt_set_id:
+            raise ValueError("PromptSet requires prompt_set_id")
+        object.__setattr__(self, "prompt_set_id", prompt_set_id)
+        object.__setattr__(self, "extends", _string_tuple(self.extends))
+        object.__setattr__(self, "allowed_agent_refs", _string_tuple(self.allowed_agent_refs))
+        object.__setattr__(self, "allowed_environment_refs", _string_tuple(self.allowed_environment_refs))
+        object.__setattr__(self, "slots", _prompt_set_slots(self.slots))
+
+    @property
+    def active(self) -> bool:
+        return self.status == "active"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "prompt_set_id": self.prompt_set_id,
+            "owner_kind": self.owner_kind,
+            "owner_ref": self.owner_ref,
+            "extends": list(self.extends),
+            "slots": {key: slot.to_dict() for key, slot in self.slots.items()},
+            "policies": dict(self.policies),
+            "status": self.status,
+            "title": self.title,
+            "allowed_agent_refs": list(self.allowed_agent_refs),
+            "allowed_environment_refs": list(self.allowed_environment_refs),
+            "metadata": dict(self.metadata),
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AgentPromptBinding:
+    agent_profile_id: str
+    prompt_set_refs: tuple[str, ...] = ()
+    invocation_overrides: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    locked_slots: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_library.agent_prompt_binding"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "agent_profile_id", str(self.agent_profile_id or "").strip())
+        object.__setattr__(self, "prompt_set_refs", _string_tuple(self.prompt_set_refs))
+        object.__setattr__(self, "invocation_overrides", _string_tuple_map(self.invocation_overrides))
+        object.__setattr__(self, "locked_slots", _string_tuple(self.locked_slots))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agent_profile_id": self.agent_profile_id,
+            "prompt_set_refs": list(self.prompt_set_refs),
+            "invocation_overrides": {key: list(value) for key, value in self.invocation_overrides.items()},
+            "locked_slots": list(self.locked_slots),
+            "metadata": dict(self.metadata),
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PromptWiringBinding:
+    """Resolved runtime prompt binding after PromptSet inheritance and invocation selection."""
+
+    slot: str
+    refs: tuple[str, ...] = ()
+    pack_refs: tuple[str, ...] = ()
+    owner_layer: str = ""
+    cache_scope: str = ""
+    visibility: str = "model_visible"
+    locked: bool = False
+    contract_priority: str = ""
+    conflict_policy: str = ""
+    scope: str = ""
+    source_prompt_sets: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "slot", str(self.slot or "").strip())
+        object.__setattr__(self, "refs", _string_tuple(self.refs))
+        object.__setattr__(self, "pack_refs", _string_tuple(self.pack_refs))
+        object.__setattr__(self, "source_prompt_sets", _string_tuple(self.source_prompt_sets))
+        contract_priority = normalize_contract_priority(
+            self.contract_priority or dict(self.metadata or {}).get("contract_priority"),
+            category=str(self.owner_layer or ""),
+        )
+        object.__setattr__(self, "contract_priority", contract_priority)
+        object.__setattr__(
+            self,
+            "conflict_policy",
+            normalize_conflict_policy(
+                self.conflict_policy or dict(self.metadata or {}).get("conflict_policy"),
+                contract_priority=contract_priority,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "scope",
+            normalize_prompt_scope(self.scope or dict(self.metadata or {}).get("scope"), owner_kind=str(self.owner_layer or "")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "slot": self.slot,
+            "refs": list(self.refs),
+            "pack_refs": list(self.pack_refs),
+            "owner_layer": self.owner_layer,
+            "cache_scope": self.cache_scope,
+            "visibility": self.visibility,
+            "locked": self.locked,
+            "contract_priority": self.contract_priority,
+            "conflict_policy": self.conflict_policy,
+            "scope": self.scope,
+            "source_prompt_sets": list(self.source_prompt_sets),
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePromptWiringPlan:
+    wiring_id: str
+    agent_profile_id: str
+    invocation_kind: str
+    environment_id: str = ""
+    slots: tuple[PromptWiringBinding, ...] = ()
+    schema_refs: tuple[str, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_library.runtime_prompt_wiring_plan"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "slots", tuple(self.slots or ()))
+        object.__setattr__(self, "schema_refs", _string_tuple(self.schema_refs))
+
+    def refs_for_slot(self, slot_name: str) -> tuple[str, ...]:
+        target = str(slot_name or "").strip()
+        return tuple(ref for slot in self.slots if slot.slot == target for ref in slot.refs)
+
+    def pack_refs_for_slot(self, slot_name: str) -> tuple[str, ...]:
+        target = str(slot_name or "").strip()
+        return tuple(ref for slot in self.slots if slot.slot == target for ref in slot.pack_refs)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "wiring_id": self.wiring_id,
+            "agent_profile_id": self.agent_profile_id,
+            "invocation_kind": self.invocation_kind,
+            "environment_id": self.environment_id,
+            "slots": [slot.to_dict() for slot in self.slots],
+            "schema_refs": list(self.schema_refs),
+            "diagnostics": dict(self.diagnostics),
+            "authority": self.authority,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PromptAssemblyRequest:
     invocation_kind: str
     prompt_pack_refs: tuple[str, ...] = ()
@@ -264,6 +592,86 @@ class PromptAssemblyResult:
         return "\n".join(item.content for item in self.sections if item.content.strip()).strip()
 
 
+def prompt_binding_slot_from_dict(payload: dict[str, Any]) -> PromptBindingSlot:
+    return PromptBindingSlot(
+        slot=str(payload.get("slot") or ""),
+        prompt_refs=_string_tuple(payload.get("prompt_refs")),
+        prompt_pack_refs=_string_tuple(payload.get("prompt_pack_refs")),
+        prompt_refs_by_invocation=_string_tuple_map(payload.get("prompt_refs_by_invocation")),
+        prompt_pack_refs_by_invocation=_string_tuple_map(payload.get("prompt_pack_refs_by_invocation")),
+        owner_layer=str(payload.get("owner_layer") or ""),
+        cache_scope=str(payload.get("cache_scope") or ""),
+        visibility=str(payload.get("visibility") or "model_visible"),
+        locked=bool(payload.get("locked") is True),
+        contract_priority=str(payload.get("contract_priority") or ""),
+        conflict_policy=str(payload.get("conflict_policy") or ""),
+        scope=str(payload.get("scope") or ""),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def prompt_set_from_dict(payload: dict[str, Any]) -> PromptSet:
+    return PromptSet(
+        prompt_set_id=str(payload.get("prompt_set_id") or ""),
+        owner_kind=str(payload.get("owner_kind") or ""),
+        owner_ref=str(payload.get("owner_ref") or ""),
+        extends=_string_tuple(payload.get("extends")),
+        slots=_prompt_set_slots(payload.get("slots")),
+        policies=dict(payload.get("policies") or {}),
+        status=str(payload.get("status") or "active"),
+        title=str(payload.get("title") or payload.get("prompt_set_id") or ""),
+        allowed_agent_refs=_string_tuple(payload.get("allowed_agent_refs")),
+        allowed_environment_refs=_string_tuple(payload.get("allowed_environment_refs")),
+        metadata=dict(payload.get("metadata") or {}),
+        authority=str(payload.get("authority") or "prompt_library.prompt_set"),
+    )
+
+
+def agent_prompt_binding_from_dict(payload: dict[str, Any]) -> AgentPromptBinding:
+    return AgentPromptBinding(
+        agent_profile_id=str(payload.get("agent_profile_id") or ""),
+        prompt_set_refs=_string_tuple(payload.get("prompt_set_refs")),
+        invocation_overrides=_string_tuple_map(payload.get("invocation_overrides")),
+        locked_slots=_string_tuple(payload.get("locked_slots")),
+        metadata=dict(payload.get("metadata") or {}),
+        authority=str(payload.get("authority") or "prompt_library.agent_prompt_binding"),
+    )
+
+
+def prompt_wiring_binding_from_dict(payload: dict[str, Any]) -> PromptWiringBinding:
+    return PromptWiringBinding(
+        slot=str(payload.get("slot") or ""),
+        refs=_string_tuple(payload.get("refs")),
+        pack_refs=_string_tuple(payload.get("pack_refs")),
+        owner_layer=str(payload.get("owner_layer") or ""),
+        cache_scope=str(payload.get("cache_scope") or ""),
+        visibility=str(payload.get("visibility") or "model_visible"),
+        locked=bool(payload.get("locked") is True),
+        contract_priority=str(payload.get("contract_priority") or ""),
+        conflict_policy=str(payload.get("conflict_policy") or ""),
+        scope=str(payload.get("scope") or ""),
+        source_prompt_sets=_string_tuple(payload.get("source_prompt_sets")),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def runtime_prompt_wiring_plan_from_dict(payload: dict[str, Any]) -> RuntimePromptWiringPlan:
+    return RuntimePromptWiringPlan(
+        wiring_id=str(payload.get("wiring_id") or ""),
+        agent_profile_id=str(payload.get("agent_profile_id") or ""),
+        invocation_kind=str(payload.get("invocation_kind") or ""),
+        environment_id=str(payload.get("environment_id") or ""),
+        slots=tuple(
+            prompt_wiring_binding_from_dict(dict(item))
+            for item in list(payload.get("slots") or [])
+            if isinstance(item, dict)
+        ),
+        schema_refs=_string_tuple(payload.get("schema_refs")),
+        diagnostics=dict(payload.get("diagnostics") or {}),
+        authority=str(payload.get("authority") or "prompt_library.runtime_prompt_wiring_plan"),
+    )
+
+
 def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
     resource_type = str(payload.get("resource_type") or "").strip()
     prompt_id = str(payload.get("prompt_id") or payload.get("resource_id") or "")
@@ -273,6 +681,8 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         category=str(payload.get("category") or ""),
         subtype=str(payload.get("subtype") or ""),
         owner_layer=str(payload.get("owner_layer") or ""),
+        owner_kind=str(payload.get("owner_kind") or ""),
+        owner_ref=str(payload.get("owner_ref") or ""),
         allowed_invocation_kinds=tuple(
             str(item).strip()
             for item in list(payload.get("allowed_invocation_kinds") or [])
@@ -293,18 +703,14 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         resource_type=resource_type,
         title=str(payload.get("title") or payload.get("resource_id") or ""),
         content=str(payload.get("content") or ""),
-        workflow_id=str(payload.get("workflow_id") or ""),
-        task_id=str(payload.get("task_id") or ""),
-        graph_id=str(payload.get("graph_id") or ""),
-        node_id=str(payload.get("node_id") or ""),
-        stage_id=str(payload.get("stage_id") or ""),
-        phase_id=str(payload.get("phase_id") or ""),
-        step_id=str(payload.get("step_id") or ""),
-        step_kind=str(payload.get("step_kind") or ""),
+        origin=_prompt_resource_origin_from_payload(payload),
         tags=tuple(str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()),
         priority=int(payload.get("priority") or 100),
         cache_scope=str(payload.get("cache_scope") or "static"),
         model_visible=bool(payload.get("model_visible", True)),
+        contract_priority=str(payload.get("contract_priority") or ""),
+        conflict_policy=str(payload.get("conflict_policy") or ""),
+        scope=str(payload.get("scope") or ""),
         source_ref=str(payload.get("source_ref") or ""),
         version=str(payload.get("version") or "v1"),
         enabled=bool(payload.get("enabled", True)),
@@ -402,6 +808,105 @@ def _resource_type_from_category_subtype(category: str, subtype: str) -> str:
     if category_value and subtype_value:
         return f"{category_value}.{subtype_value}"
     return category_value or subtype_value or "runtime.instruction"
+
+
+def _content_hash(content: str) -> str:
+    return "sha256:" + hashlib.sha256(str(content or "").encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _prompt_resource_origin(value: Any) -> PromptResourceOrigin:
+    if isinstance(value, PromptResourceOrigin):
+        return value
+    if isinstance(value, dict):
+        return PromptResourceOrigin(
+            origin_type=str(value.get("origin_type") or value.get("type") or ""),
+            workflow_id=str(value.get("workflow_id") or ""),
+            task_id=str(value.get("task_id") or ""),
+            graph_id=str(value.get("graph_id") or ""),
+            node_id=str(value.get("node_id") or ""),
+            stage_id=str(value.get("stage_id") or ""),
+            phase_id=str(value.get("phase_id") or ""),
+            step_id=str(value.get("step_id") or ""),
+            step_kind=str(value.get("step_kind") or ""),
+            metadata=dict(value.get("metadata") or {}),
+        )
+    return PromptResourceOrigin()
+
+
+def _prompt_resource_origin_from_payload(payload: dict[str, Any]) -> PromptResourceOrigin:
+    origin = _prompt_resource_origin(payload.get("origin"))
+    legacy_values = {
+        "workflow_id": str(payload.get("workflow_id") or "").strip(),
+        "task_id": str(payload.get("task_id") or "").strip(),
+        "graph_id": str(payload.get("graph_id") or "").strip(),
+        "node_id": str(payload.get("node_id") or "").strip(),
+        "stage_id": str(payload.get("stage_id") or "").strip(),
+        "phase_id": str(payload.get("phase_id") or "").strip(),
+        "step_id": str(payload.get("step_id") or "").strip(),
+        "step_kind": str(payload.get("step_kind") or "").strip(),
+    }
+    if not any(legacy_values.values()):
+        return origin
+    origin_type = origin.origin_type or ("task_graph" if legacy_values["graph_id"] or legacy_values["node_id"] else "")
+    return PromptResourceOrigin(
+        origin_type=origin_type,
+        workflow_id=origin.workflow_id or legacy_values["workflow_id"],
+        task_id=origin.task_id or legacy_values["task_id"],
+        graph_id=origin.graph_id or legacy_values["graph_id"],
+        node_id=origin.node_id or legacy_values["node_id"],
+        stage_id=origin.stage_id or legacy_values["stage_id"],
+        phase_id=origin.phase_id or legacy_values["phase_id"],
+        step_id=origin.step_id or legacy_values["step_id"],
+        step_kind=origin.step_kind or legacy_values["step_kind"],
+        metadata=dict(origin.metadata),
+    )
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raw_values = [value]
+    else:
+        raw_values = list(value or [])
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        item = str(raw or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return tuple(result)
+
+
+def _string_tuple_map(value: Any) -> dict[str, tuple[str, ...]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for key, raw_values in value.items():
+        normalized_key = str(key or "").strip()
+        normalized_values = _string_tuple(raw_values)
+        if normalized_key and normalized_values:
+            result[normalized_key] = normalized_values
+    return result
+
+
+def _prompt_set_slots(value: Any) -> dict[str, PromptBindingSlot]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, PromptBindingSlot] = {}
+    for key, raw_slot in value.items():
+        slot_name = str(key or "").strip()
+        if not slot_name:
+            continue
+        if isinstance(raw_slot, PromptBindingSlot):
+            slot = raw_slot
+        else:
+            payload = dict(raw_slot or {}) if isinstance(raw_slot, dict) else {}
+            payload.setdefault("slot", slot_name)
+            slot = prompt_binding_slot_from_dict(payload)
+        if slot.slot:
+            result[slot.slot] = slot
+    return result
 
 
 

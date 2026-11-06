@@ -29,19 +29,19 @@ MEMORY_MANAGER_AGENT_ID = "agent:1"
 MEMORY_MANAGER_PROFILE_ID = "memory_system_agent"
 MEMORY_MANAGER_RUNTIME_TEMPLATE_IDS = ("builtin.system.memory_manager", "runtime.template.memory_manager")
 MEMORY_MANAGER_PROMPT_REF = "agent.memory_system_agent.memory_maintenance.work_role"
+MEMORY_MANAGER_PROMPT_SET_REF = "prompt_set.agent.memory_system"
 MEMORY_MANAGER_ALLOWED_OPERATIONS = {"op.model_response", "op.memory_read", "op.memory_write_candidate"}
 MEMORY_MANAGER_REQUIRED_SCOPES = {
     "conversation_readonly",
     "state_readonly",
     "long_term_candidate",
-    "session_memory_write_candidate",
+    "conversation_continuity_write_candidate",
     "durable_memory_write_candidate",
 }
 MEMORY_MANAGER_BLOCKED_SIDE_EFFECTS = {
-    "op.write_file",
-    "op.edit_file",
+    "op.workspace_write",
+    "op.workspace_edit",
     "op.shell",
-    "op.python_repl",
     "op.agent_bounded",
     "op.web_search",
 }
@@ -59,7 +59,7 @@ class MemoryMaintenanceAgentRegistration:
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
-    prompt_refs_by_invocation: dict[str, tuple[str, ...]] | None = None
+    prompt_set_refs: tuple[str, ...] = ()
     allow_nested_subagents: bool = False
     authority: str = "memory_system.memory_maintenance_agent_registration"
 
@@ -68,10 +68,7 @@ class MemoryMaintenanceAgentRegistration:
         payload["allowed_operations"] = list(self.allowed_operations)
         payload["blocked_operations"] = list(self.blocked_operations)
         payload["allowed_memory_scopes"] = list(self.allowed_memory_scopes)
-        payload["prompt_refs_by_invocation"] = {
-            key: list(value)
-            for key, value in dict(self.prompt_refs_by_invocation or {}).items()
-        }
+        payload["prompt_set_refs"] = list(self.prompt_set_refs)
         return payload
 
 
@@ -85,10 +82,11 @@ def memory_maintenance_registration_from_profile(profile: Any) -> MemoryMaintena
         allowed_operations=tuple(str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ()) if str(item)),
         blocked_operations=tuple(str(item) for item in tuple(getattr(profile, "blocked_operations", ()) or ()) if str(item)),
         allowed_memory_scopes=tuple(str(item) for item in tuple(getattr(profile, "allowed_memory_scopes", ()) or ()) if str(item)),
-        prompt_refs_by_invocation={
-            str(key): tuple(str(item) for item in list(value or []) if str(item))
-            for key, value in dict(metadata.get("agent_prompt_refs_by_invocation") or {}).items()
-        },
+        prompt_set_refs=tuple(
+            str(item).strip()
+            for item in tuple(getattr(profile, "prompt_set_refs", ()) or metadata.get("prompt_set_refs") or ())
+            if str(item).strip()
+        ),
         allow_nested_subagents=bool(getattr(subagent_policy, "allow_nested_subagents", False)),
     )
     _validate_memory_maintenance_registration(registration)
@@ -293,7 +291,7 @@ def _shared_main_agent_prefix_messages_and_plan(
     for index, raw_message in enumerate(raw_messages):
         planned = dict(raw_plan[index]) if index < len(raw_plan) else {}
         cache_role = str(planned.get("cache_role") or "")
-        prefix_tier = str(planned.get("prefix_tier") or "")
+        prefix_tier = _cache_prefix_tier(planned.get("prefix_tier"))
         if cache_role not in {"cacheable_prefix", "session_stable"} or prefix_tier in {"volatile", "none"}:
             break
         message = _shared_prefix_model_message(raw_message)
@@ -304,7 +302,7 @@ def _shared_main_agent_prefix_messages_and_plan(
             {
                 "kind": str(planned.get("kind") or "memory_maintenance_shared_main_agent_prefix"),
                 "source_ref": str(planned.get("source_ref") or f"main_agent_shared_prefix:{index + 1}"),
-                "cache_scope": str(planned.get("cache_scope") or "task"),
+                "cache_scope": _cache_scope(planned.get("cache_scope")),
                 "cache_role": cache_role,
                 "prefix_tier": prefix_tier,
                 "compression_role": str(planned.get("compression_role") or "preserve"),
@@ -317,6 +315,24 @@ def _shared_main_agent_prefix_messages_and_plan(
             }
         )
     return messages, cache_plan
+
+
+def _cache_scope(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"global", "session", "none"}:
+        return normalized
+    if normalized:
+        return "none"
+    return "session"
+
+
+def _cache_prefix_tier(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"provider_global", "session", "volatile", "none"}:
+        return normalized
+    if normalized:
+        return "volatile"
+    return "session"
 
 
 def _shared_prefix_model_message(message: dict[str, Any]) -> dict[str, Any]:
@@ -350,7 +366,7 @@ def _memory_maintenance_current_delta_payload(request: "MemoryMaintenanceRequest
             ),
             "source_message_refs": list(request.source_message_refs or []),
             "message_slice": list(request.message_slice or []),
-            "previous_session_memory": request.previous_session_memory,
+            "previous_conversation_continuity": request.previous_conversation_continuity,
             "task_summary_refs": list(request.task_summary_refs or []),
             "bundle_summary_refs": list(request.bundle_summary_refs or []),
             "manifest_headers": list(request.manifest_headers or []),
@@ -389,16 +405,15 @@ def _validate_memory_maintenance_registration(registration: MemoryMaintenanceAge
     missing_scopes = sorted(MEMORY_MANAGER_REQUIRED_SCOPES - scopes)
     if missing_scopes:
         errors.append("memory_manager_missing_memory_scopes:" + ",".join(missing_scopes))
-    prompt_refs = dict(registration.prompt_refs_by_invocation or {})
-    if MEMORY_MANAGER_PROMPT_REF not in set(prompt_refs.get("memory_maintenance") or ()):
-        errors.append("memory_manager_missing_memory_maintenance_prompt_ref")
+    if MEMORY_MANAGER_PROMPT_SET_REF not in set(registration.prompt_set_refs):
+        errors.append("memory_manager_missing_memory_maintenance_prompt_set")
     if registration.allow_nested_subagents:
         errors.append("memory_manager_must_not_allow_nested_subagents")
     if errors:
         raise ValueError("invalid registered memory maintenance agent: " + ";".join(errors))
 
 
-class SessionMemoryMaintenanceDraft(BaseModel):
+class ConversationContinuityMaintenanceDraft(BaseModel):
     session_title: str = ""
     active_goal: str = ""
     flow_state: list[str] = Field(default_factory=list)
@@ -607,7 +622,7 @@ class DurableMemoryWritePlan(BaseModel):
 
 
 class MemoryMaintenanceProposal(BaseModel):
-    session_memory: SessionMemoryMaintenanceDraft
+    conversation_continuity: ConversationContinuityMaintenanceDraft
     session_emphasis_actions: list[SessionEmphasisProposalAction] = Field(default_factory=list)
     durable_memory: DurableMemoryWritePlan = Field(default_factory=DurableMemoryWritePlan)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
@@ -627,7 +642,7 @@ class MemoryMaintenanceRequest(BaseModel):
     last_message_fingerprint: str = ""
     message_coverage: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
     message_slice: list[dict[str, Any]] = Field(default_factory=list)
-    previous_session_memory: str = ""
+    previous_conversation_continuity: str = ""
     main_context: dict[str, Any] = Field(default_factory=dict)
     task_summary_refs: list[dict[str, Any]] = Field(default_factory=list)
     bundle_summary_refs: list[dict[str, Any]] = Field(default_factory=list)
@@ -648,7 +663,7 @@ class MemoryMaintenanceReceipt(BaseModel):
     status: Literal["succeeded", "failed", "skipped", "queued"] = "skipped"
     attempted: bool = False
     queued: bool = False
-    session_memory_succeeded: bool = False
+    conversation_continuity_succeeded: bool = False
     session_emphasis_succeeded: bool = False
     session_emphasis_write_count: int = 0
     session_emphasis_skipped: bool = True
@@ -792,8 +807,8 @@ class MemoryMaintenanceAgent:
         shared_messages, shared_plan = _shared_main_agent_prefix_messages_and_plan(request.main_context)
         messages.extend(shared_messages)
         cache_plan.extend(shared_plan)
-        task_guidance_prefix_tier = "task" if shared_messages else "provider_global"
-        task_guidance_cache_scope = "task" if shared_messages else "global"
+        task_guidance_prefix_tier = "session" if shared_messages else "provider_global"
+        task_guidance_cache_scope = "session" if shared_messages else "global"
         task_guidance_cache_role = "session_stable" if shared_messages else "cacheable_prefix"
         _append_planned_message(
             messages,
@@ -807,7 +822,6 @@ class MemoryMaintenanceAgent:
             prefix_tier=task_guidance_prefix_tier,
             compression_role="preserve",
             metadata={
-                "authority_class": "memory_maintenance_task_contract",
                 "cache_impact": "stable_after_shared_main_agent_prefix",
                 "shared_main_agent_prefix_message_count": len(shared_messages),
             },
@@ -819,12 +833,11 @@ class MemoryMaintenanceAgent:
             content=self.output_schema_prompt(),
             kind="memory_maintenance_output_schema",
             source_ref="memory_maintenance.output_schema",
-            cache_scope="task" if shared_messages else "session",
+            cache_scope="session",
             cache_role="session_stable",
-            prefix_tier="task" if shared_messages else "session",
+            prefix_tier="session",
             compression_role="preserve",
             metadata={
-                "authority_class": "memory_maintenance_output_contract",
                 "cache_impact": "stable_output_contract",
             },
         )
@@ -842,13 +855,12 @@ class MemoryMaintenanceAgent:
                 content=_stable_json_block("Memory maintenance append-only message coverage entry", {"message_coverage_entry": entry_payload}),
                 kind="memory_maintenance_message_coverage_entry",
                 source_ref=f"memory_maintenance:message_coverage:{entry_ref}",
-                cache_scope="task",
+                cache_scope="session",
                 cache_role="session_stable",
-                prefix_tier="task",
+                prefix_tier="session",
                 compression_role="ref_only",
                 metadata={
-                    "authority_class": "memory_maintenance_append_only_coverage",
-                    "cache_impact": "append_only_task_prefix",
+                    "cache_impact": "append_only_provider_visible_context_prefix",
                     "message_coverage_index": index,
                     "message_coverage_ref": entry_ref,
                     "stability_rule": "existing coverage entries are immutable; later messages append new coverage entries after them",
@@ -866,16 +878,15 @@ class MemoryMaintenanceAgent:
             prefix_tier="volatile",
             compression_role="summarize",
             metadata={
-                "authority_class": "memory_maintenance_current_delta",
                 "cache_impact": "volatile_suffix_only",
-                "volatility_reason": "current run id, previous session memory, manifest headers, and latest message slice can change each maintenance run",
+                "volatility_reason": "current run id, previous conversation continuity summary, manifest headers, and latest message slice can change each maintenance run",
             },
         )
         return messages, cache_plan
 
     def _output_schema_hint(self) -> dict[str, Any]:
         return {
-            "session_memory": {
+            "conversation_continuity": {
                 "session_title": "短标题",
                 "active_goal": "当前用户目标",
                 "flow_state": ["当前流程状态"],
@@ -938,14 +949,14 @@ class MemoryMaintenanceAgent:
         }
 
     def _proposal_from_payload(self, payload: dict[str, Any]) -> MemoryMaintenanceProposal:
-        session_payload = payload.get("session_memory")
-        if not isinstance(session_payload, dict):
-            raise ValueError("memory maintenance response missing session_memory object")
+        continuity_payload = payload.get("conversation_continuity")
+        if not isinstance(continuity_payload, dict):
+            raise ValueError("memory maintenance response missing conversation_continuity object")
         durable_payload = payload.get("durable_memory")
         if not isinstance(durable_payload, dict):
             durable_payload = {}
         return MemoryMaintenanceProposal(
-            session_memory=SessionMemoryMaintenanceDraft.model_validate(session_payload),
+            conversation_continuity=ConversationContinuityMaintenanceDraft.model_validate(continuity_payload),
             session_emphasis_actions=[
                 SessionEmphasisProposalAction.model_validate(item)
                 for item in list(payload.get("session_emphasis_actions") or [])
@@ -985,13 +996,13 @@ class MemoryCommitter:
     def __init__(
         self,
         *,
-        session_memory_layer: Any,
+        conversation_continuity_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
         memory_manager_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
         on_durable_saved: Callable[[dict[str, int]], None] | None = None,
     ) -> None:
-        self.session_memory_layer = session_memory_layer
+        self.conversation_continuity_layer = conversation_continuity_layer
         self.session_emphasis_store = session_emphasis_store
         self.memory_manager = memory_manager
         self.memory_manager_resolver = memory_manager_resolver
@@ -1005,17 +1016,17 @@ class MemoryCommitter:
         request: MemoryMaintenanceRequest,
         proposal: MemoryMaintenanceProposal,
     ) -> dict[str, Any]:
-        if proposal.session_memory.is_empty():
-            raise ValueError("memory maintenance agent returned empty session memory")
-        manager = self.session_memory_layer.manager(request.session_id)
-        rendered_session = proposal.session_memory.render_markdown()
-        manager.overwrite(rendered_session, debug_content=rendered_session)
+        if proposal.conversation_continuity.is_empty():
+            raise ValueError("memory maintenance agent returned empty conversation continuity summary")
+        manager = self.conversation_continuity_layer.manager(request.session_id)
+        rendered_continuity = proposal.conversation_continuity.render_markdown()
+        manager.overwrite(rendered_continuity, debug_content=rendered_continuity)
         manager.write_compaction_state(
             messages=list(request.message_coverage or []),
             run_id=request.run_id,
             source=MEMORY_MANAGER_AGENT_ID,
             source_message_refs=list(request.source_message_refs or []),
-            summary_content=rendered_session,
+            summary_content=rendered_continuity,
             covered_event_run_id=request.covered_event_run_id,
             covered_event_offset_start=request.covered_event_offset_start,
             covered_event_offset_end=request.covered_event_offset_end,
@@ -1024,7 +1035,7 @@ class MemoryCommitter:
         emphasis_commit = self.commit_session_emphasis_actions(request, proposal.session_emphasis_actions)
         durable_commit = self.commit_durable_plan(request, proposal.durable_memory)
         return {
-            "session_memory_succeeded": True,
+            "conversation_continuity_succeeded": True,
             **emphasis_commit,
             **durable_commit,
         }
@@ -1369,7 +1380,7 @@ class MemoryCommitter:
             canonical,
             "",
             "## Why Stored",
-            normalize_storage_text(reason) or "Agent judged this as stable cross-session memory.",
+            normalize_storage_text(reason) or "Agent judged this as stable cross-conversation continuity summary.",
         ]
         if normalize_storage_text(how_to_apply):
             lines.extend(["", "## How To Apply", normalize_storage_text(how_to_apply)])
@@ -1415,7 +1426,7 @@ class MemoryMaintenanceCoordinator:
         *,
         base_dir: Path,
         runtime_dir: Path | None = None,
-        session_memory_layer: Any,
+        conversation_continuity_layer: Any,
         session_emphasis_store: SessionEmphasisStore | None = None,
         memory_manager: Any,
         memory_manager_resolver: Callable[[dict[str, Any] | None], Any] | None = None,
@@ -1424,13 +1435,13 @@ class MemoryMaintenanceCoordinator:
     ) -> None:
         self.runtime_dir = Path(runtime_dir) if runtime_dir is not None else MemoryStorageLayout.from_backend_dir(base_dir).maintenance_root
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.session_memory_layer = session_memory_layer
+        self.conversation_continuity_layer = conversation_continuity_layer
         self.session_emphasis_store = session_emphasis_store
         self.memory_manager = memory_manager
         self.maintenance_agent = maintenance_agent
         self.opportunity_gate = MaintenanceOpportunityGate()
         self.committer = MemoryCommitter(
-            session_memory_layer=session_memory_layer,
+            conversation_continuity_layer=conversation_continuity_layer,
             session_emphasis_store=session_emphasis_store,
             memory_manager=memory_manager,
             memory_manager_resolver=memory_manager_resolver,
@@ -1658,7 +1669,7 @@ class MemoryMaintenanceCoordinator:
         message_slice = [self._message_payload(index, item) for index, item in enumerate(messages[start:], start=start)][-16:]
         message_coverage = [_message_coverage_payload(item) for item in list(messages or []) if isinstance(item, dict)]
         message_ids = [str(item.get("message_id") or "") for item in message_coverage]
-        manager = self.session_memory_layer.manager(session_id)
+        manager = self.conversation_continuity_layer.manager(session_id)
         previous = manager.load()
         source_refs = [
             f"message:{message_coverage[index].get('message_id') or index}"
@@ -1683,7 +1694,7 @@ class MemoryMaintenanceCoordinator:
             last_message_fingerprint=_stable_hash(message_coverage[-1:]) if message_coverage else "",
             message_coverage=message_coverage,
             message_slice=message_slice,
-            previous_session_memory=previous[:20000],
+            previous_conversation_continuity=previous[:20000],
             main_context=dict(main_context or {}),
             task_summary_refs=list(task_summary_refs or [])[:8],
             bundle_summary_refs=list(bundle_summary_refs or [])[:8],
@@ -1769,7 +1780,7 @@ class MemoryMaintenanceCoordinator:
             turn_id=request.turn_id,
             status="succeeded",
             attempted=True,
-            session_memory_succeeded=bool(commit["session_memory_succeeded"]),
+            conversation_continuity_succeeded=bool(commit["conversation_continuity_succeeded"]),
             session_emphasis_succeeded=bool(commit["session_emphasis_succeeded"]),
             session_emphasis_write_count=int(commit["session_emphasis_write_count"]),
             session_emphasis_skipped=bool(commit["session_emphasis_skipped"]),
@@ -1792,7 +1803,7 @@ class MemoryMaintenanceCoordinator:
     def _update_runtime_state_projection(self, request: MemoryMaintenanceRequest) -> None:
         if not (request.main_context or request.task_summary_refs or request.bundle_summary_refs):
             return
-        self.session_memory_layer.update_runtime_state_from_context_state(
+        self.conversation_continuity_layer.update_runtime_state_from_context_state(
             request.session_id,
             dict(request.main_context or {}),
             task_summaries=list(request.task_summary_refs or []),

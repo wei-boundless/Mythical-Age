@@ -12,7 +12,6 @@ from harness.task_run_status import (
 )
 
 WAITING_APPROVAL_STATUSES = {"waiting_approval"}
-RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
 PAUSED_CONTROL_STATES = {"pause_requested", "paused"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
 
@@ -44,14 +43,7 @@ def task_run_state_view(
     )
     recovery_action = _text(diagnostics.get("recovery_action") or monitor_record.get("recovery_action"))
     recovery_cause = _recovery_cause(diagnostics, monitor_record)
-    recoverable = _recoverable(diagnostics, recovery_action=recovery_action)
-    resumable_breakpoint = _resumable_breakpoint(
-        status=status,
-        terminal_reason=terminal_reason,
-        recovery_action=recovery_action,
-        control_state=control_state,
-        recoverable=recoverable,
-    )
+    recoverable = _recoverable(diagnostics)
     stopped = (
         control_state in STOP_CONTROL_STATES
         or status in STOPPED_TASK_RUN_STATUSES
@@ -75,16 +67,12 @@ def task_run_state_view(
         work_state = "paused"
     elif terminal_failed:
         work_state = "failed"
-    elif status == "blocked" and recoverable and recovery_action in RECOVERY_ACTIONS:
-        work_state = "ready_to_continue"
     elif status == "blocked":
         work_state = "waiting_user"
     elif graph_controlled and status in {"running", "queued", "in_progress"}:
         work_state = "active"
     elif live_executor_claim and executor_lease_state in {"scheduled", "running", "recovering"}:
         work_state = "active"
-    elif resumable_breakpoint or executor_lease_state in {"lost", "none", "recovering"} and recovery_action in RECOVERY_ACTIONS:
-        work_state = "ready_to_continue"
     elif status == "waiting_executor":
         work_state = "waiting_user"
     elif status in {"created", "running", "queued", "in_progress"}:
@@ -92,29 +80,12 @@ def task_run_state_view(
     else:
         work_state = "waiting_user"
 
-    can_resume = (
-        not graph_controlled
-        and work_state in {"ready_to_continue", "paused"}
-        and control_state not in STOP_CONTROL_STATES
-    )
     running_claimed = live_executor_claim and work_state == "active" and executor_lease_state in {"scheduled", "running", "recovering"}
-    terminal = work_state in {"completed", "failed", "stopped"}
-    can_pause = (
-        not graph_controlled
-        and not terminal
-        and work_state == "active"
-        and running_claimed
-        and control_state not in {"pause_requested", "paused", "stop_requested", "stopped"}
-    )
-    can_stop = (
-        not graph_controlled
-        and not terminal
-        and control_state not in STOP_CONTROL_STATES
-    )
+    can_pause = False
+    can_resume = False
+    can_stop = False
     resume_mode = "none"
-    if can_resume:
-        resume_mode = "same_run"
-    elif running_claimed:
+    if running_claimed:
         resume_mode = "already_running"
     elif work_state == "waiting_user":
         resume_mode = "needs_user"
@@ -187,9 +158,6 @@ def _executor_lease_state(
     diagnostics: dict[str, Any],
     monitor: dict[str, Any],
 ) -> str:
-    recovery_action = _text(diagnostics.get("recovery_action") or monitor.get("recovery_action"))
-    if status == "waiting_executor" and recovery_action in RECOVERY_ACTIONS:
-        return "lost"
     if status == "waiting_executor" and (terminal_reason == "waiting_executor" or control_state in {"resume_requested", "paused", "interrupted_for_replan"}):
         return "lost"
     explicit = _text(diagnostics.get("executor_lease_state") or monitor.get("executor_lease_state"))
@@ -212,42 +180,13 @@ def _executor_lease_state(
     return "none"
 
 
-def _recoverable(diagnostics: dict[str, Any], *, recovery_action: str) -> bool:
+def _recoverable(diagnostics: dict[str, Any]) -> bool:
     recoverable_error = diagnostics.get("recoverable_error")
-    if recovery_action in RECOVERY_ACTIONS:
-        if isinstance(recoverable_error, dict):
-            return recoverable_error.get("retryable") is not False
-        return True
     return isinstance(recoverable_error, dict) and recoverable_error.get("retryable") is not False
 
 
 def _recovery_cause(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> str:
-    wait_reason = _text(diagnostics.get("wait_reason") or monitor.get("wait_reason"))
-    recoverable_error = _record(diagnostics.get("recoverable_error") or monitor.get("recoverable_error"))
-    error_code = _text(recoverable_error.get("error_code") or recoverable_error.get("code"))
-    latest_step = _text(diagnostics.get("latest_step") or monitor.get("latest_step"))
-    if (
-        wait_reason == "task_executor_interrupted_by_runtime_restart"
-        or error_code == "task_executor_interrupted_by_runtime_restart"
-        or latest_step == "task_executor_recovered_after_runtime_start"
-    ):
-        return "runtime_restart"
     return ""
-
-
-def _resumable_breakpoint(
-    *,
-    status: str,
-    terminal_reason: str,
-    recovery_action: str,
-    control_state: str,
-    recoverable: bool,
-) -> bool:
-    if recovery_action in RECOVERY_ACTIONS and recoverable:
-        return True
-    if status == "waiting_executor" and control_state == "resume_requested":
-        return True
-    return False
 
 
 def _runtime_control(diagnostics: dict[str, Any], monitor: dict[str, Any]) -> dict[str, Any]:
@@ -285,7 +224,7 @@ def _visible_runtime_control(control: dict[str, Any], *, control_state: str) -> 
 def _public_activity_state(work_state: str, executor_lease_state: str) -> str:
     if work_state == "active":
         return "running"
-    if work_state in {"ready_to_continue", "waiting_user", "waiting_approval", "pending_executor"}:
+    if work_state in {"waiting_user", "waiting_approval", "pending_executor"}:
         return "waiting"
     if work_state == "paused":
         return "paused"
@@ -299,12 +238,9 @@ def _public_activity_state(work_state: str, executor_lease_state: str) -> str:
 
 
 def _public_activity_label(work_state: str, *, recovery_cause: str = "") -> str:
-    if work_state == "ready_to_continue" and recovery_cause == "runtime_restart":
-        return "连接恢复后待续跑"
     return {
         "active": "运行中",
         "pending_executor": "等待执行器",
-        "ready_to_continue": "可继续",
         "paused": "已暂停",
         "waiting_user": "等待处理",
         "waiting_approval": "等待确认",
@@ -315,10 +251,6 @@ def _public_activity_label(work_state: str, *, recovery_cause: str = "") -> str:
 
 
 def _public_activity_detail(work_state: str, *, recovery_cause: str = "") -> str:
-    if work_state == "ready_to_continue" and recovery_cause == "runtime_restart":
-        return "连接已恢复，任务已停在可恢复边界；点击继续或发送继续后会从当前任务继续调度。"
-    if work_state == "ready_to_continue":
-        return "任务已停在可恢复边界，可以继续调度。"
     if work_state == "pending_executor":
         return "任务已创建，正在等待执行器接管。"
     if work_state == "waiting_user":

@@ -15,7 +15,6 @@ _CONTROL_ACTION_TYPES = {
     "block",
     "request_task_run",
     "active_work_control",
-    "resume_recoverable_work",
     "pause_for_user_steer",
 }
 
@@ -29,7 +28,6 @@ class ToolCallContract:
     control_action_submission: ControlActionSubmission = "none"
     provider_tools_enabled: bool = False
     provider_control_tools_enabled: bool = False
-    action_object_tool_fallback_enabled: bool = False
     multi_tool_calls_allowed: bool = False
     agent_visible_instruction: dict[str, Any] = field(default_factory=dict)
     hidden_transport_policy: dict[str, Any] = field(default_factory=dict)
@@ -54,11 +52,9 @@ class ToolCallContract:
 
     def to_agent_visible_payload(self) -> dict[str, Any]:
         return {
-            "contract_ref": self.contract_id,
             "tool_action": dict(self.agent_visible_instruction.get("tool_action") or {}),
             "control_action": dict(self.agent_visible_instruction.get("control_action") or {}),
             "feedback_rule": dict(self.agent_visible_instruction.get("feedback_rule") or {}),
-            "authority": "harness.runtime.tool_call_contract.agent_visible",
         }
 
     def to_hidden_control_payload(self) -> dict[str, Any]:
@@ -70,7 +66,6 @@ class ToolCallContract:
             "control_action_submission": self.control_action_submission,
             "provider_tools_enabled": self.provider_tools_enabled,
             "provider_control_tools_enabled": self.provider_control_tools_enabled,
-            "action_object_tool_fallback_enabled": self.action_object_tool_fallback_enabled,
             "multi_tool_calls_allowed": self.multi_tool_calls_allowed,
             "hidden_transport_policy": dict(self.hidden_transport_policy or {}),
             "cache_policy": dict(self.cache_policy or {}),
@@ -101,11 +96,6 @@ def build_tool_call_contract(
     )
     provider_tools_enabled = ordinary_submission == "provider_tool_selection"
     provider_control_tools_enabled = control_submission == "provider_tool_selection"
-    action_object_fallback = bool(
-        ordinary_submission == "action_object"
-        or explicit_policy.get("action_object_tool_fallback_enabled") is True
-        or explicit_policy.get("tool_fallback_enabled") is True
-    )
     multi_tool_calls_allowed = bool(tool_call_allowed and explicit_policy.get("multi_tool_calls_allowed") is not False)
     identity = {
         "invocation_kind": str(invocation_kind or ""),
@@ -127,7 +117,6 @@ def build_tool_call_contract(
         "control_action_submission": control_submission,
         "provider_tools_enabled": provider_tools_enabled,
         "provider_control_tools_enabled": provider_control_tools_enabled,
-        "action_object_tool_fallback_enabled": action_object_fallback,
         "mounted_tool_names": list(mounted_tool_names),
         "tool_plan_ref": _tool_plan_ref(tool_plan),
         "policy_source": str(explicit_policy.get("source") or "default_provider_tool_selection"),
@@ -140,7 +129,6 @@ def build_tool_call_contract(
         control_action_submission=control_submission,
         provider_tools_enabled=provider_tools_enabled,
         provider_control_tools_enabled=provider_control_tools_enabled,
-        action_object_tool_fallback_enabled=action_object_fallback,
         multi_tool_calls_allowed=multi_tool_calls_allowed,
         agent_visible_instruction=_agent_visible_instruction(
             tool_call_allowed=tool_call_allowed,
@@ -193,7 +181,7 @@ def _agent_visible_instruction(
                 "可以先给用户一个简短公开判断，说明本次工具行动要确认什么。"
             )
             if tool_call_allowed
-            else "当前回合没有可用工具；请基于已知事实回答、询问或说明阻塞。",
+            else "当前请求没有可用工具；请基于已知事实回答、询问或说明阻塞。",
         },
         "control_action": {
             "available": control_submission != "none",
@@ -205,19 +193,19 @@ def _agent_visible_instruction(
                 else "not_available"
             ),
             "instruction": (
-                "需要询问、阻塞、启动持续任务或控制当前工作时，选择匹配的控制动作并填写参数；"
-                "request_task_run 只填写紧凑 TaskStartIntent，内部 TaskRunContract 由运行时生成。"
+                "需要询问、阻塞、申请长任务资源或控制当前工作时，选择匹配的控制动作并填写参数；"
+                "request_task_run 只在 task_run_contract_seed 内填写紧凑 TaskStartIntent。"
             )
             if control_submission == "provider_tool_selection"
-            else "需要询问、阻塞、启动持续任务或控制当前工作时，提交本次行动对象。"
+            else "需要询问、阻塞、申请长任务资源或控制当前工作时，提交本次行动对象。"
             if control_submission == "action_object"
-            else "当前回合没有控制动作。",
+            else "当前请求没有控制动作。",
         },
         "feedback_rule": {
             "tool_observation": (
                 "工具返回观察后，重新判断用户目标、已确认事实和下一步；不要声称没有真实观察的工具已经执行。"
             ),
-            "not_executed": "如果上一轮行动没有执行，保留你的判断，根据反馈原因重新选择可执行行动。",
+            "not_executed": "如果上一次行动没有执行，保留你的判断，根据反馈原因重新选择可执行行动。",
         },
     }
 

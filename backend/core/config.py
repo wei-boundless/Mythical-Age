@@ -45,7 +45,7 @@ IMAGE_OCR_MAX_TIMEOUT_SECONDS = 240
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "display_name": "DeepSeek",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "base_url": "https://api.deepseek.com",
         "adapter": "deepseek",
         "credential_envs": (
@@ -55,7 +55,7 @@ LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
             "DEEPSEEK_MEMORY_API_KEY",
             "LLM_API_KEY",
         ),
-        "model_presets": ("deepseek-v4-pro", "deepseek-v4-flash"),
+        "model_presets": ("deepseek-v4-pro", "deepseek-flash"),
         "capability_tags": ("long_output", "reasoning", "openai_compatible", "tool_calling"),
         "recommended": True,
     },
@@ -338,7 +338,13 @@ def _provider_config_value(
 def _normalize_llm_model_id(provider: str, model: str) -> str:
     normalized = str(model or "").strip()
     if provider == "deepseek":
-        return normalized.lower()
+        aliases = {
+            "deepseek-v4.1-flash": "deepseek-flash",
+            "deepseek-v4.1-pro": "deepseek-v4-pro",
+            "deepseek-v4-flash": "deepseek-flash",
+        }
+        normalized = normalized.lower()
+        return aliases.get(normalized, normalized)
     return normalized
 
 

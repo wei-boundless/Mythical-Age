@@ -12,7 +12,7 @@ from .context_envelope import (
 )
 from .manifest import build_runtime_slot_prompt_composition_manifest
 from .message_specs import build_model_message_spec, message_spec_content_source
-from .assembly_plan import PromptAssemblyPlan, PromptAssemblySlot, build_prompt_assembly_plan
+from .assembly_plan import PromptAssemblyPlan, PromptMaterialSegment, build_prompt_assembly_plan
 from .materializer import PromptMaterializedPacket, materialize_prompt_packet
 from .models import (
     PromptCompositionGraph,
@@ -21,13 +21,13 @@ from .models import (
     PromptCompositionMessageProjection,
     PromptCompositionPlan,
     PromptCompositionSegmentBinding,
-    PromptCompositionSlot,
+    PromptManifestBinding,
     RuntimePromptSource,
     RuntimePromptSourceManifest,
     RuntimeContextLoadEntry,
     RuntimeContextLoadPlan,
-    RuntimePromptSlot,
-    RuntimePromptSlotPlan,
+    RuntimeLoadSegment,
+    RuntimeLoadSegmentPlan,
 )
 from .renderer import PromptCompositionRenderResult, render_model_messages_from_projection
 from .runtime_context_load_plan import build_runtime_context_load_plan, materialize_runtime_context_load_plan
@@ -45,10 +45,11 @@ from .runtime_slot_plan import (
 from .section_renderer import (
     render_agent_prompt_instruction,
     render_environment_instruction,
-    render_lifecycle_instruction,
+    render_environment_guidance_instruction,
     render_personality_prompt_instruction,
     render_prompt_contract_instruction,
 )
+from .slot_policy import PromptSlotPolicy, resolve_prompt_slot_policy, runtime_source_kind_for_segment
 
 __all__ = [
     "PromptCompositionGraph",
@@ -59,10 +60,11 @@ __all__ = [
     "PromptCompositionRenderResult",
     "PromptCompositionRuntimeFragment",
     "PromptCompositionSegmentBinding",
-    "PromptCompositionSlot",
+    "PromptManifestBinding",
     "PromptAssemblyPlan",
-    "PromptAssemblySlot",
+    "PromptMaterialSegment",
     "PromptMaterializedPacket",
+    "PromptSlotPolicy",
     "PromptSource",
     "PromptSourceBundle",
     "CONTEXT_FRAGMENT_PROTOCOL",
@@ -71,8 +73,8 @@ __all__ = [
     "RuntimePromptSourceManifest",
     "RuntimeContextLoadEntry",
     "RuntimeContextLoadPlan",
-    "RuntimePromptSlot",
-    "RuntimePromptSlotPlan",
+    "RuntimeLoadSegment",
+    "RuntimeLoadSegmentPlan",
     "build_content_fragments_from_model_messages",
     "build_content_fragments_from_message_specs",
     "build_model_message_spec",
@@ -93,11 +95,13 @@ __all__ = [
     "parse_context_fragments",
     "render_agent_prompt_instruction",
     "render_environment_instruction",
-    "render_lifecycle_instruction",
+    "render_environment_guidance_instruction",
     "render_model_messages_from_projection",
     "render_personality_prompt_instruction",
     "render_prompt_contract_instruction",
     "render_context_fragment",
     "render_runtime_payload_fragment",
     "render_text_context_fragment",
+    "resolve_prompt_slot_policy",
+    "runtime_source_kind_for_segment",
 ]

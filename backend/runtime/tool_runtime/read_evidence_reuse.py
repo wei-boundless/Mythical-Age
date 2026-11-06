@@ -10,7 +10,7 @@ from runtime.memory.file_state_store import FileStateAuthorityStore
 from runtime.shared.file_observation_policy import select_read_window
 
 
-READ_EVIDENCE_REUSE_AUTHORITY = "runtime.tool_runtime.read_evidence_reuse.v1"
+READ_EVIDENCE_REUSE_AUTHORITY = "runtime.tool_runtime.read_evidence_reuse"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,7 @@ class ReadEvidenceReuseDecision:
     next_start_line: int | None = None
     has_more: bool | None = None
     repository_id: str = ""
+    coverage: ReadWindowCoverage | None = None
     authority: str = READ_EVIDENCE_REUSE_AUTHORITY
 
     @property
@@ -56,7 +57,11 @@ class ReadEvidenceReuseDecision:
         return self.decision == "reuse_unchanged"
 
     def to_dict(self) -> dict[str, Any]:
-        return _drop_empty(asdict(self))
+        payload = asdict(self)
+        payload.pop("coverage", None)
+        if self.coverage is not None:
+            payload["coverage"] = self.coverage.to_dict()
+        return _drop_empty(payload)
 
     def to_tool_result(self) -> dict[str, Any]:
         return _drop_empty(
@@ -118,7 +123,7 @@ class ReadEvidenceReuseDecision:
                 },
                 "agent_guidance": (
                     "Use the prior exact read evidence for this file range as still current. "
-                    "This observation does not show new file text; call read_file again only for a different "
+                    "This observation does not show new file text; call workspace_read(action=file) again only for a different "
                     "range, changed file state, or when exact text must be rehydrated."
                 ),
             }
@@ -246,6 +251,19 @@ def decide_read_evidence_reuse(
             file_state=file_state,
             reason="file_freshness_changed",
         )
+    if file_state.read_ranges and all(item.stale for item in file_state.read_ranges):
+        # Stale evidence means "do not assert from this window", not "do not
+        # read again". Refusing the read here would leave the agent with no way
+        # to recover a fresh window, which is a harmless failure the runtime
+        # must not create.
+        return _allow_from_state(
+            path=normalized_path,
+            start_line=start_line,
+            line_count=line_count,
+            read_intent=read_intent,
+            file_state=file_state,
+            reason="all_read_ranges_stale",
+        )
     selection = select_read_window(
         total_lines=file_state.total_lines,
         start_line=start_line,
@@ -281,7 +299,16 @@ def decide_read_evidence_reuse(
             read_intent=str(read_intent or "").strip(),
             total_lines=file_state.total_lines,
             repository_id=str(repository_id or getattr(current_facts, "repository_id", "") or ""),
+            coverage=compute_read_window_coverage(
+                ranges=tuple(file_state.read_ranges or ()),
+                path=normalized_path,
+                start_line=requested_start,
+                end_line=requested_end,
+                current_facts=current_facts,
+                total_lines=file_state.total_lines,
+            ),
         )
+
     return ReadEvidenceReuseDecision(
         decision="reuse_unchanged",
         reason="exact_read_window_unchanged",
@@ -304,6 +331,14 @@ def decide_read_evidence_reuse(
         next_start_line=segment.next_start_line,
         has_more=segment.has_more,
         repository_id=str(repository_id or getattr(current_facts, "repository_id", "") or ""),
+        coverage=compute_read_window_coverage(
+            ranges=tuple(file_state.read_ranges or ()),
+            path=normalized_path,
+            start_line=requested_start,
+            end_line=requested_end,
+            current_facts=current_facts,
+            total_lines=file_state.total_lines,
+        ),
     )
 
 
@@ -451,6 +486,239 @@ def _requested_end_line(*, selection_start: int, line_count: int, total_lines: i
 
 def _normalize_path(path: Any) -> str:
     return str(path or "").replace("\\", "/").strip().strip("/")
+
+
+@dataclass(frozen=True, slots=True)
+class ReadWindowCoverageSegment:
+    start_line: int
+    end_line: int
+    source: FileReadRange | None = None
+
+    @property
+    def line_count(self) -> int:
+        if self.end_line < self.start_line:
+            return 0
+        return self.end_line - self.start_line + 1
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "line_count": self.line_count,
+        }
+        if self.source is not None:
+            payload.update(
+                _drop_empty(
+                    {
+                        "observation_ref": str(self.source.observation_ref or ""),
+                        "exact_artifact_ref": str(self.source.exact_artifact_ref or ""),
+                        "artifact_ref_status": str(self.source.artifact_ref_status or ""),
+                        "visible_exact": bool(self.source.visible_exact),
+                        "text_sha256": str(self.source.text_sha256 or ""),
+                        "content_sha256": str(self.source.content_sha256 or ""),
+                        "read_intent": str(self.source.read_intent or ""),
+                    }
+                )
+            )
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class ReadWindowCoverage:
+    """Split a requested window into already-read parts and new parts.
+
+    Reading must stay a continuous forward motion. The reader protocol returns
+    only the gap text and references the covered parts, so previously read
+    windows are not repeated into the model context.
+    """
+
+    path: str
+    requested_start_line: int
+    requested_end_line: int
+    covered_segments: tuple[ReadWindowCoverageSegment, ...] = ()
+    gap_segments: tuple[ReadWindowCoverageSegment, ...] = ()
+    file_total_lines: int | None = None
+    file_read_ranges: tuple[tuple[int, int], ...] = ()
+    file_unread_ranges: tuple[tuple[int, int], ...] = ()
+    authority: str = READ_EVIDENCE_REUSE_AUTHORITY
+
+    @property
+    def requested_line_count(self) -> int:
+        if self.requested_end_line < self.requested_start_line:
+            return 0
+        return self.requested_end_line - self.requested_start_line + 1
+
+    @property
+    def covered_line_count(self) -> int:
+        return sum(item.line_count for item in self.covered_segments)
+
+    @property
+    def gap_line_count(self) -> int:
+        return sum(item.line_count for item in self.gap_segments)
+
+    @property
+    def fully_covered(self) -> bool:
+        return bool(self.requested_line_count) and not self.gap_segments
+
+    def to_dict(self) -> dict[str, Any]:
+        return _drop_empty(
+            {
+                "path": self.path,
+                "requested_range": _drop_empty(
+                    {
+                        "start_line": self.requested_start_line,
+                        "end_line": self.requested_end_line,
+                        "line_count": self.requested_line_count,
+                    }
+                ),
+                "requested_fully_covered": self.fully_covered,
+                "covered_line_count": self.covered_line_count,
+                "gap_line_count": self.gap_line_count,
+                "file_progress": _drop_empty(
+                    {
+                        "total_lines": self.file_total_lines,
+                        "read_ranges": [list(item) for item in self.file_read_ranges],
+                        "unread_ranges": [list(item) for item in self.file_unread_ranges],
+                    }
+                ),
+                "covered_segments": [item.to_dict() for item in self.covered_segments],
+                "gap_segments": [item.to_dict() for item in self.gap_segments],
+                "authority": self.authority,
+            }
+        )
+
+
+def compute_read_window_coverage(
+    *,
+    ranges: tuple[FileReadRange, ...] | list[FileReadRange],
+    path: str,
+    start_line: int,
+    end_line: int,
+    current_facts: ReadFileCurrentFacts | None = None,
+    total_lines: int | None = None,
+) -> ReadWindowCoverage:
+    requested_start = int(start_line or 0)
+    requested_end = int(end_line or 0)
+    normalized_path = _normalize_path(path)
+    if requested_start < 1 or requested_end < requested_start:
+        return ReadWindowCoverage(
+            path=normalized_path,
+            requested_start_line=max(1, requested_start),
+            requested_end_line=max(1, requested_end),
+        )
+    overlaps: list[tuple[int, int, FileReadRange]] = []
+    for item in tuple(ranges or ()):
+        if item.stale is True:
+            continue
+        if not _segment_has_exact_recovery(item):
+            continue
+        if not _segment_matches_current_facts(item, current_facts=current_facts):
+            continue
+        overlap_start = max(requested_start, int(item.start_line))
+        overlap_end = min(requested_end, int(item.end_line))
+        if overlap_end < overlap_start:
+            continue
+        overlaps.append((overlap_start, overlap_end, item))
+    covered: list[ReadWindowCoverageSegment] = []
+    for overlap_start, overlap_end, item in sorted(overlaps, key=lambda entry: (entry[0], entry[1])):
+        if covered and overlap_start <= covered[-1].end_line + 1:
+            last = covered[-1]
+            covered[-1] = ReadWindowCoverageSegment(
+                start_line=last.start_line,
+                end_line=max(last.end_line, overlap_end),
+                source=last.source,
+            )
+            continue
+        covered.append(
+            ReadWindowCoverageSegment(start_line=overlap_start, end_line=overlap_end, source=item)
+        )
+    gaps: list[ReadWindowCoverageSegment] = []
+    cursor = requested_start
+    for segment in covered:
+        if segment.start_line > cursor:
+            gaps.append(ReadWindowCoverageSegment(start_line=cursor, end_line=segment.start_line - 1))
+        cursor = max(cursor, segment.end_line + 1)
+    if cursor <= requested_end:
+        gaps.append(ReadWindowCoverageSegment(start_line=cursor, end_line=requested_end))
+    file_read_ranges: list[tuple[int, int]] = []
+    file_unread_ranges: list[tuple[int, int]] = []
+    normalized_total = int(total_lines) if total_lines is not None else 0
+    if normalized_total > 0:
+        merged: list[tuple[int, int]] = []
+        for raw_start, raw_end in sorted(
+            (
+                max(1, int(item.start_line)),
+                min(normalized_total, int(item.end_line)),
+            )
+            for item in tuple(ranges or ())
+            if item.stale is not True
+            and _segment_has_exact_recovery(item)
+            and _segment_matches_current_facts(item, current_facts=current_facts)
+            and int(item.start_line) <= normalized_total
+            and int(item.end_line) >= 1
+        ):
+            if raw_end < raw_start:
+                continue
+            if merged and raw_start <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], raw_end))
+                continue
+            merged.append((raw_start, raw_end))
+        file_read_ranges = merged
+        cursor = 1
+        for raw_start, raw_end in merged:
+            if raw_start > cursor:
+                file_unread_ranges.append((cursor, raw_start - 1))
+            cursor = max(cursor, raw_end + 1)
+        if cursor <= normalized_total:
+            file_unread_ranges.append((cursor, normalized_total))
+    return ReadWindowCoverage(
+        path=normalized_path,
+        requested_start_line=requested_start,
+        requested_end_line=requested_end,
+        covered_segments=tuple(covered),
+        gap_segments=tuple(gaps),
+        file_total_lines=normalized_total or None,
+        file_read_ranges=tuple(file_read_ranges),
+        file_unread_ranges=tuple(file_unread_ranges),
+    )
+
+
+def load_read_window_coverage(
+    *,
+    file_evidence_scope: dict[str, Any] | None,
+    storage_roots: tuple[Path, ...] | list[Path],
+    path: str,
+    start_line: int,
+    end_line: int,
+    current_facts: ReadFileCurrentFacts | None = None,
+) -> ReadWindowCoverage | None:
+    """Load the stored read ranges for a path and split the window by coverage.
+
+    Returns None when the file state cannot be resolved, so the caller keeps
+    its previous behaviour instead of silently reading everything again.
+    """
+    scope = normalize_file_evidence_scope(file_evidence_scope)
+    if not scope:
+        return None
+    roots = tuple(Path(item) for item in list(storage_roots or []) if str(item or "").strip())
+    if not roots:
+        return None
+    file_state = _load_best_file_state(
+        scope=scope,
+        storage_roots=roots,
+        path=_normalize_path(path),
+        current_facts=current_facts,
+    )
+    if file_state is None:
+        return None
+    return compute_read_window_coverage(
+        ranges=file_state.read_ranges,
+        path=path,
+        start_line=start_line,
+        end_line=end_line,
+        current_facts=current_facts,
+        total_lines=file_state.total_lines,
+    )
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:

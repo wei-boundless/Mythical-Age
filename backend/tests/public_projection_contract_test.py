@@ -5,18 +5,14 @@ from types import SimpleNamespace
 
 from api.chat import (
     ChatTaskBridgeContext,
-    _agent_todo_observation_summary,
     _allow_public_stream_flush,
     _append_chat_public_event,
     _append_task_bridge_terminal,
-    _is_task_executor_handoff_terminal,
     _project_task_runtime_event_to_chat,
-    _project_public_stream_event,
+    project_public_stream_event,
     _public_turn_status_for_task_status,
-    _public_terminal_reason,
     _run_chat_to_event_log,
     _task_terminal_context_from_task_run,
-    _tool_permission_decided_data,
     TASK_BRIDGE_TERMINAL_EVENT_TYPES,
     replay_chat_run_events,
 )
@@ -24,6 +20,11 @@ from harness.entrypoint.models import HarnessRuntimeRequest
 from harness.runtime.projection.authority import PUBLIC_PROJECTION_AUTHORITY, PUBLIC_PROJECTION_CONTRACT_REVISION
 from harness.runtime.projection.guards import public_text
 from harness.runtime.projection.projector import ProjectionLifecycleState, project_public_projection_event
+from runtime.output_stream.public_stream_compiler import (
+    _agent_todo_observation_summary,
+    _tool_permission_decided_data,
+    public_terminal_reason as _public_terminal_reason,
+)
 from runtime.output_stream.public_contract import (
     ASSISTANT_PUBLIC_FEEDBACK_EVENT,
     ASSISTANT_TEXT_DELTA_EVENT,
@@ -308,7 +309,6 @@ def test_chat_event_log_does_not_bind_identityless_turn_from_active_registry(mon
     def active_snapshot(session_id: str):
         snapshot_calls.append(session_id)
         return SimpleNamespace(
-            bound_task_run_id="taskrun:active-registry",
             turn_id="turn:active-registry",
             turn_run_id="turnrun:turn:active-registry",
         )
@@ -632,27 +632,8 @@ def test_public_projection_frame_event_offset_uses_public_sequence_only() -> Non
     assert frame["event_offset"] == 7
 
 
-def test_active_task_steer_accepted_is_lightweight_status_event_not_body() -> None:
-    frame = _frame(
-        "active_task_steer_accepted",
-        {
-            "task_run_id": "taskrun:active",
-            "turn_id": "turn:test",
-        },
-    )
-
-    assert frame["op"] == "item_upsert"
-    assert frame["slot"] == "status"
-    assert frame["main_visibility"] == "visible_live"
-    assert frame["retention"] == "transient"
-    assert frame["status_kind"] == "status_event"
-    assert frame["event_family"] == "status_trace"
-    assert frame["channel"] == "status"
-    assert frame["slot"] != "body"
-
-
 def test_runtime_gateway_signals_are_not_public_stream_events() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "runtime_control_signal_published",
         {
             "event": {
@@ -675,7 +656,7 @@ def test_runtime_gateway_signals_are_not_public_stream_events() -> None:
 
 
 def test_runtime_status_only_error_does_not_terminalize_chat_turn() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "error",
         {
             "code": "harness_entrypoint_error",
@@ -691,7 +672,7 @@ def test_runtime_status_only_error_does_not_terminalize_chat_turn() -> None:
 
 
 def test_fail_closed_visible_error_still_terminalizes_chat_turn() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "error",
         {
             "code": "blocked_runtime",
@@ -713,7 +694,7 @@ def test_fail_closed_visible_error_still_terminalizes_chat_turn() -> None:
 
 
 def test_model_provider_balance_error_terminalizes_without_assistant_body() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "error",
         {
             "code": "insufficient_balance",
@@ -752,7 +733,7 @@ def test_model_provider_balance_error_terminalizes_without_assistant_body() -> N
 
 
 def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -792,7 +773,7 @@ def test_model_admission_projects_tool_request_before_runtime_tool_lifecycle() -
 
 def test_model_admission_projects_terminal_command_as_public_target() -> None:
     command = "npm test -- src/components/chat/PublicTimelineActivity.test.ts"
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -829,7 +810,7 @@ def test_model_admission_projects_terminal_command_as_public_target() -> None:
 
 def test_tool_completion_projects_terminal_command_as_public_target() -> None:
     command = "npm test -- src/components/chat/PublicTimelineActivity.test.ts"
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "tool_observation",
         {
             "tool_observation": {
@@ -871,7 +852,7 @@ def test_tool_completion_projects_terminal_command_as_public_target() -> None:
 
 
 def test_chat_bridge_does_not_generate_tool_call_id_for_legacy_identityless_admission() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -897,7 +878,7 @@ def test_chat_bridge_does_not_generate_tool_call_id_for_legacy_identityless_admi
 
 
 def test_chat_bridge_does_not_construct_tool_request_from_legacy_top_level_tool_fields() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -941,7 +922,7 @@ def test_tool_permission_decision_does_not_use_action_request_ref_as_tool_call_i
 
 
 def test_chat_bridge_projects_tool_calls_array_without_admission_body_feedback() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -990,7 +971,7 @@ def test_chat_bridge_projects_tool_calls_array_without_admission_body_feedback()
 
 
 def test_externalized_write_file_admission_still_projects_tool_record() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission_checked",
         {
             "event": {
@@ -1039,17 +1020,28 @@ def test_externalized_write_file_admission_still_projects_tool_record() -> None:
     assert permission["permission_decision_id"] == "permit:write-plan:call:write-plan"
 
 
-def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
-    frame = _frame(
+def test_tool_call_requested_and_started_are_live_main_tool_projection() -> None:
+    lifecycle = ProjectionLifecycleState()
+    anchor = {
+        "session_id": "session:test",
+        "turn_id": "turn:test",
+        "stream_run_id": "strun:test",
+        "task_run_id": "taskrun:turn:test:1",
+    }
+    frame = project_public_projection_event(
         TOOL_CALL_REQUESTED_EVENT,
         {
+            "public_anchor": anchor,
             "tool_call_id": "call:read",
             "tool_lifecycle_id": "call:read",
             "tool_name": "read_file",
             "public_action_state": {"next_action": "读取 README.md"},
             "target": "README.md",
         },
-    )
+        session_id="session:test",
+        sequence=1,
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
 
     assert frame["authority"] == PUBLIC_PROJECTION_AUTHORITY
     assert frame["op"] == "item_upsert"
@@ -1061,6 +1053,41 @@ def test_tool_call_requested_is_the_only_live_main_tool_projection() -> None:
     assert frame["tool_lifecycle_id"] == "call:read"
     assert frame["event_family"] == "tool_control"
     assert frame["channel"] == "control"
+
+    project_public_projection_event(
+        TOOL_PERMISSION_DECIDED_EVENT,
+        {
+            "public_anchor": anchor,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:request:read",
+            "permission_decision": "allow",
+        },
+        session_id="session:test",
+        sequence=2,
+        lifecycle_state=lifecycle,
+    )
+    started = project_public_projection_event(
+        TOOL_ITEM_STARTED_EVENT,
+        {
+            "public_anchor": anchor,
+            "tool_call_id": "call:read",
+            "permission_decision_id": "admission:request:read",
+            "tool_name": "read_file",
+            "tool_lifecycle_id": "toolinv:read:1",
+            "target": "README.md",
+        },
+        session_id="session:test",
+        sequence=3,
+        lifecycle_state=lifecycle,
+    )["public_projection_frame"]
+
+    assert started["op"] == "item_upsert"
+    assert started["slot"] == "current_action"
+    assert started["source_authority"] == "tool"
+    assert started["main_visibility"] == "visible_live"
+    assert started["retention"] == "transient"
+    assert started["tool_call_id"] == "call:read"
+    assert started["tool_lifecycle_id"] == "toolinv:read:1"
 
 
 def test_path_inspection_tool_request_uses_user_facing_title() -> None:
@@ -1124,20 +1151,8 @@ def test_runtime_status_is_always_hidden_trace() -> None:
         assert "status_kind" not in frame
 
 
-def test_task_handoff_uses_canonical_completion_state_not_localized_reason() -> None:
-    assert _is_task_executor_handoff_terminal(
-        TURN_COMPLETED_EVENT,
-        {
-            "task_run_id": "taskrun:turn:session:test:1:abcd",
-            "terminal_reason": "任务已进入执行流程",
-            "completion_state": "task_executor_scheduled",
-            "status": "completed",
-        },
-    ) is True
-
-
 def test_task_model_wait_heartbeat_is_not_public_projection_input() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "task_model_action_wait_heartbeat",
         {
             "event": {
@@ -1159,13 +1174,13 @@ def test_task_model_wait_heartbeat_is_not_public_projection_input() -> None:
 
 
 def test_stream_recovery_projects_status_contract_without_body_or_detail() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "stream_recovery",
         {
             "status": "started",
             "reason": "partial_stream_error",
             "detail": "provider socket reset",
-            "stream_ref": "modelreq:test",
+            "stream_ref": "providerreq:test",
             "partial_utf8_bytes": 18,
             "recovery_mode": "continue_from_visible_prefix",
         },
@@ -1287,7 +1302,7 @@ def test_protocol_repair_step_summary_stays_trace_only_without_public_surface() 
 
 
 def test_assistant_final_and_protocol_feedback_projection_do_not_cross_body_channel() -> None:
-    assistant_events = _project_public_stream_event(
+    assistant_events = project_public_stream_event(
         ASSISTANT_TEXT_FINAL_EVENT,
         {
             "content": "OCR 已读取题目，下面给出完整解法。",
@@ -1297,7 +1312,7 @@ def test_assistant_final_and_protocol_feedback_projection_do_not_cross_body_chan
             "answer_channel": "conversation",
         },
     )
-    protocol_events = _project_public_stream_event(
+    protocol_events = project_public_stream_event(
         "turn_runtime_control_signal_observed",
         {
             "event": {
@@ -1474,7 +1489,7 @@ def test_runtime_step_summary_never_directly_projects_as_assistant_body() -> Non
 
 
 def test_assistant_public_feedback_stream_event_projects_as_body_frame() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         {
             "runtime_event_id": "event:stage:1",
@@ -1490,7 +1505,7 @@ def test_assistant_public_feedback_stream_event_projects_as_body_frame() -> None
 
 
 def test_model_action_step_summary_stays_runtime_summary_not_assistant_feedback() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "runtime_step_summary",
         {
             "runtime_event_id": "event:stage:1",
@@ -1506,7 +1521,7 @@ def test_model_action_step_summary_stays_runtime_summary_not_assistant_feedback(
 
 
 def test_assistant_public_feedback_projects_as_body_frame() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         {
             "runtime_event_id": "event:stage:1",
@@ -1572,7 +1587,7 @@ def test_assistant_public_feedback_body_is_not_truncated_to_title_preview() -> N
 
 
 def test_no_public_event_feedback_projects_only_thinking_text() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         ASSISTANT_PUBLIC_FEEDBACK_EVENT,
         {
             "runtime_event_id": "event:thinking:1",
@@ -1858,7 +1873,7 @@ def test_private_paths_do_not_project_as_public_text() -> None:
     )
 
     assert public_text(private_path) == ""
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "model_action_admission",
         {
             "event": {
@@ -1930,7 +1945,7 @@ def test_tool_observation_does_not_promote_diagnostics_action_request_tool_call_
 
 
 def test_task_tool_observation_wrapper_projects_inner_identity_without_diagnostics_args() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "task_tool_observation_recorded",
         {
             "event": {
@@ -1989,7 +2004,7 @@ def test_task_tool_observation_wrapper_projects_inner_identity_without_diagnosti
 
 
 def test_tool_completion_does_not_promote_wrapper_tool_call_id_without_envelope_identity() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "task_tool_observation_recorded",
         {
             "event": {
@@ -2039,7 +2054,7 @@ def test_agent_todo_summary_ignores_envelope_metadata_before_text_payload() -> N
 
 
 def test_tool_completion_uses_request_ref_for_permission_identity() -> None:
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "task_tool_observation_recorded",
         {
             "event": {
@@ -2079,7 +2094,7 @@ def test_tool_completion_uses_request_ref_for_permission_identity() -> None:
 
 def test_tool_failure_feedback_survives_completion_projection_detail() -> None:
     error_text = "Edit failed: old_text not found"
-    events = _project_public_stream_event(
+    events = project_public_stream_event(
         "turn_tool_observation_recorded",
         {
             "event": {
@@ -2150,7 +2165,7 @@ def test_agent_contract_feedback_required_is_not_public_stream_event() -> None:
             },
         }
     }
-    events = _project_public_stream_event("agent_contract_feedback_required", raw_event)
+    events = project_public_stream_event("agent_contract_feedback_required", raw_event)
 
     assert events == []
 

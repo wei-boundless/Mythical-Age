@@ -8,9 +8,11 @@ from memory_system.governance_service import DurableMemoryGovernanceService
 from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.memory_manager import MemoryManager
 from core.project_layout import ProjectLayout
+from capability_system.capabilities.document_processing.adapters.local_parser import LocalDocumentParser
+from capability_system.capabilities.document_processing.kernel import DocumentProcessingKernel
 from capability_system.capabilities.retrieval.service import RetrievalService
+from knowledge_system.conversion.models import SourceFileRecord
 
-from .parser_adapter import MultimodalParserAdapter
 from .registry import RAGIndexRegistry
 
 
@@ -62,10 +64,11 @@ def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
 
-    base_dir = Path(__file__).resolve().parents[5]
+    base_dir = Path(__file__).resolve().parents[3]
     layout = ProjectLayout.from_backend_dir(base_dir)
     durable_layout = durable_memory_layout_from_backend_dir(base_dir)
-    adapter = MultimodalParserAdapter(repo_root=base_dir.parent, ocr_language=args.ocr_language)
+    local_parser = LocalDocumentParser(repo_root=base_dir.parent, ocr_language=args.ocr_language)
+    document_kernel = DocumentProcessingKernel(repo_root=base_dir.parent)
     registry = RAGIndexRegistry(base_dir, ocr_language=args.ocr_language)
     retrieval_service = RetrievalService(base_dir)
 
@@ -74,8 +77,9 @@ def main() -> int:
             json.dumps(
                 {
                     "configured": True,
-                    "parser_available": adapter.parser_available(),
-                    "capabilities": adapter.capabilities(),
+                    "document_kernel_version": document_kernel.version,
+                    "parser_available": local_parser.parser_available(),
+                    "capabilities": local_parser.capabilities(),
                     "knowledge_dir": str(layout.knowledge_storage_dir),
                     "collections": registry.list_collections(),
                 },
@@ -112,20 +116,35 @@ def main() -> int:
             file_path = (base_dir / normalized_path).resolve()
         if not file_path.exists():
             parser.error("the provided --path does not exist")
-        chunks = adapter.parse_file(file_path)
+        if normalized_path.lower().startswith("knowledge/"):
+            record = SourceFileRecord.from_path(file_path, collection="knowledge", root_dir=layout.knowledge_storage_dir)
+        else:
+            record = SourceFileRecord.from_path(file_path, collection="diagnostic", root_dir=base_dir)
+        bundle = document_kernel.parse(record)
+        conversion = bundle.rag_projection.conversion_result
         print(
             json.dumps(
-                [
-                    {
-                        "source": chunk.source,
-                        "modality": chunk.modality,
-                        "page": chunk.page,
-                        "section": chunk.section,
-                        "metadata": chunk.metadata,
-                        "text": chunk.text,
-                    }
-                    for chunk in chunks
-                ],
+                {
+                    "document_kernel_version": document_kernel.version,
+                    "document_bundle_id": bundle.bundle_id,
+                    "detected_format": bundle.detected_format.to_metadata(),
+                    "parser_backend": conversion.parser_backend,
+                    "parser_route": list(conversion.parser_route),
+                    "quality_flags": list(conversion.quality_flags),
+                    "diagnostics": [diagnostic.to_dict() for diagnostic in bundle.diagnostics],
+                    "blocks": [
+                        {
+                            "block_id": block.block_id,
+                            "block_type": block.block_type,
+                            "modality": block.modality,
+                            "page": block.page,
+                            "section": block.section_label,
+                            "metadata": block.metadata,
+                            "text": block.text,
+                        }
+                        for block in conversion.blocks
+                    ],
+                },
                 ensure_ascii=False,
                 indent=2,
             )

@@ -20,6 +20,12 @@ from api.deps import require_runtime
 from api.session_summary import enrich_session_summaries
 from harness.runtime.session_lifecycle import SessionRuntimeLifecycleManager
 from integrations.vscode_connection import get_vscode_connection_store
+from runtime.context_management.physical_prefix_frame_ledger import (
+    truncate_physical_prefix_frame_ledger_after_session_cutoff,
+)
+from runtime.context_management.provider_visible_append_ledger import (
+    truncate_provider_visible_append_ledger_after_session_cutoff,
+)
 from sessions import InvalidSessionId, SessionProjectBindingConflict, SessionProjectBindingMissing
 from harness.runtime.session_timeline import build_session_runtime_projection, build_session_runtime_timeline
 from task_system.environments import task_environment_registry_from_backend_dir
@@ -92,6 +98,9 @@ async def list_sessions(
     task_environment_id: str | None = Query(default=None, max_length=200),
     project_id: str | None = Query(default=None, max_length=240),
     include_active_task: bool = Query(default=False),
+    main_chat_only: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> list[dict[str, Any]]:
     runtime = require_runtime()
     sessions = await asyncio.to_thread(
@@ -99,6 +108,9 @@ async def list_sessions(
         workspace_view=workspace_view,
         task_environment_id=task_environment_id,
         project_id=project_id,
+        main_chat_only=main_chat_only,
+        limit=limit,
+        offset=offset,
     )
     if not include_active_task:
         return sessions
@@ -723,6 +735,16 @@ async def truncate_session_messages(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        await asyncio.to_thread(
+            _apply_session_truncate_context_cutoff,
+            runtime,
+            session_id=session_id,
+            message_index=payload.message_index,
+            record=record,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     _queue_session_truncate_maintenance(runtime, session_id=session_id, message_index=payload.message_index, record=record)
     return record
 
@@ -916,15 +938,6 @@ def _queue_session_truncate_maintenance(runtime: Any, *, session_id: str, messag
     async def _maintain() -> None:
         try:
             await asyncio.to_thread(
-                _reset_prompt_cache_baseline_after_session_truncate,
-                runtime,
-                session_id=session_id,
-                message_index=message_index,
-            )
-        except Exception:
-            logger.exception("Session truncate prompt cache baseline reset failed for %s", session_id)
-        try:
-            await asyncio.to_thread(
                 runtime.memory_facade.enqueue_memory_maintenance_after_commit,
                 session_id=session_id,
                 messages=messages,
@@ -943,12 +956,66 @@ def _queue_session_truncate_maintenance(runtime: Any, *, session_id: str, messag
         logger.exception("Failed to schedule session truncate maintenance for %s", session_id)
 
 
-def _reset_prompt_cache_baseline_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:
+def _apply_session_truncate_context_cutoff(
+    runtime: Any,
+    *,
+    session_id: str,
+    message_index: int,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    messages = [
+        dict(item)
+        for item in list(dict(record or {}).get("messages") or [])
+        if isinstance(item, dict)
+    ]
+    cutoff_recorded_at = time.time()
+    try:
+        _reset_prefix_state_after_session_truncate(
+            runtime,
+            session_id=session_id,
+            message_index=message_index,
+        )
+        _record_turn_memory_edit_resend_cutoff(
+            runtime,
+            session_id=session_id,
+            message_index=message_index,
+            kept_messages=messages,
+            cutoff_created_before=cutoff_recorded_at,
+        )
+        physical_rollback = _rollback_physical_prefix_frame_after_session_truncate(
+            runtime,
+            session_id=session_id,
+            message_index=message_index,
+            kept_messages=messages,
+            cutoff_created_before=cutoff_recorded_at,
+        )
+        provider_visible_rollback = _rollback_provider_visible_append_ledger_after_session_truncate(
+            runtime,
+            session_id=session_id,
+            message_index=message_index,
+            kept_messages=messages,
+            cutoff_created_before=cutoff_recorded_at,
+        )
+    except Exception as exc:
+        logger.exception("Session truncate context cutoff failed for %s", session_id)
+        raise RuntimeError(f"session truncate context cutoff failed: {exc}") from exc
+    return {
+        "authority": "api.sessions.truncate_context_cutoff",
+        "session_id": session_id,
+        "message_index": message_index,
+        "kept_turn_ids": sorted(_kept_turn_ids_from_messages(messages)),
+        "kept_sealed_turn_ids": sorted(_kept_sealed_turn_ids_from_messages(messages)),
+        "physical_prefix_frame_rollback": physical_rollback,
+        "provider_visible_append_rollback": provider_visible_rollback,
+    }
+
+
+def _reset_prefix_state_after_session_truncate(runtime: Any, *, session_id: str, message_index: int) -> None:
     ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-    reset = getattr(ledger, "reset_prompt_cache_baseline", None)
+    reset = getattr(ledger, "reset_prefix_state", None)
     if callable(reset):
         reset(
-            request_id=f"pcachebaseline-reset:session-truncate:{session_id}:{message_index}",
+            request_id=f"prefix-state-reset:session-truncate:{session_id}:{message_index}",
             session_id=session_id,
             reason="session_history_truncated",
             reset_ref=f"session:{session_id}:message_index:{message_index}",
@@ -956,10 +1023,136 @@ def _reset_prompt_cache_baseline_after_session_truncate(runtime: Any, *, session
         )
 
 
+def _rollback_physical_prefix_frame_after_session_truncate(
+    runtime: Any,
+    *,
+    session_id: str,
+    message_index: int,
+    kept_messages: list[dict[str, Any]],
+    cutoff_created_before: float,
+) -> dict[str, Any]:
+    storage_root = getattr(runtime, "base_dir", None)
+    if storage_root is None:
+        storage_root = getattr(getattr(runtime, "harness_runtime", None), "root_dir", None)
+    return truncate_physical_prefix_frame_ledger_after_session_cutoff(
+        storage_root=storage_root,
+        scope=session_id,
+        kept_turn_ids=_kept_sealed_turn_ids_from_messages(kept_messages),
+        cutoff_created_before=cutoff_created_before,
+        reason=f"session_history_truncated:{message_index}",
+    )
+
+
+def _rollback_provider_visible_append_ledger_after_session_truncate(
+    runtime: Any,
+    *,
+    session_id: str,
+    message_index: int,
+    kept_messages: list[dict[str, Any]],
+    cutoff_created_before: float,
+) -> dict[str, Any]:
+    storage_root = getattr(runtime, "base_dir", None)
+    if storage_root is None:
+        storage_root = getattr(getattr(runtime, "harness_runtime", None), "root_dir", None)
+    return truncate_provider_visible_append_ledger_after_session_cutoff(
+        storage_root=storage_root,
+        scope=session_id,
+        kept_turn_ids=_kept_sealed_turn_ids_from_messages(kept_messages),
+        cutoff_created_before=cutoff_created_before,
+        reason=f"session_history_truncated:{message_index}",
+    )
+
+
+def _record_turn_memory_edit_resend_cutoff(
+    runtime: Any,
+    *,
+    session_id: str,
+    message_index: int,
+    kept_messages: list[dict[str, Any]] | None = None,
+    cutoff_created_before: float = 0.0,
+) -> None:
+    store = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
+    turn_memory_store = getattr(store, "turn_memory_store", None)
+    recorder = getattr(turn_memory_store, "record_edit_resend_cutoff", None)
+    if callable(recorder):
+        recorder(
+            session_id=session_id,
+            branch_cutoff_message_index=message_index,
+            edit_resend_ref=f"edit-resend:{session_id}:{message_index}",
+            superseded_turn_refs=_turn_memory_superseded_refs_after_edit_resend(
+                turn_memory_store,
+                session_id=session_id,
+                kept_messages=kept_messages or [],
+                cutoff_created_before=cutoff_created_before,
+            ),
+        )
+
+
+def _turn_memory_superseded_refs_after_edit_resend(
+    turn_memory_store: Any,
+    *,
+    session_id: str,
+    kept_messages: list[dict[str, Any]],
+    cutoff_created_before: float,
+) -> tuple[str, ...]:
+    lister = getattr(turn_memory_store, "list_session_turns", None)
+    if not callable(lister):
+        return ()
+    kept_turn_ids = _kept_sealed_turn_ids_from_messages(kept_messages)
+    try:
+        records = list(lister(session_id, include_released=True) or [])
+    except Exception:
+        logger.debug("failed to list turn memory records for edit-resend cutoff", exc_info=True)
+        return ()
+    cutoff_ts = float(cutoff_created_before or time.time())
+    refs: list[str] = []
+    for record in records:
+        turn_id = str(getattr(record, "turn_id", "") or "").strip()
+        if not turn_id or turn_id in kept_turn_ids:
+            continue
+        if float(getattr(record, "created_at", 0.0) or 0.0) > cutoff_ts:
+            continue
+        if str(getattr(record, "status", "") or "") in {"released", "superseded"}:
+            continue
+        if (
+            str(getattr(record, "status", "") or "") == "terminal"
+            and str(getattr(record, "handoff_state", "") or "") == "interrupted_turn_memory_package"
+        ):
+            continue
+        refs.append(turn_id)
+    return tuple(dict.fromkeys(refs))
+
+
+def _kept_turn_ids_from_messages(messages: list[dict[str, Any]]) -> set[str]:
+    values: set[str] = set()
+    for message in list(messages or []):
+        if not isinstance(message, dict):
+            continue
+        for key in ("turn_id", "sourceTurnId", "source_turn_id", "active_turn_id"):
+            value = str(message.get(key) or "").strip()
+            if value:
+                values.add(value)
+    return values
+
+
+def _kept_sealed_turn_ids_from_messages(messages: list[dict[str, Any]]) -> set[str]:
+    values: set[str] = set()
+    for message in list(messages or []):
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role") or "").strip() != "assistant":
+            continue
+        for key in ("turn_id", "sourceTurnId", "source_turn_id", "active_turn_id"):
+            value = str(message.get(key) or "").strip()
+            if value:
+                values.add(value)
+    return values
+
+
 def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:
     ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-    maps = ledger.list_segment_maps(session_id=session_id)
-    latest = maps[-1] if maps else {}
+    manifests = ledger.list_prompt_manifests(session_id=session_id)
+    latest = manifests[-1] if manifests else {}
     return {
         "authority": "api.sessions.latest_prompt_manifest_summary",
         "available": bool(latest),

@@ -4,31 +4,10 @@ import hashlib
 import json
 from typing import Any
 
-from .models import RuntimeContextLoadEntry, RuntimeContextLoadPlan, RuntimePromptSlotPlan
+from .models import RuntimeContextLoadEntry, RuntimeContextLoadPlan, RuntimeLoadSegmentPlan
 
 
-_LOAD_PHASE_ORDER = {
-    "stable_prefix": 100,
-    "active_skills": 200,
-    "history_replay": 300,
-    "runtime_cursor_prefix": 350,
-    "append_only_task_evidence": 400,
-    "task_plan_context": 430,
-    "evidence_index_cursor": 435,
-    "attachment_context_index": 440,
-    "editor_context_index": 450,
-    "current_runtime_cursor": 500,
-    "file_evidence_cursor": 600,
-    "current_exact_evidence": 620,
-    "user_editor_volatile": 700,
-    "dynamic_context_tail": 870,
-    "runtime_memory_context": 880,
-    "assistant_completion_prefix": 900,
-    "unknown_dynamic": 990,
-}
-
-
-def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> RuntimeContextLoadPlan:
+def build_runtime_context_load_plan(slot_plan: RuntimeLoadSegmentPlan) -> RuntimeContextLoadPlan:
     raw_entries: list[tuple[int, int, RuntimeContextLoadEntry]] = []
     plan_seed = {
         "slot_plan_id": str(slot_plan.plan_id or ""),
@@ -39,6 +18,8 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
                 "slot_id": slot.slot_id,
                 "order": slot.order,
                 "dynamic_tier": slot.dynamic_tier,
+                "load_phase": slot.load_phase,
+                "phase_order": slot.phase_order,
                 "slot_kind": slot.slot_kind,
                 "source_kind": slot.source_kind,
             }
@@ -47,8 +28,8 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
     }
     plan_id = "rtctxload:" + _stable_hash(plan_seed)[:16]
     for slot in tuple(slot_plan.slots or ()):
-        phase = _load_phase(slot_kind=slot.slot_kind, dynamic_tier=slot.dynamic_tier)
-        phase_order = _LOAD_PHASE_ORDER.get(phase, _LOAD_PHASE_ORDER["unknown_dynamic"])
+        phase = slot.load_phase
+        phase_order = int(slot.phase_order or 0)
         raw_entries.append(
             (
                 phase_order,
@@ -72,9 +53,8 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
                     target_role=slot.target_role,
                     source_kind=slot.source_kind,
                     source_ref=slot.source_ref,
-                    cache_tier=slot.cache_tier,
+                    prefix_tier=slot.prefix_tier,
                     dynamic_tier=slot.dynamic_tier,
-                    authority_class=slot.authority_class,
                     render_contract=dict(slot.render_contract),
                     message_spec=dict(slot.message_spec),
                     metadata={
@@ -102,9 +82,8 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
                 target_role=entry.target_role,
                 source_kind=entry.source_kind,
                 source_ref=entry.source_ref,
-                cache_tier=entry.cache_tier,
+                prefix_tier=entry.prefix_tier,
                 dynamic_tier=entry.dynamic_tier,
-                authority_class=entry.authority_class,
                 render_contract=dict(entry.render_contract),
                 message_spec=dict(entry.message_spec),
                 metadata=dict(entry.metadata),
@@ -120,7 +99,7 @@ def build_runtime_context_load_plan(slot_plan: RuntimePromptSlotPlan) -> Runtime
             "entry_count": len(ordered),
             "load_phase_counts": _count_by(ordered, "load_phase"),
             "load_phase_sequence": [entry.load_phase for entry in ordered],
-            "cache_tier_sequence": [entry.cache_tier for entry in ordered],
+            "prefix_tier_sequence": [entry.prefix_tier for entry in ordered],
             "dynamic_tier_sequence": [entry.dynamic_tier for entry in ordered],
             "reordered_slot_count": _reordered_slot_count(ordered),
             "authority": "prompt_composition.runtime_context_load_plan.builder",
@@ -139,9 +118,8 @@ def materialize_runtime_context_load_plan(load_plan: RuntimeContextLoadPlan) -> 
                 "prompt_slot_id": entry.slot_id,
                 "slot_layer": entry.slot_layer,
                 "slot_source_kind": entry.source_kind,
-                "slot_cache_tier": entry.cache_tier,
+                "slot_prefix_tier": entry.prefix_tier,
                 "slot_dynamic_tier": entry.dynamic_tier,
-                "slot_authority_class": entry.authority_class,
                 "slot_render_contract": dict(entry.render_contract),
                 "runtime_context_load_plan_id": load_plan.plan_id,
                 "runtime_context_load_entry_id": entry.load_entry_id,
@@ -154,16 +132,6 @@ def materialize_runtime_context_load_plan(load_plan: RuntimeContextLoadPlan) -> 
         spec["metadata"] = metadata
         specs.append(spec)
     return tuple(specs)
-
-
-def _load_phase(*, slot_kind: str, dynamic_tier: str) -> str:
-    kind = str(slot_kind or "").strip()
-    tier = str(dynamic_tier or "").strip()
-    if kind == "graph_node_completion_prefix":
-        return "assistant_completion_prefix"
-    if tier in _LOAD_PHASE_ORDER:
-        return tier
-    return "stable_prefix" if tier == "stable_prefix" else "unknown_dynamic"
 
 
 def _entry_id(*, plan_id: str, slot_id: str, phase: str, slot_order: int) -> str:

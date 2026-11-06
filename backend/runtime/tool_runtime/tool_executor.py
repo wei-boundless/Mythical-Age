@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,6 @@ from capability_system.tools.contracts import ToolInvocationValidationDecision, 
 from core.project_layout import ProjectLayout
 from runtime.environment import RuntimeEnvironment
 from runtime.memory.file_evidence_scope import normalize_file_evidence_scope, task_run_file_evidence_scope
-from runtime.memory.tool_memory_events import commit_tool_memory_events_from_envelope
 from runtime.file_change_signals import publish_file_change_record
 from runtime.tool_runtime.tool_result_envelope import (
     ToolResultEnvelope,
@@ -45,7 +45,7 @@ from runtime.shared.execution_record import (
 from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
 
 _SANDBOX_CONTEXT_REQUIRED_SIDE_EFFECT_TOOL_NAMES = DEFAULT_SIDE_EFFECT_TOOL_NAMES | {
-    "browser_control",
+    "browser",
 }
 _FILE_CHANGE_RECORD_FIELDS = {
     "logical_path",
@@ -69,20 +69,10 @@ _FILE_CHANGE_SIGNAL_SCAN_KEYS = (
     "data",
 )
 _WORKSPACE_PATH_ARG_TOOL_NAMES = {
-    "read_file",
-    "read_structured_file",
-    "search_files",
-    "search_text",
-    "list_dir",
-    "stat_path",
-    "path_exists",
-    "write_file",
-    "edit_file",
-    "batch_edit_file",
-    "python_code_outline",
-    "python_parse_check",
-    "python_symbol_search",
-    "text_metric",
+    "workspace_search",
+    "workspace_read",
+    "workspace_edit",
+    "code_structure",
 }
 _WORKSPACE_PATH_ARG_KEYS = ("path", "file_path", "target_path", "root", "cwd")
 _WORKSPACE_PATH_LIST_ARG_KEYS = ("paths", "file_paths", "target_paths", "roots")
@@ -90,6 +80,16 @@ _WORKSPACE_PATH_LIST_ARG_KEYS = ("paths", "file_paths", "target_paths", "roots")
 
 def _canonical_runtime_tool_call_id(action_request: RuntimeActionRequest) -> str:
     return canonical_runtime_tool_call_id(action_request)
+
+
+def _canonicalize_workspace_tool_call(tool_name: str, tool_args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Map the retired write name to the single public workspace edit tool."""
+    normalized = str(tool_name or "").strip()
+    args = dict(tool_args or {})
+    if normalized.lower() != "workspace_write":
+        return normalized, args
+    args.setdefault("action", "write")
+    return "workspace_edit", args
 
 
 class ToolRuntimeExecutor:
@@ -110,7 +110,7 @@ class ToolRuntimeExecutor:
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
-        tool_args = dict(tool_call.get("args") or {})
+        tool_name, tool_args = _canonicalize_workspace_tool_call(tool_name, dict(tool_call.get("args") or {}))
         tool_call_id = _canonical_runtime_tool_call_id(action_request)
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
@@ -339,7 +339,7 @@ class ToolRuntimeExecutor:
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
-        tool_args = dict(tool_call.get("args") or {})
+        tool_name, tool_args = _canonicalize_workspace_tool_call(tool_name, dict(tool_call.get("args") or {}))
         tool_call_id = _canonical_runtime_tool_call_id(action_request)
         current_record = execution_record
         definition = self.tool_runtime.get_definition(tool_name)
@@ -551,6 +551,7 @@ class ToolRuntimeExecutor:
             sandbox_policy=policy_payload,
             explicit_context=invocation_context,
         )
+        tool_timer = _start_tool_execution_timer()
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -595,17 +596,21 @@ class ToolRuntimeExecutor:
                 "observation": build_recoverable_tool_invocation_observation(
                     task_run_id=task_run_id,
                     request_ref=action_request.request_id,
-                    directive_ref=directive.directive_id,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    tool_args=tool_args,
-                    error=validation.repair_instruction or error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
-                    invocation_validation={
-                        "missing_inputs": list(validation.diagnostics.get("missing_inputs") or []),
-                        "contract": {"required_inputs": _required_inputs_from_definition(definition)},
-                    },
-                ),
+                            directive_ref=directive.directive_id,
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                            tool_args=tool_args,
+                            error=validation.repair_instruction or error,
+                            execution_receipt=_timed_execution_receipt(
+                                build_execution_receipt(current_record, error=error).to_dict(),
+                                timer=_finish_tool_execution_timer(tool_timer),
+                                completed=True,
+                            ),
+                            invocation_validation={
+                                "missing_inputs": list(validation.diagnostics.get("missing_inputs") or []),
+                                "contract": {"required_inputs": _required_inputs_from_definition(definition)},
+                            },
+                        ),
                 "execution_record": current_record,
                 "recoverable_error": error,
             }
@@ -630,7 +635,11 @@ class ToolRuntimeExecutor:
                     policy="tool_permission",
                     reason=error,
                     repair_instruction=permission.repair_instruction or error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    execution_receipt=_timed_execution_receipt(
+                        build_execution_receipt(current_record, error=error).to_dict(),
+                        timer=_finish_tool_execution_timer(tool_timer),
+                        completed=True,
+                    ),
                     diagnostics=permission.diagnostics,
                 ),
                 "execution_record": current_record,
@@ -666,7 +675,11 @@ class ToolRuntimeExecutor:
                             tool_call_id=tool_call_id,
                             tool_args=tool_args,
                             error=error,
-                            execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                            execution_receipt=_timed_execution_receipt(
+                                build_execution_receipt(current_record, error=error).to_dict(),
+                                timer=_finish_tool_execution_timer(tool_timer),
+                                completed=True,
+                            ),
                             failure_kind="duplicate_tool_invocation",
                             error_code=error,
                             repair_instruction="Use a new tool invocation id after reconciling the in-flight or terminal tool call.",
@@ -686,6 +699,7 @@ class ToolRuntimeExecutor:
                 runtime_host=getattr(self.tool_runtime, "runtime_host", None),
                 tool_invocation_id=invocation_context.tool_invocation_id,
             )
+            _finish_tool_execution_timer(tool_timer)
         except asyncio.CancelledError as exc:
             signal = _tool_signal(getattr(self.tool_runtime, "runtime_host", None), invocation_context.tool_invocation_id)
             interruption = _tool_interruption_error(signal)
@@ -712,7 +726,11 @@ class ToolRuntimeExecutor:
                     tool_call_id=tool_call_id,
                     tool_args=tool_args,
                     error=error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    execution_receipt=_timed_execution_receipt(
+                        build_execution_receipt(current_record, error=error).to_dict(),
+                        timer=_finish_tool_execution_timer(tool_timer),
+                        completed=True,
+                    ),
                     failure_kind=interruption["failure_kind"],
                     error_code=interruption["error_code"],
                     repair_instruction=interruption["repair_instruction"],
@@ -738,7 +756,11 @@ class ToolRuntimeExecutor:
                     tool_call_id=tool_call_id,
                     tool_args=tool_args,
                     error=error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    execution_receipt=_timed_execution_receipt(
+                        build_execution_receipt(current_record, error=error).to_dict(),
+                        timer=_finish_tool_execution_timer(tool_timer),
+                        completed=True,
+                    ),
                 ),
                 "execution_record": current_record,
                 "error": error,
@@ -755,7 +777,11 @@ class ToolRuntimeExecutor:
             tool_name=tool_name,
             tool_args=tool_args,
             text=text,
-            execution_receipt=build_execution_receipt(current_record).to_dict(),
+            execution_receipt=_timed_execution_receipt(
+                build_execution_receipt(current_record).to_dict(),
+                timer=tool_timer,
+                completed=True,
+            ),
             result_ref=result_ref,
             truncated=truncated,
             sandbox=sandbox_context.to_dict() if sandbox_context else None,
@@ -807,6 +833,25 @@ class ToolRuntimeExecutor:
                 result_ref=result_ref,
                 result_payload=result_payload,
             )
+        final_execution_receipt = _timed_execution_receipt(
+            build_execution_receipt(current_record).to_dict(),
+            timer=tool_timer,
+            completed=True,
+        )
+        envelope = _finalize_runtime_tool_envelope(
+            envelope=envelope,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            text=text,
+            execution_receipt=final_execution_receipt,
+            result_ref=result_ref,
+            truncated=truncated,
+            sandbox=sandbox_context.to_dict() if sandbox_context else None,
+            tool_call_id=tool_call_id,
+            action_request_id=action_request.request_id,
+            caller_kind=invocation_context.caller_kind,
+            caller_ref=invocation_context.caller_ref,
+        )
         observation = build_tool_result_observation(
             task_run_id=task_run_id,
             request_ref=action_request.request_id,
@@ -816,30 +861,15 @@ class ToolRuntimeExecutor:
             tool_args=tool_args,
             result=text,
             truncated=truncated,
-            execution_receipt=build_execution_receipt(current_record).to_dict(),
+            execution_receipt=final_execution_receipt,
             result_ref=result_ref,
             result_envelope=envelope.to_dict(),
-        )
-        tool_memory_commit = commit_tool_memory_events_from_envelope(
-            execution_store=execution_store,
-            runtime_host=getattr(self.tool_runtime, "runtime_host", None),
-            file_evidence_scope=file_evidence_scope,
-            observation_ref=observation.observation_id,
-            tool_call_id=tool_call_id,
-            envelope=envelope,
-            source_tool_name=tool_name,
-            task_run_id=task_run_id,
-            session_id=tool_context.session_id,
-            caller_kind="task_run",
-            authority="runtime.tool_runtime.tool_executor.tool_memory_commit",
         )
         return {
             "observation": observation,
             "execution_record": current_record,
             "error": "",
             "sandbox": sandbox_context.to_dict() if sandbox_context else {},
-            "tool_memory_commit": tool_memory_commit,
-            "file_state_commit": dict(tool_memory_commit.get("file_state_commit") or tool_memory_commit or {}),
         }
 
     async def _run_core(
@@ -862,7 +892,7 @@ class ToolRuntimeExecutor:
         file_evidence_scope: dict[str, Any] | None = None,
         max_result_size_chars: int = 0,
     ) -> dict[str, Any]:
-        tool_args = dict(tool_args or {})
+        tool_name, tool_args = _canonicalize_workspace_tool_call(tool_name, dict(tool_args or {}))
         invocation_context = _core_invocation_context(
             caller_kind=caller_kind,
             caller_ref=caller_ref,
@@ -887,7 +917,7 @@ class ToolRuntimeExecutor:
                 text=error,
                 error=error,
             )
-        expected_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+        expected_operation_id = _expected_operation_id_for_tool_call(definition, {"args": tool_args})
         if operation_id and expected_operation_id and str(operation_id or "").strip() != expected_operation_id:
             error = (
                 "Tool execution blocked by dispatch guard: action_request_operation_mismatch. "
@@ -1001,11 +1031,13 @@ class ToolRuntimeExecutor:
             tool_args=tool_args,
             file_evidence_scope=file_evidence_scope,
         )
+        tool_timer = _start_tool_execution_timer()
         execution_receipt = _core_execution_receipt(
             invocation_context,
             tool_name=tool_name,
             operation_id=operation_id or expected_operation_id,
             status="dispatched",
+            started_at=tool_timer["started_at"],
         )
         tool_context = ToolUseContext(
             workspace_root=execution_root,
@@ -1059,6 +1091,7 @@ class ToolRuntimeExecutor:
                 recoverable_error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
                 diagnostics={"tool_validation": validation.diagnostics},
+                timer=tool_timer,
             )
         tool_args = dict(validation.normalized_args or tool_args)
         permission = runtime_tool.check_permissions(tool_args, tool_context)
@@ -1073,6 +1106,7 @@ class ToolRuntimeExecutor:
                 recoverable_error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
                 diagnostics={"tool_permission": permission.diagnostics},
+                timer=tool_timer,
             )
         try:
             registry = registry_for(getattr(self.tool_runtime, "runtime_host", None))
@@ -1108,6 +1142,7 @@ class ToolRuntimeExecutor:
                             "existing_status": exc.status,
                             "authority": "runtime.tool_invocation_control",
                         },
+                        timer=tool_timer,
                     )
             envelope = await _call_runtime_tool_with_control(
                 runtime_tool,
@@ -1136,6 +1171,7 @@ class ToolRuntimeExecutor:
                     "error_code": interruption["error_code"],
                     "repair_instruction": interruption["repair_instruction"],
                 },
+                timer=tool_timer,
             )
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
@@ -1150,6 +1186,7 @@ class ToolRuntimeExecutor:
                 text=error,
                 error=error,
                 sandbox=sandbox_context.to_dict() if sandbox_context else {},
+                timer=tool_timer,
             )
         text = str(envelope.text or "")
         limit = max(0, int(max_result_size_chars or 0))
@@ -1157,6 +1194,7 @@ class ToolRuntimeExecutor:
         if truncated:
             text = text[:limit]
         result_ref = f"tool-result:{tool_invocation_id}"
+        _finish_tool_execution_timer(tool_timer)
         final_execution_receipt = {
             **dict(envelope.execution_receipt or execution_receipt),
             **_core_execution_receipt(
@@ -1166,6 +1204,9 @@ class ToolRuntimeExecutor:
                 status="failed" if envelope.status == "error" else "completed",
                 result_ref=result_ref,
                 error=str(envelope.error or "") if envelope.status == "error" else "",
+                started_at=_positive_receipt_time(dict(envelope.execution_receipt or execution_receipt).get("started_at"))
+                or tool_timer["started_at"],
+                completed_at=tool_timer["completed_at"],
             ),
         }
         envelope = _finalize_runtime_tool_envelope(
@@ -1241,7 +1282,7 @@ def _evaluate_dispatch_guard(
     definition: Any,
 ) -> ToolDispatchGuardDecision:
     expected_tool_name = str(getattr(definition, "name", "") or "").strip()
-    expected_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+    expected_operation_id = _expected_operation_id_for_tool_call(definition, tool_call)
     tool_call_name = str(tool_call.get("name") or "").strip()
     action_request_operation_id = str(action_request.operation_id or "").strip()
     directive_operation_refs = [
@@ -1277,6 +1318,16 @@ def _evaluate_dispatch_guard(
     )
 
 
+def _expected_operation_id_for_tool_call(definition: Any, tool_call: dict[str, Any]) -> str:
+    default_operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+    args = dict(dict(tool_call or {}).get("args") or {})
+    action = str(args.get("action") or "").strip()
+    if not action:
+        return default_operation_id
+    mapping = dict(getattr(definition, "action_operation_ids", {}) or {})
+    return str(mapping.get(action) or default_operation_id).strip()
+
+
 def _sandbox_context_guard_error(
     *,
     tool_name: str,
@@ -1308,9 +1359,11 @@ def _core_execution_receipt(
     status: str,
     result_ref: str = "",
     error: str = "",
+    started_at: float | None = None,
+    completed_at: float | None = None,
 ) -> dict[str, Any]:
     invocation_id = str(invocation_context.tool_invocation_id or "").strip()
-    return {
+    receipt: dict[str, Any] = {
         "execution_id": f"rtcore:{invocation_id or 'unknown'}",
         "request_ref": invocation_id,
         "status": str(status or "").strip(),
@@ -1331,6 +1384,55 @@ def _core_execution_receipt(
         "idempotency_key": str(invocation_context.idempotency_key or ""),
         "authority": "runtime.tool_runtime.core_execution_receipt",
     }
+    normalized_started_at = _positive_receipt_time(started_at)
+    normalized_completed_at = _positive_receipt_time(completed_at)
+    if normalized_started_at is not None:
+        receipt["started_at"] = normalized_started_at
+    if normalized_completed_at is not None:
+        receipt["completed_at"] = normalized_completed_at
+    if normalized_started_at is not None and normalized_completed_at is not None and normalized_completed_at >= normalized_started_at:
+        receipt["duration_ms"] = int(round((normalized_completed_at - normalized_started_at) * 1000))
+    return receipt
+
+
+def _positive_receipt_time(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _start_tool_execution_timer() -> dict[str, float]:
+    return {"started_at": time.time(), "completed_at": 0.0}
+
+
+def _finish_tool_execution_timer(timer: dict[str, float]) -> dict[str, float]:
+    if _positive_receipt_time(timer.get("completed_at")) is None:
+        timer["completed_at"] = time.time()
+    return timer
+
+
+def _timed_execution_receipt(
+    receipt: dict[str, Any],
+    *,
+    timer: dict[str, float],
+    completed: bool,
+) -> dict[str, Any]:
+    payload = dict(receipt or {})
+    started_at = _positive_receipt_time(timer.get("started_at")) or _positive_receipt_time(payload.get("started_at"))
+    completed_at = (
+        _positive_receipt_time(timer.get("completed_at"))
+        if completed
+        else _positive_receipt_time(payload.get("completed_at"))
+    )
+    if started_at is not None:
+        payload["started_at"] = started_at
+    if completed and completed_at is not None:
+        payload["completed_at"] = completed_at
+    if completed and started_at is not None and completed_at is not None and completed_at >= started_at:
+        payload["duration_ms"] = int(round((completed_at - started_at) * 1000))
+    return payload
 
 
 def _core_invocation_context(
@@ -1386,6 +1488,7 @@ def _core_error_result(
     error: str = "",
     sandbox: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | None = None,
+    timer: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     result_ref = f"tool-result:{invocation_context.tool_invocation_id}" if invocation_context.tool_invocation_id else ""
     final_error = str(error or recoverable_error or text or "tool_execution_failed")
@@ -1397,6 +1500,12 @@ def _core_error_result(
         result_ref=result_ref,
         error=final_error,
     )
+    if timer is not None:
+        execution_receipt = _timed_execution_receipt(
+            execution_receipt,
+            timer=_finish_tool_execution_timer(timer),
+            completed=True,
+        )
     envelope = build_tool_result_envelope(
         tool_name=tool_name,
         tool_args=tool_args,
@@ -1654,7 +1763,7 @@ def _capability_tool_instance(
 
 
 def _uses_system_backend_root(tool_name: str) -> bool:
-    return str(tool_name or "").strip() in {"agent_todo", "image_generate"}
+    return str(tool_name or "").strip() in {"agent_state", "image"}
 
 
 def _runtime_assembly_from_request(request: Any) -> dict[str, Any]:
@@ -1852,13 +1961,13 @@ def _bind_runtime_scoped_tool_args(
         dict(tool_args or {}),
         workspace_root=_workspace_root_from_policy(policy_payload),
     )
-    if effective_tool == "memory_search":
+    if effective_tool == "memory":
         return _bind_memory_search_scope(
             args,
             policy_payload=policy_payload,
             task_run_id=task_run_id,
         )
-    if effective_tool != "agent_todo":
+    if effective_tool != "agent_state":
         return args
     session_id = _session_id_from_policy(policy_payload)
     return {
@@ -1952,7 +2061,7 @@ def _bind_tool_invocation_args(
     invocation_context: ToolInvocationContext,
 ) -> dict[str, Any]:
     args = dict(tool_args or {})
-    if str(tool_name or "").strip() != "image_generate":
+    if str(tool_name or "").strip() != "image":
         return args
     if str(args.get("target_id") or "").strip():
         return args
@@ -1971,15 +2080,19 @@ def _target_id_from_invocation(tool_invocation_id: str) -> str:
 def _workspace_root_from_sandbox_policy(policy: dict[str, Any], *, fallback: Path) -> Path:
     workspace_root = str(dict(policy or {}).get("workspace_root") or "").strip()
     if workspace_root:
-        return Path(workspace_root).resolve()
-    return Path(fallback).resolve()
+        return _canonical_project_workspace_root(workspace_root)
+    return _canonical_project_workspace_root(fallback)
 
 
 def _workspace_root_from_policy(policy: dict[str, Any]) -> Path | None:
     workspace_root = str(dict(policy or {}).get("workspace_root") or "").strip()
     if not workspace_root:
         return None
-    return Path(workspace_root).resolve()
+    return _canonical_project_workspace_root(workspace_root)
+
+
+def _canonical_project_workspace_root(value: str | Path) -> Path:
+    return ProjectLayout.from_backend_dir(Path(value).expanduser().resolve()).project_root.resolve()
 
 
 def _normalize_workspace_path_args(tool_name: str, args: dict[str, Any], *, workspace_root: Path | None) -> dict[str, Any]:
@@ -2043,4 +2156,3 @@ def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy
     if fallback_policy:
         return _approval_fingerprint_from_policy(dict(fallback_policy or {}))
     return ""
-

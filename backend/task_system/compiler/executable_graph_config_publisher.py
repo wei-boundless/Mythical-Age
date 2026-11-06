@@ -18,6 +18,7 @@ from graph_system.language import (
     harness_edge_semantic_role,
 )
 from graph_system.models import ExecutableGraphConfig, safe_id, stable_hash
+from graph_system.node_adapter_models import node_execution_adapter_from_node, node_physical_spec_from_node
 from task_system.compiler.graph_compiler import build_graph_compilation_unit
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.compiler.writing_graph_config_migrator import normalize_writing_graph_for_transition_runtime
@@ -174,7 +175,8 @@ def build_graph_config_from_graph(
         "permissions": permissions,
         "tools": tools,
         "agents": {
-            "coordinator_agent_id": str(graph_runtime_policy.get("coordinator_agent_id") or graph_metadata.get("coordinator_agent_id") or "agent:0"),
+            "coordinator_agent_id": str(graph_runtime_policy.get("coordinator_agent_id") or graph_metadata.get("coordinator_agent_id") or ""),
+            "coordinator_agent_profile_id": str(graph_runtime_policy.get("coordinator_agent_profile_id") or graph_metadata.get("coordinator_agent_profile_id") or ""),
             "agent_group_id": str(graph_runtime_policy.get("agent_group_id") or graph_metadata.get("agent_group_id") or ""),
         },
         "contracts": {
@@ -189,6 +191,8 @@ def build_graph_config_from_graph(
             "graph_compilation_unit": compilation_unit.to_dict(),
             "compile_report": compilation_unit.compile_report.to_dict(),
             "node_contract_index": dict(compilation_unit.node_contract_index),
+            "node_task_contract_index": dict(compilation_unit.node_task_contract_index),
+            "node_agent_binding_index": dict(compilation_unit.node_agent_binding_index),
             "resource_contract_index": dict(compilation_unit.resource_contract_index),
             "edge_contract_index": dict(compilation_unit.edge_contract_index),
             "configurator_write_contract": dict(compilation_unit.configurator_write_contract),
@@ -337,7 +341,7 @@ def _expand_composition_sources(
         return {
             "nodes": nodes,
             "edges": edges,
-            "start_node_ids": _entry_ids_after_expansion(graph=graph, expanded_by_node_id={}),
+            "start_node_ids": _start_ids_after_expansion(graph=graph, expanded_by_node_id={}),
             "terminal_node_ids": _output_ids_after_expansion(graph=graph, expanded_by_node_id={}),
             "loop_frames": [],
             "resource_nodes": [],
@@ -389,7 +393,7 @@ def _expand_composition_sources(
     return {
         "nodes": tuple(all_nodes),
         "edges": tuple(all_edges),
-        "start_node_ids": _entry_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id),
+        "start_node_ids": _start_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id),
         "terminal_node_ids": _output_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id),
         "loop_frames": loop_frames,
         "resource_nodes": resource_nodes,
@@ -508,6 +512,21 @@ def _composition_bridge_edges(*, graph: Any, expanded_by_node_id: dict[str, dict
             for target_id in target_ids:
                 bridges.append(_bridge_edge(payload, source_node_id=source_id, target_node_id=target_id, bridge_role=bridge_role))
     return bridges
+
+
+def _start_ids_after_expansion(*, graph: Any, expanded_by_node_id: dict[str, dict[str, Any]]) -> list[str]:
+    runtime_policy = dict(getattr(graph, "runtime_policy", {}) or {})
+    explicit_start_ids = [str(item).strip() for item in list(runtime_policy.get("start_node_ids") or []) if str(item).strip()]
+    if explicit_start_ids:
+        resolved: list[str] = []
+        for node_id in explicit_start_ids:
+            expansion = expanded_by_node_id.get(node_id)
+            if expansion is not None:
+                resolved.extend(str(item) for item in list(expansion.get("start_node_ids") or []) if str(item))
+            else:
+                resolved.append(node_id)
+        return list(dict.fromkeys(resolved))
+    return _entry_ids_after_expansion(graph=graph, expanded_by_node_id=expanded_by_node_id)
 
 
 def _entry_ids_after_expansion(*, graph: Any, expanded_by_node_id: dict[str, dict[str, Any]]) -> list[str]:
@@ -986,19 +1005,53 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
     prompt_contract = dict(raw_metadata.get("prompt_contract") or {})
     node_id = str(node.get("node_id") or "").strip()
     node_type = str(node.get("node_type") or "agent").strip() or "agent"
-    task_ref = str(node.get("task_id") or metadata.get("task_ref") or f"task_graph.node.{graph_id}.{node_id}").strip()
-    return {
+    node_for_projection = {
+        **dict(node),
         "node_id": node_id,
-        "title": str(node.get("title") or node_id),
         "node_type": node_type,
-        "node_class": "resource" if _is_resource_node_type(node_type=node_type, node_id=node_id) else "executable",
-        "task_ref": task_ref,
-        "agent_id": str(node.get("agent_id") or ""),
-        "agent_profile_id": str(metadata.get("agent_profile_id") or metadata.get("agent_profile_ref") or ""),
+        "metadata": metadata,
         "executor": {
             "executor_type": _executor_type_for_node(node),
             "executor_policy": dict(node.get("executor_policy") or metadata.get("executor_policy") or {}),
         },
+        "gates": {
+            "review_gate_policy": dict(node.get("review_gate_policy") or {}),
+            "human_gate_policy": dict(node.get("human_gate_policy") or metadata.get("human_gate_policy") or {}),
+            "post_node_gate_policy": dict(node.get("post_node_gate_policy") or metadata.get("post_node_gate_policy") or {}),
+        },
+    }
+    node_physical = node_physical_spec_from_node(node_for_projection)
+    execution_adapter = node_execution_adapter_from_node(node_for_projection)
+    task_ref = str(node.get("task_id") or metadata.get("task_ref") or f"task_graph.node.{graph_id}.{node_id}").strip()
+    agent_profile_id = str(
+        node.get("agent_profile_id")
+        or metadata.get("agent_profile_id")
+        or metadata.get("agent_profile_ref")
+        or ""
+    ).strip()
+    return {
+        "node_id": node_id,
+        "title": str(node.get("title") or node_id),
+        "node_type": node_type,
+        "node_kind": node_physical.node_kind,
+        "node_class": "resource" if _is_resource_node_type(node_type=node_type, node_id=node_id) else "executable",
+        "physical": node_physical.to_dict(),
+        "task_ref": task_ref,
+        "agent_id": str(node.get("agent_id") or ""),
+        "agent_profile_id": agent_profile_id,
+        "agent_group_id": str(node.get("agent_group_id") or metadata.get("agent_group_id") or dict(node.get("executor_policy") or {}).get("agent_group_id") or ""),
+        "agent_selection_policy": str(
+            node.get("agent_selection_policy")
+            or metadata.get("agent_selection_policy")
+            or dict(node.get("executor_policy") or {}).get("agent_selection_policy")
+            or ""
+        ),
+        "executor": {
+            "executor_type": str(node_for_projection["executor"].get("executor_type") or "agent"),
+            "adapter_kind": execution_adapter.adapter_kind,
+            "executor_policy": dict(node.get("executor_policy") or metadata.get("executor_policy") or {}),
+        },
+        "execution_adapter": execution_adapter.to_dict(),
         "execution": {
             "execution_mode": str(node.get("execution_mode") or "sync"),
             "wait_policy": str(node.get("wait_policy") or "wait_all_upstream_completed"),
@@ -1015,6 +1068,9 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
             "role_prompt": str(prompt_contract.get("role_prompt") or metadata.get("role_prompt") or ""),
             "task_instruction": str(prompt_contract.get("task_instruction") or metadata.get("task_instruction") or ""),
             "output_instruction": str(prompt_contract.get("output_instruction") or metadata.get("output_instruction") or ""),
+            "language_policy": dict(prompt_contract.get("language_policy") or metadata.get("language_policy") or {}),
+            "forbidden_behavior": list(prompt_contract.get("forbidden_behavior") or metadata.get("forbidden_behavior") or []),
+            "definition_of_done": list(prompt_contract.get("definition_of_done") or metadata.get("definition_of_done") or []),
         },
         "context": dict(node.get("context_visibility_policy") or {}),
         "memory": {
@@ -1041,6 +1097,14 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
 
 def _published_node_metadata(*, node: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
     payload = dict(metadata or {})
+    agent_profile_id = str(
+        node.get("agent_profile_id")
+        or payload.get("agent_profile_id")
+        or payload.get("agent_profile_ref")
+        or ""
+    ).strip()
+    if agent_profile_id:
+        payload["agent_profile_id"] = agent_profile_id
     node_runtime_policy = _published_node_runtime_policy(node=node, metadata=metadata)
     if not node_runtime_policy:
         return payload
@@ -1135,6 +1199,7 @@ def _normalize_loop_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "parent_scope_id": str(frame.get("parent_scope_id") or "").strip(),
                     "title": str(frame.get("title") or "").strip(),
                     "kind": str(frame.get("kind") or "").strip(),
+                    "algorithm_kind": str(frame.get("algorithm_kind") or frame.get("algorithm") or frame.get("kind") or "").strip(),
                     "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
                     "router_node_id": str(frame.get("router_node_id") or "").strip(),
                     "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
@@ -1150,6 +1215,7 @@ def _normalize_loop_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "reset_scope_on_continue": frame.get("reset_scope_on_continue"),
                     "preserve_iteration_results": frame.get("preserve_iteration_results"),
                     "aggregate_policy": dict(frame.get("aggregate_policy") or {}),
+                    "tree_reduce": dict(frame.get("tree_reduce") or {}),
                     "unit_kind": str(frame.get("unit_kind") or "").strip(),
                     "iteration_size_key": str(frame.get("iteration_size_key") or "").strip(),
                     "initial_inputs": dict(frame.get("initial_inputs") or {}),
@@ -1440,7 +1506,9 @@ def _executor_type_for_node(node: dict[str, Any]) -> str:
     if node_type == "graph_module" or bool(metadata.get("graph_module")):
         raise ValueError("graph module nodes must be expanded before executor selection")
     if node_type in {"manual_gate", "human_gate"}:
-        return "human"
+        raise ValueError(
+            "human gate must be configured as a node/edge gate attachment, not published as an executable graph node"
+        )
     if node_type == "review_gate":
         return "review_gate"
     if node_type == "tool":

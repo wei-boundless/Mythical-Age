@@ -28,15 +28,15 @@ class AgentRuntimeServices:
     tool_authorization_index: Any
     current_permission_mode: Any
     get_trace_callback: Any
-    execute_task_run_callback: Any | None = None
     execute_graph_agent_work_order_callback: Any | None = None
-    get_graph_config_callback: Any | None = None
     model_runtime: Any | None = None
     tool_runtime_executor: Any | None = None
     tool_instances: tuple[Any, ...] = ()
     agent_runtime_profile_resolver: Any | None = None
     artifact_repository_service: Any | None = None
     formal_memory_service: Any | None = None
+    runtime_algorithm_effect_sink: Any | None = None
+    graph_node_task_preparation_sink: Any | None = None
     backend_config: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -44,21 +44,24 @@ class AgentRuntimeServices:
         cls,
         host: Any,
         *,
-        execute_task_run_callback: Any | None = None,
         execute_graph_agent_work_order_callback: Any | None = None,
-        get_graph_config_callback: Any | None = None,
         model_runtime: Any | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | tuple[Any, ...] | None = None,
         agent_runtime_profile_resolver: Any | None = None,
         artifact_repository_service: Any | None = None,
         formal_memory_service: Any | None = None,
+        runtime_algorithm_effect_sink: Any | None = None,
+        graph_node_task_preparation_sink: Any | None = None,
         backend_config: dict[str, Any] | None = None,
     ) -> "AgentRuntimeServices":
         resolved_artifact_repository_service = artifact_repository_service
         resolved_formal_memory_service = formal_memory_service
         if resolved_artifact_repository_service is None or resolved_formal_memory_service is None:
             resolved_artifact_repository_service, resolved_formal_memory_service = _default_environment_services(host)
+        resolved_graph_node_task_preparation_sink = graph_node_task_preparation_sink
+        if resolved_graph_node_task_preparation_sink is None:
+            resolved_graph_node_task_preparation_sink = _default_graph_node_task_preparation_sink(host)
         return cls(
             root_dir=Path(host.root_dir),
             backend_dir=Path(host.backend_dir),
@@ -75,15 +78,15 @@ class AgentRuntimeServices:
             tool_authorization_index=host.tool_authorization_index,
             current_permission_mode=host._current_permission_mode,
             get_trace_callback=host.get_trace,
-            execute_task_run_callback=execute_task_run_callback,
             execute_graph_agent_work_order_callback=execute_graph_agent_work_order_callback,
-            get_graph_config_callback=get_graph_config_callback,
             model_runtime=model_runtime,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tuple(tool_instances or ()),
             agent_runtime_profile_resolver=agent_runtime_profile_resolver,
             artifact_repository_service=resolved_artifact_repository_service,
             formal_memory_service=resolved_formal_memory_service,
+            runtime_algorithm_effect_sink=runtime_algorithm_effect_sink,
+            graph_node_task_preparation_sink=resolved_graph_node_task_preparation_sink,
             backend_config=dict(backend_config or {}),
         )
 
@@ -125,28 +128,12 @@ def _default_environment_services(host: Any) -> tuple[Any | None, Any | None]:
         return None, None
 
 
-@dataclass(frozen=True, slots=True)
-class TaskExecutorServices:
-    """Narrow service table for a TaskRun executor invocation.
-
-    The task executor is part of the harness, not the API adapter. It receives
-    the exact runtime services it needs instead of reaching back into
-    HarnessRuntimeFacade.
-    """
-
-    runtime_host: Any
-    backend_dir: Path
-    model_runtime: Any
-    tool_control_plane: Any | None
-    tool_runtime_executor: Any | None
-    tool_instances: tuple[Any, ...]
-    agent_runtime_profile: Any | None
-    backend_config: dict[str, Any]
-    assistant_message_committer: Any | None = None
-    execute_task_run_callback: Any | None = None
-    schedule_task_run_executor_callback: Any | None = None
-    memory_context_provider: Any | None = None
-
-    def all_tool_instances(self) -> list[Any]:
-        return list(self.tool_instances)
-
+def _default_graph_node_task_preparation_sink(host: Any) -> Any | None:
+    try:
+        from task_system.graph_bindings import GraphNodeTaskBindingService
+    except Exception:
+        return None
+    try:
+        return GraphNodeTaskBindingService(Path(host.backend_dir))
+    except Exception:
+        return None

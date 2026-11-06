@@ -2590,6 +2590,401 @@
     color-mix(in srgb, var(--console-surface) 0.04, transparent);
 }
 
+.task-runtime-workbench {
+  display: grid;
+  gap: 0.8rem;
+  min-height: 0;
+}
+
+.task-runtime-head,
+.task-runtime-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.task-runtime-head {
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg-raised) 94%, transparent);
+  padding: 0.85rem 0.95rem;
+}
+
+.task-runtime-head div,
+.task-runtime-panel > header div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.task-runtime-head strong,
+.task-runtime-panel > header strong {
+  color: var(--console-text);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.task-runtime-head span,
+.task-runtime-panel > header span {
+  color: var(--console-muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.task-runtime-head button,
+.task-runtime-panel > header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.36rem;
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 26%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-surface) 70%, transparent);
+  color: var(--console-text);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 760;
+  padding: 0.38rem 0.66rem;
+  white-space: nowrap;
+}
+
+.task-runtime-head button:disabled,
+.task-runtime-panel > header button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.task-runtime-message,
+.task-runtime-empty {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-surface) 72%, transparent);
+  color: var(--console-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0.68rem 0.75rem;
+}
+
+.task-runtime-message--error {
+  border-color: color-mix(in srgb, var(--console-danger) 44%, var(--console-line));
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.task-runtime-layout {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.28fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  min-height: 0;
+}
+
+.task-runtime-rail,
+.task-runtime-main,
+.task-runtime-panel {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 14%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg-raised) 92%, transparent);
+}
+
+.task-runtime-rail {
+  display: grid;
+  align-content: start;
+  gap: 0.42rem;
+  max-height: min(720px, 72vh);
+  overflow: auto;
+  padding: 0.55rem;
+}
+
+.task-runtime-main {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-height: 0;
+  padding: 0.75rem;
+}
+
+.task-runtime-env-row {
+  display: grid;
+  gap: 0.22rem;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--console-text);
+  cursor: pointer;
+  padding: 0.62rem 0.68rem;
+  text-align: left;
+}
+
+.task-runtime-env-row:hover,
+.task-runtime-env-row--active {
+  border-color: color-mix(in srgb, var(--console-accent) 38%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 8%, var(--console-surface));
+}
+
+.task-runtime-env-row strong,
+.task-runtime-env-row span,
+.task-runtime-env-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-runtime-env-row strong {
+  font-size: 0.8rem;
+}
+
+.task-runtime-env-row span,
+.task-runtime-env-row small {
+  color: var(--console-muted);
+  font-size: 0.7rem;
+}
+
+.task-runtime-panel {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.78rem;
+}
+
+.task-runtime-panel > header small {
+  border: 1px solid color-mix(in srgb, var(--console-accent) 20%, var(--console-line));
+  border-radius: 999px;
+  color: var(--console-muted);
+  font-size: 0.7rem;
+  font-weight: 760;
+  padding: 0.22rem 0.5rem;
+}
+
+.task-runtime-panel--overview {
+  background: color-mix(in srgb, var(--console-surface) 74%, var(--console-bg-raised));
+}
+
+.task-runtime-panel--wide {
+  grid-column: 1 / -1;
+}
+
+.task-runtime-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(82px, 1fr));
+  gap: 0.5rem;
+}
+
+.task-runtime-metrics p,
+.task-runtime-kv p {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 13%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg) 34%, transparent);
+  padding: 0.52rem 0.58rem;
+}
+
+.task-runtime-metrics span,
+.task-runtime-kv span {
+  color: var(--console-muted);
+  font-size: 0.68rem;
+}
+
+.task-runtime-metrics strong,
+.task-runtime-kv strong {
+  min-width: 0;
+  color: var(--console-text);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.task-runtime-kv {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.task-runtime-command__grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.5fr) minmax(120px, auto);
+  gap: 0.62rem;
+}
+
+.task-runtime-command__grid label {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  color: var(--console-muted);
+  font-size: 0.72rem;
+}
+
+.task-runtime-command__grid select,
+.task-runtime-command__grid textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 18%, var(--console-line));
+  border-radius: 8px;
+  background: var(--console-bg);
+  color: var(--console-text);
+  font: inherit;
+  outline: none;
+  padding: 0.5rem 0.58rem;
+}
+
+.task-runtime-command__grid textarea {
+  min-height: 94px;
+  resize: vertical;
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  font-size: 0.75rem;
+}
+
+.task-runtime-command__switch {
+  display: inline-flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  align-self: end;
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 16%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-surface) 60%, transparent);
+  padding: 0 0.58rem;
+}
+
+.task-runtime-command__switch input {
+  accent-color: var(--console-accent);
+}
+
+.task-runtime-command__payload {
+  grid-column: 1 / -1;
+}
+
+.task-runtime-fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.task-runtime-table {
+  display: grid;
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.task-runtime-table__head,
+.task-runtime-table__row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.3fr) minmax(92px, 0.5fr) minmax(170px, 1fr) minmax(120px, 0.6fr);
+  gap: 0.62rem;
+  align-items: center;
+}
+
+.task-runtime-table__head {
+  color: var(--console-muted);
+  font-size: 0.68rem;
+  padding: 0 0.28rem;
+}
+
+.task-runtime-table__row {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg) 26%, transparent);
+  padding: 0.58rem 0.62rem;
+}
+
+.task-runtime-table__row p {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.task-runtime-table__row strong,
+.task-runtime-table__row span,
+.task-runtime-list article strong,
+.task-runtime-list article span,
+.task-runtime-list article small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-runtime-table__row strong,
+.task-runtime-list article strong {
+  color: var(--console-text);
+  font-size: 0.76rem;
+}
+
+.task-runtime-table__row span,
+.task-runtime-list article span,
+.task-runtime-list article small {
+  color: var(--console-muted);
+  font-size: 0.68rem;
+}
+
+.task-runtime-list {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.task-runtime-list article {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--console-accent) 12%, var(--console-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg) 24%, transparent);
+  padding: 0.58rem 0.62rem;
+}
+
+@media (max-width: 1180px) {
+  .task-runtime-layout,
+  .task-runtime-fact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-runtime-rail {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: none;
+  }
+
+  .task-runtime-metrics,
+  .task-runtime-kv {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-runtime-table__head {
+    display: none;
+  }
+
+  .task-runtime-table__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .task-runtime-head,
+  .task-runtime-panel > header,
+  .task-runtime-command__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-runtime-head,
+  .task-runtime-panel > header {
+    display: grid;
+  }
+
+  .task-runtime-metrics,
+  .task-runtime-kv,
+  .task-runtime-table__row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .boundary-console {
   --boundary-bg: color-mix(in srgb, var(--console-bg-raised) 88%, #071016);
   display: grid;

@@ -33,6 +33,10 @@ class GraphTaskInstanceFileService:
         }
 
     def root(self, instance_id: str) -> Path:
+        instance = self.repository.require(instance_id)
+        configured_root = _configured_project_root(instance, layout=self.layout)
+        if configured_root is not None:
+            return configured_root
         safe = _safe_path_component(instance_id)
         return (self.layout.storage_root / "graph_task_instances" / safe).resolve()
 
@@ -177,4 +181,40 @@ def _safe_path_component(value: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "").strip())
     safe = safe.strip("_-")
     return safe or "graph_task_instance"
+
+
+def _configured_project_root(instance: Any, *, layout: ProjectLayout) -> Path | None:
+    configured = _configured_project_path(instance)
+    if not configured:
+        return None
+    raw = str(configured or "").replace("\\", "/").strip().strip("'\"`")
+    if not raw or "://" in raw:
+        raise ValueError("graph task instance project_path must be a local filesystem path")
+    if raw.startswith("../") or "/../" in f"/{raw}/":
+        raise ValueError("graph task instance project_path cannot contain traversal segments")
+    candidate = Path(raw)
+    resolved = candidate.resolve() if candidate.is_absolute() else (layout.project_root / raw.strip("/")).resolve()
+    allowed_roots = (layout.project_root.resolve(), layout.external_data_root.resolve())
+    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
+        raise ValueError("graph task instance project_path must stay inside the project or external data root")
+    return resolved
+
+
+def _configured_project_path(instance: Any) -> str:
+    metadata = dict(getattr(instance, "metadata", None) or {})
+    writing_project = dict(metadata.get("writing_project") or {})
+    run_config = dict(metadata.get("run_config") or {})
+    run_inputs = dict(run_config.get("initial_inputs") or {})
+    metadata_inputs = dict(metadata.get("initial_inputs") or {})
+    candidates = (
+        writing_project.get("project_path"),
+        run_inputs.get("project_path"),
+        metadata_inputs.get("project_path"),
+        metadata.get("project_path"),
+    )
+    for value in candidates:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 

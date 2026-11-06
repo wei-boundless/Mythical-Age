@@ -101,9 +101,9 @@ def default_task_environment_kind_templates() -> tuple[TaskEnvironmentKindTempla
         TaskEnvironmentKindTemplate(
             kind_id="office",
             title="Office",
-            description="Lightweight office environments with file handling, local search, and source lookup boundaries.",
+            description="Office document environments with Word, Excel, PowerPoint, PDF, local search, source lookup, artifact generation, and verification boundaries.",
             group_id="environment_group.office",
-            allowed_resource_refs=("file_profile.base_workspace", "conversation_index"),
+            allowed_resource_refs=("file_profile.base_workspace", "file_profile.document_processing", "conversation_index"),
             allowed_task_graph_kinds=("single_agent", "coordination"),
         ),
         TaskEnvironmentKindTemplate(

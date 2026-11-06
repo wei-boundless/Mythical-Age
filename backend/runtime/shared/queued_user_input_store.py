@@ -12,6 +12,7 @@ from core.json_file_store import JsonFilePayloadCorrupt, JsonFileStoreError, jso
 
 QueuedUserInputStatus = Literal["queued", "dispatching", "dispatched", "failed", "canceled"]
 QueuedUserInputPolicy = Literal["auto", "steer"]
+QueuedUserInputLifecycle = Literal["accepted", "waiting_boundary", "included", "failed", "canceled"]
 
 _QUEUE_LOCK = threading.RLock()
 _QUEUE_STATUSES: set[str] = {"queued", "dispatching", "dispatched", "failed", "canceled"}
@@ -36,10 +37,11 @@ class QueuedUserInput:
     model_selection: dict[str, Any]
     permission_mode: str = ""
     expected_active_turn_id: str = ""
-    task_run_id: str = ""
+    task_environment_id: str = ""
     editor_context: dict[str, Any] | None = None
     dispatch_stream_run_id: str = ""
     failure_reason: str = ""
+    lifecycle_state: QueuedUserInputLifecycle = "accepted"
     authority: str = "runtime.queued_user_input_store"
 
     def __post_init__(self) -> None:
@@ -53,6 +55,8 @@ class QueuedUserInput:
             raise ValueError(f"invalid queued input status: {self.status}")
         if self.input_policy not in _QUEUE_POLICIES:
             raise ValueError(f"invalid queued input policy: {self.input_policy}")
+        if self.lifecycle_state not in {"accepted", "waiting_boundary", "included", "failed", "canceled"}:
+            raise ValueError(f"invalid queued input lifecycle state: {self.lifecycle_state}")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -82,7 +86,7 @@ class QueuedUserInputStore:
         client_message_id: str = "",
         input_policy: str = "auto",
         expected_active_turn_id: str = "",
-        task_run_id: str = "",
+        task_environment_id: str = "",
         attachments: list[dict[str, Any]] | None = None,
         session_scope: dict[str, Any] | None = None,
         environment_binding: dict[str, Any] | None = None,
@@ -116,7 +120,7 @@ class QueuedUserInputStore:
                 content=normalized_content,
                 input_policy=normalized_policy,
                 expected_active_turn_id=_clean_text(expected_active_turn_id, limit=300),
-                task_run_id=_clean_text(task_run_id, limit=300),
+                task_environment_id=_clean_text(task_environment_id, limit=300),
                 attachments=_dict_list(attachments),
                 session_scope=dict(session_scope or {}),
                 environment_binding=dict(environment_binding or {}),
@@ -126,6 +130,7 @@ class QueuedUserInputStore:
                 permission_mode=_clean_text(permission_mode, limit=80),
                 editor_context=dict(editor_context or {}),
                 status="queued",
+                lifecycle_state="waiting_boundary" if normalized_policy == "steer" else "accepted",
                 dispatch_stream_run_id="",
                 failure_reason="",
                 created_at=now,
@@ -158,7 +163,13 @@ class QueuedUserInputStore:
                     continue
                 if normalized_policy and item.input_policy != normalized_policy:
                     continue
-                claimed = replace(item, status="dispatching", updated_at=now, failure_reason="")
+                claimed = replace(
+                    item,
+                    status="dispatching",
+                    lifecycle_state="waiting_boundary" if item.input_policy == "steer" else item.lifecycle_state,
+                    updated_at=now,
+                    failure_reason="",
+                )
                 items[index] = claimed
                 self._write_items(normalized_session_id, items)
                 return claimed
@@ -169,12 +180,12 @@ class QueuedUserInputStore:
         session_id: str,
         *,
         turn_id: str,
-        task_run_id: str = "",
+        task_environment_id: str = "",
         limit: int = 8,
     ) -> list[QueuedUserInput]:
         normalized_session_id = _clean_text(session_id, limit=240)
         normalized_turn_id = _clean_text(turn_id, limit=300)
-        normalized_task_run_id = _clean_text(task_run_id, limit=300)
+        normalized_task_environment_id = _clean_text(task_environment_id, limit=300)
         if not normalized_session_id or not normalized_turn_id:
             return []
         max_items = max(1, min(32, int(limit or 8)))
@@ -189,19 +200,16 @@ class QueuedUserInputStore:
                     updated_items.append(item)
                     continue
                 expected_turn_id = _clean_text(item.expected_active_turn_id, limit=300)
-                expected_task_run_id = _clean_text(item.task_run_id, limit=300)
                 if expected_turn_id and expected_turn_id != normalized_turn_id:
-                    updated_items.append(item)
-                    continue
-                if expected_task_run_id and expected_task_run_id != normalized_task_run_id:
                     updated_items.append(item)
                     continue
                 active_turn_item = replace(
                     item,
                     input_policy="steer",
                     expected_active_turn_id=normalized_turn_id,
-                    task_run_id=normalized_task_run_id or expected_task_run_id,
+                    task_environment_id=normalized_task_environment_id or item.task_environment_id,
                     status="dispatching",
+                    lifecycle_state="waiting_boundary",
                     updated_at=now,
                     failure_reason="",
                 )
@@ -218,7 +226,7 @@ class QueuedUserInputStore:
         *,
         input_policy: str,
         expected_active_turn_id: str = "",
-        task_run_id: str = "",
+        task_environment_id: str = "",
     ) -> QueuedUserInput | None:
         normalized_session_id = _clean_text(session_id, limit=240)
         normalized_queue_item_id = _clean_text(queue_item_id, limit=240)
@@ -236,7 +244,7 @@ class QueuedUserInputStore:
                     item,
                     input_policy=normalized_policy,
                     expected_active_turn_id=_clean_text(expected_active_turn_id, limit=300),
-                    task_run_id=_clean_text(task_run_id, limit=300),
+                    task_environment_id=_clean_text(task_environment_id, limit=300),
                     updated_at=now,
                     failure_reason="",
                 )
@@ -245,12 +253,20 @@ class QueuedUserInputStore:
                 return updated
         return None
 
-    def mark_dispatched(self, session_id: str, queue_item_id: str, *, stream_run_id: str) -> QueuedUserInput | None:
+    def mark_dispatched(
+        self,
+        session_id: str,
+        queue_item_id: str,
+        *,
+        stream_run_id: str,
+        lifecycle_state: str = "",
+    ) -> QueuedUserInput | None:
         return self._update_item(
             session_id,
             queue_item_id,
             status="dispatched",
             dispatch_stream_run_id=_clean_text(stream_run_id, limit=240),
+            lifecycle_state=lifecycle_state or None,
             failure_reason="",
         )
 
@@ -259,6 +275,7 @@ class QueuedUserInputStore:
             session_id,
             queue_item_id,
             status="failed",
+            lifecycle_state="failed",
             failure_reason=_clean_text(reason, limit=500),
         )
 
@@ -270,6 +287,7 @@ class QueuedUserInputStore:
             session_id,
             queue_item_id,
             status="canceled",
+            lifecycle_state="canceled",
             failure_reason=_clean_text(reason, limit=500),
         )
 
@@ -292,7 +310,13 @@ class QueuedUserInputStore:
             updated: list[QueuedUserInput] = []
             for item in items:
                 if item.status == "dispatching" and now - float(item.updated_at or 0.0) >= max(1.0, float(max_age_seconds or 0.0)):
-                    item = replace(item, status="queued", updated_at=now, failure_reason="")
+                    item = replace(
+                        item,
+                        status="queued",
+                        lifecycle_state="waiting_boundary" if item.input_policy == "steer" else item.lifecycle_state,
+                        updated_at=now,
+                        failure_reason="",
+                    )
                     reset.append(item)
                 updated.append(item)
             if reset:
@@ -306,6 +330,7 @@ class QueuedUserInputStore:
         *,
         status: QueuedUserInputStatus,
         dispatch_stream_run_id: str | None = None,
+        lifecycle_state: QueuedUserInputLifecycle | None = None,
         failure_reason: str | None = None,
     ) -> QueuedUserInput | None:
         normalized_session_id = _clean_text(session_id, limit=240)
@@ -322,6 +347,7 @@ class QueuedUserInputStore:
                 updated = replace(
                     item,
                     status=status,
+                    lifecycle_state=item.lifecycle_state if lifecycle_state is None else lifecycle_state,
                     dispatch_stream_run_id=item.dispatch_stream_run_id if dispatch_stream_run_id is None else dispatch_stream_run_id,
                     failure_reason=item.failure_reason if failure_reason is None else failure_reason,
                     updated_at=now,
@@ -384,6 +410,14 @@ def _queued_input_from_payload(payload: dict[str, Any], *, session_id: str) -> Q
     if status not in _QUEUE_STATUSES:
         status = "queued"
     policy = _clean_policy(payload.get("input_policy") or "auto")
+    lifecycle_state = str(payload.get("lifecycle_state") or "").strip()
+    if lifecycle_state not in {"accepted", "waiting_boundary", "included", "failed", "canceled"}:
+        lifecycle_state = "waiting_boundary" if status in {"queued", "dispatching"} and policy == "steer" else (
+            "included" if status == "dispatched" and policy == "steer" else
+            "failed" if status == "failed" else
+            "canceled" if status == "canceled" else
+            "accepted"
+        )
     return QueuedUserInput(
         queue_item_id=_clean_text(payload.get("queue_item_id"), limit=240),
         session_id=_clean_text(payload.get("session_id") or session_id, limit=240),
@@ -391,7 +425,7 @@ def _queued_input_from_payload(payload: dict[str, Any], *, session_id: str) -> Q
         content=str(payload.get("content") or "").strip(),
         input_policy=policy,
         expected_active_turn_id=_clean_text(payload.get("expected_active_turn_id"), limit=300),
-        task_run_id=_clean_text(payload.get("task_run_id"), limit=300),
+        task_environment_id=_clean_text(payload.get("task_environment_id"), limit=300),
         attachments=_dict_list(payload.get("attachments")),
         session_scope=dict(payload.get("session_scope") or {}),
         environment_binding=dict(payload.get("environment_binding") or {}),
@@ -401,6 +435,7 @@ def _queued_input_from_payload(payload: dict[str, Any], *, session_id: str) -> Q
         permission_mode=_clean_text(payload.get("permission_mode"), limit=80),
         editor_context=dict(payload.get("editor_context") or {}),
         status=status,  # type: ignore[arg-type]
+        lifecycle_state=lifecycle_state,  # type: ignore[arg-type]
         dispatch_stream_run_id=_clean_text(payload.get("dispatch_stream_run_id"), limit=240),
         failure_reason=_clean_text(payload.get("failure_reason"), limit=500),
         created_at=_safe_float(payload.get("created_at")),

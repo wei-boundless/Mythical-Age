@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import hashlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -211,7 +212,7 @@ class FileGateway:
         logical_path: str,
         context: FileGatewayRequestContext,
         *,
-        operation_id: str = "op.read_file",
+        operation_id: str = "op.workspace_read",
     ) -> FileGatewayResult:
         repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
         access_decision = self.check_access(repository_id, "read", approval_fingerprint="")
@@ -245,7 +246,7 @@ class FileGateway:
         content: str,
         context: FileGatewayRequestContext,
         *,
-        operation_id: str = "op.write_file",
+        operation_id: str = "op.workspace_write",
         approval_fingerprint: str = "",
     ) -> FileGatewayResult:
         repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
@@ -274,7 +275,7 @@ class FileGateway:
         new_text: str,
         context: FileGatewayRequestContext,
         *,
-        operation_id: str = "op.edit_file",
+        operation_id: str = "op.workspace_edit",
         approval_fingerprint: str = "",
     ) -> FileGatewayResult:
         repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
@@ -309,6 +310,57 @@ class FileGateway:
         if before_content.count(target) != 1:
             raise ValueError("old_text must match exactly one location")
         after_content = before_content.replace(target, str(new_text or ""), 1)
+        adapter.write_text(normalized_path, after_content)
+        return self._write_result(
+            repository=repository,
+            binding=binding,
+            adapter=adapter,
+            logical_path=normalized_path,
+            content=after_content,
+            before_content=before_content,
+            action="edit",
+            operation_id=operation_id,
+            access_decision=access_decision,
+            approval_fingerprint=approval_fingerprint,
+            context=context,
+        )
+
+    def edit_target_text(
+        self,
+        repository_id: str,
+        logical_path: str,
+        target: dict[str, Any],
+        new_text: str,
+        context: FileGatewayRequestContext,
+        *,
+        operation_id: str = "op.workspace_edit",
+        approval_fingerprint: str = "",
+    ) -> FileGatewayResult:
+        repository, binding, adapter, normalized_path = self._repository_adapter(repository_id, logical_path)
+        access_decision = self.check_access(repository_id, "edit", approval_fingerprint=approval_fingerprint)
+        if repository.storage_adapter == "sandbox_overlay":
+            self._copy_from_project_if_missing(binding=binding, logical_path=normalized_path)
+        if not adapter.exists(normalized_path):
+            raise FileNotFoundError("file does not exist")
+        before_content = adapter.read_text(normalized_path)
+        payload = dict(target or {})
+        if str(payload.get("base_sha256") or "").lower() != hashlib.sha256(before_content.encode("utf-8")).hexdigest():
+            raise ValueError("target_version_conflict")
+        try:
+            start_byte = int(payload["start_byte"])
+            end_byte = int(payload["end_byte"])
+            encoded = before_content.encode("utf-8")
+            if start_byte < 0 or end_byte < start_byte or end_byte > len(encoded):
+                raise ValueError("invalid_edit_target")
+            selected = encoded[start_byte:end_byte].decode("utf-8")
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
+            raise ValueError("invalid_edit_target") from exc
+        if hashlib.sha256(selected.encode("utf-8")).hexdigest() != str(payload.get("range_sha256") or "").lower():
+            raise ValueError("target_range_changed")
+        after_content = before_content[:0]
+        before_chars = encoded[:start_byte].decode("utf-8")
+        after_chars = encoded[end_byte:].decode("utf-8")
+        after_content = before_chars + str(new_text or "") + after_chars
         adapter.write_text(normalized_path, after_content)
         return self._write_result(
             repository=repository,
@@ -530,6 +582,5 @@ def _safe_root_fragment(value: str) -> Path:
 
 def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
-
 
 

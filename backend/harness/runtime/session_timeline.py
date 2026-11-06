@@ -4,6 +4,7 @@ from typing import Any
 
 from .event_query import list_runtime_events, runtime_event_count
 from .session_output_commit_projection import project_session_output_commit_state
+from runtime.shared.runtime_run_registry import is_recoverable_runtime_run_interruption
 from runtime.shared.stream_replay import canonical_public_projection_frame, sanitize_public_stream_event_data_for_replay
 from runtime.output_stream.public_contract import (
     SESSION_OUTPUT_COMMIT_ACK_EVENT,
@@ -289,18 +290,21 @@ def _bounded_projection_frames(frames: list[dict[str, Any]], max_frames: int) ->
         return ordered_frames
 
     selected: dict[str, dict[str, Any]] = {}
-    visible_tool_refs: set[str] = set()
+    projection_roots = [frame for frame in ordered_frames if _projection_frame_is_projection_root(frame)]
 
-    for frame in ordered_frames:
-        if not _projection_frame_is_semantic_root(frame):
-            continue
-        _select_projection_frame(selected, frame)
+    for frame in reversed(projection_roots):
+        if len(selected) >= limit:
+            break
+        frame_package = [frame]
         tool_ref = _projection_frame_primary_tool_ref(frame)
         if tool_ref:
-            visible_tool_refs.add(tool_ref)
-
-    if visible_tool_refs:
-        _select_projection_tool_lifecycle_closures(selected, ordered_frames, visible_tool_refs)
+            lifecycle_closure = _projection_tool_lifecycle_closure(ordered_frames, tool_ref)
+            if lifecycle_closure:
+                frame_package.append(lifecycle_closure)
+        if not _projection_frame_package_fits(selected, frame_package, limit=limit):
+            continue
+        for candidate in frame_package:
+            _select_projection_frame(selected, candidate)
 
     if len(selected) < limit:
         remaining_budget = limit - len(selected)
@@ -315,30 +319,37 @@ def _bounded_projection_frames(frames: list[dict[str, Any]], max_frames: int) ->
     return sorted(selected.values(), key=_projection_frame_sort_key)
 
 
+def _projection_frame_package_fits(
+    selected: dict[str, dict[str, Any]],
+    frames: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> bool:
+    additions = {
+        _projection_frame_identity(frame)
+        for frame in frames
+        if isinstance(frame, dict) and _projection_frame_identity(frame) not in selected
+    }
+    return len(additions) <= max(0, limit - len(selected))
+
+
 def _select_projection_frame(selected: dict[str, dict[str, Any]], frame: dict[str, Any]) -> None:
     selected[_projection_frame_identity(frame)] = frame
 
 
-def _select_projection_tool_lifecycle_closures(
-    selected: dict[str, dict[str, Any]],
-    frames: list[dict[str, Any]],
-    tool_refs: set[str],
-) -> None:
-    for tool_ref in sorted(ref for ref in tool_refs if ref):
-        lifecycle_frames = [
-            frame
-            for frame in frames
-            if _projection_frame_primary_tool_ref(frame) == tool_ref
-        ]
-        if not lifecycle_frames:
-            continue
-        completed = [frame for frame in lifecycle_frames if _projection_frame_is_tool_completion(frame)]
-        if completed:
-            _select_projection_frame(selected, completed[-1])
-            continue
-        followups = [frame for frame in lifecycle_frames if _projection_frame_is_tool_followup(frame)]
-        if followups:
-            _select_projection_frame(selected, followups[-1])
+def _projection_tool_lifecycle_closure(frames: list[dict[str, Any]], tool_ref: str) -> dict[str, Any]:
+    lifecycle_frames = [
+        frame
+        for frame in frames
+        if _projection_frame_primary_tool_ref(frame) == tool_ref
+    ]
+    if not lifecycle_frames:
+        return {}
+    completed = [frame for frame in lifecycle_frames if _projection_frame_is_tool_completion(frame)]
+    if completed:
+        return completed[-1]
+    followups = [frame for frame in lifecycle_frames if _projection_frame_is_tool_followup(frame)]
+    return followups[-1] if followups else {}
 
 
 def _projection_frame_sort_key(frame: dict[str, Any]) -> tuple[int, str]:
@@ -360,7 +371,7 @@ def _projection_frame_identity(frame: dict[str, Any]) -> str:
     )
 
 
-def _projection_frame_is_semantic_root(frame: dict[str, Any]) -> bool:
+def _projection_frame_is_projection_root(frame: dict[str, Any]) -> bool:
     op = str(frame.get("op") or "").strip()
     source_event_type = str(frame.get("source_event_type") or "").strip()
     visibility = str(frame.get("main_visibility") or "").strip()
@@ -470,7 +481,7 @@ def _projection_slices(
     return [
         {
             "slice_id": f"projection-slice:{slice_ref}",
-            "schema_version": "chronological_projection",
+            "projection_schema_id": "chronological_projection",
             "event_log_id": event_log_id,
             "start_offset": cursor["min_event_offset"],
             "end_offset": cursor["max_event_offset"],
@@ -590,6 +601,9 @@ def _projection_frames_from_public_events(public_events: list[dict[str, Any]]) -
         frame_id = str(frame.get("frame_id") or frame.get("projection_id") or "").strip()
         if not frame_id or frame_id in seen:
             continue
+        event_created_at = _float_value(event.get("created_at"), fallback=0.0)
+        if event_created_at > 0 and not _float_value(frame.get("created_at"), fallback=0.0):
+            frame = {**frame, "created_at": event_created_at}
         seen.add(frame_id)
         frames.append(frame)
     return sorted(frames, key=lambda item: (_int_value(item.get("event_offset"), fallback=0), str(item.get("frame_id") or "")))
@@ -694,6 +708,8 @@ def _display_state_for_stream_run(
     if closed:
         return {"display_state": "task_closed", "main_chat_surface": _CLOSEOUT_SUMMARY_SURFACE}
     if str(getattr(run, "status", "") or "").strip().lower() == "orphaned":
+        if is_recoverable_runtime_run_interruption(run):
+            return {"display_state": "task_live", "main_chat_surface": _LIVE_TIMELINE_SURFACE}
         return {"display_state": "log_only", "main_chat_surface": _LOG_ONLY_SURFACE}
     return {"display_state": "task_live", "main_chat_surface": _LIVE_TIMELINE_SURFACE}
 
@@ -713,7 +729,7 @@ def _tool_event_count(frames: list[dict[str, Any]]) -> int:
         for frame in frames
         if str(frame.get("event_family") or "") == "tool_control"
         and str(frame.get("tool_call_id") or "").strip()
-        and str(frame.get("tool_name") or "").strip().lower() != "agent_todo"
+        and str(frame.get("tool_name") or "").strip().lower() != "agent_state"
     }
     if tool_call_ids:
         return len(tool_call_ids)
@@ -721,7 +737,7 @@ def _tool_event_count(frames: list[dict[str, Any]]) -> int:
         1
         for frame in frames
         if str(frame.get("event_family") or "") == "tool_control"
-        and str(frame.get("tool_name") or "").strip().lower() != "agent_todo"
+        and str(frame.get("tool_name") or "").strip().lower() != "agent_state"
     )
 
 
@@ -1025,11 +1041,7 @@ def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
         refs = dict(event.get("refs") or {})
         if event_type in {
             "user_work_instruction_recorded",
-            "active_task_steer_recorded",
-            "active_task_steer_included",
-            "active_task_steer_consumed",
             "task_run_resume_requested",
-            "task_run_executor_scheduled",
             "step_summary_recorded",
         }:
             steer = dict(payload.get("steer") or {})

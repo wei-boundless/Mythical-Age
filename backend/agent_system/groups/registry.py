@@ -34,7 +34,43 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def default_agent_groups() -> tuple[AgentGroup, ...]:
-    return ()
+    return (
+        AgentGroup(
+            group_id="group.project_network_builders",
+            title="Project network builders",
+            group_kind="coordination_team",
+            coordinator_agent_id="agent:project_network_coordinator",
+            member_agent_ids=(
+                "agent:project_network_builder",
+                "agent:project_network_aggregator",
+                "agent:project_network_curator",
+            ),
+            description="固定项目网络构建执行组。节点身份由 graph node contract 决定，group 只表示可调度 agent 池。",
+            metadata={
+                "authority": "agent_system.default_project_network_builder_group",
+                "context_sharing": "explicit_refs_only",
+                "memory_sharing": "graph_task_scoped",
+                "output_merge": "aggregation_node_only",
+            },
+        ),
+        AgentGroup(
+            group_id="group.project_network_reviewers",
+            title="Project network reviewers",
+            group_kind="coordination_team",
+            coordinator_agent_id="agent:project_network_coordinator",
+            member_agent_ids=(
+                "agent:project_network_file_reviewer",
+                "agent:project_network_directory_reviewer",
+            ),
+            description="项目网络审查图专用执行组。系统投递审查材料，节点 agent 只消费当前节点输入和 typed work products。",
+            metadata={
+                "authority": "agent_system.default_project_network_reviewer_group",
+                "context_sharing": "explicit_refs_and_system_supplied_packets_only",
+                "memory_sharing": "disabled_for_review_nodes",
+                "tool_scope": "model_response_only_by_node_contract",
+            },
+        ),
+    )
 
 
 def _merge_items_by_key(
@@ -185,6 +221,4 @@ class AgentGroupRegistry:
                 next_groups.append(group)
         if changed:
             _write_json(self.path, {"groups": [item.to_dict() for item in next_groups]})
-
-
 

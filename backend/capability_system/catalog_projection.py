@@ -10,6 +10,7 @@ from capability_system.mcp.registry import build_mcp_catalog
 from permissions.operations import build_default_operation_registry
 from capability_system.permission_projection import attach_capability_permission_views
 from capability_system.skills.operation_requirements import skill_operation_ids_from_runtime
+from capability_system.tools.tool_surface import is_local_execution_tool_name
 from permissions.operation_packages import default_tool_packages
 from capability_system.skills.authoring import read_text
 
@@ -200,11 +201,18 @@ BASE_UNIT_DESCRIPTORS: tuple[UnitDescriptor, ...] = (
         capability_tags=("table", "data_analysis"),
     ),
     UnitDescriptor(
+        unit_id="mcp.office_document",
+        unit_type="mcp",
+        owner_module="backend.evidence.office_document_worker",
+        ports=("execution", "artifact", "trace"),
+        capability_tags=("office_document", "document_processing", "document_editing"),
+    ),
+    UnitDescriptor(
         unit_id="memory.facade",
         unit_type="memory",
         owner_module="backend.memory_system.facade",
         ports=("candidate", "policy", "commit", "trace"),
-        capability_tags=("session_memory", "durable_memory"),
+        capability_tags=("conversation_continuity", "durable_memory"),
     ),
     UnitDescriptor(
         unit_id="runtime.model",
@@ -256,7 +264,7 @@ def tool_text_set(tool: Any, *fields: str) -> set[str]:
 def classify_tool_source(tool: Any) -> ToolSourceClass:
     tags = tool_text_set(tool, "capability_tags", "supported_modalities", "safety_tags", "route_hints")
     name = str(_field_value(tool, "name") or "").lower()
-    if name in {"terminal", "python_repl"} or "shell" in tags:
+    if is_local_execution_tool_name(name) or "shell" in tags:
         return "system_execution"
     if tags & {"subagent_lifecycle", "agent", "orchestration"}:
         return "general"
@@ -311,7 +319,7 @@ def default_tool_type(tool: dict[str, Any]) -> str:
         return "知识检索"
     if source_class == "local_files":
         return "本地文件"
-    if source_class == "system_execution" or safety & {"shell", "destructive"} or name in {"terminal", "python_repl"}:
+    if source_class == "system_execution" or safety & {"shell", "destructive"} or is_local_execution_tool_name(name):
         return "系统执行"
     if tags & {"multimodal", "image", "preview", "indexing"}:
         return "多模态处理"
@@ -341,10 +349,8 @@ def tool_boundary(tool: dict[str, Any]) -> str:
 def tool_adapter_type(tool: dict[str, Any]) -> str:
     source_class = classify_tool_source(tool)
     name = str(tool.get("name") or "").lower()
-    if name == "terminal":
+    if is_local_execution_tool_name(name):
         return "本地命令"
-    if name == "python_repl":
-        return "本地脚本"
     if source_class == "web":
         return "网络 API"
     if source_class == "rag":
@@ -870,5 +876,3 @@ def _dedupe_texts(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
-

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from harness.runtime import RuntimeCompiler
-from runtime.context_management import confirm_provider_visible_context_entries
+from runtime.context_management import confirm_provider_visible_append_entries
 from runtime.model_gateway.protocol_sanitizer import sanitize_messages_for_prompt
 
 
@@ -78,7 +78,7 @@ def test_runtime_compiler_sanitizes_provider_protocol_history() -> None:
         user_message="继续。",
         history=[],
         session_context={
-            "api_transcript": [
+            "provider_protocol_timeline": [
                 {"role": "user", "content": "查杭州天气。"},
                 {
                     "role": "assistant",
@@ -115,7 +115,7 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
         *base_history,
         {"role": "user", "content": "第二轮。", "message_id": "msg:user:2", "turn_id": "turn:2", "created_at": 5.0},
     ]
-    base_api_transcript = [
+    base_provider_protocol_timeline = [
         base_history[0],
         {
             "role": "assistant",
@@ -126,8 +126,8 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
         {"role": "tool", "tool_call_id": "call-prefix", "content": "prefix result", "created_at": 3.0},
         {**base_history[1], "reasoning_content": "reasoning must stay in provider protocol"},
     ]
-    next_api_transcript = [
-        *base_api_transcript,
+    next_provider_protocol_timeline = [
+        *base_provider_protocol_timeline,
         next_history[-1],
     ]
 
@@ -137,7 +137,7 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
         agent_invocation_id="aginvoke:protocol-prefix-lock:1",
         user_message="继续。",
         history=base_history,
-        session_context={"api_transcript": base_api_transcript},
+        session_context={"provider_protocol_timeline": base_provider_protocol_timeline},
         runtime_assembly={
             "profile": {"mode": "conversation"},
             "task_environment": {"environment_id": "env.general.workspace"},
@@ -150,7 +150,7 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
         agent_invocation_id="aginvoke:protocol-prefix-lock:2",
         user_message="继续。",
         history=next_history,
-        session_context={"api_transcript": next_api_transcript},
+        session_context={"provider_protocol_timeline": next_provider_protocol_timeline},
         runtime_assembly={
             "profile": {"mode": "conversation"},
             "task_environment": {"environment_id": "env.general.workspace"},
@@ -173,7 +173,7 @@ def test_runtime_compiler_uses_provider_protocol_as_single_append_only_history_p
     second_current_segments = [item for item in second_segments if str(item.get("kind") or "") == "current_turn_user_context"]
     second_current = second_current_segments[-1]
     assert first_current["cache_role"] == "session_stable"
-    assert first_current["prefix_tier"] == "task"
+    assert first_current["prefix_tier"] == "session"
     assert dict(first_current["metadata"])["append_only_context_stream"] == "current_user_context"
     assert dict(second_current["metadata"])["append_only_context_stream"] == "current_user_context"
     assert len(second_current_segments) >= 2
@@ -189,13 +189,13 @@ def _confirm_segment_commit_candidates(segments: list[dict]) -> None:
     candidates = [
         dict(dict(segment).get("metadata") or {})
         for segment in list(segments or [])
-        if str(dict(dict(segment).get("metadata") or {}).get("provider_visible_context_ledger_commit_stage") or "")
+        if str(dict(dict(segment).get("metadata") or {}).get("provider_visible_append_commit_stage") or "")
         == "provider_success_required"
     ]
     if candidates:
-        confirm_provider_visible_context_entries(
+        confirm_provider_visible_append_entries(
             candidates,
-            request_id="modelreq:test:protocol-prefix-lock:first",
+            request_id="providerreq:test:protocol-prefix-lock:first",
             response_ref="resp:test:protocol-prefix-lock:first",
         )
 

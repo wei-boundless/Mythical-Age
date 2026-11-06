@@ -66,6 +66,7 @@ import { ActionBar } from "@/ui/ActionBar";
 import { Button } from "@/ui/Button";
 import { MetricCard } from "@/ui/MetricCard";
 import { Toggle } from "@/ui/Toggle";
+import { useAppStoreActions } from "@/lib/store";
 
 type SystemConfigGroupId =
   | "appearance"
@@ -339,6 +340,7 @@ function textFontPresetValue(fontFamily: string | undefined) {
 }
 
 export function SystemConfigView() {
+  const { refreshModelProviderConfig } = useAppStoreActions();
   const [consoleConfig, setConsoleConfig] = useState<RuntimeConfigConsole | null>(null);
   const [capabilityCatalog, setCapabilityCatalog] = useState<CapabilitySystemCatalog | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<SystemConfigGroupId>("appearance");
@@ -441,6 +443,9 @@ export function SystemConfigView() {
       setConsoleConfig(payload);
       const nextGroup = payload.groups.find((group) => group.group_id === activeGroup.group_id) ?? null;
       setDraft(buildDraft(nextGroup));
+      if (activeGroup.group_id === "model") {
+        await refreshModelProviderConfig();
+      }
       setNotice(`已保存「${activeGroup.title}」`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存系统配置失败");

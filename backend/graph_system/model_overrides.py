@@ -88,8 +88,8 @@ def work_order_with_model_overrides(
         return work_order, {}
 
     graph_slot = dict(work_order.graph_slot or {})
-    node_contract = dict(graph_slot.get("node_contract") or {})
-    original_requirement = dict(node_contract.get("model_requirement") or {})
+    agent_binding = dict(graph_slot.get("agent_binding") or {})
+    original_requirement = dict(agent_binding.get("model_requirement") or {})
     effective_requirement = _merge_model_requirement(original_requirement, override)
     diagnostics = {
         "authority": "graph_system.model_overrides",
@@ -99,8 +99,8 @@ def work_order_with_model_overrides(
         "original": _public_model_requirement(original_requirement),
         "effective": _public_model_requirement(effective_requirement),
     }
-    node_contract["model_requirement"] = effective_requirement
-    graph_slot["node_contract"] = node_contract
+    agent_binding["model_requirement"] = effective_requirement
+    graph_slot["agent_binding"] = agent_binding
 
     dispatch_context = dict(work_order.dispatch_context or {})
     dispatch_context["model_override_diagnostics"] = dict(diagnostics)

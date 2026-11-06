@@ -17,12 +17,18 @@ from runtime.context_management.session_compaction import (
     count_tokens,
     prompt_accounting_ledger,
 )
+from runtime.prompt_accounting import (
+    CACHE_PLANS_FILE,
+    PROVIDER_CACHE_BUS_FILE,
+    TOKEN_OBSERVATIONS_FILE,
+    build_provider_cache_log_view,
+)
 from task_system.session_scope import assert_optional_session_scope, request_scope_from_query
 
 router = APIRouter()
 _SESSION_TOKENS_CACHE_TTL_SECONDS = 10.0
 _session_tokens_cache_guard = threading.Lock()
-_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[tuple[int, int], tuple[int, int], tuple[int, int]], float, dict[str, Any]]] = {}
+_session_tokens_cache: dict[tuple[str, str, str, str], tuple[tuple[tuple[int, int], ...], float, dict[str, Any]]] = {}
 _session_tokens_key_locks: dict[tuple[str, str, str, str], threading.Lock] = {}
 
 class FileTokensRequest(BaseModel):
@@ -110,7 +116,7 @@ def _session_tokens_payload(
 
 def _cached_session_tokens_payload(
     cache_key: tuple[str, str, str, str],
-    signature: tuple[tuple[int, int], tuple[int, int], tuple[int, int]],
+    signature: tuple[tuple[int, int], ...],
 ) -> dict[str, Any] | None:
     now = time.monotonic()
     with _session_tokens_cache_guard:
@@ -128,12 +134,14 @@ def _session_tokens_cache_signature(
     *,
     ledger: Any,
     session_id: str,
-) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+) -> tuple[tuple[int, int], ...]:
     session_signature = runtime.session_manager.session_storage_signature(session_id)
     return (
         session_signature,
-        _ledger_file_signature(ledger, "token_usage.jsonl"),
-        _ledger_file_signature(ledger, "prompt_cache.jsonl"),
+        _ledger_file_signature(ledger, TOKEN_OBSERVATIONS_FILE),
+        _ledger_file_signature(ledger, CACHE_PLANS_FILE),
+        _ledger_file_signature(ledger, PROVIDER_CACHE_BUS_FILE),
+        _turn_memory_signature(runtime, session_id=session_id),
     )
 
 
@@ -156,6 +164,17 @@ def _ledger_file_signature(ledger: Any, filename: str) -> tuple[int, int]:
     except OSError:
         return (0, 0)
     return int(stat.st_mtime_ns), int(stat.st_size)
+
+
+def _turn_memory_signature(runtime: Any, *, session_id: str) -> tuple[int, int]:
+    store = _turn_memory_store(runtime)
+    signature = getattr(store, "session_signature", None)
+    if callable(signature):
+        try:
+            return tuple(signature(session_id))  # type: ignore[return-value]
+        except Exception:
+            return (0, 0)
+    return (0, 0)
 
 
 def _session_tokens_lock_for(cache_key: tuple[str, str, str, str]) -> threading.Lock:
@@ -186,10 +205,10 @@ def _build_session_tokens_payload(
     prompt_usage = ledger.summarize_session(session_id)
 
     raw_messages = list(record.get("messages", []))
-    api_transcript_loader = getattr(runtime.session_manager, "load_session_for_api", None)
-    cumulative_messages = (
-        list(api_transcript_loader(session_id))
-        if callable(api_transcript_loader)
+    provider_protocol_timeline_loader = getattr(runtime.session_manager, "load_provider_protocol_timeline", None)
+    provider_protocol_timeline_messages = (
+        list(provider_protocol_timeline_loader(session_id))
+        if callable(provider_protocol_timeline_loader)
         else raw_messages
     )
     context_snapshot = build_context_usage_snapshot(
@@ -204,9 +223,16 @@ def _build_session_tokens_payload(
         session_id=session_id,
         raw_messages=raw_messages,
     )
+    turn_memory = _turn_memory_session_projection(runtime, session_id=session_id)
+    provider_cache_log = build_provider_cache_log_view(
+        ledger,
+        session_id=session_id,
+        limit=50,
+        authority="api.tokens.provider_cache_log",
+    )
     system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens(_messages_token_text(raw_messages))
-    cumulative_transcript_tokens = _count_tokens(_messages_token_text(cumulative_messages))
+    provider_protocol_timeline_tokens = _count_tokens(_messages_token_text(provider_protocol_timeline_messages))
     history_status = _history_compaction_status(
         runtime,
         session_id=session_id,
@@ -214,10 +240,10 @@ def _build_session_tokens_payload(
     )
     raw_history_tokens = int(history_status.get("raw_history_tokens") or 0)
     history_tokens = int(history_status.get("history_tokens") or raw_history_tokens)
-    compression_saved_tokens = max(cumulative_transcript_tokens - history_tokens, 0)
+    compression_saved_tokens = max(provider_protocol_timeline_tokens - history_tokens, 0)
     compression_ratio = (
-        min(history_tokens / cumulative_transcript_tokens, 1.0)
-        if cumulative_transcript_tokens > 0
+        min(history_tokens / provider_protocol_timeline_tokens, 1.0)
+        if provider_protocol_timeline_tokens > 0
         else 1.0
     )
     history_budget_tokens = int(history_status.get("history_budget_tokens") or 0)
@@ -255,10 +281,12 @@ def _build_session_tokens_payload(
         "billing_totals": billing_totals,
         "context_meter": context_meter,
         "context_recovery_package": context_recovery_package,
+        "turn_memory": turn_memory,
+        "provider_cache_log": provider_cache_log,
         "cache_metrics": cache_metrics,
         "compaction_readiness": compaction_readiness,
-        "cumulative_transcript_tokens": cumulative_transcript_tokens,
-        "cumulative_transcript_message_count": len(cumulative_messages),
+        "provider_protocol_timeline_tokens": provider_protocol_timeline_tokens,
+        "provider_protocol_timeline_message_count": len(provider_protocol_timeline_messages),
         "compression_saved_tokens": compression_saved_tokens,
         "compression_ratio": round(compression_ratio, 4),
         "raw_history_tokens": raw_history_tokens,
@@ -277,6 +305,34 @@ def _build_session_tokens_payload(
     return payload
 
 
+def _turn_memory_session_projection(runtime: Any, *, session_id: str) -> dict[str, Any]:
+    store = _turn_memory_store(runtime)
+    projector = getattr(store, "session_projection", None)
+    if not callable(projector):
+        return {
+            "authority": "runtime.turn_memory.session_projection",
+            "available": False,
+            "reason": "turn_memory_store_unavailable",
+            "turn_count": 0,
+            "recent_turns": [],
+        }
+    try:
+        return dict(projector(session_id, limit=20) or {})
+    except Exception as exc:
+        return {
+            "authority": "runtime.turn_memory.session_projection",
+            "available": False,
+            "reason": str(exc) or "turn_memory_projection_failed",
+            "turn_count": 0,
+            "recent_turns": [],
+        }
+
+
+def _turn_memory_store(runtime: Any) -> Any:
+    host = getattr(getattr(runtime, "harness_runtime", None), "single_agent_runtime_host", None)
+    return getattr(host, "turn_memory_store", None)
+
+
 def _history_compaction_status(
     runtime: Any,
     *,
@@ -284,19 +340,19 @@ def _history_compaction_status(
     raw_messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
     py_messages = runtime.memory_facade.adapter.to_messages(raw_messages, session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    compactor = runtime.memory_facade.conversation_continuity.compactor(session_id)
     raw_history_tokens = int(compactor.conversation_tokens(py_messages) or 0)
     history_budget_tokens = int(getattr(compactor, "effective_history_token_budget", 0) or 0)
     history_pressure_level = str(compactor.pressure_level(raw_history_tokens, len(py_messages)) or "normal")
-    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
-    manager_ref = getattr(session_memory, "manager", None)
+    conversation_continuity = getattr(getattr(runtime, "memory_facade", None), "conversation_continuity", None)
+    manager_ref = getattr(conversation_continuity, "manager", None)
     if callable(manager_ref):
-        session_memory_manager = manager_ref(session_id)
+        conversation_continuity_manager = manager_ref(session_id)
     elif manager_ref is not None and callable(getattr(manager_ref, "load_compaction_state", None)):
-        session_memory_manager = manager_ref
+        conversation_continuity_manager = manager_ref
     else:
-        session_memory_manager = None
-    load_compaction_state = getattr(session_memory_manager, "load_compaction_state", None)
+        conversation_continuity_manager = None
+    load_compaction_state = getattr(conversation_continuity_manager, "load_compaction_state", None)
     compaction_state_present = False
     if callable(load_compaction_state):
         try:
@@ -363,8 +419,8 @@ def _context_recovery_package_status(
     session_id: str,
     raw_messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    session_memory = getattr(getattr(runtime, "memory_facade", None), "session_memory", None)
-    manager_ref = getattr(session_memory, "manager", None)
+    conversation_continuity = getattr(getattr(runtime, "memory_facade", None), "conversation_continuity", None)
+    manager_ref = getattr(conversation_continuity, "manager", None)
     if callable(manager_ref):
         manager = manager_ref(session_id)
     elif manager_ref is not None and callable(getattr(manager_ref, "load_context_recovery_package", None)):
@@ -374,7 +430,7 @@ def _context_recovery_package_status(
             "authority": "runtime.context_management.context_recovery_package_status",
             "present": False,
             "fresh": False,
-            "reason": "session_memory_unavailable",
+            "reason": "conversation_continuity_unavailable",
         }
     try:
         package = manager.load_context_recovery_package()
@@ -408,7 +464,7 @@ def _context_recovery_package_status(
         "present": True,
         "fresh": bool(dict(validation or {}).get("ok")) and not stale_reason,
         "source": str(package.get("source") or ""),
-        "schema_version": str(package.get("schema_version") or ""),
+        "package_schema_id": str(package.get("package_schema_id") or ""),
         "covered_message_count": int(coverage.get("covered_message_count") or 0),
         "covered_event_run_id": str(coverage.get("covered_event_run_id") or ""),
         "covered_event_offset_end": coverage.get("covered_event_offset_end"),

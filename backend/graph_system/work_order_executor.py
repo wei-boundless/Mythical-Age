@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 from dataclasses import dataclass
@@ -13,24 +12,23 @@ from artifact_system.artifact_authority import (
     dedupe_artifact_refs,
     normalize_artifact_ref,
 )
-from task_system.runtime_semantics.quality_gates import stage_business_acceptance
-from task_system.runtime_semantics.chapter_progress import (
-    ChapterProgressReceiptError,
-    build_chapter_progress_receipt,
-    normalize_chapter_progress_receipt,
-)
 
 from .models import ExecutableGraphConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id, stable_safe_id
 from .model_overrides import sanitize_runtime_overrides, work_order_with_model_overrides
 from .output_policy import resolve_output_policy
+from .quality_gate_registry import evaluate_node_quality_acceptance
+from .adapter_registry import runtime_algorithm_structured_output_keys
+from .memory_candidate_registry import augment_candidate_source_payload
+from .runtime_algorithm_adapters import postprocess_runtime_algorithm_outputs
 from .runtime_objects import node_result_summary, work_order_summary
+from .work_order_handler_registry import handle_deterministic_work_order
 
 
 @dataclass(frozen=True, slots=True)
 class GraphWorkOrderExecution:
     work_order: GraphNodeWorkOrder
     node_result: NodeResultEnvelope
-    task_run: Any | None = None
+    task_execution: Any | None = None
     executor_result: dict[str, Any] | None = None
     events: tuple[dict[str, Any], ...] = ()
 
@@ -61,24 +59,18 @@ class GraphNodeWorkOrderExecutor:
         if not _graph_node_by_id(graph_config, order.node_id):
             raise ValueError("GraphNodeWorkOrder node_id not found in ExecutableGraphConfig")
         if order.work_kind == "agent":
-            deterministic_progress = self._execute_deterministic_progress_receipt_node(
+            deterministic_result = self._execute_deterministic_work_order_handler(
                 graph_config=graph_config,
                 work_order=order,
                 model_override_diagnostics=model_override_diagnostics,
             )
-            if deterministic_progress is not None:
-                return deterministic_progress
+            if deterministic_result is not None:
+                return deterministic_result
             return await self._execute_agent_node(
                 graph_config=graph_config,
                 work_order=order,
                 max_steps=max_steps,
                 model_override_diagnostics=model_override_diagnostics,
-            )
-        if order.work_kind == "human_gate":
-            return self._unsupported_executor_result(
-                graph_config=graph_config,
-                work_order=order,
-                reason="human_gate_requires_external_decision",
             )
         if order.work_kind == "tool":
             return self._unsupported_executor_result(
@@ -112,11 +104,11 @@ class GraphNodeWorkOrderExecutor:
             work_order=work_order,
             max_steps=max(1, int(max_steps or 12)),
         )
-        task_run_payload = dict(dict(executor_result or {}).get("task_run") or {})
+        task_execution_payload = dict(dict(executor_result or {}).get("task_execution") or {})
         result = self._node_result_from_agent_execution(
             graph_config=graph_config,
             work_order=work_order,
-            task_run_id=str(task_run_payload.get("task_run_id") or ""),
+            task_execution_id=str(task_execution_payload.get("execution_id") or ""),
             executor_result=dict(executor_result or {}),
             model_override_diagnostics=dict(model_override_diagnostics or {}),
         )
@@ -124,88 +116,47 @@ class GraphNodeWorkOrderExecutor:
             graph_config=graph_config,
             work_order=work_order,
             result=result,
-            task_run_payload=task_run_payload,
+            task_execution_payload=task_execution_payload,
             executor_result=dict(executor_result or {}),
         )
 
-    def _execute_deterministic_progress_receipt_node(
+    def _execute_deterministic_work_order_handler(
         self,
         *,
         graph_config: ExecutableGraphConfig,
         work_order: GraphNodeWorkOrder,
         model_override_diagnostics: dict[str, Any] | None = None,
     ) -> GraphWorkOrderExecution | None:
-        if not _is_deterministic_progress_receipt_router_node(graph_config=graph_config, work_order=work_order):
+        deterministic = handle_deterministic_work_order(graph_config=graph_config, work_order=work_order)
+        if deterministic is None:
             return None
-        task_run_id = f"system:{stable_safe_id(work_order.work_order_id)}"
-        initial_inputs = _work_order_initial_inputs(work_order)
-        try:
-            if not _has_inbound_artifact_evidence(work_order):
-                raise ChapterProgressReceiptError("chapter_progress_receipt_upstream_artifact_missing")
-            receipt = build_chapter_progress_receipt(
-                initial_inputs=initial_inputs,
-                committed_words=_int_template_value(initial_inputs.get("committed_words"), 0),
-            )
-            final_answer = _deterministic_progress_receipt_final_answer(work_order=work_order, receipt=receipt)
-            executor_result = {
-                "ok": True,
-                "final_answer": final_answer,
-                "task_run": {
-                    "task_run_id": task_run_id,
-                    "status": "completed",
-                    "diagnostics": {
-                        "final_answer": final_answer,
-                        "final_action_diagnostics": {
-                            "structured_output": {"chapter_progress_receipt": receipt},
-                            "node_output": {"chapter_progress_receipt": receipt},
-                        },
-                        "deterministic_executor": {
-                            "authority": "graph_system.work_order_executor.deterministic_progress_receipt",
-                            "reason": "self_sourced_progress_receipt_router",
-                        },
-                    },
-                },
-            }
+        executor_result = dict(deterministic.executor_result or {})
+        task_execution_payload = dict(dict(executor_result or {}).get("task_execution") or {})
+        task_execution_id = str(task_execution_payload.get("execution_id") or f"system:{stable_safe_id(work_order.work_order_id)}")
+        if bool(executor_result.get("ok") is True):
             result = self._node_result_from_agent_execution(
                 graph_config=graph_config,
                 work_order=work_order,
-                task_run_id=task_run_id,
+                task_execution_id=task_execution_id,
                 executor_result=executor_result,
                 model_override_diagnostics={
                     **dict(model_override_diagnostics or {}),
-                    "deterministic_progress_receipt": True,
+                    **dict(deterministic.diagnostics or {}),
                 },
             )
-        except ChapterProgressReceiptError as exc:
-            executor_result = {
-                "ok": False,
-                "error": "deterministic_progress_receipt_invalid",
-                "task_run": {
-                    "task_run_id": task_run_id,
-                    "status": "failed",
-                    "terminal_reason": "deterministic_progress_receipt_invalid",
-                    "diagnostics": {
-                        "recoverable_error": {
-                            "error_code": str(exc),
-                            "retryable": False,
-                            "user_message": "章节进度路由输入不合法，系统没有生成可推进回执。",
-                        },
-                    },
-                },
-            }
+        else:
             result = _agent_execution_not_ok_result(
                 graph_config=graph_config,
                 work_order=work_order,
-                task_run_id=task_run_id,
+                task_execution_id=task_execution_id,
                 executor_result=executor_result,
-                task_run_payload=dict(executor_result["task_run"]),
+                task_execution_payload=task_execution_payload,
             )
-        task_run_payload = dict(dict(executor_result or {}).get("task_run") or {})
         return self._execution_with_event(
             graph_config=graph_config,
             work_order=work_order,
             result=result,
-            task_run_payload=task_run_payload,
+            task_execution_payload=task_execution_payload,
             executor_result=executor_result,
         )
 
@@ -215,7 +166,7 @@ class GraphNodeWorkOrderExecutor:
         graph_config: ExecutableGraphConfig,
         work_order: GraphNodeWorkOrder,
         result: NodeResultEnvelope,
-        task_run_payload: dict[str, Any],
+        task_execution_payload: dict[str, Any],
         executor_result: dict[str, Any],
     ) -> GraphWorkOrderExecution:
         event = self._services.event_log.append(
@@ -225,7 +176,8 @@ class GraphNodeWorkOrderExecutor:
                 "graph_run_id": work_order.graph_run_id,
                 "node_id": work_order.node_id,
                 "work_order": work_order_summary(work_order),
-                "node_executor_task_run_id": str(task_run_payload.get("task_run_id") or ""),
+                "node_executor_execution_id": str(task_execution_payload.get("execution_id") or ""),
+                "node_executor_task_execution": _task_execution_summary(task_execution_payload),
                 "node_result": node_result_summary(result),
                 "executor_result": _public_executor_result(executor_result),
             },
@@ -234,13 +186,13 @@ class GraphNodeWorkOrderExecutor:
                 "graph_config_ref": graph_config.config_id,
                 "node_ref": work_order.node_id,
                 "work_order_ref": work_order.work_order_id,
-                "node_executor_task_run_ref": str(task_run_payload.get("task_run_id") or ""),
+                "node_executor_execution_ref": str(task_execution_payload.get("execution_id") or ""),
             },
         )
         return GraphWorkOrderExecution(
             work_order=work_order,
             node_result=result,
-            task_run=task_run_payload,
+            task_execution=task_execution_payload,
             executor_result=dict(executor_result or {}),
             events=(event.to_dict(),),
         )
@@ -250,23 +202,23 @@ class GraphNodeWorkOrderExecutor:
         *,
         graph_config: ExecutableGraphConfig,
         work_order: GraphNodeWorkOrder,
-        task_run_id: str,
+        task_execution_id: str,
         executor_result: dict[str, Any],
         model_override_diagnostics: dict[str, Any] | None = None,
     ) -> NodeResultEnvelope:
         ok = bool(executor_result.get("ok") is True)
-        task_run_payload = dict(executor_result.get("task_run") or {})
+        task_execution_payload = dict(executor_result.get("task_execution") or {})
         if not ok:
             return _agent_execution_not_ok_result(
                 graph_config=graph_config,
                 work_order=work_order,
-                task_run_id=task_run_id,
+                task_execution_id=task_execution_id,
                 executor_result=executor_result,
-                task_run_payload=task_run_payload,
+                task_execution_payload=task_execution_payload,
             )
-        final_answer = str(executor_result.get("final_answer") or task_run_payload.get("diagnostics", {}).get("final_answer") or "")
-        artifact_refs = _artifact_refs_from_executor_result(executor_result, task_run_payload=task_run_payload)
-        model_output_payload = _model_output_payload(final_answer=final_answer, task_run_payload=task_run_payload)
+        final_answer = str(executor_result.get("final_answer") or task_execution_payload.get("diagnostics", {}).get("final_answer") or "")
+        artifact_refs = _artifact_refs_from_executor_result(executor_result, task_execution_payload=task_execution_payload)
+        model_output_payload = _model_output_payload(final_answer=final_answer, task_execution_payload=task_execution_payload)
         contract_artifact_refs, contract_artifact_errors = _contract_artifact_refs_from_final_content(
             final_answer=final_answer,
             model_output_payload=model_output_payload,
@@ -280,19 +232,19 @@ class GraphNodeWorkOrderExecutor:
             services=self._services,
             graph_config=graph_config,
             work_order=work_order,
-            task_run_id=task_run_id,
+            node_executor_execution_id=task_execution_id,
         )
         memory_candidates, memory_receipts, memory_errors = _formal_memory_receipts(
             services=self._services,
             graph_config=graph_config,
             work_order=work_order,
-            task_run_id=task_run_id,
-            task_run_payload=task_run_payload,
+            node_executor_execution_id=task_execution_id,
+            task_execution_payload=task_execution_payload,
             artifact_refs=artifact_refs,
             final_answer=final_answer,
         )
-        structured_outputs = _structured_agent_outputs(task_run_payload)
-        progress_receipts, progress_errors = _progress_receipts_from_structured_outputs(
+        structured_outputs = _structured_agent_outputs(task_execution_payload)
+        algorithm_postprocess = postprocess_runtime_algorithm_outputs(
             structured_outputs,
             graph_config=graph_config,
             work_order=work_order,
@@ -304,14 +256,24 @@ class GraphNodeWorkOrderExecutor:
             final_answer=final_answer,
             memory_commit_receipts=memory_receipts,
         )
-        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors, *progress_errors, *memory_commit_guard_errors]
+        postprocess_errors = [
+            *contract_artifact_errors,
+            *artifact_errors,
+            *memory_errors,
+            *[dict(item) for item in algorithm_postprocess.postprocess_errors],
+            *memory_commit_guard_errors,
+        ]
         result_status = "completed" if ok and not postprocess_errors else "failed"
-        quality_acceptance = _node_quality_acceptance(
+        node_quality_acceptance = evaluate_node_quality_acceptance(
             graph_config=graph_config,
             work_order=work_order,
             final_answer=final_answer,
             artifact_refs=artifact_refs,
             result_status=result_status,
+        )
+        quality_acceptance = _merge_quality_acceptance(
+            dict(algorithm_postprocess.quality_acceptance or {}),
+            node_quality_acceptance,
         )
         quality_gate_failed = bool(result_status == "completed" and quality_acceptance and not bool(quality_acceptance.get("accepted")))
         quality_soft_pass = _quality_failure_soft_passes(
@@ -346,7 +308,7 @@ class GraphNodeWorkOrderExecutor:
         result_error = (
             _node_result_error(
                 executor_result=executor_result,
-                task_run_payload=task_run_payload,
+                task_execution_payload=task_execution_payload,
                 postprocess_errors=postprocess_errors,
                 quality_acceptance=quality_acceptance,
                 recoverable=bool(recoverable_quality_failure),
@@ -360,17 +322,19 @@ class GraphNodeWorkOrderExecutor:
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
             work_order_id=work_order.work_order_id,
+            **_node_result_identity_from_work_order(work_order),
             executor_type=work_order.executor_type,
             status=effective_result_status,
             outputs={
-                "node_executor_task_run_id": task_run_id,
-                "executor_status": str(task_run_payload.get("status") or ("completed" if ok else "failed")),
+                "node_executor_execution_id": task_execution_id,
+                "executor_status": str(task_execution_payload.get("status") or ("completed" if ok else "failed")),
                 "artifact_refs": artifact_refs,
                 **structured_outputs,
+                **dict(algorithm_postprocess.output_patch or {}),
             },
             artifact_refs=tuple(artifact_ref_value(item) for item in artifact_refs if artifact_ref_value(item)),
             memory_candidates=tuple(memory_candidates),
-            progress_receipts=tuple(progress_receipts),
+            progress_receipts=tuple(dict(item) for item in algorithm_postprocess.progress_receipts),
             artifact_materialization_receipts=tuple(artifact_receipts),
             memory_commit_receipts=tuple(memory_receipts),
             handoff_summary=final_answer[:1200],
@@ -378,10 +342,16 @@ class GraphNodeWorkOrderExecutor:
             diagnostics={
                 "authority": "graph_system.work_order_executor.agent_result",
                 "graph_config_id": graph_config.config_id,
-                "node_executor_task_run_id": task_run_id,
+                "node_executor_execution_id": task_execution_id,
                 "executor_result": _public_executor_result(executor_result),
                 "formal_postprocess_errors": postprocess_errors,
                 **({"quality_acceptance": quality_acceptance} if quality_acceptance else {}),
+                **({"runtime_algorithm_postprocess": algorithm_postprocess.diagnostics} if algorithm_postprocess.diagnostics else {}),
+                **(
+                    {"runtime_algorithm_side_effects": [dict(item) for item in algorithm_postprocess.side_effects]}
+                    if algorithm_postprocess.side_effects
+                    else {}
+                ),
                 **({"quality_gate_soft_pass": True} if quality_soft_pass else {}),
                 **({"graph_model_override": dict(model_override_diagnostics or {})} if model_override_diagnostics else {}),
             },
@@ -402,8 +372,9 @@ class GraphNodeWorkOrderExecutor:
             task_run_id=work_order.task_run_id,
             node_id=work_order.node_id,
             work_order_id=work_order.work_order_id,
+            **_node_result_identity_from_work_order(work_order),
             executor_type=work_order.executor_type,
-            status="waiting_human_gate" if work_order.work_kind == "human_gate" else "blocked",
+            status="blocked",
             outputs={},
             error={"reason": reason},
             diagnostics={
@@ -453,19 +424,19 @@ def _agent_execution_not_ok_result(
     *,
     graph_config: ExecutableGraphConfig,
     work_order: GraphNodeWorkOrder,
-    task_run_id: str,
+    task_execution_id: str,
     executor_result: dict[str, Any],
-    task_run_payload: dict[str, Any],
+    task_execution_payload: dict[str, Any],
 ) -> NodeResultEnvelope:
     status = _agent_node_result_status_for_not_ok_execution(
         executor_result=executor_result,
-        task_run_payload=task_run_payload,
+        task_execution_payload=task_execution_payload,
     )
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     recoverable_error = dict(diagnostics.get("recoverable_error") or {})
     reason = str(
         executor_result.get("error")
-        or task_run_payload.get("terminal_reason")
+        or task_execution_payload.get("terminal_reason")
         or recoverable_error.get("error_code")
         or ("node_executor_blocked" if status == "blocked" else "node_executor_failed")
     )
@@ -475,11 +446,12 @@ def _agent_execution_not_ok_result(
         task_run_id=work_order.task_run_id,
         node_id=work_order.node_id,
         work_order_id=work_order.work_order_id,
+        **_node_result_identity_from_work_order(work_order),
         executor_type=work_order.executor_type,
         status=status,
         outputs={
-            "node_executor_task_run_id": task_run_id,
-            "executor_status": str(task_run_payload.get("status") or status),
+            "node_executor_execution_id": task_execution_id,
+            "executor_status": str(task_execution_payload.get("status") or status),
             "artifact_refs": [],
         },
         error={
@@ -489,7 +461,7 @@ def _agent_execution_not_ok_result(
         diagnostics={
             "authority": "graph_system.work_order_executor.agent_result",
             "graph_config_id": graph_config.config_id,
-            "node_executor_task_run_id": task_run_id,
+            "node_executor_execution_id": task_execution_id,
             "executor_result": _public_executor_result(executor_result),
             "formal_postprocess_errors": [],
         },
@@ -500,11 +472,11 @@ def _agent_execution_not_ok_result(
 def _agent_node_result_status_for_not_ok_execution(
     *,
     executor_result: dict[str, Any],
-    task_run_payload: dict[str, Any],
+    task_execution_payload: dict[str, Any],
 ) -> str:
-    task_status = str(task_run_payload.get("status") or "").strip()
-    terminal_reason = str(task_run_payload.get("terminal_reason") or executor_result.get("error") or "").strip()
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    task_status = str(task_execution_payload.get("status") or "").strip()
+    terminal_reason = str(task_execution_payload.get("terminal_reason") or executor_result.get("error") or "").strip()
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     recoverable_error = dict(diagnostics.get("recoverable_error") or {})
     if task_status in {"blocked", "waiting_executor", "waiting_approval"}:
         return "blocked"
@@ -522,11 +494,21 @@ def _agent_node_result_status_for_not_ok_execution(
     return "failed"
 
 
-def _artifact_refs_from_executor_result(executor_result: dict[str, Any], *, task_run_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_result_identity_from_work_order(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    execution_adapter = dict(work_order.execution_adapter or {})
+    return {
+        "node_kind": work_order.node_kind,
+        "execution_adapter_kind": str(execution_adapter.get("adapter_kind") or "agent_harness"),
+        "graph_time": dict(work_order.graph_time or {}),
+        "node_attempt": dict(work_order.node_attempt or {}),
+    }
+
+
+def _artifact_refs_from_executor_result(executor_result: dict[str, Any], *, task_execution_payload: dict[str, Any]) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
     for item in list(executor_result.get("artifact_refs") or []):
         refs.append(normalize_artifact_ref(item))
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     for item in list(diagnostics.get("artifact_refs") or []):
         refs.append(normalize_artifact_ref(item))
     return dedupe_artifact_refs(refs)
@@ -573,6 +555,10 @@ def _contract_artifact_refs_from_final_content(
             content_source=content_source,
             final_answer=final_answer,
             model_output_payload=model_output_payload,
+            extraction_policy=_artifact_content_extraction_policy(
+                artifact=artifact,
+                resolved_output_policy=resolved_output_policy,
+            ),
         )
         if not content and bool(artifact.get("fallback_to_full_content")):
             content = str(final_answer or "").strip()
@@ -609,6 +595,7 @@ def _contract_artifact_refs_from_final_content(
                 "absolute_path": str(target),
                 "content_source": content_source,
                 "source": "graph_contract_artifact_policy",
+                "execution_coordinate": _artifact_execution_coordinate(work_order),
                 "authority": "graph_system.contract_artifact_materializer",
             }
         )
@@ -621,14 +608,14 @@ def _public_executor_result(result: dict[str, Any] | None) -> dict[str, Any]:
         "ok": bool(payload.get("ok") is True),
         "error": str(payload.get("error") or ""),
         "artifact_refs": dedupe_artifact_refs([normalize_artifact_ref(item) for item in list(payload.get("artifact_refs") or [])]),
-        "task_run": _task_run_summary(payload.get("task_run")),
+        "task_execution": _task_execution_summary(payload.get("task_execution")),
         "event": _event_summary(payload.get("event")),
         "lifecycle": _lifecycle_summary(payload.get("lifecycle")),
     }
 
 
-def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+def _structured_agent_outputs(task_execution_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
     allowed_keys = (
         "semantic_evidence",
@@ -636,6 +623,7 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
         "revision_route",
         "structured_output",
         "node_output",
+        *runtime_algorithm_structured_output_keys(),
     )
     outputs: dict[str, Any] = {}
     for key in allowed_keys:
@@ -646,185 +634,16 @@ def _structured_agent_outputs(task_run_payload: dict[str, Any]) -> dict[str, Any
     return outputs
 
 
-def _progress_receipts_from_structured_outputs(
-    structured_outputs: dict[str, Any],
-    *,
-    graph_config: ExecutableGraphConfig,
-    work_order: GraphNodeWorkOrder,
-    final_answer: str = "",
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    policy = _progress_receipt_policy(graph_config=graph_config, work_order=work_order)
-    if not policy:
-        return [], []
-    key = str(policy.get("progress_receipt_key") or "chapter_progress_receipt").strip()
-    source = _structured_output_source(structured_outputs)
-    candidates = _progress_receipt_candidates(source=source, key=key, final_answer=final_answer)
-    if not candidates:
-        return [], [
-            {
-                "reason": "chapter_progress_receipt_missing",
-                "node_id": work_order.node_id,
-                "progress_receipt_key": key,
-                "authority": "graph_system.progress_receipt_postprocess",
-            }
-        ]
-    errors: list[str] = []
-    initial_inputs = _work_order_initial_inputs(work_order)
-    for candidate in candidates:
-        try:
-            receipt = normalize_chapter_progress_receipt(
-                candidate,
-                initial_inputs=initial_inputs,
-            )
-            return [receipt], []
-        except ChapterProgressReceiptError as exc:
-            errors.append(str(exc))
-    detail = ",".join(dict.fromkeys(errors)) if errors else "chapter_progress_receipt_invalid"
-    return [], [
-        {
-            "reason": "chapter_progress_receipt_invalid",
-            "detail": detail,
-            "node_id": work_order.node_id,
-            "progress_receipt_key": key,
-            "authority": "graph_system.progress_receipt_postprocess",
-        }
-    ]
-
-
-def _progress_receipt_candidates(*, source: dict[str, Any], key: str, final_answer: str) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
-    direct = source.get(key)
-    if isinstance(direct, dict):
-        candidates.append(direct)
-    for alternate_key in ("progress_receipt", "receipt"):
-        value = source.get(alternate_key)
-        if isinstance(value, dict):
-            candidates.append(value)
-    if str(source.get("authority") or "").strip() == "harness.writing.chapter_progress_receipt":
-        candidates.append(source)
-    for payload in _json_objects_from_text(final_answer):
-        if isinstance(payload.get(key), dict):
-            candidates.append(dict(payload.get(key) or {}))
-        if str(payload.get("authority") or "").strip() == "harness.writing.chapter_progress_receipt":
-            candidates.append(payload)
-    return candidates
-
-
-def _json_objects_from_text(text: str) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for match in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", str(text or ""), flags=re.IGNORECASE | re.DOTALL):
-        try:
-            payload = json.loads(match.group(1))
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            result.append(payload)
-    return result
-
-
-def _structured_output_source(structured_outputs: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(structured_outputs or {})
-    for key in ("structured_output", "node_output"):
-        nested = payload.get(key)
-        if isinstance(nested, dict):
-            return {**payload, **dict(nested)}
-    return payload
-
-
-def _progress_receipt_policy(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-    node = next((dict(item) for item in graph_config.nodes if str(item.get("node_id") or "") == work_order.node_id), {})
-    metadata = dict(node.get("metadata") or {})
-    policy = dict(node.get("progress_receipt_policy") or metadata.get("progress_receipt_policy") or {})
-    if policy:
-        return policy
-    bindings = dict(dict(node.get("contracts") or {}).get("contract_bindings") or {})
-    progress = dict(bindings.get("progress") or {})
-    if progress:
-        return progress
-    return {}
-
-
-def _is_deterministic_progress_receipt_router_node(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> bool:
-    node = _graph_node_by_id(graph_config, work_order.node_id)
-    if not node:
-        return False
-    if not _progress_receipt_policy(graph_config=graph_config, work_order=work_order):
-        return False
-    route_policy = dict(dict(node.get("loop") or {}).get("route_policy") or {})
-    if str(route_policy.get("mode") or "").strip() != "progress_receipt":
-        return False
-    sources = [
-        str(item or "").strip()
-        for item in list(route_policy.get("receipt_source_node_ids") or route_policy.get("progress_receipt_source_node_ids") or [])
-        if str(item or "").strip()
-    ]
-    return sources == [work_order.node_id]
-
-
-def _work_order_initial_inputs(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
-    return {
-        **dict(dict(work_order.input_package or {}).get("initial_inputs") or {}),
-        **dict(work_order.explicit_inputs or {}),
-    }
-
-
-def _has_inbound_artifact_evidence(work_order: GraphNodeWorkOrder) -> bool:
-    for item in list(dict(work_order.input_package or {}).get("inbound_context") or []):
-        context = dict(item or {}) if isinstance(item, dict) else {}
-        if _has_artifact_refs(context.get("artifact_refs")):
-            return True
-        payload = dict(context.get("payload") or {})
-        if _has_artifact_refs(payload.get("artifact_refs")):
-            return True
-        for artifact_payload in list(payload.get("artifact_payloads") or []):
-            if not isinstance(artifact_payload, dict):
-                continue
-            if str(artifact_payload.get("artifact_ref") or artifact_payload.get("path") or artifact_payload.get("absolute_path") or "").strip():
-                return True
-    return False
-
-
-def _has_artifact_refs(value: Any) -> bool:
-    for item in list(value or []):
-        if isinstance(item, dict):
-            if str(item.get("artifact_ref") or item.get("path") or item.get("absolute_path") or "").strip():
-                return True
-        elif str(item or "").strip():
-            return True
-    return False
-
-
-def _deterministic_progress_receipt_final_answer(*, work_order: GraphNodeWorkOrder, receipt: dict[str, Any]) -> str:
-    committed = list(receipt.get("committed_chapter_indexes") or [])
-    chapter = _int_template_value(committed[-1] if committed else receipt.get("batch_start_index"), 1)
-    next_chapter = _int_template_value(receipt.get("next_chapter_index"), chapter + 1)
-    batch_start = _int_template_value(receipt.get("batch_start_index"), chapter)
-    batch_end = _int_template_value(receipt.get("batch_end_index"), chapter)
-    state = "当前批次已完成" if bool(receipt.get("batch_complete")) else f"继续到第{next_chapter:03d}章"
-    payload = {"chapter_progress_receipt": dict(receipt)}
-    return "\n".join(
-        [
-            "# 【节点交付内容】",
-            "",
-            f"第{chapter:03d}章正文候选已由上游节点完成并进入单章路由验收。",
-            f"当前批次范围：第{batch_start:03d}章至第{batch_end:03d}章；路由裁决：{state}。",
-            f"节点：{work_order.node_id}",
-            "",
-            "```json",
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            "```",
-        ]
-    )
-
-
-def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
-    payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
+def _task_execution_summary(task_execution: Any | None) -> dict[str, Any]:
+    payload = task_execution.to_dict() if hasattr(task_execution, "to_dict") else (dict(task_execution) if isinstance(task_execution, dict) else {})
     diagnostics = dict(payload.get("diagnostics") or {})
     origin = dict(diagnostics.get("origin") or {})
     return {
-        "task_run_id": str(payload.get("task_run_id") or ""),
+        "execution_id": str(payload.get("execution_id") or ""),
+        "episode_id": str(payload.get("episode_id") or ""),
+        "task_environment_id": str(payload.get("task_environment_id") or ""),
         "session_id": str(payload.get("session_id") or ""),
-        "task_id": str(payload.get("task_id") or ""),
+        "task_ref": str(payload.get("task_ref") or ""),
         "status": str(payload.get("status") or ""),
         "terminal_reason": str(payload.get("terminal_reason") or ""),
         "origin_kind": str(origin.get("origin_kind") or diagnostics.get("origin_kind") or ""),
@@ -869,7 +688,7 @@ def _artifact_materialization_receipts(
     services: Any,
     graph_config: ExecutableGraphConfig,
     work_order: GraphNodeWorkOrder,
-    task_run_id: str,
+    node_executor_execution_id: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not artifact_refs:
         return [], []
@@ -883,13 +702,14 @@ def _artifact_materialization_receipts(
     refs = [item for item in refs if item]
     if not refs:
         return [], []
+    execution_coordinate = _artifact_execution_coordinate(work_order)
     try:
         receipt = service.record_materialization(
             task_run_id=work_order.task_run_id,
             graph_id=graph_config.graph_id,
             graph_run_id=work_order.graph_run_id,
             stage_id=work_order.node_id,
-            node_run_id=task_run_id or work_order.work_order_id,
+            node_run_id=node_executor_execution_id or work_order.work_order_id,
             task_ref=work_order.task_ref,
             output_contract_id=str(dict(work_order.expected_result_contract or {}).get("output_contract_id") or ""),
             producer_node_id=work_order.node_id,
@@ -903,18 +723,22 @@ def _artifact_materialization_receipts(
             metadata={
                 "graph_config_id": graph_config.config_id,
                 "work_order_id": work_order.work_order_id,
-                "node_executor_task_run_id": task_run_id,
+                "node_executor_execution_id": node_executor_execution_id,
                 "task_environment_id": str(graph_config.task_environment_id or ""),
+                "graph_task_instance_id": str(execution_coordinate.get("graph_task_instance_id") or ""),
+                "project_path": str(execution_coordinate.get("project_path") or ""),
+                "source_project_id": str(execution_coordinate.get("source_project_id") or ""),
+                "artifact_execution_coordinate": execution_coordinate,
                 "source_authority": "graph_system.work_order_executor",
             },
         )
         receipts.append(
             {
                 **dict(receipt or {}),
-                "receipt_id": f"artifact-receipt:{stable_safe_id(work_order.work_order_id)}:{stable_safe_id(str(dict(receipt or {}).get('materialization_id') or task_run_id))}",
+                "receipt_id": f"artifact-receipt:{stable_safe_id(work_order.work_order_id)}:{stable_safe_id(str(dict(receipt or {}).get('materialization_id') or node_executor_execution_id))}",
                 "status": "materialized",
                 "task_environment_id": str(graph_config.task_environment_id or ""),
-                "node_executor_task_run_id": task_run_id,
+                "node_executor_execution_id": node_executor_execution_id,
             }
         )
     except Exception as exc:
@@ -933,13 +757,13 @@ def _formal_memory_receipts(
     services: Any,
     graph_config: ExecutableGraphConfig,
     work_order: GraphNodeWorkOrder,
-    task_run_id: str,
-    task_run_payload: dict[str, Any],
+    node_executor_execution_id: str,
+    task_execution_payload: dict[str, Any],
     artifact_refs: list[dict[str, Any]],
     final_answer: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     service = getattr(services, "formal_memory_service", None)
-    candidate_pool = _memory_candidates_from_task_run(task_run_payload)
+    candidate_pool = _memory_candidates_from_task_execution(task_execution_payload)
     memory_edges = _memory_write_edges_for_work_order(graph_config=graph_config, work_order=work_order)
     if not candidate_pool and not memory_edges:
         return [], [], []
@@ -949,7 +773,13 @@ def _formal_memory_receipts(
     errors: list[dict[str, Any]] = []
     candidate_receipts: list[dict[str, Any]] = []
     for edge in memory_edges:
-        declaration_error = _formal_memory_declaration_error(service=service, edge=edge, graph_config=graph_config, work_order=work_order, task_run_payload=task_run_payload)
+        declaration_error = _formal_memory_declaration_error(
+            service=service,
+            edge=edge,
+            graph_config=graph_config,
+            work_order=work_order,
+            task_execution_payload=task_execution_payload,
+        )
         if declaration_error:
             errors.append(declaration_error)
             continue
@@ -958,7 +788,7 @@ def _formal_memory_receipts(
             graph_config=graph_config,
             work_order=work_order,
             candidates=candidate_pool,
-            task_run_payload=task_run_payload,
+            task_execution_payload=task_execution_payload,
             artifact_refs=artifact_refs,
             services=services,
             final_answer=final_answer,
@@ -982,12 +812,12 @@ def _formal_memory_receipts(
                     candidate=candidate,
                     task_run_id=work_order.task_run_id,
                     graph_id=graph_config.graph_id,
-                    node_run_id=task_run_id or work_order.work_order_id,
+                    node_run_id=node_executor_execution_id or work_order.work_order_id,
                     source_node_id=str(edge.get("source_node_id") or work_order.node_id),
                     source_clock=f"graph:{work_order.graph_run_id}",
-                    source_clock_seq=_source_clock_seq(task_run_payload),
+                    source_clock_seq=_source_clock_seq(task_execution_payload),
                     artifact_refs=list(_candidate_artifact_refs(candidate) or [artifact_materialization_ref(ref) for ref in artifact_refs]),
-                    runtime_scope=_runtime_scope(graph_config=graph_config, work_order=work_order, task_run_payload=task_run_payload),
+                    runtime_scope=_runtime_scope(graph_config=graph_config, work_order=work_order, task_execution_payload=task_execution_payload),
                 )
                 version_payload = version.to_dict() if hasattr(version, "to_dict") else dict(version or {})
                 write_payload = write_transaction.to_dict() if hasattr(write_transaction, "to_dict") else dict(write_transaction or {})
@@ -1001,7 +831,7 @@ def _formal_memory_receipts(
                         "transaction": write_payload,
                         "memory_space_ref": str(work_order.memory_space_ref or ""),
                         "task_environment_id": str(graph_config.task_environment_id or ""),
-                        "node_executor_task_run_id": task_run_id,
+                        "node_executor_execution_id": node_executor_execution_id,
                         "authority": "formal_memory.service",
                     }
                 )
@@ -1009,9 +839,9 @@ def _formal_memory_receipts(
                     committed, commit_transaction = service.commit_from_edge(
                         edge=_formal_memory_service_edge(edge),
                         candidate_version_id=str(version_payload.get("version_id") or ""),
-                        node_run_id=task_run_id or work_order.work_order_id,
+                        node_run_id=node_executor_execution_id or work_order.work_order_id,
                         source_clock=f"graph:{work_order.graph_run_id}",
-                        source_clock_seq=_source_clock_seq(task_run_payload),
+                        source_clock_seq=_source_clock_seq(task_execution_payload),
                         verdict=str(candidate.get("verdict") or ""),
                         required_verdict=str(edge.get("required_verdict") or ""),
                     )
@@ -1026,7 +856,7 @@ def _formal_memory_receipts(
                             "transaction": commit_transaction.to_dict() if hasattr(commit_transaction, "to_dict") else dict(commit_transaction or {}),
                             "memory_space_ref": str(work_order.memory_space_ref or ""),
                             "task_environment_id": str(graph_config.task_environment_id or ""),
-                            "node_executor_task_run_id": task_run_id,
+                            "node_executor_execution_id": node_executor_execution_id,
                             "authority": "formal_memory.service",
                         }
                     )
@@ -1140,14 +970,14 @@ def _contract_artifact_root(
     user_explicit_root = _user_explicit_artifact_root(work_order)
     runtime_scope_root = _runtime_scope_artifact_root(work_order)
     root_value = str(
-        environment_root
+        user_explicit_root
+        or runtime_scope_root
         or policy_root
+        or environment_root
         or artifact_materialization.get("default_artifact_root")
         or output_policy.get("default_artifact_root")
         or policy.get("default_artifact_root")
         or policy.get("root")
-        or user_explicit_root
-        or runtime_scope_root
         or ""
     ).strip()
     root = _resolve_inside_workspace(workspace_root=workspace_root, value=_render_artifact_template(root_value, values))
@@ -1156,14 +986,15 @@ def _contract_artifact_root(
     explicit_subdir = ""
     if user_explicit_root and root_value != user_explicit_root:
         explicit_subdir = _artifact_subdir_from_explicit_root(user_explicit_root)
-    subdir_template = explicit_subdir or str(
-        artifact_materialization.get("subdir_template")
-        or artifact_materialization.get("scope_template")
-        or output_policy.get("subdir_template")
-        or policy.get("subdir_template")
-        or policy.get("scope_template")
-        or ""
-    ).strip()
+    selected_explicit_root = root_value in {user_explicit_root, runtime_scope_root} and bool(root_value)
+    subdir_template = "" if selected_explicit_root else explicit_subdir or str(
+            artifact_materialization.get("subdir_template")
+            or artifact_materialization.get("scope_template")
+            or output_policy.get("subdir_template")
+            or policy.get("subdir_template")
+            or policy.get("scope_template")
+            or ""
+        ).strip()
     if subdir_template:
         subdir = _sanitize_relative_path(_render_artifact_template(subdir_template, values))
         if subdir:
@@ -1213,14 +1044,53 @@ def _artifact_materialization_root(*, graph_config: ExecutableGraphConfig, work_
     raw_policy_root = str(artifact_materialization.get("artifact_root") or output_policy.get("artifact_root") or "").strip()
     policy_root = "" if raw_policy_root.startswith("repo.") else raw_policy_root
     return str(
-        environment_projection.get("environment_artifact_root")
+        _user_explicit_artifact_root(work_order)
+        or _runtime_scope_artifact_root(work_order)
+        or _render_artifact_template(policy_root, values)
+        or environment_projection.get("environment_artifact_root")
         or work_order.artifact_space_ref
         or _environment_artifact_root(graph_config)
-        or _render_artifact_template(policy_root, values)
         or _render_artifact_template(str(artifact_materialization.get("default_artifact_root") or output_policy.get("default_artifact_root") or "").strip(), values)
-        or _user_explicit_artifact_root(work_order)
-        or _runtime_scope_artifact_root(work_order)
     ).strip()
+
+
+def _artifact_execution_coordinate(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    input_package = dict(work_order.input_package or {})
+    initial_inputs = dict(input_package.get("initial_inputs") or {})
+    loop_context = dict(input_package.get("loop_context") or {})
+    active_frame = dict(loop_context.get("active_frame") or {})
+    current_frame = dict(loop_context.get("current_frame") or {})
+    cursor_key = str(active_frame.get("cursor_key") or current_frame.get("cursor_key") or loop_context.get("cursor_key") or "").strip()
+    cursor_value = active_frame.get("cursor")
+    if cursor_value in ("", None):
+        cursor_value = current_frame.get("cursor_value", loop_context.get("cursor_value"))
+    return _drop_empty(
+        {
+            "graph_run_id": work_order.graph_run_id,
+            "task_run_id": work_order.task_run_id,
+            "work_order_id": work_order.work_order_id,
+            "node_id": work_order.node_id,
+            "task_ref": work_order.task_ref,
+            "graph_time": dict(work_order.graph_time or {}),
+            "node_attempt": dict(work_order.node_attempt or {}),
+            "scope_id": str(loop_context.get("scope_id") or current_frame.get("scope_id") or active_frame.get("scope_id") or ""),
+            "iteration_id": str(loop_context.get("iteration_id") or current_frame.get("iteration_id") or active_frame.get("active_iteration_id") or ""),
+            "cursor_key": cursor_key,
+            "cursor_value": cursor_value,
+            "chapter_index": initial_inputs.get("chapter_index"),
+            "current_chapter_index": initial_inputs.get("current_chapter_index"),
+            "chapter_index_padded": initial_inputs.get("chapter_index_padded"),
+            "batch_start_index": initial_inputs.get("batch_start_index"),
+            "batch_end_index": initial_inputs.get("batch_end_index"),
+            "volume_index": initial_inputs.get("volume_index"),
+            "project_id": initial_inputs.get("project_id"),
+            "source_project_id": initial_inputs.get("source_project_id"),
+            "graph_task_instance_id": initial_inputs.get("graph_task_instance_id"),
+            "project_path": initial_inputs.get("project_path"),
+            "artifact_root": initial_inputs.get("artifact_root"),
+            "authority": "graph_system.artifact_execution_coordinate",
+        }
+    )
 
 
 def _artifact_template_values(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
@@ -1267,16 +1137,18 @@ def _artifact_template_values(*, graph_config: ExecutableGraphConfig, work_order
         values.get("round_index") or dispatch_context.get("round_index") or graph_state.get("round_index"),
         node_dispatch_seq,
     )
-    for key in ("volume_index", "chapter_index", "unit_index", "group_index", "batch_index"):
-        values[key] = _int_template_value(values.get(key), 1)
+    for key, value in list(values.items()):
+        if not str(key).endswith(("_index", "_count", "_seq")) or value in ("", None):
+            continue
+        values[key] = _int_template_value(value, value)
     project_id = str(values.get("project_id") or values.get("scope_id") or "").strip()
     if project_id:
         values.setdefault("project_slug", _safe_path_component(project_id))
     return values
 
 
-def _model_output_payload(*, final_answer: str, task_run_payload: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+def _model_output_payload(*, final_answer: str, task_execution_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
     return {
         "final_answer": str(final_answer or ""),
@@ -1289,16 +1161,124 @@ def _model_output_payload(*, final_answer: str, task_run_payload: dict[str, Any]
     }
 
 
-def _artifact_content_for_source(*, content_source: str, final_answer: str, model_output_payload: dict[str, Any]) -> str:
+def _artifact_content_for_source(
+    *,
+    content_source: str,
+    final_answer: str,
+    model_output_payload: dict[str, Any],
+    extraction_policy: dict[str, Any] | None = None,
+) -> str:
     source = str(content_source or "").strip()
     if source in {"", "final_content", "final_answer", "full_content", "model_response"}:
-        return str(final_answer or "").strip()
-    value = _nested_lookup(dict(model_output_payload or {}), source)
-    if isinstance(value, str):
-        return value.strip()
-    if value is not None:
-        return str(value).strip()
-    return ""
+        content = str(final_answer or "").strip()
+    else:
+        value = _nested_lookup(dict(model_output_payload or {}), source)
+        if isinstance(value, str):
+            content = value.strip()
+        elif value is not None:
+            content = str(value).strip()
+        else:
+            content = ""
+    return _apply_artifact_content_extraction(content, policy=dict(extraction_policy or {}))
+
+
+def _artifact_content_extraction_policy(*, artifact: dict[str, Any], resolved_output_policy: dict[str, Any]) -> dict[str, Any]:
+    output_policy = dict(resolved_output_policy.get("output_policy") or {})
+    materialization_policy = dict(resolved_output_policy.get("artifact_materialization_policy") or {})
+    return {
+        **dict(output_policy.get("content_extraction_policy") or {}),
+        **dict(materialization_policy.get("content_extraction_policy") or {}),
+        **dict(artifact.get("content_extraction_policy") or {}),
+    }
+
+
+def _apply_artifact_content_extraction(content: str, *, policy: dict[str, Any]) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    mode = str(policy.get("mode") or "").strip()
+    if mode not in {"markdown_artifact_body", "markdown_body", "artifact_markdown_body"}:
+        return text
+    extracted = _extract_markdown_artifact_body(text)
+    return extracted or text
+
+
+def _extract_markdown_artifact_body(content: str) -> str:
+    text = str(content or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    text = _strip_node_delivery_markdown_wrapper(text)
+    text = _strip_prewrite_markdown_wrapper(text)
+    if text.lstrip().startswith("#"):
+        return _strip_trailing_fence(text)
+    fenced = _extract_markdown_fence_body(text)
+    if fenced:
+        return _strip_trailing_fence(_strip_prewrite_markdown_wrapper(_strip_node_delivery_markdown_wrapper(fenced)))
+    heading = re.search(r"(?m)^#{1,6}\s+\S", text)
+    if heading:
+        return _strip_trailing_fence(_strip_prewrite_markdown_wrapper(_strip_node_delivery_markdown_wrapper(text[heading.start() :].strip())))
+    return text
+
+
+def _strip_node_delivery_markdown_wrapper(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    lines = text.split("\n")
+    first = lines[0].strip() if lines else ""
+    if not re.match(r"^#{1,6}\s*节点交付内容\s*$", first):
+        return text
+    for index, line in enumerate(lines[1:], start=1):
+        stripped = line.strip()
+        if re.match(r"^#{1,6}\s+\S", stripped) and "节点交付内容" not in stripped:
+            return "\n".join(lines[index:]).strip()
+    return text
+
+
+def _strip_prewrite_markdown_wrapper(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    lines = text.split("\n")
+    first = lines[0].strip() if lines else ""
+    if not re.match(r"^#{1,6}\s*(写前取材|取材判断|写前判断|写作计划|章节场景预算)", first):
+        return text
+    for index, line in enumerate(lines[1:], start=1):
+        stripped = line.strip()
+        if _is_chapter_prose_heading(stripped) or re.match(r"^#{1,6}\s*章节正文候选\s*$", stripped):
+            return "\n".join(lines[index:]).strip()
+    return text
+
+
+def _is_chapter_prose_heading(line: str) -> bool:
+    return bool(
+        re.match(
+            r"^#{1,6}\s*第\s*(?:\d{1,5}|[零〇一二三四五六七八九十百千万两]+)\s*章(?:\s*(?:[:：]\s*)?.*)?$",
+            str(line or "").strip(),
+        )
+    )
+
+
+def _extract_markdown_fence_body(content: str) -> str:
+    lines = str(content or "").split("\n")
+    start_index = -1
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*```(?:markdown|md|text)?\s*$", line, flags=re.IGNORECASE):
+            start_index = index + 1
+            break
+    if start_index < 0:
+        return ""
+    end_index = len(lines)
+    for index in range(start_index, len(lines)):
+        if re.match(r"^\s*```\s*$", lines[index]):
+            end_index = index
+            break
+    return "\n".join(lines[start_index:end_index]).strip()
+
+
+def _strip_trailing_fence(content: str) -> str:
+    text = str(content or "").strip()
+    return re.sub(r"\n?\s*```\s*$", "", text).strip()
 
 
 def _render_artifact_template(template: str, values: dict[str, Any]) -> str:
@@ -1415,8 +1395,8 @@ def _environment_artifact_root(graph_config: ExecutableGraphConfig) -> str:
     return str(dict(dict(graph_config.environment or {}).get("storage_space") or {}).get("artifact_root") or "").strip()
 
 
-def _memory_candidates_from_task_run(task_run_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+def _memory_candidates_from_task_execution(task_execution_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     final_action_diagnostics = dict(diagnostics.get("final_action_diagnostics") or {})
     candidates: list[dict[str, Any]] = []
     for source in (diagnostics, final_action_diagnostics):
@@ -1499,14 +1479,14 @@ def _candidates_for_memory_edge(
     graph_config: ExecutableGraphConfig,
     work_order: GraphNodeWorkOrder,
     candidates: list[dict[str, Any]],
-    task_run_payload: dict[str, Any],
+    task_execution_payload: dict[str, Any],
     artifact_refs: list[dict[str, Any]],
     services: Any,
     final_answer: str = "",
 ) -> list[dict[str, Any]]:
     source_output_key = str(edge.get("source_output_key") or "").strip()
     if source_output_key:
-        value = _nested_lookup(_candidate_source_payload(task_run_payload), source_output_key)
+        value = _nested_lookup(_candidate_source_payload(task_execution_payload), source_output_key)
         if value is not None:
             return _candidates_from_value(value, edge=edge)
         if bool(edge.get("require_source_output_key")):
@@ -1522,7 +1502,7 @@ def _candidates_for_memory_edge(
     )
     if materialized:
         return materialized
-    answer = str(dict(task_run_payload.get("diagnostics") or {}).get("final_answer") or final_answer or "").strip()
+    answer = str(dict(task_execution_payload.get("diagnostics") or {}).get("final_answer") or final_answer or "").strip()
     if answer and str(edge.get("edge_type") or "") == "memory_commit":
         return [_candidate_for_edge({"canonical_text": answer, "summary": _memory_candidate_summary(answer)}, edge=edge)]
     return []
@@ -1769,26 +1749,16 @@ def _memory_source_context_score(context: dict[str, Any]) -> int:
             "packet_contract_id",
         )
     ).lower()
-    if any(marker in haystack for marker in ("review", "audit", "审核", "裁决报告")):
-        return -10
-    if any(marker in haystack for marker in ("commit_receipt", "world_commit_round", "提交回执")):
-        return -10
     score = 0
     if any(marker in haystack for marker in ("candidate", "候选", "正文")):
         score += 6
-    if "world_design" in haystack or "world.commit_candidate" in haystack:
-        score += 4
-    if "world_candidate" in haystack:
-        score += 4
     return score
 
 
 def _memory_source_artifact_payload_score(payload: dict[str, Any]) -> int:
     refs = " ".join(_artifact_ref_values_for_memory([payload])).lower()
-    if any(marker in refs for marker in ("world_review", "review_round", "commit_receipt", "world_commit_round", "/memory/world/")):
-        return -10
     score = 0
-    if "world_candidate" in refs or "candidate_round" in refs:
+    if "candidate" in refs:
         score += 6
     if str(payload.get("content") or payload.get("text") or "").strip():
         score += 2
@@ -1892,15 +1862,17 @@ def _memory_candidate_summary(text: str) -> str:
     return stripped[:500]
 
 
-def _candidate_source_payload(task_run_payload: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+def _candidate_source_payload(task_execution_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     final_answer = str(diagnostics.get("final_answer") or "")
-    return {
+    base_payload = {
         **diagnostics,
         **dict(diagnostics.get("final_action_diagnostics") or {}),
         "final_answer": final_answer,
-        "review_advisories": _review_advisory_candidates(final_answer),
-        "review_blocking_issues": _review_blocking_issue_candidates(final_answer),
+    }
+    return {
+        **base_payload,
+        **augment_candidate_source_payload(task_execution_payload=task_execution_payload, base_payload=base_payload),
     }
 
 
@@ -1917,148 +1889,6 @@ def _candidate_from_value(value: Any, *, edge: dict[str, Any]) -> dict[str, Any]
         return _candidate_for_edge(dict(value), edge=edge)
     text = str(value or "").strip()
     return _candidate_for_edge({"canonical_text": text, "summary": text[:240], "payload": {"value": value}}, edge=edge)
-
-
-def _review_advisory_candidates(final_answer: str) -> list[dict[str, Any]]:
-    text = str(final_answer or "").strip()
-    if not text:
-        return []
-    if _review_verdict(text) not in {"通过", "带备注通过"}:
-        return []
-    section = _review_advisory_section(text)
-    if not section:
-        return []
-    items = _numbered_review_items(section)
-    if not items:
-        items = [section] if _looks_like_non_blocking_advisory(section) else []
-    candidates: list[dict[str, Any]] = []
-    for index, item in enumerate(items, start=1):
-        canonical = item.strip()
-        if not canonical or not _looks_like_non_blocking_advisory(canonical):
-            continue
-        key = f"planning_advisory_{index:03d}_{safe_id(canonical[:48])}"
-        candidates.append(
-            {
-                "record_key": key,
-                "record_kind": "planning_advisory",
-                "canonical_text": canonical,
-                "summary": canonical[:240],
-                "payload": {
-                    "advisory_index": index,
-                    "severity": "non_blocking",
-                    "source": "review_report",
-                    "content": canonical,
-                    "authority": "graph_system.review_advisory_extractor",
-                },
-                "metadata": {
-                    "advisory_kind": "planning_advisory",
-                    "blocking": False,
-                    "authority": "graph_system.review_advisory_extractor",
-                },
-            }
-        )
-    return candidates
-
-
-def _review_blocking_issue_candidates(final_answer: str) -> list[dict[str, Any]]:
-    text = str(final_answer or "").strip()
-    if not text:
-        return []
-    verdict = _review_verdict(text)
-    if verdict not in {"返修", "拒绝"} and not _contains_blocking_review_marker(text):
-        return []
-    return [
-        {
-            "record_key": "blocking_review_issue",
-            "record_kind": "review_issue",
-            "canonical_text": text,
-            "summary": text[:240],
-            "payload": {
-                "severity": "blocking",
-                "source": "review_report",
-                "content": text,
-                "authority": "graph_system.review_issue_extractor",
-            },
-            "metadata": {
-                "issue_kind": "review_issue",
-                "blocking": True,
-                "authority": "graph_system.review_issue_extractor",
-            },
-        }
-    ]
-
-
-def _review_verdict(text: str) -> str:
-    for raw_line in str(text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("审核裁决："):
-            return line.split("：", 1)[1].strip()
-        break
-    return ""
-
-
-def _review_advisory_section(text: str) -> str:
-    lines = str(text or "").splitlines()
-    start = -1
-    for index, raw_line in enumerate(lines):
-        line = raw_line.strip().lstrip("#").strip()
-        if any(marker in line for marker in ("潜在风险与建议", "非阻塞性", "审核备注", "可选轻微建议")):
-            start = index + 1
-            break
-    if start < 0:
-        return ""
-    collected: list[str] = []
-    for raw_line in lines[start:]:
-        line = raw_line.strip()
-        heading = line.lstrip("#").strip()
-        if heading.startswith("是否允许进入下一阶段"):
-            break
-        if line.startswith("##") and collected:
-            break
-        collected.append(raw_line)
-    return "\n".join(collected).strip()
-
-
-def _numbered_review_items(section: str) -> list[str]:
-    items: list[str] = []
-    current: list[str] = []
-    for raw_line in str(section or "").splitlines():
-        line = raw_line.strip()
-        if _starts_numbered_item(line) or line.startswith("- "):
-            if current:
-                items.append("\n".join(current).strip())
-            current = [line]
-            continue
-        if current and line:
-            current.append(line)
-    if current:
-        items.append("\n".join(current).strip())
-    return items
-
-
-def _starts_numbered_item(line: str) -> bool:
-    head = line.split(" ", 1)[0].strip()
-    if not head.endswith((".", "、")):
-        return False
-    return head[:-1].isdigit()
-
-
-def _looks_like_non_blocking_advisory(text: str) -> bool:
-    value = str(text or "").strip()
-    if not value:
-        return False
-    blocking_markers = ("阻塞", "必须修改", "返修", "拒绝", "不允许进入下一阶段", "冻结前必须处理")
-    if any(marker in value for marker in blocking_markers):
-        return False
-    advisory_markers = ("建议", "可在", "可进一步", "增加", "明确", "细化", "铺垫", "避免")
-    return any(marker in value for marker in advisory_markers)
-
-
-def _contains_blocking_review_marker(text: str) -> bool:
-    markers = ("必须修改", "不允许进入下一阶段", "冻结前必须处理", "阻塞问题", "硬设定冲突")
-    return any(marker in str(text or "") for marker in markers)
 
 
 def _candidate_for_edge(candidate: dict[str, Any], *, edge: dict[str, Any]) -> dict[str, Any]:
@@ -2111,7 +1941,7 @@ def _formal_memory_declaration_error(
     edge: dict[str, Any],
     graph_config: ExecutableGraphConfig,
     work_order: GraphNodeWorkOrder,
-    task_run_payload: dict[str, Any],
+    task_execution_payload: dict[str, Any],
 ) -> dict[str, Any]:
     repository_id = str(edge.get("repository") or edge.get("repository_id") or "").strip()
     collection_id = str(edge.get("collection") or edge.get("collection_id") or "").strip()
@@ -2126,7 +1956,7 @@ def _formal_memory_declaration_error(
             logical_repository_id=repository_id,
             task_run_id=work_order.task_run_id,
             lifecycle_policy=dict(edge.get("lifecycle_policy") or {}),
-            runtime_scope=_runtime_scope(graph_config=graph_config, work_order=work_order, task_run_payload=task_run_payload),
+            runtime_scope=_runtime_scope(graph_config=graph_config, work_order=work_order, task_execution_payload=task_execution_payload),
         )
     except Exception as exc:
         return {
@@ -2175,8 +2005,8 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in list(value or []) if str(item).strip()]
 
 
-def _runtime_scope(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder, task_run_payload: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+def _runtime_scope(*, graph_config: ExecutableGraphConfig, work_order: GraphNodeWorkOrder, task_execution_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     environment = dict(graph_config.environment or {})
     graph_state = dict(work_order.graph_state or {})
     input_package = dict(work_order.input_package or {})
@@ -2204,8 +2034,8 @@ def _runtime_scope(*, graph_config: ExecutableGraphConfig, work_order: GraphNode
     }
 
 
-def _source_clock_seq(task_run_payload: dict[str, Any]) -> int:
-    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+def _source_clock_seq(task_execution_payload: dict[str, Any]) -> int:
+    diagnostics = dict(task_execution_payload.get("diagnostics") or {})
     try:
         return int(diagnostics.get("graph_clock_seq") or diagnostics.get("step_index") or 0)
     except (TypeError, ValueError):
@@ -2233,133 +2063,63 @@ def _dedupe_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]
     return result
 
 
-def _node_quality_acceptance(
-    *,
-    graph_config: ExecutableGraphConfig,
-    work_order: GraphNodeWorkOrder,
-    final_answer: str,
-    artifact_refs: list[dict[str, Any]],
-    result_status: str,
-) -> dict[str, Any]:
-    node = _graph_node_by_id(graph_config, work_order.node_id)
-    if not node:
+def _merge_quality_acceptance(*items: dict[str, Any]) -> dict[str, Any]:
+    accepted_items = [dict(item) for item in items if item]
+    if not accepted_items:
         return {}
-    if str(node.get("node_type") or "").strip() == "review_gate":
-        return {}
-    retry_policy = dict(node.get("retry") or work_order.retry_policy or {})
-    accepted_policies = [
-        str(item).strip()
-        for item in list(retry_policy.get("acceptance_policies") or [])
-        if str(item).strip()
-    ]
-    runtime_contract = dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("runtime") or {}
-    length_budget = dict(runtime_contract.get("length_budget") or {})
-    has_length_budget = bool(length_budget.get("enabled") is True or length_budget.get("configured") is True)
-    if not has_length_budget and not accepted_policies:
-        return {}
-    if not str(final_answer or "").strip():
-        return {}
-    if has_length_budget:
-        length_budget = {**length_budget, "configured": True}
-    explicit_inputs = {
-        **dict(dict(work_order.input_package or {}).get("initial_inputs") or {}),
-        **dict(work_order.explicit_inputs or {}),
-    }
-    acceptance = stage_business_acceptance(
-        stage_id=work_order.node_id,
-        contract={
-            "node_type": str(node.get("node_type") or ""),
-            "length_budget": length_budget,
-            "quality_retry_policy": retry_policy,
-        },
-        explicit_inputs=explicit_inputs,
-        final_content=final_answer,
-        output_refs=[
-            str(item.get("path") or item.get("src") or item.get("absolute_path") or "")
-            for item in list(artifact_refs or [])
-            if isinstance(item, dict)
-        ],
-        terminal_status=result_status,
-        requires_file_artifact_refs=False,
+    if len(accepted_items) == 1:
+        return accepted_items[0]
+    accepted = all(bool(item.get("accepted")) for item in accepted_items)
+    issues = list(
+        dict.fromkeys(
+            str(issue).strip()
+            for item in accepted_items
+            for issue in list(item.get("issues") or [])
+            if str(issue).strip()
+        )
     )
-    chapter_issues = _chapter_heading_quality_issues(explicit_inputs=explicit_inputs, final_answer=final_answer)
-    if not chapter_issues:
-        return acceptance
-    issues = [str(item) for item in list(acceptance.get("issues") or []) if str(item)]
+    primary = next((item for item in accepted_items if not bool(item.get("accepted"))), accepted_items[0])
     return {
-        **acceptance,
-        "accepted": False,
-        "business_accepted": False,
-        "policy": str(acceptance.get("policy") or "chapter_contract"),
-        "issues": [*issues, *chapter_issues],
-        "quality_issue_summary": _join_quality_summary(
-            str(acceptance.get("quality_issue_summary") or ""),
-            "当前章号与正文标题不匹配，必须完整重交当前章。",
-        ),
-        "authority": "graph_system.work_order_executor.chapter_quality_gate",
+        **primary,
+        "accepted": accepted,
+        "business_accepted": accepted,
+        "issues": issues,
+        "quality_issue_summary": str(primary.get("quality_issue_summary") or "; ".join(issues)),
+        "merged_quality_acceptance_count": len(accepted_items),
+        "authority": "graph_system.work_order_executor.merged_quality_acceptance",
     }
-
-
-def _chapter_heading_quality_issues(*, explicit_inputs: dict[str, Any], final_answer: str) -> list[str]:
-    expected = _int_template_value(explicit_inputs.get("current_chapter_index") or explicit_inputs.get("chapter_index"), 0)
-    if expected <= 0:
-        return []
-    actual = _chapter_heading_index(final_answer)
-    if actual is None or actual == expected:
-        return []
-    return [f"chapter_mismatch:{actual}!={expected}"]
-
-
-def _chapter_heading_index(final_answer: str) -> int | None:
-    text = str(final_answer or "")
-    body = text
-    marker = re.search(r"(?m)^#{1,4}\s*章节正文候选\s*$", text)
-    if marker:
-        body = text[marker.end() :]
-    for match in re.finditer(r"(?m)^#{1,4}\s*第\s*0*(\d{1,4})\s*章\b", body):
-        return int(match.group(1))
-    for match in re.finditer(r"(?m)^第\s*0*(\d{1,4})\s*章\b", body):
-        return int(match.group(1))
-    return None
-
-
-def _join_quality_summary(*parts: str) -> str:
-    return "；".join(part for part in (str(item or "").strip() for item in parts) if part)
 
 
 def _node_result_error(
     *,
     executor_result: dict[str, Any],
-    task_run_payload: dict[str, Any],
+    task_execution_payload: dict[str, Any],
     postprocess_errors: list[dict[str, Any]],
     quality_acceptance: dict[str, Any],
     recoverable: bool = False,
 ) -> dict[str, Any]:
     if quality_acceptance and not bool(quality_acceptance.get("accepted")):
+        recoverable_error = dict(quality_acceptance.get("recoverable_error") or {})
+        if recoverable and not recoverable_error:
+            recoverable_error = {
+                "error_code": "quality_gate_failed",
+                "retryable": True,
+                "recovery_action": "requeue_same_graph_node_with_quality_feedback",
+                "user_message": "质量门未通过，系统会把失败原因回灌给同一节点重修。",
+            }
         return {
             "reason": "quality_gate_failed",
             "quality_issue_summary": str(quality_acceptance.get("quality_issue_summary") or ""),
             "issues": [str(item) for item in list(quality_acceptance.get("issues") or []) if str(item)],
             "policy": str(quality_acceptance.get("policy") or ""),
             "authority": "graph_system.work_order_executor.quality_gate",
-            **(
-                {
-                    "recoverable_error": {
-                        "error_code": "quality_gate_failed",
-                        "retryable": True,
-                        "recovery_action": "requeue_same_graph_node_with_quality_feedback",
-                        "user_message": "质量门未通过，系统会把字数统计和原文回灌给同一节点重修。",
-                    }
-                }
-                if recoverable
-                else {}
-            ),
+            **({"recoverable_error": recoverable_error} if recoverable and recoverable_error else {}),
             **({"postprocess_errors": postprocess_errors} if postprocess_errors else {}),
         }
     return {
         "reason": str(
             executor_result.get("error")
-            or task_run_payload.get("terminal_reason")
+            or task_execution_payload.get("terminal_reason")
             or (postprocess_errors[0].get("reason") if postprocess_errors else "")
             or "node_executor_failed"
         ),
@@ -2420,6 +2180,10 @@ def _quality_failure_soft_passes(
         return False
     allowed_prefixes = ("insufficient_metric:", "insufficient_unit_metric:", "below_target:")
     return all(any(issue.startswith(prefix) for prefix in allowed_prefixes) for issue in issues)
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
 
 
 def _graph_node_by_id(graph_config: ExecutableGraphConfig, node_id: str) -> dict[str, Any]:

@@ -38,6 +38,8 @@ class AgentRuntimeProfile:
     trace_policy: str = "runtime_event_log"
     lifecycle_policy: str = "agent_system_managed"
     model_profile: AgentModelProfile = field(default_factory=AgentModelProfile)
+    prompt_set_refs: tuple[str, ...] = ()
+    prompt_bindings: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -52,14 +54,15 @@ class AgentRuntimeProfile:
             "blocked_operations",
             "allowed_memory_scopes",
             "allowed_context_sections",
+            "prompt_set_refs",
         ):
             payload[key] = list(payload[key])
         payload["subagent_policy"] = self.subagent_policy.to_dict()
         payload["allowed_tool_packages"] = [item.to_dict() for item in self.allowed_tool_packages]
         payload["final_allowed_operations"] = list(self.allowed_operations)
         payload["model_profile"] = self.model_profile.to_dict()
+        payload["prompt_bindings"] = dict(self.prompt_bindings or {})
         payload["runtime_template_id"] = self.runtime_template_id
         return payload
-
 
 

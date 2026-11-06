@@ -5,12 +5,13 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from capability_system.tools.tool_surface import action_kind_for_surface_tool
 from runtime.shared.tool_identity import canonical_action_tool_call_id, permission_decision_id
 from runtime.shared.file_observation_policy import read_window_fingerprint_defaults
 from runtime.tool_runtime.tool_invocation_control import build_tool_invocation_id
 
 from .action_permit import ActionPermit, action_permit_from_admission
-from .admission import AdmissionDecision, admit_model_action
+from .admission import AdmissionDecision, admit_model_action, resolve_tool_call_operation_identity
 from .model_action_protocol import AnyModelActionRequest
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,8 @@ class ActionLifecycleDecision:
     task_run_id: str = ""
     allowed_action_types: tuple[str, ...] = ()
     allowed_tool_names: tuple[str, ...] = ()
+    control_output_line_ref: str = ""
+    control_output_line_authority: str = ""
     authority: str = "harness.loop.execution_kernel"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -177,6 +180,8 @@ class ActionToolInvocationIdentity:
     action_permit: dict[str, Any]
     agent_run_id: str = ""
     run_cell_id: str = ""
+    control_output_line_ref: str = ""
+    control_output_line_authority: str = ""
     authority: str = "harness.loop.execution_kernel"
 
     def __post_init__(self) -> None:
@@ -207,6 +212,8 @@ class ActionToolInvocationIdentity:
             "action_permit": dict(self.action_permit or {}),
             "agent_run_id": self.agent_run_id,
             "run_cell_id": self.run_cell_id,
+            "control_output_line_ref": self.control_output_line_ref,
+            "control_output_line_authority": self.control_output_line_authority,
             "authority": self.authority,
         }
 
@@ -222,7 +229,6 @@ def decide_model_action_lifecycle(
     allowed_tool_names: set[str] | tuple[str, ...] | None = None,
     runtime_profile: dict[str, Any] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: str = "",
     current_work_boundary_receipt: dict[str, Any] | None = None,
     session_id: str = "",
     turn_id: str = "",
@@ -239,7 +245,6 @@ def decide_model_action_lifecycle(
         allowed_tool_names=set(allowed_tool_names) if allowed_tool_names is not None else None,
         runtime_profile=runtime_profile,
         permission_mode=permission_mode,
-        side_effect_policy=side_effect_policy,
         current_work_boundary_receipt=current_work_boundary_receipt,
     )
     return build_action_lifecycle_from_admission(
@@ -251,7 +256,6 @@ def decide_model_action_lifecycle(
         packet_allowed_action_types=packet_allowed_action_types,
         allowed_tool_names=allowed_tool_names,
         permission_mode=permission_mode,
-        side_effect_policy=side_effect_policy,
         session_id=session_id,
         turn_id=turn_id,
         task_run_id=task_run_id,
@@ -420,7 +424,11 @@ def build_action_tool_invocation_identity(
         raise ValueError("build_action_tool_invocation_identity requires canonical tool_call_id")
     tool_args = dict(tool_args_override if tool_args_override is not None else (tool_call.get("args") or tool_call.get("tool_args") or {}))
     definition = dict(definitions_by_name or {}).get(tool_name)
-    operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+    operation_identity = resolve_tool_call_operation_identity(
+        definition,
+        tool_args,
+        fallback_tool_name=tool_name,
+    )
     normalized_caller_ref = str(caller_ref or "").strip()
     invocation_id = build_tool_invocation_id(
         caller_ref=normalized_caller_ref,
@@ -431,7 +439,10 @@ def build_action_tool_invocation_identity(
         run_cell_id=str(run_cell_id or ""),
     )
     permit_payload = action_permit.to_dict() if hasattr(action_permit, "to_dict") else dict(action_permit or {})
+    operation_id = str(permit_payload.get("operation_id") or operation_identity.get("operation_id") or tool_name).strip()
     lifecycle_ref = str(action_lifecycle_ref or permit_payload.get("action_lifecycle_ref") or f"action-lifecycle:{action_request_ref}").strip()
+    control_line_ref = str(permit_payload.get("control_output_line_ref") or "")
+    control_line_authority = str(permit_payload.get("control_output_line_authority") or "")
     return ActionToolInvocationIdentity(
         invocation_id=invocation_id,
         caller_ref=normalized_caller_ref,
@@ -445,6 +456,8 @@ def build_action_tool_invocation_identity(
         action_permit=permit_payload,
         agent_run_id=str(agent_run_id or ""),
         run_cell_id=str(run_cell_id or ""),
+        control_output_line_ref=control_line_ref,
+        control_output_line_authority=control_line_authority,
     )
 
 
@@ -471,6 +484,7 @@ def action_admission_denial_fingerprint(
         "admission": {
             "decision": str(dict(admission_payload or {}).get("decision") or ""),
             "system_reason": str(dict(admission_payload or {}).get("system_reason") or ""),
+            "control_output_line_ref": str(dict(admission_payload or {}).get("control_output_line_ref") or ""),
         },
         "runtime": _admission_runtime_fingerprint_identity(dict(runtime_fingerprint or {})),
     }
@@ -505,6 +519,9 @@ def build_action_lifecycle_event_record(
             "event_type": "model_action_admission_checked",
         },
     }
+    if lifecycle.control_output_line_ref:
+        payload["control_output_line_ref"] = lifecycle.control_output_line_ref
+        payload["control_output_line_authority"] = lifecycle.control_output_line_authority
     if normalized_session_id:
         payload["session_id"] = normalized_session_id
     if normalized_turn_id:
@@ -519,6 +536,8 @@ def build_action_lifecycle_event_record(
         "action_request_ref": lifecycle.action_request_ref,
         "action_lifecycle_ref": lifecycle.lifecycle_id,
     }
+    if lifecycle.control_output_line_ref:
+        refs["control_output_line_ref"] = lifecycle.control_output_line_ref
     if normalized_session_id:
         refs["session_ref"] = normalized_session_id
     if normalized_turn_id:
@@ -578,7 +597,10 @@ def build_tool_lifecycle_started_event_record(
         "tool_invocation_id": identity.invocation_id,
         "tool_call_id": identity.tool_call_id,
         "permission_decision_id": identity.admission_ref,
+        "control_output_line_ref": identity.control_output_line_ref,
+        "control_output_line_authority": identity.control_output_line_authority,
         "tool_name": identity.tool_name,
+        "action_kind": action_kind_for_surface_tool(identity.tool_name, identity.tool_args),
         "target": str(target or ""),
         "arguments_preview": preview_payload,
         "state": normalized_state,
@@ -612,6 +634,8 @@ def build_tool_lifecycle_started_event_record(
         "action_lifecycle_ref": identity.action_lifecycle_ref,
         "tool_invocation_ref": identity.invocation_id,
     }
+    if identity.control_output_line_ref:
+        refs["control_output_line_ref"] = identity.control_output_line_ref
     if normalized_session_id:
         refs["session_ref"] = normalized_session_id
     if normalized_turn_id:
@@ -686,7 +710,11 @@ def _admission_runtime_fingerprint_identity(runtime_fingerprint: dict[str, Any])
 
 def _normalize_tool_call_args_for_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> Any:
     normalized = _normalize_action_value(tool_args)
-    if str(tool_name or "").strip() != "read_file" or not isinstance(normalized, dict):
+    if (
+        str(tool_name or "").strip() != "workspace_read"
+        or not isinstance(normalized, dict)
+        or str(normalized.get("action") or "file").strip() not in {"", "file"}
+    ):
         return normalized
     defaults = read_window_fingerprint_defaults()
     if "start_line" not in normalized and not any(key in normalized for key in ("offset", "limit")):
@@ -728,7 +756,6 @@ def build_action_lifecycle_from_admission(
     packet_allowed_action_types: tuple[str, ...] = (),
     allowed_tool_names: set[str] | tuple[str, ...] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: str = "",
     session_id: str = "",
     turn_id: str = "",
     task_run_id: str = "",
@@ -745,7 +772,6 @@ def build_action_lifecycle_from_admission(
         packet_allowed_action_types=packet_allowed_action_types,
         allowed_tool_names=allowed_tools,
         permission_mode=permission_mode,
-        side_effect_policy=side_effect_policy,
         session_id=session_id,
         turn_id=turn_id,
         task_run_id=task_run_id,
@@ -754,6 +780,8 @@ def build_action_lifecycle_from_admission(
         resource_scope=resource_scope,
     )
     action_request_ref = str(getattr(action_request, "request_id", "") or "")
+    control_line_ref = str(getattr(permit, "control_output_line_ref", "") or "")
+    control_line_authority = str(getattr(permit, "control_output_line_authority", "") or "")
     return ActionLifecycleDecision(
         lifecycle_id=f"action-lifecycle:{action_request_ref}",
         action_request_ref=action_request_ref,
@@ -768,9 +796,13 @@ def build_action_lifecycle_from_admission(
         task_run_id=str(task_run_id or ""),
         allowed_action_types=tuple(str(item) for item in packet_allowed_action_types if str(item)),
         allowed_tool_names=allowed_tools,
+        control_output_line_ref=control_line_ref,
+        control_output_line_authority=control_line_authority,
         diagnostics={
             "admission_ref": admission.admission_id,
             "permit_ref": permit.permit_id,
+            "control_output_line_ref": control_line_ref,
+            "control_output_line_authority": control_line_authority,
             "admission_decision": admission.decision,
             "permit_decision": permit.decision,
             "single_authority_chain": "admission->action_permit",

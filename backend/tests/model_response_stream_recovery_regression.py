@@ -20,7 +20,7 @@ def _directive() -> RuntimeDirective:
             "task_run_id": "taskrun:model-response-recovery",
             "turn_id": "turn:model-response-recovery",
             "turn_run_id": "turnrun:model-response-recovery",
-            "model_request_id": "modelreq:model-response-recovery",
+            "provider_request_id": "providerreq:model-response-recovery",
         },
     )
 

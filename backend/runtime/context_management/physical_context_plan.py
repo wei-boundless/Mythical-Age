@@ -5,15 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_segment_policy import (
-    CONTEXT_APPEND,
-    CONTEXT_MEMORY_PREFIX,
-    DYNAMIC_TAIL,
-    STATIC_PREFIX,
-    ContextSegmentPolicy,
-    context_segment_policy_for_spec,
-    context_segment_policy_is_provider_visible_sealable,
-)
+from context_system.segments.metadata import provider_message_byte_preservation_required
+from context_system.segments.policy import context_segment_policy_for_spec
 
 
 TRANSPORT_CONTRACT = "transport_contract"
@@ -21,19 +14,13 @@ GLOBAL_STATIC_PREFIX = "global_static_prefix"
 PROVIDER_VISIBLE_CONTEXT_PREFIX = "provider_visible_context_prefix"
 CURRENT_TURN_TAIL = "current_turn_tail"
 NEVER_REPLAY_TAIL = "never_replay_tail"
+MISSING_PHYSICAL_ASSEMBLY = "missing_physical_assembly"
 
 CACHE_SPINE_LANES = {
     GLOBAL_STATIC_PREFIX,
     PROVIDER_VISIBLE_CONTEXT_PREFIX,
 }
 TAIL_LANES = {CURRENT_TURN_TAIL, NEVER_REPLAY_TAIL}
-PHYSICAL_CONTEXT_LANE_ORDER = (
-    GLOBAL_STATIC_PREFIX,
-    PROVIDER_VISIBLE_CONTEXT_PREFIX,
-    CURRENT_TURN_TAIL,
-    NEVER_REPLAY_TAIL,
-)
-PHYSICAL_CONTEXT_LANE_RANK = {lane: index * 10 for index, lane in enumerate(PHYSICAL_CONTEXT_LANE_ORDER, start=1)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +81,16 @@ def build_physical_context_plan(
     transport_contract_hash: str = "",
     compaction_generation: str = "",
 ) -> PhysicalContextPlan:
+    """Describe an already-assembled physical context order.
+
+    The physical assembler owns splice order. This plan only adds lane metadata,
+    cache-spine identity, and diagnostics for the order it receives.
+    """
+
     raw_segments: list[PhysicalContextPlanSegment] = []
     lane_counts: dict[str, int] = {}
     lane_order: list[str] = []
+    blocked_segments: list[dict[str, Any]] = []
 
     for index, raw_spec in enumerate(list(specs or ()), start=1):
         if not isinstance(raw_spec, dict):
@@ -104,7 +98,39 @@ def build_physical_context_plan(
         spec = dict(raw_spec)
         metadata = dict(spec.get("metadata") or {})
         policy = context_segment_policy_for_spec(spec)
-        lane = physical_lane_for_spec(spec, policy=policy)
+        lane, lane_issue = _assembler_lane_for_spec(spec, metadata=metadata)
+        assembly_index = _physical_assembly_index(spec, metadata=metadata)
+        if lane_issue:
+            blocked_segments.append(
+                {
+                    "index": index,
+                    "kind": str(spec.get("kind") or metadata.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or metadata.get("source_ref") or ""),
+                    "reason": lane_issue,
+                    "authority": "runtime.context_management.physical_context_plan",
+                }
+            )
+        if assembly_index <= 0:
+            blocked_segments.append(
+                {
+                    "index": index,
+                    "kind": str(spec.get("kind") or metadata.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or metadata.get("source_ref") or ""),
+                    "reason": "missing_context_physical_assembly_index",
+                    "authority": "runtime.context_management.physical_context_plan",
+                }
+            )
+        elif assembly_index != index:
+            blocked_segments.append(
+                {
+                    "index": index,
+                    "context_physical_assembly_index": assembly_index,
+                    "kind": str(spec.get("kind") or metadata.get("kind") or ""),
+                    "source_ref": str(spec.get("source_ref") or metadata.get("source_ref") or ""),
+                    "reason": "context_physical_assembly_index_mismatch",
+                    "authority": "runtime.context_management.physical_context_plan",
+                }
+            )
         cache_spine_participation = lane in CACHE_SPINE_LANES
         content_hash = _spec_content_hash(spec)
         segment = PhysicalContextPlanSegment(
@@ -126,7 +152,7 @@ def build_physical_context_plan(
         )
         raw_segments.append(segment)
 
-    segments = sorted(raw_segments, key=_physical_context_order_key)
+    segments = tuple(raw_segments)
     spine_seed: list[dict[str, Any]] = []
     tail_seen = False
     stable_after_tail_violations: list[dict[str, Any]] = []
@@ -155,10 +181,7 @@ def build_physical_context_plan(
             spine_seed.append(
                 {
                     "physical_index": physical_index,
-                    "original_index": segment.index,
                     "lane": lane,
-                    "kind": segment.kind,
-                    "source_ref": segment.source_ref,
                     "content_hash": segment.content_hash,
                 }
             )
@@ -186,80 +209,25 @@ def build_physical_context_plan(
         cache_spine_segment_count=len(spine_seed),
         lane_counts=lane_counts,
         lane_order=tuple(lane_order),
-        segments=tuple(segments),
+        segments=segments,
         stable_after_tail_violations=tuple(stable_after_tail_violations),
+        blocked_segments=tuple(blocked_segments),
     )
 
 
-def annotate_specs_with_physical_context_plan(
-    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    transport_contract_hash: str = "",
-    compaction_generation: str = "",
-) -> tuple[list[dict[str, Any]], PhysicalContextPlan]:
-    plan = build_physical_context_plan(
-        specs,
-        transport_contract_hash=transport_contract_hash,
-        compaction_generation=compaction_generation,
-    )
-    specs_by_index = {
-        index: dict(raw_spec)
-        for index, raw_spec in enumerate(list(specs or ()), start=1)
-        if isinstance(raw_spec, dict)
-    }
-    annotated: list[dict[str, Any]] = []
-    for physical_index, segment in enumerate(plan.segments, start=1):
-        spec = dict(specs_by_index.get(segment.index) or {})
-        if not spec:
-            continue
-        metadata = {
-            **dict(spec.get("metadata") or {}),
-            "context_physical_assembly_index": physical_index,
-            "context_physical_original_order": segment.index,
-            "physical_prefix_lane": segment.lane,
-            "physical_context_plan_ref": plan.plan_id,
-            "cache_spine_hash": plan.cache_spine_hash,
-            "cache_spine_generation": plan.cache_spine_generation,
-            "cache_spine_participation": segment.cache_spine_participation,
-            "cache_spine_break_reason": segment.cache_spine_break_reason,
-            "semantic_visibility": segment.semantic_visibility,
-            "validity_scope": segment.validity_scope,
-            "physical_context_plan_authority": plan.authority,
-        }
-        spec["metadata"] = metadata
-        annotated.append(spec)
-    return annotated, plan
-
-
-def physical_lane_for_spec(spec: dict[str, Any] | None, *, policy: ContextSegmentPolicy | None = None) -> str:
-    payload = dict(spec or {})
-    policy = policy or context_segment_policy_for_spec(payload)
-    section = str(policy.section or "")
-    if section == STATIC_PREFIX:
-        return GLOBAL_STATIC_PREFIX
-    if section == CONTEXT_MEMORY_PREFIX:
-        if not _stable_prefix_binding(policy):
-            return CURRENT_TURN_TAIL
-        return PROVIDER_VISIBLE_CONTEXT_PREFIX
-    if section == CONTEXT_APPEND:
-        return CURRENT_TURN_TAIL
-    if section == DYNAMIC_TAIL:
-        return NEVER_REPLAY_TAIL
-    return CURRENT_TURN_TAIL
+def _assembler_lane_for_spec(spec: dict[str, Any], *, metadata: dict[str, Any]) -> tuple[str, str]:
+    lane = _first_text(metadata.get("physical_prefix_lane"), spec.get("physical_prefix_lane"))
+    if lane:
+        return lane, ""
+    return MISSING_PHYSICAL_ASSEMBLY, "missing_physical_prefix_lane"
 
 
 def _historical_only_metadata(metadata: dict[str, Any]) -> bool:
-    semantic_class = str(metadata.get("semantic_commit_class") or "").strip()
     return (
         metadata.get("provider_visible_replay_only") is True
-        or metadata.get("semantic_memory_visible") is False
-        or semantic_class.startswith("provider_visible_replay_only")
+        or metadata.get("context_memory_visible") is False
         or _historical_only_on_replay(metadata)
     )
-
-
-def _stable_prefix_binding(policy: ContextSegmentPolicy) -> bool:
-    return context_segment_policy_is_provider_visible_sealable(policy) or str(policy.section or "") == STATIC_PREFIX
 
 
 def _historical_only_on_replay(metadata: dict[str, Any]) -> bool:
@@ -273,6 +241,8 @@ def _semantic_visibility(*, metadata: dict[str, Any], lane: str) -> str:
     explicit = str(metadata.get("semantic_visibility") or "").strip()
     if explicit:
         return explicit
+    if lane == MISSING_PHYSICAL_ASSEMBLY:
+        return "missing_physical_assembly"
     if _historical_only_metadata(metadata):
         return "historical_only"
     if lane in TAIL_LANES:
@@ -302,6 +272,28 @@ def _tail_break_reason(lane: str) -> str:
         return "current_turn_tail_after_cache_boundary"
     if lane == NEVER_REPLAY_TAIL:
         return "never_replay_tail_after_cache_boundary"
+    if lane == MISSING_PHYSICAL_ASSEMBLY:
+        return "missing_physical_assembly"
+    return ""
+
+
+def _physical_assembly_index(spec: dict[str, Any], *, metadata: dict[str, Any]) -> int:
+    for value in (
+        metadata.get("context_physical_assembly_index"),
+        spec.get("context_physical_assembly_index"),
+    ):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
     return ""
 
 
@@ -319,42 +311,28 @@ def _first_generation(segments: tuple[PhysicalContextPlanSegment, ...]) -> str:
 
 def _spec_content_hash(spec: dict[str, Any]) -> str:
     message = spec.get("model_message") if isinstance(spec.get("model_message"), dict) else {}
+    if _must_preserve_model_message_hash(spec):
+        return _stable_json_hash({"model_message": dict(message or {})})
     seed = {
         "role": str(dict(message).get("role") or spec.get("role") or ""),
         "content": str(dict(message).get("content") if dict(message).get("content") is not None else spec.get("content") or ""),
+        "name": str(dict(message).get("name") or ""),
+        "tool_call_id": str(dict(message).get("tool_call_id") or ""),
+        "tool_calls": dict(message).get("tool_calls") or [],
+        "reasoning_content": str(dict(message).get("reasoning_content") or ""),
         "kind": str(spec.get("kind") or ""),
         "source_ref": str(spec.get("source_ref") or ""),
     }
     return _stable_json_hash(seed)
 
 
-def _physical_context_order_key(segment: PhysicalContextPlanSegment) -> tuple[int, int, int, str]:
-    ledger_entry_index = _safe_int(segment.metadata.get("provider_visible_context_ledger_entry_index"))
-    if ledger_entry_index > 0 and segment.lane == PROVIDER_VISIBLE_CONTEXT_PREFIX:
-        return (
-            PHYSICAL_CONTEXT_LANE_RANK[PROVIDER_VISIBLE_CONTEXT_PREFIX],
-            ledger_entry_index,
-            int(segment.index or 0),
-            str(segment.source_ref or ""),
-        )
-    return (
-        PHYSICAL_CONTEXT_LANE_RANK.get(segment.lane, 999),
-        int(segment.index or 0),
-        0,
-        str(segment.source_ref or ""),
-    )
+def _must_preserve_model_message_hash(spec: dict[str, Any]) -> bool:
+    return provider_message_byte_preservation_required(spec)
 
 
 def _stable_json_hash(value: Any) -> str:
     payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
-
-
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _json_stable(value: Any) -> Any:

@@ -22,7 +22,7 @@ class RuntimeCacheManifest:
     cache_key: str
     owner: str
     source_refs: tuple[str, ...] = ()
-    schema_version: str = "runtime_cache_manifest.v1"
+    manifest_schema_id: str = "runtime_cache_manifest"
     created_at: float = 0.0
     last_accessed_at: float = 0.0
     ttl_seconds: int = 0
@@ -37,7 +37,7 @@ class RuntimeCacheManifest:
             "cache_key": self.cache_key,
             "owner": self.owner,
             "source_refs": list(self.source_refs),
-            "schema_version": self.schema_version,
+            "manifest_schema_id": self.manifest_schema_id,
             "created_at": created_at,
             "last_accessed_at": last_accessed_at,
             "ttl_seconds": int(self.ttl_seconds or 0),

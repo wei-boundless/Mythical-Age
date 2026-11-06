@@ -36,7 +36,7 @@ class ManagedFileWriteRequest(BaseModel):
 
 class ManagedFileEditRequest(BaseModel):
     target: ManagedFileTarget
-    old_text: str = ""
+    edit_target: dict[str, Any] = Field(default_factory=dict)
     new_text: str = ""
     expected_sha256: str = Field(default="", max_length=160)
     source: str = Field(default="agent_ui", max_length=80)

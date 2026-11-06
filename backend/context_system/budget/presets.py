@@ -81,7 +81,7 @@ CONTEXT_BUDGET_PRESETS: tuple[ContextBudgetPreset, ...] = (
     ContextBudgetPreset(
         preset_id="deepseek_1m",
         title="DeepSeek 1M 档",
-        model_hint="deepseek-v4-pro / deepseek-v4-flash",
+        model_hint="deepseek-v4-pro / deepseek-flash",
         context_window_tokens=1_000_000,
         available_context_tokens=850_000,
         reserved_output_tokens=64_000,

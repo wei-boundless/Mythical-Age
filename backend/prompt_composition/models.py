@@ -5,13 +5,15 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class PromptCompositionSlot:
+class PromptManifestBinding:
+    """Manifest binding that maps runtime load segments to composition coverage."""
+
     slot_id: str
     invocation_kind: str
     layer: str
     slot_kind: str
     target_role: str
-    lifecycle: str
+    stability: str
     cache_scope: str
     cache_role: str
     prefix_tier: str
@@ -42,7 +44,7 @@ class PromptCompositionPlan:
     plan_id: str
     invocation_kind: str
     packet_id: str
-    slots: tuple[PromptCompositionSlot, ...] = ()
+    slots: tuple[PromptManifestBinding, ...] = ()
     rejected_refs: tuple[dict[str, Any], ...] = ()
     dynamic_fragment_refs: tuple[str, ...] = ()
     volatile_state_refs: tuple[str, ...] = ()
@@ -106,7 +108,9 @@ class RuntimePromptSourceManifest:
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimePromptSlot:
+class RuntimeLoadSegment:
+    """Runtime load segment derived from materialized message specs."""
+
     slot_id: str
     invocation_kind: str
     packet_id: str
@@ -118,10 +122,11 @@ class RuntimePromptSlot:
     source_ref: str
     cache_scope: str
     cache_role: str
-    cache_tier: str
+    prefix_tier: str
     dynamic_tier: str
+    load_phase: str
+    phase_order: int
     compression_role: str
-    authority_class: str
     render_contract: dict[str, Any] = field(default_factory=dict)
     message_spec: dict[str, Any] = field(default_factory=dict)
     content_hash: str = ""
@@ -138,11 +143,11 @@ class RuntimePromptSlot:
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimePromptSlotPlan:
+class RuntimeLoadSegmentPlan:
     plan_id: str
     invocation_kind: str
     packet_id: str
-    slots: tuple[RuntimePromptSlot, ...] = ()
+    slots: tuple[RuntimeLoadSegment, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_composition.runtime_prompt_slot_plan"
 
@@ -172,9 +177,8 @@ class RuntimeContextLoadEntry:
     target_role: str
     source_kind: str
     source_ref: str
-    cache_tier: str
+    prefix_tier: str
     dynamic_tier: str
-    authority_class: str
     render_contract: dict[str, Any] = field(default_factory=dict)
     message_spec: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)

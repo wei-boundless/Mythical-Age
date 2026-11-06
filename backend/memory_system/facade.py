@@ -7,7 +7,7 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from core.project_layout import ProjectLayout
 from runtime.shared.background_tasks import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
-from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, SessionMemoryLayer
+from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, ConversationContinuityLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
 from .environment_context import resolve_memory_environment_context
@@ -35,13 +35,13 @@ class MemoryFacade:
         self.storage_layout = MemoryStorageLayout.from_project_layout(project_layout)
         self.storage_layout.ensure_dirs()
         self.adapter = MemoryMessageAdapter()
-        self.session_memory = SessionMemoryLayer(
+        self.conversation_continuity = ConversationContinuityLayer(
             base_dir,
             session_root=self.storage_layout.session_root,
             context_budget_provider=context_budget_provider,
         )
-        self.foreground_state = ForegroundContinuityStateStore(self.session_memory.session_root)
-        self.session_emphasis = SessionEmphasisStore(self.session_memory.session_root)
+        self.foreground_state = ForegroundContinuityStateStore(self.conversation_continuity.session_root)
+        self.session_emphasis = SessionEmphasisStore(self.conversation_continuity.session_root)
         self.durable_memory = DurableMemoryLayer(base_dir)
         self._environment_durable_layers: dict[str, DurableMemoryLayer] = {}
         self.memory_manager = self.durable_memory.memory_manager
@@ -54,7 +54,7 @@ class MemoryFacade:
         self.maintenance_coordinator = MemoryMaintenanceCoordinator(
             base_dir=base_dir,
             runtime_dir=self.storage_layout.maintenance_root,
-            session_memory_layer=self.session_memory,
+            conversation_continuity_layer=self.conversation_continuity,
             session_emphasis_store=self.session_emphasis,
             memory_manager=self.memory_manager,
             memory_manager_resolver=self.resolve_durable_memory_manager,
@@ -65,7 +65,7 @@ class MemoryFacade:
             "memory_maintenance_after_commit",
             self._run_background_memory_maintenance,
         )
-        self.session_root = self.session_memory.session_root
+        self.session_root = self.conversation_continuity.session_root
         self.conversation_memory = ConversationMemoryStoreAdapter(self.session_root)
         self.state_memory = StateMemoryStoreAdapter(self.session_root)
         self.runtime_services = MemoryRuntimeServices(self.storage_layout)
@@ -73,7 +73,7 @@ class MemoryFacade:
         self.formal_memory = self.runtime_services.formal_memory
         self.working_memory_finalizer = self.runtime_services.working_memory_finalizer
         self.bundle_service = MemoryBundleService(
-            session_memory=self.session_memory,
+            conversation_continuity=self.conversation_continuity,
             conversation_memory=self.conversation_memory,
             state_memory=self.state_memory,
             working_memory=self.working_memory,
@@ -92,7 +92,7 @@ class MemoryFacade:
         self._external_durable_memory_saved_callback = callback
 
     def set_session_compactor_kwargs_provider(self, provider: Callable[[str], dict[str, Any]] | None) -> None:
-        self.session_memory.set_compactor_kwargs_provider(provider)
+        self.conversation_continuity.set_compactor_kwargs_provider(provider)
 
     def mark_durable_memory_namespaces_dirty(
         self,
@@ -286,8 +286,8 @@ class MemoryFacade:
     def describe_memory_maintenance_runtime(self) -> dict[str, Any]:
         return self.maintenance_coordinator.describe_runtime_state()
 
-    def delete_session_memory(self, session_id: str) -> bool:
-        return self.session_memory.delete_session(session_id)
+    def delete_conversation_continuity(self, session_id: str) -> bool:
+        return self.conversation_continuity.delete_session(session_id)
 
     def load_foreground_continuity_state(self, session_id: str):
         return self.foreground_state.load(session_id)
@@ -309,7 +309,7 @@ class MemoryFacade:
             force=bool(payload.get("force", False)),
         )
 
-    def build_memory_context_package(
+    def build_turn_memory_context_package(
         self,
         *,
         session_id: str,
@@ -320,7 +320,7 @@ class MemoryFacade:
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
     ):
-        return self.bundle_service.build_memory_context_package(
+        return self.bundle_service.build_turn_memory_context_package(
             session_id=session_id,
             pending_user_message=pending_user_message,
             memory_intent=memory_intent,
@@ -350,6 +350,5 @@ class MemoryFacade:
             memory_request_profile=memory_request_profile,
             note_limit=note_limit,
         )
-
 
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from .artifact_scope import (
     CanonicalArtifactContract,
-    canonicalize_task_contract_artifacts,
+    canonicalize_task_run_contract_artifacts,
     contract_artifact_paths,
     normalize_logical_path,
     runtime_artifact_scope_from_environment,
@@ -14,10 +14,10 @@ from .artifact_scope import (
 
 
 DEFAULT_SANDBOX_SIDE_EFFECT_OPERATIONS = (
-    "op.write_file",
-    "op.edit_file",
+    "op.workspace_write",
+    "op.workspace_edit",
     "op.shell",
-    "op.python_repl",
+    "op.shell",
     "op.browser_control",
     "op.image_generate",
 )
@@ -94,7 +94,7 @@ def compile_sandbox_execution_scope(
     storage = dict(environment.get("storage_space") or {})
     artifact_scope = runtime_artifact_scope_from_environment(environment)
     root = normalize_logical_path(artifact_root) or artifact_scope.artifact_root
-    canonical = canonicalize_task_contract_artifacts(
+    canonical = canonicalize_task_run_contract_artifacts(
         contract,
         environment_payload=environment,
         artifact_root=root,
@@ -150,7 +150,7 @@ def canonicalize_contract_for_scope(
     artifact_root: str = "",
 ) -> CanonicalArtifactContract:
     root = normalize_logical_path(artifact_root) or runtime_artifact_scope_from_environment(environment_payload).artifact_root
-    return canonicalize_task_contract_artifacts(contract, environment_payload=environment_payload, artifact_root=root)
+    return canonicalize_task_run_contract_artifacts(contract, environment_payload=environment_payload, artifact_root=root)
 
 
 def task_safety_envelope_from_assembly(runtime_assembly: dict[str, Any] | None) -> dict[str, Any]:

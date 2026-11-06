@@ -55,6 +55,22 @@ class ImageOCRInput(BaseModel):
     max_text_chars: int = Field(default=0, description="Optional maximum OCR text characters.", ge=0, le=120000)
 
 
+class OfficeDocumentInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    query: str = Field(default="", description="Natural-language office document request.")
+    action: str = Field(default="inspect", description="inspect, read, create, edit, convert, or render_verify.")
+    path: str = Field(..., description="Workspace-relative source path. For create, this is the target path if output_path is omitted.", min_length=1)
+    output_path: str = Field(default="", description="Workspace-relative output path for create/edit/convert actions.")
+    target_file_type: str = Field(default="", description="Optional target type: word, excel, powerpoint, or pdf.")
+    operations: list[dict[str, Any]] = Field(default_factory=list, description="Structured office patch operations.")
+    session_id: str = Field(default="mcp-session", description="Optional caller session id.")
+    read_scope: str = Field(default="document", description="Read scope for inspect/read.")
+    max_blocks: int = Field(default=80, description="Maximum extracted text blocks for inspect/read.", ge=1, le=400)
+    allow_overwrite: bool = Field(default=False, description="Allow replacing an existing output file.")
+    verification_level: str = Field(default="semantic", description="basic, structural, semantic, render, or strict.")
+
+
 def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMCPExecutor | None = None) -> FastMCP:
     server = FastMCP(
         "langchain_agent_mcp",
@@ -66,6 +82,12 @@ def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMC
         readOnlyHint=True,
         destructiveHint=False,
         idempotentHint=True,
+        openWorldHint=False,
+    )
+    write_annotations = ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
         openWorldHint=False,
     )
 
@@ -241,6 +263,32 @@ def build_server(*, backend_dir: Path | None = None, executor: LocalCapabilityMC
                 session_id=params.session_id,
                 mode="ocr",
                 constraints=constraints,
+            )
+        )
+
+    @server.tool(
+        name="langchain_agent_process_office_document",
+        description="Inspect, create, edit, and verify local Word, Excel, PowerPoint, and PDF files through the unified office document runtime.",
+        annotations=write_annotations,
+        structured_output=True,
+    )
+    async def process_office_document(params: OfficeDocumentInput) -> dict[str, Any]:
+        return await active_executor.execute(
+            LocalMCPToolRequest(
+                route="office_document",
+                query=params.query or params.action,
+                path=params.path,
+                session_id=params.session_id,
+                mode=params.action,
+                constraints={
+                    "output_path": params.output_path,
+                    "target_file_type": params.target_file_type,
+                    "operations": [dict(item) for item in list(params.operations or [])],
+                    "read_scope": params.read_scope,
+                    "max_blocks": params.max_blocks,
+                    "allow_overwrite": params.allow_overwrite,
+                    "verification_level": params.verification_level,
+                },
             )
         )
 

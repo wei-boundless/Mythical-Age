@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
@@ -9,11 +10,12 @@ ModelActionType = Literal[
     "tool_call",
     "request_task_run",
     "active_work_control",
-    "resume_recoverable_work",
     "pause_for_user_steer",
     "block",
 ]
 TaskExecutionModelActionType = Literal["respond", "ask_user", "tool_call", "block", "pause_for_user_steer"]
+TASK_START_PRIMARY_MODES = {"goal", "plan"}
+TASK_RESOURCE_SHAPES = {"standard", "investigation", "recovery", "monitor", "open_work"}
 
 
 def _ensure_tool_call_id(tool_call: dict[str, Any] | None, *, request_id: Any, ordinal: int | None = None) -> dict[str, Any]:
@@ -39,7 +41,6 @@ class ModelActionRequest:
     completion_contract: dict[str, Any] = field(default_factory=dict)
     permission_request: dict[str, Any] = field(default_factory=dict)
     active_work_control: dict[str, Any] = field(default_factory=dict)
-    recovery_resume: dict[str, Any] = field(default_factory=dict)
     pause_request: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
@@ -47,10 +48,6 @@ class ModelActionRequest:
     def __post_init__(self) -> None:
         if self.authority != "harness.loop.model_action_request":
             raise ValueError("ModelActionRequest authority must be harness.loop.model_action_request")
-
-    @property
-    def task_contract_seed(self) -> dict[str, Any]:
-        return dict(self.task_run_contract_seed or {})
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -61,7 +58,6 @@ class ModelActionRequest:
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
         payload["active_work_control"] = dict(self.active_work_control or {})
-        payload["recovery_resume"] = dict(self.recovery_resume or {})
         payload["pause_request"] = dict(self.pause_request or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
@@ -105,16 +101,20 @@ def model_action_request_from_payload(
     turn_id: str,
     require_public_progress_note: bool = False,
     require_public_action_state: bool = False,
-    public_response_required: bool = False,
+    public_feedback_expected: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
     errors: list[str] = []
+    raw_diagnostics_value = raw.get("diagnostics")
+    raw_diagnostics = dict(raw_diagnostics_value) if isinstance(raw_diagnostics_value, dict) else {}
+    if _has_non_empty_value(raw_diagnostics_value) and not isinstance(raw_diagnostics_value, dict):
+        errors.append("diagnostics_must_be_object")
     authority = str(raw.get("authority") or "harness.loop.model_action_request").strip()
     if authority != "harness.loop.model_action_request":
         errors.append("invalid_authority")
     action_type = str(raw.get("action_type") or "").strip()
-    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "resume_recoverable_work", "pause_for_user_steer", "block"}:
+    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "active_work_control", "pause_for_user_steer", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
     allowed = {str(item) for item in list(allowed_action_types or ()) if str(item)}
     if allowed and action_type and action_type not in allowed:
@@ -126,12 +126,13 @@ def model_action_request_from_payload(
     tool_call = raw.get("tool_call") or {}
     tool_calls: tuple[dict[str, Any], ...] = ()
     raw_selected_skill_ids = _string_tuple(raw.get("selected_skill_ids"))
-    legacy_task_contract_seed = raw.get("task_contract_seed") or {}
-    task_run_contract_seed = raw.get("task_run_contract_seed") or legacy_task_contract_seed or {}
+    legacy_task_contract_seed = raw.get("task_contract_seed")
+    task_run_contract_seed = raw.get("task_run_contract_seed") or {}
+    if _has_non_empty_value(legacy_task_contract_seed):
+        errors.append("legacy_task_contract_seed_field_not_allowed:task_contract_seed")
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
     active_work_control = raw.get("active_work_control") or {}
-    recovery_resume = raw.get("recovery_resume") or {}
     pause_request = raw.get("pause_request") or {}
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
@@ -150,17 +151,14 @@ def model_action_request_from_payload(
     if not isinstance(active_work_control, dict):
         errors.append("active_work_control_must_be_object")
         active_work_control = {}
-    if not isinstance(recovery_resume, dict):
-        errors.append("recovery_resume_must_be_object")
-        recovery_resume = {}
     else:
-        recovery_resume = _normalize_recovery_resume(dict(recovery_resume))
+        active_work_control = _normalize_active_work_control_payload(dict(active_work_control))
     if not isinstance(pause_request, dict):
         errors.append("pause_request_must_be_object")
         pause_request = {}
     selected_skill_ids = raw_selected_skill_ids
     if action_type == "request_task_run" and isinstance(task_run_contract_seed, dict):
-        normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_contract_seed(task_run_contract_seed)
+        normalized_seed, seed_errors, seed_gaps, canonical_selected_skill_ids = _normalize_task_run_contract_seed(task_run_contract_seed)
         if raw_selected_skill_ids:
             seed_errors.append("selected_skill_ids_not_allowed_for_request_task_run")
         seed_errors.extend(
@@ -194,27 +192,21 @@ def model_action_request_from_payload(
         public_action_state=public_action_state,
     ) and action_type != "request_task_run":
         errors.append("public_task_lifecycle_claim_requires_request_task_run")
-    if public_response_required and action_type != "tool_call" and not has_model_public_response:
-        errors.append("public_response_required")
+    if public_feedback_expected and action_type == "tool_call" and not has_model_public_response:
+        contract_gaps.append("public_feedback_omitted_for_tool_call")
     if require_public_progress_note and not public_progress_note:
-        if not public_response_required:
-            if action_type == "tool_call" or not has_model_public_response:
-                contract_gaps.append(
-                    "public_progress_note_missing_for_tool_call"
-                    if action_type == "tool_call"
-                    else "public_progress_note_missing"
-                )
-        else:
-            errors.append("public_progress_note_required")
-    if require_public_action_state and not _has_public_action_state(public_action_state):
-        if not public_response_required:
+        if action_type == "tool_call" or not has_model_public_response:
             contract_gaps.append(
-                "public_action_state_missing_for_tool_call"
+                "public_progress_note_missing_for_tool_call"
                 if action_type == "tool_call"
-                else "public_action_state_missing"
+                else "public_progress_note_missing"
             )
-        else:
-            errors.append("public_action_state_required")
+    if require_public_action_state and not _has_public_action_state(public_action_state):
+        contract_gaps.append(
+            "public_action_state_missing_for_tool_call"
+            if action_type == "tool_call"
+            else "public_action_state_missing"
+        )
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
     if action_type == "ask_user" and not user_question:
@@ -230,9 +222,9 @@ def model_action_request_from_payload(
         errors.append("task_run_contract_seed_required_for_request_task_run")
     if action_type == "request_task_run":
         if not public_progress_note:
-            errors.append("public_progress_note_required_for_request_task_run")
+            contract_gaps.append("public_progress_note_missing_for_request_task_run")
         if not _has_public_action_state(public_action_state):
-            errors.append("public_action_state_required_for_request_task_run")
+            contract_gaps.append("public_action_state_missing_for_request_task_run")
         if _has_non_empty_value(tool_call):
             errors.append("tool_call_not_allowed_for_request_task_run")
     if action_type == "active_work_control":
@@ -246,12 +238,6 @@ def model_action_request_from_payload(
             errors.append("active_work_action_must_be_canonical")
         elif not active_work_action_is_allowed(action):
             errors.append("active_work_action_not_allowed")
-    if action_type == "resume_recoverable_work":
-        resume_payload = dict(recovery_resume or {})
-        if not str(resume_payload.get("task_run_id") or "").strip():
-            errors.append("recovery_resume.task_run_id_required")
-        if not str(resume_payload.get("continuation_id") or "").strip():
-            errors.append("recovery_resume.continuation_id_required")
     if action_type == "pause_for_user_steer":
         pause_payload = dict(pause_request or {})
         if not str(pause_payload.get("steer_ref") or "").strip():
@@ -260,17 +246,25 @@ def model_action_request_from_payload(
             errors.append("pause_request.reason_must_be_user_steer_requires_pause")
         if not str(pause_payload.get("checkpoint_summary") or "").strip():
             errors.append("pause_request.checkpoint_summary_required")
-        if _has_non_empty_value(dict(raw.get("diagnostics") or {}).get("consumed_steer_refs")):
+        if _has_non_empty_value(raw_diagnostics.get("consumed_steer_refs")):
             errors.append("pause_for_user_steer_must_not_consume_steer_refs")
-        if _has_non_empty_value(dict(raw.get("diagnostics") or {}).get("consumed_user_steer_refs")):
+        if _has_non_empty_value(raw_diagnostics.get("consumed_user_steer_refs")):
             errors.append("pause_for_user_steer_must_not_consume_user_steer_refs")
+    final_action_diagnostics, final_action_errors = _normalized_final_action_diagnostics(
+        raw,
+        raw_diagnostics=raw_diagnostics,
+        action_type=action_type,
+    )
+    errors.extend(final_action_errors)
     if errors:
         return None, {
             "status": "invalid",
             "validation_errors": errors,
             "authority": "harness.loop.model_action_protocol",
         }
-    normalized_diagnostics = dict(raw.get("diagnostics") or {})
+    normalized_diagnostics = dict(raw_diagnostics or {})
+    if final_action_diagnostics:
+        normalized_diagnostics["final_action_diagnostics"] = final_action_diagnostics
     if contract_gaps:
         normalized_diagnostics["contract_gaps"] = [
             *list(normalized_diagnostics.get("contract_gaps") or []),
@@ -292,7 +286,6 @@ def model_action_request_from_payload(
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
         active_work_control=dict(active_work_control),
-        recovery_resume=dict(recovery_resume),
         pause_request=dict(pause_request),
         diagnostics=normalized_diagnostics,
     ), {
@@ -311,7 +304,6 @@ _TASK_EXECUTION_CROSS_CONTEXT_FIELDS = (
     "permission_request",
     "engagement_request",
     "active_work_control",
-    "recovery_resume",
     "plan_id",
 )
 
@@ -320,9 +312,9 @@ def task_execution_action_request_from_payload(
     payload: dict[str, Any] | None,
     *,
     turn_id: str,
-    require_public_progress_note: bool = True,
-    require_public_action_state: bool = True,
-    public_response_required: bool = False,
+    require_public_progress_note: bool = False,
+    require_public_action_state: bool = False,
+    public_feedback_expected: bool = False,
     allowed_action_types: tuple[str, ...] | set[str] | None = None,
 ) -> tuple[TaskExecutionModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
@@ -341,7 +333,7 @@ def task_execution_action_request_from_payload(
         turn_id=turn_id,
         require_public_progress_note=require_public_progress_note,
         require_public_action_state=require_public_action_state,
-        public_response_required=public_response_required,
+        public_feedback_expected=public_feedback_expected,
         allowed_action_types=tuple(allowed_action_types or ("respond", "ask_user", "tool_call", "block")),
     )
     if forbidden_errors:
@@ -410,26 +402,91 @@ def _public_progress_note(value: Any) -> str:
     return text[:160].rstrip()
 
 
-def _normalize_recovery_resume(value: dict[str, Any]) -> dict[str, Any]:
+def _normalized_final_action_diagnostics(
+    raw: dict[str, Any],
+    *,
+    raw_diagnostics: dict[str, Any],
+    action_type: str,
+) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    diagnostics: dict[str, Any] = {}
+    existing = raw_diagnostics.get("final_action_diagnostics")
+    if isinstance(existing, dict):
+        diagnostics.update(dict(existing))
+    elif _has_non_empty_value(existing):
+        errors.append("final_action_diagnostics_must_be_object")
+
+    structured_output, structured_errors = _machine_output_object_from_payload(
+        raw,
+        object_key="structured_output",
+        json_key="structured_output_json",
+    )
+    errors.extend(structured_errors)
+    node_output, node_errors = _machine_output_object_from_payload(
+        raw,
+        object_key="node_output",
+        json_key="node_output_json",
+    )
+    errors.extend(node_errors)
+
+    if diagnostics or structured_output or node_output:
+        if action_type != "respond":
+            errors.append("structured_output_only_allowed_for_respond")
+        if structured_output:
+            diagnostics["structured_output"] = structured_output
+        if node_output:
+            diagnostics["node_output"] = node_output
+        structured_diagnostic = diagnostics.get("structured_output")
+        node_diagnostic = diagnostics.get("node_output")
+        if isinstance(structured_diagnostic, dict) and not isinstance(node_diagnostic, dict):
+            diagnostics["node_output"] = dict(structured_diagnostic)
+        if isinstance(node_diagnostic, dict) and not isinstance(structured_diagnostic, dict):
+            diagnostics["structured_output"] = dict(node_diagnostic)
+    return diagnostics, errors
+
+
+def _machine_output_object_from_payload(
+    raw: dict[str, Any],
+    *,
+    object_key: str,
+    json_key: str,
+) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    value = raw.get(object_key)
+    if isinstance(value, dict):
+        return dict(value), []
+    if _has_non_empty_value(value):
+        errors.append(f"{object_key}_must_be_object")
+    text = str(raw.get(json_key) or "").strip()
+    if not text:
+        return {}, errors
+    try:
+        decoded = json.loads(text)
+    except Exception:
+        errors.append(f"{json_key}_must_be_valid_json_object")
+        return {}, errors
+    if not isinstance(decoded, dict):
+        errors.append(f"{json_key}_must_decode_to_object")
+        return {}, errors
+    return dict(decoded), errors
+
+
+def _normalize_active_work_control_payload(value: dict[str, Any]) -> dict[str, Any]:
     payload = dict(value or {})
-    work_ref = str(
-        payload.get("work_ref")
-        or payload.get("recoverable_work_ref")
-        or payload.get("task_ref")
-        or payload.get("task_run_id")
-        or ""
-    ).strip()
-    resume_ref = str(
-        payload.get("resume_ref")
-        or payload.get("continuation_ref")
-        or payload.get("continuation_id")
-        or ""
-    ).strip()
-    if work_ref and not str(payload.get("task_run_id") or "").strip():
-        payload["task_run_id"] = work_ref
-    if resume_ref and not str(payload.get("continuation_id") or "").strip():
-        payload["continuation_id"] = resume_ref
-    return payload
+    normalized = {
+        **payload,
+        "action": str(payload.get("action") or "").strip(),
+        "appended_instruction": str(
+            payload.get("appended_instruction")
+            or payload.get("instruction")
+            or ""
+        ).strip(),
+        "response": str(payload.get("response") or payload.get("answer") or "").strip(),
+        "reason": str(payload.get("reason") or "").strip(),
+    }
+    normalized.pop("instruction", None)
+    normalized.pop("answer", None)
+    return _drop_empty_payload(normalized)
 
 
 _REQUEST_TASK_RUN_SYSTEM_SETTING_FIELDS = (
@@ -470,17 +527,17 @@ _REQUEST_TASK_RUN_TOP_LEVEL_CONTRACT_FIELDS = (
 )
 
 
-def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
-    payload, layer_errors = _seed_with_layered_contract_aliases(dict(seed or {}))
+def _normalize_task_run_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[str], tuple[str, ...]]:
+    payload = dict(seed or {})
     errors: list[str] = []
-    errors.extend(layer_errors)
+    errors.extend(_legacy_task_run_contract_seed_errors(payload))
     gaps: list[str] = []
+    if _is_compact_task_start_intent(payload):
+        payload, compact_errors = _normalize_compact_task_start_intent(payload)
+        errors.extend(compact_errors)
+        return payload, errors, gaps, ()
     if "container_contract" not in payload and "work_modes" not in payload:
-        if _is_compact_task_start_intent(payload):
-            payload, compact_errors = _compact_task_start_intent_to_task_run_contract_seed(payload)
-            errors.extend(compact_errors)
-        else:
-            payload = _legacy_seed_to_task_run_contract_seed(payload)
+        errors.append("task_run_contract_seed_requires_container_contract_and_work_modes_or_compact_task_start_intent")
     for legacy_key in ("resource_contract", "selected_skill_ids"):
         if _has_non_empty_value(payload.get(legacy_key)):
             errors.append(f"legacy_task_run_contract_field_not_allowed:{legacy_key}")
@@ -499,8 +556,6 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     if not primary_ref and len(primary_modes) == 1:
         primary_ref = str(primary_modes[0].get("mode_instance_id") or "").strip()
         container_contract["primary_work_mode_ref"] = primary_ref
-    if not str(container_contract.get("entry_reason") or "").strip():
-        errors.append("container_contract.entry_reason_required_for_request_task_run")
     if not str(container_contract.get("minimum_viable_next_step") or "").strip():
         errors.append("container_contract.minimum_viable_next_step_required_for_request_task_run")
     if len(primary_modes) != 1:
@@ -521,7 +576,7 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     if not str(acceptance_contract.get("acceptance_mode") or "").strip():
         errors.append("acceptance_contract.acceptance_mode_required_for_request_task_run")
     payload = {
-        "contract_version": str(payload.get("contract_version") or "task_run_contract_v1"),
+        "contract_id": str(payload.get("contract_id") or "task_run_contract"),
         "container_contract": _drop_empty_payload(
             {
                 **container_contract,
@@ -531,7 +586,7 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
                 "checkpoint_required": container_contract.get("checkpoint_required") is not False,
                 "supporting_mode_refs": list(_string_tuple(container_contract.get("supporting_mode_refs"))),
                 "mode_transition_policy": dict(container_contract.get("mode_transition_policy") or {"agent_may_propose_transition": True, "system_may_infer_transition": False, "requires_accepted_event": True}),
-                "authority": "task_run_contract_v1",
+                "authority": "task_run_contract",
             }
         ),
         "work_modes": work_modes,
@@ -544,13 +599,26 @@ def _normalize_task_contract_seed(seed: dict[str, Any]) -> tuple[dict[str, Any],
     return payload, errors, gaps, ()
 
 
+def _legacy_task_run_contract_seed_errors(seed: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if _has_non_empty_value(dict(seed or {}).get("contract_version")):
+        errors.append("legacy_task_run_contract_field_not_allowed:contract_version")
+    for key in ("goal_contract", "plan_contract", "environment_contract"):
+        if _has_non_empty_value(dict(seed or {}).get(key)):
+            errors.append(f"legacy_task_run_contract_field_not_allowed:{key}")
+    for key in _REQUEST_TASK_RUN_LEGACY_SEED_TEXT_FIELDS:
+        if _has_non_empty_value(dict(seed or {}).get(key)):
+            errors.append(f"legacy_task_run_contract_field_not_allowed:{key}")
+    return errors
+
+
 def _is_compact_task_start_intent(seed: dict[str, Any]) -> bool:
     payload = dict(seed or {})
-    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent_v1":
+    if str(payload.get("contract_shape") or "").strip() == "compact_task_start_intent":
         return True
     compact_keys = {
-        "entry_reason",
         "primary_mode",
+        "task_shape",
         "minimum_viable_next_step",
         "working_scope",
         "acceptance",
@@ -561,19 +629,20 @@ def _is_compact_task_start_intent(seed: dict[str, Any]) -> bool:
     )
 
 
-def _compact_task_start_intent_to_task_run_contract_seed(
-    seed: dict[str, Any],
-) -> tuple[dict[str, Any], list[str]]:
+def _normalize_compact_task_start_intent(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     payload = dict(seed or {})
     errors: list[str] = []
+    contract_shape = str(payload.get("contract_shape") or "").strip() or "compact_task_start_intent"
+    if contract_shape != "compact_task_start_intent":
+        errors.append(f"compact_task_start_intent.contract_shape_unsupported:{contract_shape}")
     primary_mode = str(payload.get("primary_mode") or "").strip()
-    if primary_mode not in {"goal", "plan", "todo", "investigation", "recovery", "monitor", "open_work"}:
+    if primary_mode not in TASK_START_PRIMARY_MODES:
         errors.append(f"compact_task_start_intent.primary_mode_unsupported:{primary_mode}")
-        primary_mode = "open_work"
-    entry_reason = _public_progress_note(payload.get("entry_reason"))
+    task_shape = str(payload.get("task_shape") or "standard").strip() or "standard"
+    if task_shape not in TASK_RESOURCE_SHAPES:
+        errors.append(f"compact_task_start_intent.task_shape_unsupported:{task_shape}")
+        task_shape = "standard"
     minimum_next_step = _public_progress_note(payload.get("minimum_viable_next_step"))
-    if not entry_reason:
-        errors.append("compact_task_start_intent.entry_reason_required")
     if not minimum_next_step:
         errors.append("compact_task_start_intent.minimum_viable_next_step_required")
     if not isinstance(payload.get("working_scope"), dict):
@@ -586,250 +655,41 @@ def _compact_task_start_intent_to_task_run_contract_seed(
     if not acceptance_mode:
         errors.append("compact_task_start_intent.acceptance_mode_required")
     mode_payload = dict(payload.get("mode_payload") or {}) if isinstance(payload.get("mode_payload"), dict) else {}
-    mode_instance_id = f"work-mode:{primary_mode}:primary"
-    primary_contract = _compact_primary_work_mode_contract(
-        mode_kind=primary_mode,
-        mode_payload=mode_payload,
-        working_scope=working_scope,
-        entry_reason=entry_reason,
-        minimum_viable_next_step=minimum_next_step,
-    )
-    return (
+    normalized = _drop_empty_payload(
         {
-            "contract_version": "task_run_contract_v1",
-            "container_contract": {
-                "entry_reason": entry_reason,
-                "continuity_required": True,
-                "control_required": True,
-                "projection_required": True,
-                "checkpoint_required": True,
-                "minimum_viable_next_step": minimum_next_step,
-                "primary_work_mode_ref": mode_instance_id,
-                "supporting_mode_refs": [],
-                "mode_transition_policy": {
-                    "agent_may_propose_transition": True,
-                    "system_may_infer_transition": False,
-                    "requires_accepted_event": True,
-                },
-            },
-            "work_modes": [
-                {
-                    "mode_instance_id": mode_instance_id,
-                    "mode_kind": primary_mode,
-                    "mode_role": "primary",
-                    "status": "draft",
-                    "depends_on_mode_refs": [],
-                    "contract": primary_contract,
-                }
-            ],
-            "lifecycle_contract": {
-                "pause_policy": {
-                    "allowed": True,
-                    "state_to_preserve": [
-                        "container_contract",
-                        "active_work_mode_refs",
-                        "completed_steps",
-                        "open_risks",
-                        "next_resume_step",
-                    ],
-                },
-                "resume_policy": {"resume_from": "latest_preserved_state_and_user_steer"},
-                "stop_policy": {"on_stop": "停止后说明已完成内容、未完成内容和可恢复状态。"},
-                "replan_policy": {"when": "目标、风险、证据或验证结果显著偏离原计划时先反馈。"},
-                "failure_recovery_policy": {"on_tool_failure": "说明失败原因、保留已完成证据并停止或请求用户裁决。"},
-                "terminal_policy": {"final_report_required": True, "include_unfinished_work": True},
-            },
-            "feedback_contract": {
-                "feedback_sources": [
-                    "tool_observation",
-                    "runtime_observation",
-                    "user_steer",
-                    "lifecycle_signal",
-                    "verification_signal",
-                    "recovery_signal",
-                ],
-                "verification_feedback_policy": {"report_failed_verification": True},
-            },
-            "memory_contract": {
-                "preserve_on_pause": [
-                    "container_contract",
-                    "active_work_mode_refs",
-                    "completed_steps",
-                    "open_risks",
-                    "next_resume_step",
-                ],
-                "preserve_on_stop": ["final_status", "unfinished_work", "resume_hint"],
-            },
-            "acceptance_contract": {
-                "acceptance_mode": acceptance_mode or "checkpoint",
-                "completion_criteria": list(_string_tuple(acceptance.get("criteria"))),
-                "final_answer_requirements": list(_string_tuple(acceptance.get("final_answer_requirements"))),
-                "evidence_refs_required": True,
-            },
-            "runtime_requirements": {
-                "permission_requirements": {},
-                "resource_requirements": {},
-                "safety_boundaries": list(_string_tuple(payload.get("safety_boundaries"))),
-            },
-        },
-        errors,
-    )
-
-
-def _compact_primary_work_mode_contract(
-    *,
-    mode_kind: str,
-    mode_payload: dict[str, Any],
-    working_scope: dict[str, Any],
-    entry_reason: str,
-    minimum_viable_next_step: str,
-) -> dict[str, Any]:
-    summary = _public_progress_note(mode_payload.get("summary")) or entry_reason or minimum_viable_next_step
-    steps = list(_string_tuple(mode_payload.get("steps")))
-    notes = list(_string_tuple(mode_payload.get("notes")))
-    if mode_kind == "goal":
-        return _drop_empty_payload(
-            {
-                "user_visible_goal": summary,
-                "task_run_goal": summary,
-                "success_definition": _public_progress_note(mode_payload.get("success_definition")) or minimum_viable_next_step,
-                "completion_evidence": notes,
-                "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "plan":
-        return _drop_empty_payload(
-            {
-                "strategy_summary": summary,
-                "major_steps": steps or [minimum_viable_next_step],
-                "plan_status": "agent_managed",
-                "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "todo":
-        items = [
-            {"todo_id": f"todo:{index + 1}", "content": str(item)}
-            for index, item in enumerate(list(_string_tuple(mode_payload.get("items"))) or steps or [minimum_viable_next_step])
-        ]
-        return _drop_empty_payload(
-            {
-                "items": items,
-                "completion_policy": "checkpoint_only",
-                "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "investigation":
-        return _drop_empty_payload(
-            {
-                "problem_statement": _public_progress_note(mode_payload.get("question")) or summary,
-                "question": _public_progress_note(mode_payload.get("question")) or summary,
-                "initial_steps": steps or [minimum_viable_next_step],
-                "working_scope": working_scope,
-                "notes": notes,
-            }
-        )
-    if mode_kind == "recovery":
-        return _drop_empty_payload(
-            {
-                "recovery_handle": str(mode_payload.get("recovery_handle") or "").strip() or summary,
-                "previous_state": summary,
-                "next_resume_step": minimum_viable_next_step,
-                "working_scope": working_scope,
-            }
-        )
-    if mode_kind == "monitor":
-        return _drop_empty_payload(
-            {
-                "monitor_target": str(mode_payload.get("monitor_target") or "").strip() or summary,
-                "trigger_conditions": steps or [minimum_viable_next_step],
-                "working_scope": working_scope,
-            }
-        )
-    return _drop_empty_payload(
-        {
-            "summary": summary,
-            "next_step": minimum_viable_next_step,
-            "steps": steps,
-            "notes": notes,
+            "contract_shape": "compact_task_start_intent",
+            "primary_mode": primary_mode,
+            "task_shape": task_shape,
+            "minimum_viable_next_step": minimum_next_step,
             "working_scope": working_scope,
+            "acceptance": _drop_empty_payload(
+                {
+                    "mode": acceptance_mode,
+                    "criteria": list(_string_tuple(acceptance.get("criteria"))),
+                    "final_answer_requirements": list(
+                        _string_tuple(acceptance.get("final_answer_requirements"))
+                    ),
+                }
+            ),
+            "mode_payload": _drop_empty_payload(
+                {
+                    "summary": _public_progress_note(mode_payload.get("summary")),
+                    "steps": list(_string_tuple(mode_payload.get("steps"))),
+                    "success_definition": _public_progress_note(mode_payload.get("success_definition")),
+                    "notes": list(_string_tuple(mode_payload.get("notes"))),
+                }
+            ),
+            "safety_boundaries": list(_string_tuple(payload.get("safety_boundaries"))),
         }
     )
-
-
-def _seed_with_layered_contract_aliases(seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    payload = dict(seed or {})
-    errors: list[str] = []
-    layers: dict[str, dict[str, Any]] = {}
-    for key in _REQUEST_TASK_RUN_LEGACY_LAYER_FIELDS:
-        value = payload.get(key)
-        if value is None:
-            layers[key] = {}
-            continue
-        if not isinstance(value, dict):
-            errors.append(f"{key}_must_be_object")
-            payload[key] = {}
-            layers[key] = {}
-            continue
-        layers[key] = dict(value)
-
-    goal = layers["goal_contract"]
-    if "user_visible_goal" not in payload and _has_non_empty_value(goal.get("user_visible_goal")):
-        payload["user_visible_goal"] = goal.get("user_visible_goal")
-    if "task_run_goal" not in payload:
-        task_goal = goal.get("task_run_goal") or goal.get("agent_goal")
-        if _has_non_empty_value(task_goal):
-            payload["task_run_goal"] = task_goal
-
-    environment = layers["environment_contract"]
-    for key in ("working_scope", "permission_requirements"):
-        if key not in payload and isinstance(environment.get(key), dict):
-            payload[key] = dict(environment.get(key) or {})
-    for key in ("capability_intent", "skill_intent"):
-        if _has_non_empty_value(environment.get(key)):
-            errors.append(f"system_execution_field_not_allowed_in_task_run_contract:environment_contract.{key}")
-
-    feedback = layers["feedback_contract"]
-    for key in ("observation_policy", "observation_contract"):
-        if _has_non_empty_value(feedback.get(key)):
-            errors.append(f"system_execution_field_not_allowed_in_task_run_contract:feedback_contract.{key}")
-
-    acceptance = layers["acceptance_contract"]
-    for key in _REQUEST_TASK_RUN_SEED_COMPLETION_FIELDS:
-        if key not in payload and _has_non_empty_value(acceptance.get(key)):
-            payload[key] = acceptance.get(key)
-
-    plan = layers["plan_contract"]
-    if "plan_ref" not in payload and _has_non_empty_value(plan.get("plan_id")):
-        payload["plan_ref"] = plan.get("plan_id")
-    return payload, errors
-
-
-def _normalized_goal_contract(seed: dict[str, Any]) -> dict[str, Any]:
-    raw = dict(seed.get("goal_contract") or {})
-    payload = {
-        "user_visible_goal": str(seed.get("user_visible_goal") or raw.get("user_visible_goal") or "").strip(),
-        "task_run_goal": str(seed.get("task_run_goal") or raw.get("task_run_goal") or raw.get("agent_goal") or "").strip(),
-        "non_goals": list(_string_tuple(raw.get("non_goals") or seed.get("non_goals"))),
-        "success_definition": _public_progress_note(raw.get("success_definition") or seed.get("success_definition")),
-        "completion_evidence": list(_string_tuple(raw.get("completion_evidence") or seed.get("completion_evidence"))),
-        "authority": "harness.loop.model_action_protocol.goal_contract",
-    }
-    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
-
-
-def _normalized_plan_contract(seed: dict[str, Any]) -> dict[str, Any]:
-    raw = dict(seed.get("plan_contract") or {})
-    payload = {
-        "plan_id": str(raw.get("plan_id") or seed.get("plan_ref") or seed.get("external_plan_ref") or "").strip(),
-        "plan_version": str(raw.get("plan_version") or "").strip(),
-        "plan_status": str(raw.get("plan_status") or raw.get("approval_state") or "agent_managed").strip(),
-        "strategy_summary": _public_progress_note(raw.get("strategy_summary")),
-        "major_steps": list(_string_tuple(raw.get("major_steps") or raw.get("steps"))),
-        "allowed_plan_operations": list(_string_tuple(raw.get("allowed_plan_operations") or raw.get("allowed_operations"))),
-        "replan_policy": dict(raw.get("replan_policy") or {}) if isinstance(raw.get("replan_policy"), dict) else {},
-        "authority": "harness.loop.model_action_protocol.plan_contract",
-    }
-    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+    if isinstance(payload.get("todo_tool_contract"), dict):
+        normalized["todo_tool_contract"] = _drop_empty_payload(
+            {
+                "todo_is_tool": payload["todo_tool_contract"].get("todo_is_tool") is True,
+                "cursor_updates": list(_string_tuple(payload["todo_tool_contract"].get("cursor_updates"))),
+            }
+        )
+    return normalized, errors
 
 
 def _normalized_lifecycle_contract(seed: dict[str, Any]) -> dict[str, Any]:
@@ -947,7 +807,7 @@ def _normalized_work_modes(value: Any) -> tuple[list[dict[str, Any]], list[str]]
         mode_instance_id = str(item.get("mode_instance_id") or f"work-mode:{mode_kind or 'unknown'}:{index + 1}").strip()
         if not mode_kind:
             errors.append(f"work_modes[{index}].mode_kind_required")
-        elif mode_kind not in {"goal", "plan", "todo", "investigation", "recovery", "monitor", "open_work"}:
+        elif mode_kind not in TASK_START_PRIMARY_MODES:
             errors.append(f"work_modes[{index}].mode_kind_unsupported:{mode_kind}")
         if mode_role not in {"primary", "supporting"}:
             errors.append(f"work_modes[{index}].mode_role_required")
@@ -1065,85 +925,6 @@ def _primary_work_mode_contract_errors(mode: dict[str, Any]) -> list[str]:
             errors.append("primary_open_work_mode.contract_required_for_request_task_run")
         return errors
     return errors
-
-
-def _legacy_seed_to_task_run_contract_seed(seed: dict[str, Any]) -> dict[str, Any]:
-    goal_contract = _normalized_goal_contract(seed)
-    plan_contract = _normalized_plan_contract(seed)
-    acceptance_contract = _normalized_acceptance_contract(seed)
-    working_scope = _normalize_working_scope(dict(seed.get("working_scope") or {}))
-    primary_mode = "goal"
-    primary_contract: dict[str, Any] = {
-        "user_visible_goal": goal_contract.get("user_visible_goal") or seed.get("user_visible_goal") or "",
-        "task_run_goal": goal_contract.get("task_run_goal") or seed.get("task_run_goal") or "",
-        "success_definition": goal_contract.get("success_definition") or "",
-        "non_goals": list(goal_contract.get("non_goals") or []),
-        "completion_evidence": list(goal_contract.get("completion_evidence") or []),
-        "working_scope": working_scope,
-    }
-    if not _has_non_empty_value(primary_contract.get("user_visible_goal") or primary_contract.get("task_run_goal") or primary_contract.get("success_definition")) and plan_contract:
-        primary_mode = "plan"
-        primary_contract = {
-            "strategy_summary": plan_contract.get("strategy_summary") or "",
-            "major_steps": list(plan_contract.get("major_steps") or []),
-            "plan_status": plan_contract.get("plan_status") or "agent_managed",
-            "replan_policy": dict(plan_contract.get("replan_policy") or {}),
-            "working_scope": working_scope,
-        }
-    work_modes = [
-        {
-            "mode_instance_id": f"work-mode:{primary_mode}:primary",
-            "mode_kind": primary_mode,
-            "mode_role": "primary",
-            "status": "draft",
-            "depends_on_mode_refs": [],
-            "contract": primary_contract,
-        }
-    ]
-    if primary_mode != "plan" and plan_contract:
-        work_modes.append(
-            {
-                "mode_instance_id": "work-mode:plan:supporting",
-                "mode_kind": "plan",
-                "mode_role": "supporting",
-                "status": "draft",
-                "depends_on_mode_refs": ["work-mode:goal:primary"],
-                "contract": {
-                    "strategy_summary": plan_contract.get("strategy_summary") or "",
-                    "major_steps": list(plan_contract.get("major_steps") or []),
-                    "plan_status": plan_contract.get("plan_status") or "agent_managed",
-                    "replan_policy": dict(plan_contract.get("replan_policy") or {}),
-                    "working_scope": working_scope,
-                },
-            }
-        )
-    return {
-        "contract_version": "task_run_contract_v1",
-        "container_contract": {
-            "entry_reason": str(seed.get("entry_reason") or "当前工作需要持续任务生命周期。").strip(),
-            "continuity_required": True,
-            "control_required": True,
-            "projection_required": True,
-            "checkpoint_required": True,
-            "minimum_viable_next_step": str(seed.get("minimum_viable_next_step") or "推进当前 primary Work Mode 的下一步。").strip(),
-            "primary_work_mode_ref": f"work-mode:{primary_mode}:primary",
-            "supporting_mode_refs": [str(item.get("mode_instance_id") or "") for item in work_modes[1:]],
-            "mode_transition_policy": {"agent_may_propose_transition": True, "system_may_infer_transition": False, "requires_accepted_event": True},
-        },
-        "work_modes": work_modes,
-        "lifecycle_contract": dict(seed.get("lifecycle_contract") or {}),
-        "feedback_contract": dict(seed.get("feedback_contract") or {}),
-        "memory_contract": dict(seed.get("memory_contract") or {}),
-        "acceptance_contract": {
-            **acceptance_contract,
-            "acceptance_mode": acceptance_contract.get("acceptance_mode") or "checkpoint",
-        },
-        "runtime_requirements": {
-            "permission_requirements": dict(seed.get("permission_requirements") or {}),
-            "resource_requirements": {},
-            "safety_boundaries": list(_string_tuple(seed.get("safety_boundaries"))),
-        },
-    }
 
 
 def _request_task_run_contract_boundary_errors(
@@ -1278,14 +1059,12 @@ _TASK_LIFECYCLE_CLAIM_PHRASES = (
     "我将开启一个长任务",
     "让我开启一个长任务",
     "准备开启一个长任务",
-    "我会申请进入持续任务",
-    "我要申请进入持续任务",
-    "我将申请进入持续任务",
-    "申请进入持续任务",
-    "进入持续任务生命周期",
-    "启动持续任务生命周期",
-    "开启持续任务生命周期",
-    "创建持续任务",
+    "我会申请长任务资源",
+    "我要申请长任务资源",
+    "我将申请长任务资源",
+    "申请长任务资源",
+    "绑定长任务资源",
+    "创建长任务资源",
     "创建 task",
     "start task",
     "start a task",
@@ -1308,7 +1087,7 @@ def _public_feedback_claims_task_lifecycle(
     normalized = " ".join(" ".join(str(text or "").split()).lower() for text in texts if str(text or "").strip())
     if not normalized:
         return False
-    if any(phrase in normalized for phrase in ("不进入持续任务", "不开启长任务", "不启动长任务", "不创建 task")):
+    if any(phrase in normalized for phrase in ("不申请长任务资源", "不开启长任务", "不启动长任务", "不创建 task")):
         return False
     return any(phrase.lower() in normalized for phrase in _TASK_LIFECYCLE_CLAIM_PHRASES)
 

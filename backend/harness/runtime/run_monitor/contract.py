@@ -6,7 +6,9 @@ from typing import Any
 from .lifecycle import GLOBAL_MONITOR_BUCKETS
 
 
-MONITOR_AUTHORITY = "harness.run_monitor.v1"
+MONITOR_AUTHORITY = "harness.run_monitor"
+MONITOR_ITEM_AUTHORITY = "harness.run_monitor.item"
+MONITOR_SESSION_TASK_SUMMARY_AUTHORITY = "harness.run_monitor.session_task_summary"
 
 
 def monitor_revision(items: list[dict[str, Any]], *, now: float) -> str:
@@ -65,11 +67,11 @@ def build_envelope(
     return payload
 
 
-def build_task_detail_envelope(*, item: dict[str, Any], now: float) -> dict[str, Any]:
+def build_task_detail_envelope(*, item: dict[str, Any], now: float, scope: str = "task_run") -> dict[str, Any]:
     return {
         **item,
         "authority": MONITOR_AUTHORITY,
-        "scope": "task_run",
+        "scope": str(scope or "task_run"),
         "revision": monitor_revision([item], now=now),
         "updated_at": float(now),
     }
@@ -141,4 +143,3 @@ def _navigation_scope(session_scope: dict[str, Any] | None) -> dict[str, str]:
     if project_id:
         payload["project_id"] = project_id
     return payload
-

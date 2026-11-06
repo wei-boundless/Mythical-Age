@@ -15,6 +15,18 @@ import { WorkspaceRuntime } from "@/lib/store/runtime";
 import type { AppStore, StoreActions, StoreState } from "@/lib/store/types";
 import { buildEditableFiles } from "@/lib/store/utils";
 
+const INITIAL_WORKSPACE_VIEWS: ReadonlySet<StoreState["activeWorkspaceView"]> = new Set([
+  "chat",
+  "creative",
+  "graph-repository",
+  "memory",
+  "health-system",
+  "capability-system",
+  "task-system",
+  "agent-system",
+  "system-config",
+]);
+
 type StoreContextValue = {
   runtime: WorkspaceRuntime;
   store: Store<StoreState>;
@@ -22,8 +34,18 @@ type StoreContextValue = {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
+function initialWorkspaceViewFromLocation(): StoreState["activeWorkspaceView"] {
+  if (typeof window === "undefined") {
+    return "chat";
+  }
+  const view = new URLSearchParams(window.location.search).get("view") as StoreState["activeWorkspaceView"] | null;
+  return view && INITIAL_WORKSPACE_VIEWS.has(view) ? view : "chat";
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [store] = useState(() => createStore(getDefaultState()));
+  const [store] = useState(() => createStore(getDefaultState({
+    activeWorkspaceView: initialWorkspaceViewFromLocation(),
+  })));
   const [runtime] = useState(() => new WorkspaceRuntime(store));
 
   useEffect(() => {
@@ -31,7 +53,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void runtime.initialize()
       .then(() => {
         if (cancelled) return;
-        runtime.startRunMonitor();
+        if (store.getState().activeWorkspaceView === "chat") {
+          runtime.startRunMonitor();
+        }
       })
       .catch(() => undefined);
     return () => {

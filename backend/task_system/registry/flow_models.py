@@ -58,7 +58,7 @@ class TaskAssignment:
     flow_id: str
     domain_id: str = ""
     task_environment_id: str = ""
-    default_agent_id: str = "agent:0"
+    default_agent_id: str = ""
     participant_agent_ids: tuple[str, ...] = ()
     workflow_id: str = ""
     workflow_file_ref: str = ""
@@ -143,7 +143,7 @@ class TaskExecutionPolicy:
     policy_id: str
     task_id: str
     execution_mode: str
-    default_agent_id: str = "agent:0"
+    default_agent_id: str = ""
     allow_worker_agent_spawn: bool = False
     worker_agent_blueprint_id: str = ""
     worker_agent_naming_rule: str = ""
@@ -333,6 +333,5 @@ class AgentTaskConnectionProfile:
         ):
             payload[key] = list(payload[key])
         return payload
-
 
 

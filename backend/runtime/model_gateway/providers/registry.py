@@ -21,7 +21,11 @@ def provider_capabilities_for(*, provider: str, model: str) -> ProviderCapabilit
     normalized_provider = str(provider or "").strip().lower()
     normalized_model = str(model or "").strip().lower().split("/")[-1]
     if normalized_provider == "deepseek":
-        is_deepseek_v4 = normalized_model in {"deepseek-v4-pro", "deepseek-v4-flash"}
+        is_deepseek_v4 = normalized_model in {
+            "deepseek-flash",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+        }
         context_presets = ("deepseek_1m", "long_128k", "standard") if is_deepseek_v4 else ("long_128k", "standard")
         return ProviderCapabilityProfile(
             provider=normalized_provider,

@@ -1,0 +1,721 @@
+.agent-network-page {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--console-bg) 92%, white), var(--console-bg));
+  color: var(--console-text);
+  padding: 20px;
+}
+
+.agent-network-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 auto 14px;
+  max-width: 1680px;
+}
+
+.agent-network-header h1 {
+  margin: 2px 0 0;
+  color: var(--console-text);
+  font-size: 24px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+
+.agent-network-header span,
+.agent-network-panel-head span,
+.agent-network-detail dt,
+.agent-network-node span,
+.agent-network-node small,
+.agent-network-edge-row small,
+.agent-network-supplement label span,
+.agent-network-local-note {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.agent-network-header nav {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-network-header button,
+.agent-network-primary,
+.agent-network-branch,
+.agent-network-edge-row {
+  cursor: pointer;
+}
+
+.agent-network-header button,
+.agent-network-primary,
+.agent-network-session-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  font-size: 13px;
+  font-weight: 650;
+  padding: 0 12px;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.agent-network-header button:hover,
+.agent-network-primary:hover,
+.agent-network-session-form button:hover {
+  border-color: color-mix(in srgb, var(--console-accent) 38%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 9%, var(--console-surface));
+}
+
+.agent-network-session-form button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.agent-network-status-strip,
+.agent-network-error {
+  display: grid;
+  gap: 8px;
+  max-width: 1680px;
+  margin: 0 auto 12px;
+}
+
+.agent-network-status-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.agent-network-status-strip div,
+.agent-network-error {
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-surface) 94%, var(--console-bg));
+  padding: 10px 12px;
+}
+
+.agent-network-status-strip div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 0.65fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-network-status-strip svg,
+.agent-network-error svg {
+  color: var(--console-accent);
+}
+
+.agent-network-status-strip span {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.agent-network-status-strip strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-error {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  border-color: color-mix(in srgb, var(--console-danger) 38%, var(--console-line));
+  color: var(--console-text);
+}
+
+.agent-network-error svg {
+  color: var(--console-danger);
+}
+
+.agent-network-workbench {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.24fr) minmax(560px, 1fr) minmax(320px, 0.31fr);
+  gap: 12px;
+  max-width: 1680px;
+  min-height: calc(100vh - 104px);
+  margin: 0 auto;
+}
+
+.agent-network-rail,
+.agent-network-canvas,
+.agent-network-inspector {
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-surface) 94%, var(--console-bg));
+}
+
+.agent-network-rail,
+.agent-network-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.agent-network-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-network-panel-head svg {
+  flex: 0 0 auto;
+  color: var(--console-accent);
+}
+
+.agent-network-panel-head div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.agent-network-panel-head strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-panel-head--compact {
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.agent-network-branch-list,
+.agent-network-edge-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.agent-network-edge-list {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.agent-network-branch,
+.agent-network-edge-row {
+  display: grid;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--console-text);
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.agent-network-branch {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.agent-network-branch svg {
+  color: var(--console-muted);
+}
+
+.agent-network-branch span,
+.agent-network-edge-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-branch:hover,
+.agent-network-edge-row:hover,
+.agent-network-branch--active,
+.agent-network-edge-row--active {
+  border-color: color-mix(in srgb, var(--console-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--console-accent) 10%, var(--console-surface));
+}
+
+.agent-network-edge-row--missing_status,
+.agent-network-edge-row--disconnected,
+.agent-network-edge-row--broken {
+  border-color: color-mix(in srgb, var(--console-danger) 34%, transparent);
+  background: color-mix(in srgb, var(--console-danger) 7%, transparent);
+}
+
+.agent-network-edge-row {
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.agent-network-edge-row span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.agent-network-canvas {
+  position: relative;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.agent-network-map {
+  position: relative;
+  min-height: calc(100vh - 132px);
+  overflow: hidden;
+  border-radius: 8px;
+  background:
+    linear-gradient(var(--console-line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--console-line-soft) 1px, transparent 1px),
+    color-mix(in srgb, var(--console-bg-raised) 70%, var(--console-surface));
+  background-size: 32px 32px;
+}
+
+.agent-network-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.agent-network-lines marker path {
+  fill: color-mix(in srgb, var(--console-accent) 62%, var(--console-muted));
+}
+
+.agent-network-line {
+  stroke: color-mix(in srgb, var(--console-accent) 50%, var(--console-muted));
+  stroke-linecap: round;
+  stroke-width: 0.44;
+}
+
+.agent-network-line--weak {
+  stroke: color-mix(in srgb, var(--console-warning) 72%, var(--console-muted));
+  stroke-dasharray: 1.2 1.2;
+}
+
+.agent-network-line--planned {
+  stroke: color-mix(in srgb, var(--console-muted) 62%, var(--console-line-strong));
+  stroke-dasharray: 0.8 1.4;
+}
+
+.agent-network-line--missing_status,
+.agent-network-line--disconnected,
+.agent-network-line--broken {
+  stroke: color-mix(in srgb, var(--console-danger) 72%, var(--console-muted));
+  stroke-dasharray: 1 1.3;
+}
+
+.agent-network-node {
+  position: absolute;
+  display: block;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--console-line) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--console-surface) 96%, var(--console-bg));
+  color: var(--console-text);
+  padding: 0;
+  text-align: center;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.agent-network-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-surface) 96%, var(--console-bg));
+  color: var(--console-muted);
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
+.agent-network-node:hover,
+.agent-network-node--selected {
+  border-color: color-mix(in srgb, var(--console-accent) 52%, var(--console-line));
+  background: color-mix(in srgb, var(--console-accent) 8%, var(--console-surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--console-accent) 13%, transparent);
+}
+
+.agent-network-node span,
+.agent-network-node strong,
+.agent-network-node small {
+  display: none;
+}
+
+.agent-network-node::after {
+  position: absolute;
+  inset: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--console-accent) 42%, var(--console-muted));
+  content: "";
+}
+
+.agent-network-node--diagnostic {
+  border-color: color-mix(in srgb, var(--console-warning) 44%, var(--console-line));
+}
+
+.agent-network-node--diagnostic::after {
+  background: color-mix(in srgb, var(--console-warning) 72%, var(--console-muted));
+}
+
+.agent-network-node--ledger,
+.agent-network-node--memory {
+  border-color: color-mix(in srgb, var(--console-success) 34%, var(--console-line));
+}
+
+.agent-network-node--ledger::after,
+.agent-network-node--memory::after {
+  background: color-mix(in srgb, var(--console-success) 54%, var(--console-muted));
+}
+
+.agent-network-node--transport {
+  border-color: color-mix(in srgb, var(--console-accent) 46%, var(--console-line));
+}
+
+.agent-network-detail {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--console-line-soft);
+  padding-top: 10px;
+}
+
+.agent-network-detail h2 {
+  margin: 0;
+  color: var(--console-text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.agent-network-detail p {
+  margin: 0;
+  color: var(--console-text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.agent-network-detail dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.agent-network-detail dl div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.agent-network-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--console-text);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-network-supplement {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--console-line-soft);
+  padding-top: 10px;
+}
+
+.agent-network-supplement label {
+  display: grid;
+  gap: 5px;
+}
+
+.agent-network-supplement input,
+.agent-network-supplement select,
+.agent-network-supplement textarea,
+.agent-network-session-form input,
+.agent-network-note-box textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-bg-raised);
+  color: var(--console-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  padding: 8px 10px;
+}
+
+.agent-network-supplement textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.agent-network-note-box textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.agent-network-supplement input:focus,
+.agent-network-supplement select:focus,
+.agent-network-supplement textarea:focus,
+.agent-network-session-form input:focus,
+.agent-network-note-box textarea:focus {
+  border-color: color-mix(in srgb, var(--console-accent) 52%, var(--console-line));
+}
+
+.agent-network-primary {
+  width: 100%;
+  background: color-mix(in srgb, var(--console-accent) 12%, var(--console-surface));
+}
+
+.agent-network-two-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.agent-network-local-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border-top: 1px solid var(--console-line-soft);
+  margin: 0;
+  padding-top: 10px;
+}
+
+.agent-network-local-note svg {
+  flex: 0 0 auto;
+  color: var(--console-accent);
+  margin-top: 1px;
+}
+
+.agent-network-session-form,
+.agent-network-note-box {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-network-session-form {
+  border-bottom: 1px solid var(--console-line-soft);
+  padding-bottom: 12px;
+}
+
+.agent-network-session-form label,
+.agent-network-note-box {
+  min-width: 0;
+}
+
+.agent-network-session-form label span,
+.agent-network-note-box span,
+.agent-network-runtime-grid span,
+.agent-network-contract-refs dt {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-network-runtime-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  border-top: 1px solid var(--console-line-soft);
+  padding-top: 10px;
+}
+
+.agent-network-runtime-grid div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg-raised) 70%, var(--console-surface));
+  padding: 8px;
+}
+
+.agent-network-runtime-grid strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-contract-refs {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--console-line-soft);
+  padding-top: 10px;
+}
+
+.agent-network-issue-panel {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--console-line-soft);
+  padding-top: 10px;
+}
+
+.agent-network-issue-list {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-network-issue-row,
+.agent-network-issue-empty {
+  min-width: 0;
+  border: 1px solid var(--console-line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg-raised) 64%, transparent);
+  color: var(--console-text);
+  padding: 8px;
+}
+
+.agent-network-issue-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-network-issue-row:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.agent-network-issue-row span {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--console-warning) 18%, var(--console-surface));
+  color: var(--console-text);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+  padding: 2px 6px;
+}
+
+.agent-network-issue-row strong {
+  overflow: hidden;
+  color: var(--console-text);
+  font-size: 12px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-issue-row small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--console-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-issue-row em {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--console-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-network-issue-row:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--console-warning) 34%, var(--console-line));
+  background: color-mix(in srgb, var(--console-warning) 9%, var(--console-surface));
+}
+
+.agent-network-issue-empty {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-network-contract-refs dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.agent-network-contract-refs dl div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--console-bg-raised) 58%, transparent);
+  padding: 7px 8px;
+}
+
+.agent-network-contract-refs dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--console-text);
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1180px) {
+  .agent-network-workbench {
+    grid-template-columns: minmax(220px, 0.3fr) minmax(520px, 1fr);
+  }
+
+  .agent-network-status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-network-inspector {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 820px) {
+  .agent-network-page {
+    padding: 12px;
+  }
+
+  .agent-network-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .agent-network-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-network-canvas {
+    order: -1;
+  }
+
+  .agent-network-status-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-network-map {
+    min-height: 620px;
+  }
+}

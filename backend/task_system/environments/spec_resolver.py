@@ -108,6 +108,7 @@ def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
         "artifact_policy": spec.artifact_policy.to_dict(),
         "execution_policy": spec.execution_policy.to_dict(),
         "risk_policy": spec.risk_policy.to_dict(),
+        "metadata": dict(spec.metadata),
         "boundary_contract": {
             "environment_prompts_source": _environment_prompts_source(spec),
             "environment_prompt_role": "outer_environment_orientation",
@@ -153,4 +154,3 @@ def _environment_prompts_source(spec: TaskEnvironmentSpec) -> str:
     if has_inline:
         return "task_environment_config"
     return "prompt_library"
-

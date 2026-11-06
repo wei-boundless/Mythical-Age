@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from .assembly import PromptAssemblyService
-from .environment_lifecycle_prompts import (
-    ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS,
-    ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT,
-    ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT,
-    ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS,
-    list_builtin_environment_lifecycle_prompt_resources,
+from .descriptor_resolver import PromptDescriptor, PromptDescriptorResolver
+from .environment_guidance_prompts import (
+    ALL_ENVIRONMENT_GUIDANCE_PROMPT_IDS,
+    ENVIRONMENT_GUIDANCE_PROMPT_DEFAULTS_BY_ENVIRONMENT,
+    ENVIRONMENT_GUIDANCE_PROMPT_IDS_BY_ENVIRONMENT,
+    ENVIRONMENT_GUIDANCE_PROMPT_SLOTS,
+    list_builtin_environment_guidance_prompt_resources,
 )
 from .manifest import RuntimePromptManifest, build_runtime_prompt_manifest
 from .models import (
@@ -16,10 +17,28 @@ from .models import (
     PromptRule,
     PromptRuleAssemblyResult,
     PromptResource,
+    PromptResourceOrigin,
     PromptSection,
+    PromptSet,
+    PromptBindingSlot,
+    AgentPromptBinding,
+    RuntimePromptWiringPlan,
+    PromptWiringBinding,
+)
+from .taxonomy import (
+    CONFLICT_POLICIES,
+    CONTRACT_PRIORITIES,
+    CONTRACT_PRIORITY_PRECEDENCE,
+    PROMPT_LAYERS,
+    PROMPT_VISIBILITIES,
+    contract_priority_rank,
+    normalize_conflict_policy,
+    normalize_contract_priority,
+    normalize_prompt_scope,
 )
 from .packs import default_pack_ref_for_invocation, list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 from .personality_prompts import DEFAULT_PERSONALITY_PROMPT_REF, list_builtin_personality_prompt_resources
+from .prompt_sets import list_builtin_prompt_sets
 from .registry import PromptLibraryRegistry
 from .rules import PromptRuleCompiler, list_builtin_prompt_rule_resources
 from .system_prompts import FOUNDATION_PROMPT_REFS, list_builtin_system_prompt_resources
@@ -46,15 +65,20 @@ from .worker_prompts import (
     worker_prompt_metadata_for_blueprint,
     worker_prompt_ref_for_blueprint,
 )
+from .wiring import (
+    CORE_RUNTIME_SCHEMA_REFS,
+    agent_prompt_binding_from_profile,
+    build_runtime_prompt_wiring_plan,
+)
 
 __all__ = [
     "FOUNDATION_PROMPT_REFS",
     "list_builtin_system_prompt_resources",
-    "ALL_ENVIRONMENT_LIFECYCLE_PROMPT_IDS",
-    "ENVIRONMENT_LIFECYCLE_PROMPT_DEFAULTS_BY_ENVIRONMENT",
-    "ENVIRONMENT_LIFECYCLE_PROMPT_IDS_BY_ENVIRONMENT",
-    "ENVIRONMENT_LIFECYCLE_PROMPT_SLOTS",
-    "list_builtin_environment_lifecycle_prompt_resources",
+    "ALL_ENVIRONMENT_GUIDANCE_PROMPT_IDS",
+    "ENVIRONMENT_GUIDANCE_PROMPT_DEFAULTS_BY_ENVIRONMENT",
+    "ENVIRONMENT_GUIDANCE_PROMPT_IDS_BY_ENVIRONMENT",
+    "ENVIRONMENT_GUIDANCE_PROMPT_SLOTS",
+    "list_builtin_environment_guidance_prompt_resources",
     "list_builtin_tool_prompt_resources",
     "tool_guidance_payload_for_visible_tools",
     "StrategyPrototype",
@@ -82,9 +106,12 @@ __all__ = [
     "list_builtin_runtime_prompt_resources",
     "list_builtin_prompt_rule_resources",
     "list_builtin_prompt_packs",
+    "list_builtin_prompt_sets",
     "default_pack_ref_for_invocation",
     "PromptLibraryRegistry",
     "PromptAssemblyService",
+    "PromptDescriptor",
+    "PromptDescriptorResolver",
     "PromptAssemblyRequest",
     "PromptAssemblyResult",
     "PromptPack",
@@ -93,6 +120,25 @@ __all__ = [
     "PromptRuleCompiler",
     "PromptSection",
     "PromptResource",
+    "PromptResourceOrigin",
+    "PromptSet",
+    "PromptBindingSlot",
+    "AgentPromptBinding",
+    "RuntimePromptWiringPlan",
+    "PromptWiringBinding",
     "RuntimePromptManifest",
     "build_runtime_prompt_manifest",
+    "PROMPT_LAYERS",
+    "PROMPT_VISIBILITIES",
+    "CONTRACT_PRIORITIES",
+    "CONTRACT_PRIORITY_PRECEDENCE",
+    "CONFLICT_POLICIES",
+    "contract_priority_rank",
+    "normalize_contract_priority",
+    "normalize_conflict_policy",
+    "normalize_prompt_scope",
+    "CORE_RUNTIME_SCHEMA_REFS",
+    "agent_prompt_binding_from_profile",
+    "build_runtime_prompt_wiring_plan",
 ]
+

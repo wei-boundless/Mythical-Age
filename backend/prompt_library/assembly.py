@@ -40,6 +40,7 @@ class PromptAssemblyService:
             pack_refs = (default_ref,) if default_ref else ()
         prompt_refs: list[str] = []
         rejected: list[dict[str, Any]] = []
+        omitted: list[dict[str, Any]] = []
         for pack_ref in pack_refs:
             pack = self.registry.get_pack(pack_ref)
             if pack is None:
@@ -81,6 +82,9 @@ class PromptAssemblyService:
                 system_wiring_manifest=system_wiring_manifest,
             )
             if wiring_reason:
+                if _is_system_group_disabled_reason(wiring_reason):
+                    omitted.append({"ref": prompt_ref, "reason": wiring_reason})
+                    continue
                 rejected.append({"ref": prompt_ref, "reason": wiring_reason})
                 continue
             context_capability_metadata = _resource_context_wiring_metadata(
@@ -88,6 +92,7 @@ class PromptAssemblyService:
                 context_capability_profile=context_capability_profile,
                 system_wiring_manifest=system_wiring_manifest,
             )
+            resource_content_hash = _stable_text_hash(resource.content)
             sections.append(
                 PromptSection(
                     section_id=f"{resource.category}.{resource.subtype}:{order}",
@@ -102,7 +107,22 @@ class PromptAssemblyService:
                     order=order,
                     metadata={
                         "version": resource.version,
+                        "version_label": resource.version,
+                        "content_hash": resource_content_hash,
                         "resource_type": resource.resource_type,
+                        "prompt_ref": resource.prompt_id,
+                        "origin": resource.origin.to_dict(),
+                        "owner_kind": resource.owner_kind,
+                        "owner_ref": resource.owner_ref,
+                        "allowed_agent_refs": list(resource.allowed_agent_refs),
+                        "agent_ref_scope_match": _resource_agent_ref_scope_match(
+                            resource.to_dict(),
+                            request=request.to_dict(),
+                        ),
+                        "contract_priority": resource.contract_priority,
+                        "conflict_policy": resource.conflict_policy,
+                        "scope": resource.scope,
+                        "source_type": dict(resource.metadata or {}).get("source_type"),
                         "authority_scope": dict(resource.metadata or {}).get("authority_scope"),
                         "prompt_rule": dict(resource.metadata or {}).get("prompt_rule"),
                         **context_capability_metadata,
@@ -158,9 +178,11 @@ class PromptAssemblyService:
             "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(pack_refs),
             "rejected_refs": [dict(item) for item in rejected],
+            "omitted_refs": [dict(item) for item in omitted],
             "cache_scope_order": [item.cache_scope for item in sections],
             "cache_boundary": _assembly_cache_boundary_report(tuple(sections)),
             "layer_summary": _assembly_layer_summary(tuple(sections)),
+            "prompt_source_audit": _prompt_source_audit(tuple(sections)),
             "prompt_precedence": build_prompt_precedence_report(tuple(sections)),
             "prompt_authority": prompt_authority_manifest,
             "system_wiring_manifest_ref": str(system_wiring_manifest.get("manifest_id") or ""),
@@ -170,7 +192,11 @@ class PromptAssemblyService:
             "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
-        rule_diagnostics = build_rule_diagnostics(tuple(sections), invocation_kind=request.invocation_kind)
+        rule_diagnostics = build_rule_diagnostics(
+            tuple(sections),
+            invocation_kind=request.invocation_kind,
+            omitted_rule_refs=tuple(str(item.get("ref") or "") for item in omitted),
+        )
         if rule_diagnostics.get("rejected_rules"):
             rejected.extend(dict(item) for item in list(rule_diagnostics.get("rejected_rules") or []))
             manifest["rejected_refs"] = [dict(item) for item in rejected]
@@ -250,6 +276,10 @@ def _resource_context_wiring_rejection_reason(
     return ""
 
 
+def _is_system_group_disabled_reason(reason: str) -> bool:
+    return str(reason or "").strip().startswith("system_group_disabled:")
+
+
 def _resource_context_wiring_metadata(
     resource: dict[str, Any],
     *,
@@ -290,16 +320,13 @@ def _resource_context_wiring_metadata(
 
 
 def _resource_is_stable_prompt_contract(resource: dict[str, Any]) -> bool:
-    prompt_ref = str(resource.get("prompt_id") or resource.get("resource_id") or "").strip()
     category = str(resource.get("category") or "").strip()
+    subtype = str(resource.get("subtype") or "").strip()
     metadata = dict(resource.get("metadata") or {})
-    if category == "system" and prompt_ref.startswith("system.foundation."):
-        return True
-    if category == "runtime" and prompt_ref.startswith("runtime."):
-        return True
     if bool(metadata.get("builtin_runtime_prompt") is True):
         return True
-    if str(metadata.get("source_type") or "").strip() == "builtin_system_foundation_prompt":
+    source_type = str(metadata.get("source_type") or "").strip()
+    if category == "system" and subtype == "foundation" and source_type == "builtin_system_foundation_prompt":
         return True
     return False
 
@@ -329,6 +356,12 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
     return ""
 
 
+def _resource_agent_ref_scope_match(resource: dict[str, Any], *, request: dict[str, Any]) -> bool:
+    agent_ref = str(request.get("agent_profile_ref") or "").strip()
+    allowed_agent_refs = {str(item).strip() for item in list(resource.get("allowed_agent_refs") or []) if str(item).strip()}
+    return not allowed_agent_refs or bool(agent_ref and agent_ref in allowed_agent_refs)
+
+
 def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> str:
     environment_ref = str(request.get("task_environment_ref") or "")
     allowed_environment_refs = {str(item) for item in list(pack.get("allowed_environment_refs") or []) if str(item)}
@@ -345,7 +378,6 @@ _PROMPT_LAYER_PRECEDENCE = {
     "personality": 25,
     "runtime": 30,
     "environment": 40,
-    "lifecycle": 45,
     "tool": 50,
     "skill": 60,
     "project": 70,
@@ -399,7 +431,7 @@ def build_prompt_precedence_report(sections: tuple[PromptSection, ...]) -> dict[
             }
         )
     return {
-        "policy": "system>override>coordinator>agent>personality>runtime>environment>lifecycle>tool>skill>project>contract",
+        "policy": "system>override>coordinator>agent>personality>runtime>environment>tool>skill>project>contract",
         "behavior": "enforced_precedence_order",
         "entries": entries,
         "authority": "prompt_library.prompt_assembly_precedence",
@@ -442,12 +474,8 @@ def build_prompt_authority_manifest(sections: tuple[PromptSection, ...]) -> dict
 
 def _prompt_section_layer(section: PromptSection) -> str:
     category = str(section.category or "").strip()
-    subtype = str(section.subtype or "").strip()
     owner_layer = str(section.owner_layer or "").strip()
     resource_type = str(dict(section.metadata or {}).get("resource_type") or "").strip()
-    prompt_ref = str(section.prompt_ref or "").strip()
-    if category == "environment" and (subtype.startswith("lifecycle_") or ".lifecycle." in prompt_ref):
-        return "lifecycle"
     if category in {"task", "graph_node"}:
         return "contract"
     if category in {"utility", "mcp"}:
@@ -486,16 +514,46 @@ def _section_fingerprint_payload(sections: tuple[PromptSection, ...]) -> list[di
         {
             "prompt_ref": section.prompt_ref,
             "source_ref": section.source_ref,
+            "version": str(dict(section.metadata or {}).get("version") or ""),
+            "version_label": str(dict(section.metadata or {}).get("version_label") or ""),
             "category": section.category,
             "subtype": section.subtype,
             "owner_layer": section.owner_layer,
+            "owner_kind": str(dict(section.metadata or {}).get("owner_kind") or ""),
+            "owner_ref": str(dict(section.metadata or {}).get("owner_ref") or ""),
+            "scope": str(dict(section.metadata or {}).get("scope") or ""),
             "assembly_layer": _prompt_section_layer(section),
             "cache_scope": section.cache_scope,
-            "content_hash": _stable_text_hash(section.content),
+            "content_hash": str(dict(section.metadata or {}).get("content_hash") or _stable_text_hash(section.content)),
             "order": section.order,
         }
         for section in sections
     ]
+
+
+def _prompt_source_audit(sections: tuple[PromptSection, ...]) -> list[dict[str, Any]]:
+    audit: list[dict[str, Any]] = []
+    for section in sections:
+        metadata = dict(section.metadata or {})
+        audit.append(
+            {
+                "prompt_ref": section.prompt_ref,
+                "source_ref": section.source_ref,
+                "version": str(metadata.get("version") or ""),
+                "version_label": str(metadata.get("version_label") or metadata.get("version") or ""),
+                "content_hash": str(metadata.get("content_hash") or _stable_text_hash(section.content)),
+                "owner_layer": section.owner_layer,
+                "owner_kind": str(metadata.get("owner_kind") or ""),
+                "owner_ref": str(metadata.get("owner_ref") or ""),
+                "scope": str(metadata.get("scope") or ""),
+                "contract_priority": str(metadata.get("contract_priority") or ""),
+                "conflict_policy": str(metadata.get("conflict_policy") or ""),
+                "resource_type": str(metadata.get("resource_type") or ""),
+                "origin": dict(metadata.get("origin") or {}),
+                "order": int(section.order or 0),
+            }
+        )
+    return audit
 
 
 def _assembly_cache_boundary_report(sections: tuple[PromptSection, ...]) -> dict[str, Any]:
@@ -514,7 +572,6 @@ def _assembly_cache_boundary_report(sections: tuple[PromptSection, ...]) -> dict
         "stable_section_count": len(sections),
         "global_static_section_count": prefix_tier_counts.get("provider_global", 0),
         "session_stable_section_count": prefix_tier_counts.get("session", 0),
-        "task_stable_section_count": prefix_tier_counts.get("task", 0),
         "volatile_section_count": prefix_tier_counts.get("volatile", 0) + prefix_tier_counts.get("none", 0),
         "section_fingerprint": _stable_payload_hash(_section_fingerprint_payload(sections)) if sections else "",
         "authority": "prompt_library.prompt_assembly_cache_boundary",
@@ -544,8 +601,6 @@ def _prefix_tier_from_cache_scope(cache_scope: str) -> str:
         return "provider_global"
     if scope in {"static_environment", "session", "session_stable"}:
         return "session"
-    if scope in {"task", "task_stable"}:
-        return "task"
     if scope in {"none"}:
         return "none"
     return "volatile"
@@ -573,7 +628,15 @@ def _json_stable(value: Any) -> Any:
 _CONTRACT_FIELD_SPECS = (
     ("role_prompt", "role", "角色职责"),
     ("task_instruction", "task_instruction", "任务说明"),
+    ("input_boundary_contract", "input_boundary_contract", "输入边界"),
     ("output_instruction", "output_instruction", "输出要求"),
+    ("language_policy", "language_policy", "语言要求"),
+    ("typed_submission_contract", "typed_submission_contract", "结构化提交通道"),
+    ("review_judgment_contract", "review_judgment_contract", "审查判断规则"),
+    ("semantic_network_contract", "semantic_network_contract", "语义网络规则"),
+    ("work_product_contract", "work_product_contract", "系统装配约束"),
+    ("quality_gate_contract", "quality_gate_contract", "验收门槛"),
+    ("failure_handling_contract", "failure_handling_contract", "失败处理"),
     ("forbidden_behavior", "forbidden_behavior", "禁止事项"),
     ("definition_of_done", "definition_of_done", "完成标准"),
 )
@@ -603,7 +666,7 @@ def _contract_sections(
                 title=title,
                 content=content,
                 owner_layer="task",
-                cache_scope="task_stable",
+                cache_scope="session",
                 source_ref=f"{source_ref}:{contract_id}.{field}",
                 order=start_order + offset,
                 metadata={
@@ -620,7 +683,46 @@ def _contract_sections(
 def _contract_field_content(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
-    items = [str(item).strip() for item in list(value or []) if str(item).strip()] if isinstance(value, (list, tuple)) else []
+    if isinstance(value, dict):
+        return _render_contract_value(value).strip()
+    items = [_render_contract_value(item).strip() for item in list(value or [])] if isinstance(value, (list, tuple)) else []
+    items = [item for item in items if item]
     if items:
         return "\n".join(f"- {item}" for item in items)
     return ""
+
+
+def _render_contract_value(value: Any, *, indent: int = 0) -> str:
+    prefix = "  " * max(0, indent)
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key in sorted(value):
+            item = value[key]
+            key_text = str(key or "").strip()
+            if not key_text:
+                continue
+            if isinstance(item, dict):
+                nested = _render_contract_value(item, indent=indent + 1)
+                if nested:
+                    lines.append(f"{prefix}{key_text}:")
+                    lines.append(nested)
+                continue
+            if isinstance(item, (list, tuple)):
+                rendered_items = [_render_contract_value(child, indent=indent + 1).strip() for child in item]
+                rendered_items = [child for child in rendered_items if child]
+                if rendered_items:
+                    lines.append(f"{prefix}{key_text}:")
+                    child_prefix = "  " * (indent + 1)
+                    lines.extend(f"{child_prefix}- {child}" for child in rendered_items)
+                continue
+            text = str(item or "").strip()
+            if text:
+                lines.append(f"{prefix}{key_text}: {text}")
+        return "\n".join(lines)
+    if isinstance(value, (list, tuple)):
+        return "\n".join(
+            f"{prefix}- {rendered}"
+            for rendered in (_render_contract_value(item, indent=indent + 1).strip() for item in value)
+            if rendered
+        )
+    return f"{prefix}{str(value or '').strip()}".rstrip()

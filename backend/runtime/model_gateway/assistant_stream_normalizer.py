@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from runtime.model_gateway.assistant_stream_frame import (
-    ASSISTANT_STREAM_FRAME_SCHEMA_VERSION,
+    ASSISTANT_STREAM_FRAME_SCHEMA_ID,
     ASSISTANT_TEXT_DELTA_EVENT,
     AssistantStreamFrame,
     assistant_message_ref,
@@ -288,7 +288,7 @@ class AssistantStreamNormalizer:
         self.latest_sequence += 1
         self._coalesce_latency_ms_total += max(0.0, (now - self._pending_since) * 1000)
         return AssistantStreamFrame(
-            frame_schema_version=ASSISTANT_STREAM_FRAME_SCHEMA_VERSION,
+            frame_schema_id=ASSISTANT_STREAM_FRAME_SCHEMA_ID,
             event_type=ASSISTANT_TEXT_DELTA_EVENT,
             frame_id=f"aframe:{self.stream_ref}:{self.latest_sequence}",
             stream_ref=self.stream_ref,

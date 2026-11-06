@@ -106,7 +106,6 @@ class TaskContractIssuer:
             },
             runtime_assembly_plan={
                 "kind": "runtime_assembly_request",
-                "schema_version": "runtime_assembly_plan.request.v1",
                 "environment_id": environment.record.environment_id,
                 "runtime_shape": runtime_shape,
                 "agent_selection": policy.agent_selection.to_dict(),
@@ -114,7 +113,6 @@ class TaskContractIssuer:
             },
             loop_plan={
                 "kind": "loop_request",
-                "schema_version": "loop_plan.request.v1",
                 "runtime_shape": runtime_shape,
                 "flow_ref": policy.flow_ref,
                 "extension_slots": dict(task_policy.get("loop_extension_slots") or {}),
@@ -122,7 +120,6 @@ class TaskContractIssuer:
             graph_contract=graph_contract,
             graph_runtime_assembly_plan={
                 "kind": "graph_config_request",
-                "schema_version": "graph_config_request.v1",
                 "graph_ref": graph_ref,
                 "graph_config_ref": str(graph_contract.get("graph_config_ref") or ""),
                 "environment_id": environment.record.environment_id,
@@ -130,7 +127,6 @@ class TaskContractIssuer:
             } if graph_contract else {},
             graph_loop_plan={
                 "kind": "graph_loop_request",
-                "schema_version": "graph_loop_plan.request.v1",
                 "graph_ref": graph_ref,
                 "graph_config_ref": str(graph_contract.get("graph_config_ref") or ""),
                 "extension_slots": dict(task_policy.get("graph_loop_extension_slots") or {}),
@@ -195,5 +191,4 @@ def _task_execution_policy(payload: TaskExecutionPolicy | dict[str, Any] | None)
         return None
     data.setdefault("execution_mode", "single_agent")
     return TaskExecutionPolicy(**{key: value for key, value in data.items() if key in allowed})
-
 

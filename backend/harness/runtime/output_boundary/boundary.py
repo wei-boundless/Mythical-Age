@@ -230,7 +230,6 @@ _PSEUDO_TOOL_CALL_NAMES = (
     "python_symbol_search",
     "read_file",
     "read_persisted_tool_result",
-    "read_structured_file",
     "search_files",
     "search_text",
     "send_subagent_message",

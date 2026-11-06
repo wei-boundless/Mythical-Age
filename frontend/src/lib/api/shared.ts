@@ -1,7 +1,35 @@
 import { apiRequest } from "./client";
 import type { SessionScope } from "./types";
 
+const inFlightGetRequests = new Map<string, Promise<unknown>>();
+
+function getRequestKey(path: string, init?: RequestInit) {
+  const headers = new Headers(init?.headers);
+  const headerEntries = Array.from(headers.entries()).sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify({
+    method: String(init?.method || "GET").toUpperCase(),
+    path,
+    headers: headerEntries,
+  });
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = String(init?.method || "GET").toUpperCase();
+  const hasBody = init?.body !== undefined && init?.body !== null;
+  if (method === "GET" && !hasBody && !init?.signal) {
+    const key = getRequestKey(path, init);
+    const existing = inFlightGetRequests.get(key);
+    if (existing) {
+      return existing as Promise<T>;
+    }
+    const run = apiRequest<T>(path, init);
+    inFlightGetRequests.set(key, run);
+    run.then(
+      () => inFlightGetRequests.delete(key),
+      () => inFlightGetRequests.delete(key),
+    );
+    return run;
+  }
   return apiRequest<T>(path, init);
 }
 

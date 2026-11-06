@@ -6,8 +6,8 @@ import json
 from typing import Any, Literal
 
 PressureLevel = Literal["normal", "warning", "microcompact", "full_compact"]
-ContextLedgerSource = Literal["memory_candidate", "retrieval_evidence"]
-ContextLedgerDecision = Literal["include", "drop"]
+ContextSelectionSource = Literal["memory_candidate", "retrieval_evidence"]
+ContextSelectionDecision = Literal["include", "drop"]
 
 CONTEXT_TEXT_NORMALIZATION_VERSION = "context_text_normalization.v1"
 
@@ -39,11 +39,11 @@ def hash_context_section_package(sections: dict[str, list[str]]) -> str:
 
 
 @dataclass(slots=True, frozen=True)
-class SealedContextLedgerEntry:
+class ContextSelectionReceiptEntry:
     entry_id: str
-    source_kind: ContextLedgerSource
+    source_kind: ContextSelectionSource
     target_section: str
-    decision: ContextLedgerDecision
+    decision: ContextSelectionDecision
     reason: str
     candidate_id: str = ""
     memory_layer: str = ""
@@ -53,17 +53,17 @@ class SealedContextLedgerEntry:
     token_estimate: int = 0
     requires_verification_before_use: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "context_policy.ledger_entry"
+    authority: str = "context_policy.selection_receipt_entry"
 
     def __post_init__(self) -> None:
-        if self.authority != "context_policy.ledger_entry":
-            raise ValueError("SealedContextLedgerEntry cannot carry runtime authority")
+        if self.authority != "context_policy.selection_receipt_entry":
+            raise ValueError("ContextSelectionReceiptEntry cannot carry runtime authority")
         if self.decision == "include" and not self.rendered_sha256:
-            raise ValueError("included context ledger entries require rendered_sha256")
+            raise ValueError("included context selection receipt entries require rendered_sha256")
         if self.source_kind == "memory_candidate" and not self.candidate_id:
-            raise ValueError("memory candidate ledger entries require candidate_id")
+            raise ValueError("memory candidate selection receipt entries require candidate_id")
         if not self.target_section:
-            raise ValueError("context ledger entries require target_section")
+            raise ValueError("context selection receipt entries require target_section")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,28 +85,28 @@ class SealedContextLedgerEntry:
 
 
 @dataclass(slots=True, frozen=True)
-class SealedContextReceipt:
+class ContextSelectionReceipt:
     receipt_id: str
     memory_runtime_view_ref: str
     package_sha256: str
     normalization_version: str = CONTEXT_TEXT_NORMALIZATION_VERSION
     section_item_hashes: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    included_entries: tuple[SealedContextLedgerEntry, ...] = ()
-    dropped_entries: tuple[SealedContextLedgerEntry, ...] = ()
+    included_selection_entries: tuple[ContextSelectionReceiptEntry, ...] = ()
+    dropped_selection_entries: tuple[ContextSelectionReceiptEntry, ...] = ()
     read_only: bool = True
-    authority: str = "context_policy.sealed_receipt"
+    authority: str = "context_policy.selection_receipt"
 
     def __post_init__(self) -> None:
         if not self.read_only:
-            raise ValueError("SealedContextReceipt must remain read_only")
-        if self.authority != "context_policy.sealed_receipt":
-            raise ValueError("SealedContextReceipt cannot carry runtime authority")
+            raise ValueError("ContextSelectionReceipt must remain read_only")
+        if self.authority != "context_policy.selection_receipt":
+            raise ValueError("ContextSelectionReceipt cannot carry runtime authority")
         if not self.receipt_id:
-            raise ValueError("SealedContextReceipt requires receipt_id")
+            raise ValueError("ContextSelectionReceipt requires receipt_id")
         if not self.memory_runtime_view_ref:
-            raise ValueError("SealedContextReceipt requires memory_runtime_view_ref")
+            raise ValueError("ContextSelectionReceipt requires memory_runtime_view_ref")
         if self.normalization_version != CONTEXT_TEXT_NORMALIZATION_VERSION:
-            raise ValueError("SealedContextReceipt normalization_version is not supported")
+            raise ValueError("ContextSelectionReceipt normalization_version is not supported")
         object.__setattr__(
             self,
             "section_item_hashes",
@@ -115,23 +115,23 @@ class SealedContextReceipt:
                 for name, items in dict(self.section_item_hashes or {}).items()
             },
         )
-        object.__setattr__(self, "included_entries", tuple(self.included_entries or ()))
-        object.__setattr__(self, "dropped_entries", tuple(self.dropped_entries or ()))
-        for entry in (*self.included_entries, *self.dropped_entries):
-            if entry.authority != "context_policy.ledger_entry":
-                raise ValueError("SealedContextReceipt can only contain policy ledger entries")
-        for entry in self.included_entries:
+        object.__setattr__(self, "included_selection_entries", tuple(self.included_selection_entries or ()))
+        object.__setattr__(self, "dropped_selection_entries", tuple(self.dropped_selection_entries or ()))
+        for entry in (*self.included_selection_entries, *self.dropped_selection_entries):
+            if entry.authority != "context_policy.selection_receipt_entry":
+                raise ValueError("ContextSelectionReceipt can only contain policy selection receipt entries")
+        for entry in self.included_selection_entries:
             if entry.decision != "include":
-                raise ValueError("included_entries can only contain include decisions")
-        for entry in self.dropped_entries:
+                raise ValueError("included_selection_entries can only contain include decisions")
+        for entry in self.dropped_selection_entries:
             if entry.decision != "drop":
-                raise ValueError("dropped_entries can only contain drop decisions")
+                raise ValueError("dropped_selection_entries can only contain drop decisions")
 
     @property
     def included_candidate_ids(self) -> tuple[str, ...]:
         return tuple(
             entry.candidate_id
-            for entry in self.included_entries
+            for entry in self.included_selection_entries
             if entry.source_kind == "memory_candidate" and entry.candidate_id
         )
 
@@ -139,7 +139,7 @@ class SealedContextReceipt:
     def dropped_candidate_ids(self) -> tuple[str, ...]:
         return tuple(
             entry.candidate_id
-            for entry in self.dropped_entries
+            for entry in self.dropped_selection_entries
             if entry.source_kind == "memory_candidate" and entry.candidate_id
         )
 
@@ -150,8 +150,8 @@ class SealedContextReceipt:
             "package_sha256": self.package_sha256,
             "normalization_version": self.normalization_version,
             "section_item_hashes": {name: list(items) for name, items in self.section_item_hashes.items()},
-            "included_entries": [entry.to_dict() for entry in self.included_entries],
-            "dropped_entries": [entry.to_dict() for entry in self.dropped_entries],
+            "included_selection_entries": [entry.to_dict() for entry in self.included_selection_entries],
+            "dropped_selection_entries": [entry.to_dict() for entry in self.dropped_selection_entries],
             "included_candidate_ids": list(self.included_candidate_ids),
             "dropped_candidate_ids": list(self.dropped_candidate_ids),
             "read_only": self.read_only,
@@ -176,7 +176,7 @@ class ContextBudget:
 
 
 @dataclass(slots=True)
-class ContextPackage:
+class TurnContextPackage:
     pressure_level: PressureLevel = "normal"
     budget: ContextBudget = field(default_factory=ContextBudget)
     sections: dict[str, list[str]] = field(default_factory=dict)
@@ -190,7 +190,7 @@ class ContextPackage:
     compaction_strategy: str = "none"
     compaction_decisions: list[str] = field(default_factory=list)
     token_accounting: dict[str, int] = field(default_factory=dict)
-    sealed_receipt: SealedContextReceipt | None = None
+    selection_receipt: ContextSelectionReceipt | None = None
 
     def __post_init__(self) -> None:
         if not self.model_visible_sections and self.sections:
@@ -228,7 +228,7 @@ class ContextPackage:
             "compaction_strategy": self.compaction_strategy,
             "compaction_decisions": self.compaction_decisions,
             "token_accounting": self.token_accounting,
-            "sealed_receipt": self.sealed_receipt.to_dict() if self.sealed_receipt is not None else None,
+            "selection_receipt": self.selection_receipt.to_dict() if self.selection_receipt is not None else None,
         }
 
 

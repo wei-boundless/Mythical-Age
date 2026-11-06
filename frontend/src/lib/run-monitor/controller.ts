@@ -14,6 +14,7 @@ import {
   fetchRunMonitor,
   fetchRunMonitorGraphDetail,
   fetchRunMonitorTaskDetail,
+  fetchRunMonitorTurnDetail,
   getRunMonitorEventStreamUrl,
 } from "./api";
 import {
@@ -21,6 +22,7 @@ import {
   findRunMonitorSignal,
   selectRunMonitorSignal,
   signalDetailTaskRunId,
+  signalDetailTurnRunId,
 } from "./reducer";
 import type { RunMonitorActionPayload, RunMonitorActionResult } from "@/lib/api";
 import type { RunMonitorEnvelope, RunMonitorSignal } from "./types";
@@ -474,6 +476,7 @@ export class RunMonitorController {
 
   private async loadSignalDetail(signal: RunMonitorSignal, expectedRevision: string) {
     const taskRunId = signalDetailTaskRunId(signal);
+    const turnRunId = signalDetailTurnRunId(signal);
     const graphRunId = String(signal.graph_ref?.graph_run_id || signal.detail_ref?.graph_run_id || "").trim();
     const graphConfigId = String(signal.graph_ref?.graph_config_id || signal.detail_ref?.graph_config_id || "").trim();
     try {
@@ -492,6 +495,12 @@ export class RunMonitorController {
           runMonitorSelectedGraphMonitor: graphMonitor,
           taskGraphBoundRunMonitor: graphMonitor,
         }));
+        return;
+      }
+      if (turnRunId) {
+        const detail = await fetchRunMonitorTurnDetail(turnRunId).catch(() => null);
+        if (this.store.getState().runMonitorRevision !== expectedRevision) return;
+        this.store.setState((prev) => ({ ...prev, runMonitorSelectedDetail: detail }));
         return;
       }
       if (!taskRunId) return;
@@ -532,7 +541,7 @@ export class RunMonitorController {
     const runningNodeIds = Array.isArray(loopState.running_node_ids) ? loopState.running_node_ids : [];
     const status = String(loopState.status || monitor.task_run?.status || monitor.graph_run?.status || "").toLowerCase();
     const activeWorkOrderCount = Number(monitor.active_node_work_order_count ?? (Array.isArray(monitor.active_node_work_orders) ? monitor.active_node_work_orders.length : 0));
-    const terminal = ["completed", "succeeded", "success", "failed", "cancelled", "canceled", "stopped"].includes(status);
+    const terminal = ["completed", "succeeded", "success", "failed", "cancelled", "canceled", "stopped", "interrupted"].includes(status);
     if (terminal || readyNodeIds.length === 0 || runningNodeIds.length > 0 || activeWorkOrderCount > 0) {
       this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
       return;
@@ -672,5 +681,3 @@ function runMonitorErrorMessage(error: unknown, fallback: string) {
   if (/failed to fetch|networkerror|load failed/i.test(message)) return `${fallback}（连接中断）`;
   return message;
 }
-
-

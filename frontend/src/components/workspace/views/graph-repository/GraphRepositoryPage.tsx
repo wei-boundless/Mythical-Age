@@ -5,7 +5,7 @@ import { BookOpen } from "lucide-react";
 import {
   createGraphTaskInstance,
   getAgentSystemAgents,
-  getTaskSystemOverview,
+  getTaskSystemGraphOverview,
   getTaskSystemTaskGraph,
   listGraphTaskInstances,
   upsertTaskSystemTaskGraph,
@@ -66,7 +66,7 @@ export function GraphRepositoryPage({
   const [templates, setTemplates] = useState<GraphTemplateRecord[]>(() => listGraphTemplates());
   const [draft, setDraft] = useState<TaskGraphDraftV2>(() => initialDraft());
   const [dirty, setDirty] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -77,6 +77,9 @@ export function GraphRepositoryPage({
   const requestedContextRef = useRef<TaskGraphWorkbenchContext | undefined>(requestedContext);
   const requestedInstanceRef = useRef(requestedInstanceId.trim());
   const requestedPanelRef = useRef<RequestedInstancePanel | undefined>(requestedPanel);
+  const graphOverviewLoadRef = useRef<Promise<TaskSystemOverview | null> | null>(null);
+  const agentCatalogLoadRef = useRef<Promise<void> | null>(null);
+  const lastRequestedGraphOpenKeyRef = useRef("");
 
   useEffect(() => {
     requestedGraphRef.current = requestedGraphId.trim();
@@ -106,35 +109,48 @@ export function GraphRepositoryPage({
     setTemplates(listGraphTemplates());
   }, []);
 
-  const load = useCallback(async () => {
+  const loadAgentCatalog = useCallback(async () => {
+    if (agentCatalogLoadRef.current) return agentCatalogLoadRef.current;
+    const run = (async () => {
+      try {
+        const nextAgentCatalog = await getAgentSystemAgents({ includeOptions: false });
+        setAgentCatalog(nextAgentCatalog);
+      } catch {
+        setAgentCatalog((current) => current ?? null);
+      } finally {
+        agentCatalogLoadRef.current = null;
+      }
+    })();
+    agentCatalogLoadRef.current = run;
+    return run;
+  }, []);
+
+  const loadGraphOverview = useCallback(async () => {
+    if (graphOverviewLoadRef.current) return graphOverviewLoadRef.current;
     setLoading(true);
     setError("");
-    try {
-      const [nextOverview, nextAgentCatalog] = await Promise.all([
-        getTaskSystemOverview(),
-        getAgentSystemAgents().catch(() => null),
-      ]);
-      setOverview(nextOverview);
-      setAgentCatalog(nextAgentCatalog);
-      refreshTemplates();
-      const requested = requestedGraphRef.current;
-      if (requested) {
-        const graph = nextOverview.task_graph_management?.task_graphs?.find((item) => item.graph_id === requested);
-        if (graph) {
-          await openGraph(graph, { silent: true });
-          if (requestedContextRef.current) setActiveContext(requestedContextRef.current);
-        }
+    const run = (async () => {
+      try {
+        const nextOverview = await getTaskSystemGraphOverview();
+        setOverview(nextOverview);
+        refreshTemplates();
+        return nextOverview;
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : "任务图定义加载失败");
+        return null;
+      } finally {
+        setLoading(false);
+        graphOverviewLoadRef.current = null;
       }
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "任务图系统加载失败");
-    } finally {
-      setLoading(false);
-    }
+    })();
+    graphOverviewLoadRef.current = run;
+    return run;
   }, [refreshTemplates]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    refreshTemplates();
+    void loadAgentCatalog();
+  }, [loadAgentCatalog, refreshTemplates]);
 
   const refreshInstances = useCallback(async (
     graphId = draft.graph_id,
@@ -200,6 +216,54 @@ export function GraphRepositoryPage({
       setSaving("");
     }
   }
+
+  const openGraphById = useCallback(async (
+    graphId: string,
+    options: { silent?: boolean; nextContext?: TaskGraphWorkbenchContext; refreshInstancesAfterOpen?: boolean } = {},
+  ) => {
+    const normalizedGraphId = String(graphId || "").trim();
+    if (!normalizedGraphId) return;
+    setSaving("open");
+    setError("");
+    try {
+      const detail = await getTaskSystemTaskGraph(normalizedGraphId);
+      setDraft(createDraftFromGraph(detail));
+      setDirty(false);
+      if (options.nextContext) setActiveContext(options.nextContext);
+      if (!options.silent) setNotice(`已打开图「${detail.title || detail.graph_id}」。`);
+      if (options.refreshInstancesAfterOpen || options.nextContext === "monitor") {
+        await refreshInstances(detail.graph_id, { allowMissingGraph: true });
+      }
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "打开图定义失败");
+    } finally {
+      setSaving("");
+    }
+  }, [refreshInstances]);
+
+  useEffect(() => {
+    const requested = requestedGraphId.trim();
+    const requestedKey = JSON.stringify({
+      requested,
+      requestedContext: requestedContext ?? "",
+      requestedInstanceId: requestedInstanceId.trim(),
+    });
+    if (requested && lastRequestedGraphOpenKeyRef.current !== requestedKey) {
+      lastRequestedGraphOpenKeyRef.current = requestedKey;
+      void openGraphById(requested, {
+        silent: true,
+        nextContext: requestedContext,
+        refreshInstancesAfterOpen: Boolean(requestedInstanceId.trim()),
+      });
+      return;
+    }
+    if (requestedContext === "graphs") {
+      void loadGraphOverview();
+    }
+    if (requestedContext) {
+      setActiveContext(requestedContext);
+    }
+  }, [loadGraphOverview, openGraphById, requestedContext, requestedGraphId, requestedInstanceId]);
 
   async function duplicateGraph(graph: TaskGraphRecord) {
     setSaving("duplicate");
@@ -369,8 +433,11 @@ export function GraphRepositoryPage({
 
   function changeContext(context: TaskGraphWorkbenchContext) {
     setActiveContext(context);
+    if (context === "graphs") {
+      void loadGraphOverview();
+    }
     if (context === "monitor") {
-      void refreshInstances();
+      void refreshInstances(draft.graph_id, { allowMissingGraph: true });
     }
   }
 
@@ -491,7 +558,18 @@ export function GraphRepositoryPage({
         error={error}
         notice={notice}
         onContextChange={changeContext}
-        onRefresh={() => void load()}
+        onRefresh={() => {
+          if (activeContext === "graphs") {
+            void loadGraphOverview();
+            return;
+          }
+          if (activeContext === "monitor") {
+            void refreshInstances(draft.graph_id, { allowMissingGraph: true });
+            return;
+          }
+          refreshTemplates();
+          void loadAgentCatalog();
+        }}
         saving={saving}
         title={draft.title || draft.graph_id}
       >
@@ -500,4 +578,3 @@ export function GraphRepositoryPage({
     </section>
   );
 }
-

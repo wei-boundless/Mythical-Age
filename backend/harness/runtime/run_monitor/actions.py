@@ -10,7 +10,6 @@ from harness.runtime.task_record_lifecycle import (
     TaskRecordLifecycleManager,
     TaskRecordLifecycleNotFound,
 )
-from harness.runtime.task_run_control_gateway import TaskRunControlGateway
 
 
 class RunMonitorActionService:
@@ -69,14 +68,8 @@ class RunMonitorActionService:
             effects = self._clear_from_monitor(payload=payload, signal=signal)
         elif action == "restore_to_monitor":
             effects = self._restore_to_monitor(payload=payload, signal=signal)
-        elif action == "close_runtime":
-            effects = self._close_runtime(payload=payload, signal=signal)
         elif action == "delete_record":
             effects = await self._delete_record(payload=payload, signal=signal)
-        elif action == "pause_task":
-            effects = self._pause_task(payload=payload, signal=signal)
-        elif action == "stop_task":
-            effects = self._stop_task(payload=payload, signal=signal)
         elif action in {"preview_delete_record", "preview_delete_graph_run"}:
             effects = self._preview_effects(action=action, payload=payload, signal=signal)
         else:
@@ -111,14 +104,11 @@ class RunMonitorActionService:
         if action == "preview_delete_graph_run":
             return {"enabled": bool(_graph_run_id(payload=payload, signal=signal)), "disabled_reason": "" if _graph_run_id(payload=payload, signal=signal) else "graph_run_id_required"}
         task_run_required_actions = {
-            "close_runtime",
-            "pause_task",
-            "stop_task",
             "delete_record",
             "preview_delete_record",
         }
-        if action in task_run_required_actions and not _task_run_id(payload=payload, signal=signal):
-            return {"enabled": False, "disabled_reason": "task_run_id_required"}
+        if action in task_run_required_actions and not self._legacy_task_run_id(payload=payload, signal=signal):
+            return {"enabled": False, "disabled_reason": "runtime_anchor_or_task_run_id_required"}
         if signal is None:
             return {"enabled": action in {"preview_delete_record", "delete_record"}, "disabled_reason": "" if action in {"preview_delete_record", "delete_record"} else "signal_not_found"}
         for item in list(signal.get("actions") or []):
@@ -140,15 +130,12 @@ class RunMonitorActionService:
                 return {"enabled": False, "disabled_reason": "graph_run_id_required"}
             return {"enabled": True, "disabled_reason": ""}
         task_run_required_actions = {
-            "close_runtime",
-            "pause_task",
-            "stop_task",
             "delete_record",
             "preview_delete_record",
         }
         if action in task_run_required_actions:
-            if not _task_run_id(payload=payload, signal=signal):
-                return {"enabled": False, "disabled_reason": "task_run_id_required"}
+            if not self._legacy_task_run_id(payload=payload, signal=signal):
+                return {"enabled": False, "disabled_reason": "runtime_anchor_or_task_run_id_required"}
             return {"enabled": True, "disabled_reason": ""}
         return {"enabled": False, "disabled_reason": "unsupported_action"}
 
@@ -163,13 +150,15 @@ class RunMonitorActionService:
             except Exception as exc:
                 return {"error": str(exc), "graph_run_id": graph_run_id}
         if action in {"preview_delete_record", "delete_record"}:
-            task_run_id = _task_run_id(payload=payload, signal=signal)
+            task_run_id = self._legacy_task_run_id(payload=payload, signal=signal)
+            runtime_anchor_id = _runtime_anchor_id(payload=payload, signal=signal)
             task_run = self.host.state_index.get_task_run(task_run_id)
             if task_run is None:
-                return {"error": "task_run_not_found", "task_run_id": task_run_id}
+                return {"error": "runtime_anchor_event_scope_not_found", "runtime_anchor_id": runtime_anchor_id, "task_run_id": task_run_id}
             status = str(getattr(task_run, "status", "") or "")
             return {
                 "authority": "harness.run_monitor.actions.delete_record_preview",
+                "runtime_anchor_id": runtime_anchor_id,
                 "task_run_id": task_run_id,
                 "status": status,
                 "terminal": status in {"completed", "failed", "aborted"},
@@ -186,7 +175,7 @@ class RunMonitorActionService:
         signal_id = _signal_id(payload=payload, signal=signal)
         row = self.monitor_service.retention_store.hide_signal(
             signal_id=signal_id,
-            task_run_id=_task_run_id(payload=payload, signal=signal),
+            task_run_id=self._legacy_task_run_id(payload=payload, signal=signal),
             graph_run_id=_graph_run_id(payload=payload, signal=signal),
             reason=str(payload.get("reason") or "user_cleared"),
             hidden_by="user",
@@ -201,38 +190,9 @@ class RunMonitorActionService:
         )
         return {"authority": "harness.run_monitor.actions.restore_to_monitor", "restored": row}
 
-    def _close_runtime(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        reason = str(payload.get("reason") or "harness.run_monitor_close_runtime")
-        stop_result = self._stop_task(
-            payload={**payload, "reason": reason},
-            signal=signal,
-        )
-        if stop_result.get("error") or stop_result.get("ok") is False:
-            return {
-                "authority": "harness.run_monitor.actions.close_runtime",
-                "task_run_id": task_run_id,
-                "stop": stop_result,
-                "error": str(stop_result.get("error") or "runtime_close_rejected"),
-            }
-        signal_id = _signal_id(payload=payload, signal=signal) or task_run_id
-        hidden = self.monitor_service.retention_store.hide_signal(
-            signal_id=signal_id,
-            task_run_id=task_run_id,
-            graph_run_id=_graph_run_id(payload=payload, signal=signal),
-            reason=reason,
-            hidden_by="user",
-            source_revision=str(payload.get("source_revision") or ""),
-        )
-        return {
-            "authority": "harness.run_monitor.actions.close_runtime",
-            "task_run_id": task_run_id,
-            "stop": stop_result,
-            "hidden": hidden,
-        }
-
     async def _delete_record(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
+        task_run_id = self._legacy_task_run_id(payload=payload, signal=signal)
+        runtime_anchor_id = _runtime_anchor_id(payload=payload, signal=signal)
         manager = TaskRecordLifecycleManager(self.runtime)
         try:
             task_run, deletion_mark = await manager.prepare_single_task_record_deletion(
@@ -240,10 +200,11 @@ class RunMonitorActionService:
                 cancel_timeout_seconds=1.0,
             )
         except TaskRecordLifecycleNotFound:
-            return {"error": "task_run_not_found", "task_run_id": task_run_id}
+            return {"error": "runtime_anchor_event_scope_not_found", "runtime_anchor_id": runtime_anchor_id, "task_run_id": task_run_id}
         except TaskRecordLifecycleConflict as exc:
             return {
                 "error": exc.reason,
+                "runtime_anchor_id": runtime_anchor_id,
                 "task_run_id": exc.task_run_id,
                 "graph_run_id": exc.graph_run_id,
             }
@@ -267,6 +228,7 @@ class RunMonitorActionService:
         return {
             "authority": "harness.run_monitor.actions.delete_record",
             "mode": "queued_cleanup",
+            "runtime_anchor_id": runtime_anchor_id,
             "task_run_id": task_run_id,
             "deleted": False,
             "cleanup_queued": cleanup_queued,
@@ -294,27 +256,24 @@ class RunMonitorActionService:
             raise RuntimeError("runtime monitor cleanup requires host.spawn_background_task")
         spawner(coro, name=name)
 
-    def _pause_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        return dict(
-            TaskRunControlGateway(runtime_host=self.host, schedule_task_run_executor=None).pause_task_run(
-                task_run_id,
-                reason=str(payload.get("reason") or ""),
-                requested_by="user",
-            )
-            or {}
-        )
-
-    def _stop_task(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
-        task_run_id = _task_run_id(payload=payload, signal=signal)
-        return dict(
-            TaskRunControlGateway(runtime_host=self.host, schedule_task_run_executor=None).stop_task_run(
-                task_run_id,
-                reason=str(payload.get("reason") or ""),
-                requested_by="user",
-            )
-            or {}
-        )
+    def _legacy_task_run_id(self, *, payload: dict[str, Any], signal: dict[str, Any] | None) -> str:
+        direct = _task_run_id(payload=payload, signal=signal)
+        if direct:
+            return direct
+        runtime_anchor_id = _runtime_anchor_id(payload=payload, signal=signal)
+        if not runtime_anchor_id:
+            return ""
+        getter = getattr(getattr(self.host, "state_index", None), "get_runtime_anchor", None)
+        if not callable(getter):
+            return ""
+        try:
+            anchor = getter(runtime_anchor_id)
+        except Exception:
+            anchor = None
+        if anchor is None:
+            return ""
+        payload = anchor.to_dict() if hasattr(anchor, "to_dict") else dict(anchor)
+        return _event_scope_task_run_id(payload)
 
 
 def _action_name(payload: dict[str, Any]) -> str:
@@ -340,12 +299,14 @@ def _source_revision_check(*, payload: dict[str, Any], monitor: dict[str, Any]) 
 def _find_signal(monitor: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
     candidates = {
         str(payload.get("signal_id") or "").strip(),
+        str(payload.get("runtime_anchor_id") or "").strip(),
         str(payload.get("task_run_id") or "").strip(),
         str(payload.get("graph_run_id") or "").strip(),
     } - {""}
     for signal in _all_signals(monitor):
         if {
             str(signal.get("signal_id") or "").strip(),
+            str(signal.get("runtime_anchor_id") or "").strip(),
             str(signal.get("task_instance_id") or "").strip(),
             str(signal.get("task_run_id") or "").strip(),
             str(signal.get("graph_run_id") or "").strip(),
@@ -364,7 +325,7 @@ def _all_signals(monitor: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
-        key = str(row.get("signal_id") or row.get("task_run_id") or row.get("graph_run_id") or "").strip()
+        key = str(row.get("signal_id") or row.get("runtime_anchor_id") or row.get("task_run_id") or row.get("graph_run_id") or "").strip()
         if key and key in seen:
             continue
         if key:
@@ -376,17 +337,24 @@ def _all_signals(monitor: dict[str, Any]) -> list[dict[str, Any]]:
 def _target(*, payload: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, str]:
     return {
         "signal_id": _signal_id(payload=payload, signal=signal),
+        "runtime_anchor_id": _runtime_anchor_id(payload=payload, signal=signal),
         "task_run_id": _task_run_id(payload=payload, signal=signal),
         "graph_run_id": _graph_run_id(payload=payload, signal=signal),
     }
 
 
 def _signal_id(*, payload: dict[str, Any], signal: dict[str, Any] | None) -> str:
-    return str(payload.get("signal_id") or (signal or {}).get("signal_id") or (signal or {}).get("task_instance_id") or "").strip()
+    return str(payload.get("signal_id") or (signal or {}).get("signal_id") or (signal or {}).get("runtime_anchor_id") or (signal or {}).get("task_instance_id") or "").strip()
+
+
+def _runtime_anchor_id(*, payload: dict[str, Any], signal: dict[str, Any] | None) -> str:
+    runtime_anchor = dict((signal or {}).get("runtime_anchor") or {})
+    return str(payload.get("runtime_anchor_id") or (signal or {}).get("runtime_anchor_id") or runtime_anchor.get("runtime_anchor_id") or "").strip()
 
 
 def _task_run_id(*, payload: dict[str, Any], signal: dict[str, Any] | None) -> str:
-    return str(payload.get("task_run_id") or (signal or {}).get("task_run_id") or "").strip()
+    runtime_anchor = dict((signal or {}).get("runtime_anchor") or {})
+    return str(payload.get("task_run_id") or (signal or {}).get("task_run_id") or runtime_anchor.get("legacy_task_run_id") or "").strip()
 
 
 def _graph_run_id(*, payload: dict[str, Any], signal: dict[str, Any] | None) -> str:
@@ -412,3 +380,11 @@ def _background_task_running(host: Any, name: str) -> bool:
     return bool(checker(name))
 
 
+def _event_scope_task_run_id(anchor: dict[str, Any]) -> str:
+    direct = str(anchor.get("legacy_task_run_id") or "").strip()
+    if direct:
+        return direct
+    event_scope = str(anchor.get("event_scope_ref") or "").strip()
+    if event_scope.startswith("task_run:"):
+        return event_scope.removeprefix("task_run:").strip()
+    return event_scope

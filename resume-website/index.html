@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20261027-project-typography">
     <script src="html2pdf.bundle.min.js" async></script>
 </head>
 <body>
@@ -81,7 +81,7 @@ window.openTemplateLibrary = function() {
                 var isActive = (activeKey === key);
                 var descMap = {
                     'classic-blue': '左侧边栏 + 右侧主内容，经典蓝色风格',
-                    'full-width': '顶部通栏头部，技能/语言/内容纵向排列',
+                    'full-width': '顶部通栏头部，爱好/语言/内容纵向排列',
                     'card-grid': '顶部头部 + 自适应卡片网格布局',
                     'vertical-simple': '纯白极简，全纵向排列，干净利落',
                     'professional-left': '深色宽侧栏 + 金色强调，商务专业风',
@@ -115,7 +115,7 @@ window.openTemplateLibraryLazy = function() {
         var activeKey = ls.get('resume-template', 'classic-blue');
         var descMap = {
             'classic-blue': '左侧边栏 + 右侧主内容，经典蓝色风格',
-            'full-width': '顶部通栏头部，技能/语言/内容纵向排列',
+            'full-width': '顶部通栏头部，爱好/语言/内容纵向排列',
             'card-grid': '顶部头部 + 自适应卡片网格布局',
             'vertical-simple': '纯白极简，全纵向排列，干净利落',
             'professional-left': '深色宽侧栏 + 金色强调，商务专业风',
@@ -181,7 +181,7 @@ window.openResumeEditor = function() {
             copies = [{
                 id: 'default',
                 name: '默认副本',
-                data: JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA)),
+                data: normalizeResumeData(DEFAULT_RESUME_DATA),
                 createdAt: new Date().toISOString()
             }];
             ls.set('resume-copies', JSON.stringify(copies));
@@ -197,82 +197,209 @@ window.openResumeEditor = function() {
 window.generatePDF = async function() {
     var container = document.querySelector('#resume-root .container');
     if (!container) { if (typeof showToast === 'function') showToast('未找到简历内容'); return; }
-    var editBar = document.querySelector('.edit-bar');
-    if (editBar) editBar.style.display = 'none';
-    var copyManager = document.getElementById('copy-manager');
-    if (copyManager) copyManager.style.display = 'none';
-    if (typeof showToast === 'function') showToast('正在生成 PDF...');
-    try {
-        var copies = ls.parseJSON('resume-copies', null);
-        var activeId = ls.get('resume-active-copy-id', 'default');
-        var active = copies ? copies.find(function(c) { return c.id === activeId; }) : null;
-        var fileName = active ? active.name + '.pdf' : '个人简历.pdf';
-        // 显式锁定容器宽度，避免 html2canvas 在居中布局下偏移裁剪
-        var origWidth = container.style.width;
-        container.style.width = container.scrollWidth + 'px';
-        var opt = {
-            margin: [0.4, 0.4, 0.4, 0.4],
-            filename: fileName,
-            image: { type: 'png' },
-            html2canvas: { scale: 4, useCORS: true, letterRendering: true, logging: false },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-        };
-        if (typeof html2pdf !== 'undefined') {
-            await html2pdf().set(opt).from(container).save();
-            container.style.width = origWidth;
-            if (typeof showToast === 'function') showToast('PDF 已下载');
-        } else {
-            if (typeof showToast === 'function') showToast('PDF 库未加载，请使用打印功能');
-        }
-    } catch(err) {
-        console.error('[简历] PDF 生成失败:', err);
-        if (typeof showToast === 'function') showToast('PDF 生成失败，请使用打印功能');
-    } finally {
-        if (editBar) editBar.style.display = '';
-        if (copyManager) copyManager.style.display = '';
-    }
+    document.querySelectorAll('.toast').forEach(function(toast) { toast.remove(); });
+    if (typeof showToast === 'function') showToast('已打开打印窗口，可选择另存为 PDF');
+    setTimeout(function() {
+        document.querySelectorAll('.toast').forEach(function(toast) { toast.remove(); });
+        window.print();
+    }, 80);
 };
+
+// ===== 简历品牌与结构化字段 =====
+const SCHOOL_LOGO_SRC = 'njupt-logo.png';
+const DEFAULT_HOBBIES = ['阅读写作', '摄影', '羽毛球', '跑步', '音乐', '志愿服务'];
+
+function getDefaultHobbies() {
+    return DEFAULT_HOBBIES.slice();
+}
+
+function inferContactLabel(contact) {
+    const label = contact && contact.label ? String(contact.label).trim() : '';
+    if (label) return label;
+
+    const icon = contact && contact.icon ? String(contact.icon) : '';
+    const rawValue = contact && contact.value != null ? String(contact.value) : '';
+    const value = rawValue.toLowerCase();
+
+    if (icon.includes('📧') || value.includes('@')) return '邮箱';
+    if (icon.includes('📱') || icon.includes('☎') || /(^|\D)\+?\d[\d\s-]{7,}\d(\D|$)/.test(rawValue)) return '电话';
+    if (icon.includes('📍') || /地址|省|市|区|县|路|街|巷|号|园区|校区|address|location/i.test(rawValue)) return '地址';
+    if (icon.includes('🌐') || /github|gitlab|portfolio|linkedin|https?:\/\/|www\.|\.com|\.cn|\.io|\.net/.test(value)) return '作品链接';
+
+    return '联系方式';
+}
+
+function normalizeContacts(contacts) {
+    if (!Array.isArray(contacts)) return [];
+    return contacts.map(item => {
+        const contact = item && typeof item === 'object' ? item : { value: item };
+        const icon = contact.icon == null ? '' : String(contact.icon).trim();
+        const value = contact.value == null ? '' : String(contact.value).trim();
+        return {
+            icon,
+            label: inferContactLabel({ ...contact, icon, value }),
+            value
+        };
+    }).filter(contact => contact.value);
+}
+
+function normalizeBasicInfoItems(items) {
+    if (!Array.isArray(items)) return [];
+    return items.map(item => {
+        const source = item && typeof item === 'object' ? item : {};
+        const label = String(source.label ?? source.title ?? source.name ?? '').trim();
+        const value = String(source.value ?? source.content ?? source.text ?? '').trim();
+        return { label, value };
+    }).filter(item => item.label && item.value);
+}
+
+function normalizeResumeData(data) {
+    const normalized = data && typeof data === 'object'
+        ? JSON.parse(JSON.stringify(data))
+        : JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA));
+    normalized.contacts = normalizeContacts(normalized.contacts);
+    normalized.basicInfoItems = normalizeBasicInfoItems(normalized.basicInfoItems);
+    if (!Object.prototype.hasOwnProperty.call(normalized, 'age')) {
+        normalized.age = DEFAULT_RESUME_DATA.age;
+    } else {
+        const age = String(normalized.age || '').trim();
+        normalized.age = /^\d{1,2}$/.test(age) ? `${age}岁` : age;
+    }
+    if (!Array.isArray(normalized.hobbies)) {
+        normalized.hobbies = getDefaultHobbies();
+    }
+    if (!Object.prototype.hasOwnProperty.call(normalized, 'showAbout')) {
+        normalized.showAbout = true;
+    }
+    if (!normalized.typography || typeof normalized.typography !== 'object') {
+        normalized.typography = { fontFamily: '', fontSize: 14, lineHeight: 'normal' };
+    } else {
+        const fontSize = Number.parseInt(normalized.typography.fontSize, 10);
+        normalized.typography.fontSize = Number.isFinite(fontSize)
+            ? Math.max(8, Math.min(72, fontSize))
+            : 14;
+    }
+    if (normalized.typography) {
+        if (!normalized.typography.fontFamily) normalized.typography.fontFamily = '';
+        if (!normalized.typography.primaryColor || ['#2563eb', '#155bd6', '#005ee8'].includes(normalized.typography.primaryColor)) {
+            normalized.typography.primaryColor = '#2f7de1';
+        }
+        if (!normalized.typography.headingColor || ['#1e293b', '#155bd6', '#005ee8'].includes(normalized.typography.headingColor)) {
+            normalized.typography.headingColor = '#2f7de1';
+        }
+        if (!normalized.typography.textColor || ['#334155', '#050b18'].includes(normalized.typography.textColor)) {
+            normalized.typography.textColor = '#111827';
+        }
+        if (!normalized.typography.bgColor) normalized.typography.bgColor = '#f8fafc';
+        if (!normalized.typography.cardColor) normalized.typography.cardColor = '#ffffff';
+    }
+    normalized.projects = Array.isArray(normalized.projects)
+        ? normalized.projects.map(normalizeProjectEntry).filter(project => project.title || project.subtitle || project.tech || project.contentBlocks.length)
+        : [];
+    delete normalized.skills;
+    return normalized;
+}
+
+function getHobbies(data) {
+    return data && Array.isArray(data.hobbies) ? data.hobbies : [];
+}
+
+function buildTagsHTML(items, className) {
+    return (items || []).map(item =>
+        `<span class="${className}">${escapeHtml(item)}</span>`
+    ).join('');
+}
+
+function buildSchoolLogoHTML(extraClass) {
+    return `<div class="school-logo ${extraClass || ''}"><img src="${SCHOOL_LOGO_SRC}" alt="南京邮电大学校标" loading="eager" /></div>`;
+}
+
+function buildCustomContentHTML(content) {
+    const source = String(content || '').trim();
+    if (!source) return '';
+    const hasHtmlTag = /<\/?(?:b|strong|i|em|u|span|font|p|br|ul|ol|li|img|a|div)\b/i.test(source);
+    return hasHtmlTag ? sanitizeHtml(source) : escapeHtml(source).replace(/\n/g, '<br>');
+}
+
+function customContentToEditorHtml(content) {
+    return buildCustomContentHTML(content);
+}
+
+function buildContactItemHTML(contact, className, iconClassName) {
+    const c = normalizeContacts([contact])[0];
+    if (!c) return '';
+    const value = String(c.value || '').toLowerCase();
+    const isEmail = /邮箱|email/i.test(c.label || '') || value.includes('@');
+    const isLink = !isEmail && (/链接|作品|github|网址|主页|网站|portfolio|link/.test(c.label || '') || /https?:\/\/|github|gitlab|www\.|\.com|\.cn|\.io|\.net/.test(value));
+    const detailClass = isLink ? 'contact-detail contact-detail-link' : 'contact-detail contact-detail-compact';
+    return `<div class="${className || 'contact-item'}">
+        <span class="${iconClassName || 'icon'}">${escapeHtml(c.icon || '')}</span>
+        <span class="contact-copy">
+            <span class="contact-title">${escapeHtml(c.label || '')}</span>
+            <span class="${detailClass}">${escapeHtml(c.value || '')}</span>
+        </span>
+    </div>`;
+}
+
+function getProfileMetaItems(data) {
+    const age = data && data.age ? String(data.age).trim() : '';
+    const items = age ? [{ label: '年龄', value: age }] : [];
+    return items.concat(normalizeBasicInfoItems(data && data.basicInfoItems));
+}
+
+function buildProfileMetaHTML(data, className) {
+    return getProfileMetaItems(data).map(item =>
+        `<div class="${className || 'profile-meta-item'}">
+            <span class="profile-meta-label">${escapeHtml(item.label)}</span>
+            <span class="profile-meta-value">${escapeHtml(item.value)}</span>
+        </div>`
+    ).join('');
+}
+
+function buildInlineProfileMetaHTML(data, className) {
+    return getProfileMetaItems(data).map(item =>
+        `<span class="${className || 'profile-inline-item'}">${escapeHtml(item.label)} ${escapeHtml(item.value)}</span>`
+    ).join(' | ');
+}
 
 // ===== 模板定义（含渲染函数） =====
 const TEMPLATES = {
     'classic-blue': {
         name: '经典双栏',
         vars: {
-            '--primary': '#2563eb',
-            '--primary-light': '#dbeafe',
-            '--text': '#1e293b',
-            '--text-secondary': '#64748b',
+            '--primary': '#2f7de1',
+            '--primary-light': '#e7f1ff',
+            '--heading': '#2f7de1',
+            '--text': '#111827',
+            '--text-secondary': '#374151',
             '--bg': '#f8fafc',
             '--white': '#ffffff',
-            '--border': '#e2e8f0',
-            '--shadow': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)',
-            '--shadow-md': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)'
+            '--border': '#cbd5e1',
+            '--shadow': '0 1px 0 rgba(15,23,42,0.12)',
+            '--shadow-md': '0 1px 0 rgba(15,23,42,0.16)'
         },
         render(data) {
             const d = data || {};
             const avatarHtml = d.showPhoto === false ? '' : (d.photo
                 ? `<div class="avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
                 : `<div class="avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
-            const contactsHtml = (d.contacts || []).map(c =>
-                `<div class="contact-item"><span class="icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
-            ).join('');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class="skill-tag">${escapeHtml(s)}</span>`
-            ).join('');
+            const contactsHtml = (d.contacts || []).map(c => buildContactItemHTML(c)).join('');
+            const profileMetaHtml = buildProfileMetaHTML(d);
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
+            const aboutHtml = d.showAbout !== false && d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
                     <div class="timeline">${(d.experiences || []).map(e => buildTimelineItemHTML(e, true)).join('')}</div>
                 </section>` : '';
             const eduHtml = (d.education || []).length ? `
-                <section class="section">
+                <section class="section education-section">
                     <h2 class="section-title">教育经历</h2>
-                    <div class="timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
+                    <div class="timeline education-timeline">${(d.education || []).map(e => buildTimelineItemHTML(e, false)).join('')}</div>
                 </section>` : '';
             const projHtml = (d.projects || []).length ? `
                 <section class="section">
@@ -280,27 +407,29 @@ const TEMPLATES = {
                     ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
                 </section>` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${buildCustomContentHTML(cs.content || '')}</div></section>`
             ).join('');
 
             return `<div class="container template-classic-blue">
+                ${buildSchoolLogoHTML('school-logo-corner')}
                 <aside class="sidebar">
                     <div class="avatar-section">
                         ${avatarHtml}
                         <h1>${escapeHtml(d.name || '')}</h1>
                         <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
                     </div>
+                    ${profileMetaHtml ? `<section class="sidebar-section"><h2>基本信息</h2>${profileMetaHtml}</section>` : ''}
                     ${d.contacts && d.contacts.length ? `<section class="sidebar-section"><h2>联系方式</h2>${contactsHtml}</section>` : ''}
-                    ${d.skills && d.skills.length ? `<section class="sidebar-section"><h2>技能</h2><div class="skill-tags">${skillsHtml}</div></section>` : ''}
+                    ${hobbies.length ? `<section class="sidebar-section"><h2>个人爱好</h2><div class="hobby-tags">${hobbiesHtml}</div></section>` : ''}
                     ${d.languages && d.languages.length ? `<section class="sidebar-section"><h2>语言</h2>${languagesHtml}</section>` : ''}
 
                 </aside>
                 <main class="main-content">
-                    ${aboutHtml}
                     ${expHtml}
                     ${eduHtml}
                     ${projHtml}
                     ${customHtml}
+                    ${aboutHtml}
                 </main>
             </div>`;
         }
@@ -327,13 +456,13 @@ const TEMPLATES = {
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class="fw-contact-item">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
             ).join(' | ');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class="skill-tag">${escapeHtml(s)}</span>`
-            ).join('');
+            const profileInlineHtml = buildInlineProfileMetaHTML(d, 'fw-contact-item profile-inline-item');
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
+            const aboutHtml = d.showAbout !== false && d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -350,22 +479,23 @@ const TEMPLATES = {
                     ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
                 </section>` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${buildCustomContentHTML(cs.content || '')}</div></section>`
             ).join('');
-            const sideHtml = (d.skills && d.skills.length) || (d.languages && d.languages.length) ? `
+            const sideHtml = hobbies.length || (d.languages && d.languages.length) ? `
                 <div class="fw-side-row">
-                    ${d.skills && d.skills.length ? `<div class="fw-side-block"><h3>技能</h3><div class="skill-tags">${skillsHtml}</div></div>` : ''}
+                    ${hobbies.length ? `<div class="fw-side-block"><h3>个人爱好</h3><div class="hobby-tags">${hobbiesHtml}</div></div>` : ''}
                     ${d.languages && d.languages.length ? `<div class="fw-side-block"><h3>语言</h3>${languagesHtml}</div>` : ''}
                 </div>` : '';
 
             return `<div class="container template-full-width">
                 <header class="fw-header">
+                    ${buildSchoolLogoHTML('school-logo-header')}
                     ${avatarHtml}
                     <div class="fw-title-block">
                         <h1>${escapeHtml(d.name || '')}</h1>
                         <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
                     </div>
-                    <div class="fw-contacts">${contactsHtml}</div>
+                    <div class="fw-contacts">${[profileInlineHtml, contactsHtml].filter(Boolean).join(' | ')}</div>
                 </header>
                 <div class="fw-body">
                     ${aboutHtml}
@@ -398,12 +528,10 @@ const TEMPLATES = {
             const avatarHtml = d.showPhoto === false ? '' : (d.photo
                 ? `<div class="cg-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
                 : `<div class="cg-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
-            const contactsHtml = (d.contacts || []).map(c =>
-                `<div class="contact-item"><span class="icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
-            ).join('');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class="skill-tag">${escapeHtml(s)}</span>`
-            ).join('');
+            const contactsHtml = (d.contacts || []).map(c => buildContactItemHTML(c)).join('');
+            const profileMetaHtml = buildProfileMetaHTML(d);
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
@@ -417,11 +545,12 @@ const TEMPLATES = {
                 <h2 class="section-title">项目经验</h2>
                 ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div>`
+                `<h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${buildCustomContentHTML(cs.content || '')}</div>`
             ).join('');
 
             return `<div class="container template-card-grid">
                 <header class="cg-header">
+                    ${buildSchoolLogoHTML('school-logo-header')}
                     ${avatarHtml}
                     <div>
                         <h1>${escapeHtml(d.name || '')}</h1>
@@ -430,10 +559,11 @@ const TEMPLATES = {
                 </header>
 
                 <div class="cg-grid">
+                    ${profileMetaHtml ? `<div class="cg-card"><h2>基本信息</h2>${profileMetaHtml}</div>` : ''}
                     ${d.contacts && d.contacts.length ? `<div class="cg-card"><h2>联系方式</h2>${contactsHtml}</div>` : ''}
-                    ${d.skills && d.skills.length ? `<div class="cg-card"><h2>技能</h2><div class="skill-tags">${skillsHtml}</div></div>` : ''}
+                    ${hobbies.length ? `<div class="cg-card"><h2>个人爱好</h2><div class="hobby-tags">${hobbiesHtml}</div></div>` : ''}
                     ${d.languages && d.languages.length ? `<div class="cg-card"><h2>语言</h2>${languagesHtml}</div>` : ''}
-                    ${d.about ? `<div class="cg-card"><h2>关于我</h2>${sanitizeHtml(d.about)}</div>` : ''}
+                    ${d.showAbout !== false && d.about ? `<div class="cg-card"><h2>关于我</h2>${sanitizeHtml(d.about)}</div>` : ''}
                     ${d.experiences && d.experiences.length ? `<div class="cg-card cg-card-wide">${expHtml}</div>` : ''}
                     ${d.education && d.education.length ? `<div class="cg-card">${eduHtml}</div>` : ''}
                     ${d.projects && d.projects.length ? `<div class="cg-card cg-card-wide">${projHtml}</div>` : ''}
@@ -464,13 +594,13 @@ const TEMPLATES = {
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class="vs-contact">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
             ).join('');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class="skill-tag">${escapeHtml(s)}</span>`
-            ).join('');
+            const profileInlineHtml = buildInlineProfileMetaHTML(d, 'vs-contact profile-inline-item');
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
+            const aboutHtml = d.showAbout !== false && d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -487,21 +617,22 @@ const TEMPLATES = {
                     ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
                 </section>` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${buildCustomContentHTML(cs.content || '')}</div></section>`
             ).join('');
 
             return `<div class="container template-vertical-simple">
                 <header class="vs-header">
+                    ${buildSchoolLogoHTML('school-logo-centered')}
                     ${avatarHtml}
                     <div class="vs-title-block">
                         <h1>${escapeHtml(d.name || '')}</h1>
                         <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
                     </div>
-                    <div class="vs-contacts">${contactsHtml}</div>
+                    <div class="vs-contacts">${[profileInlineHtml, contactsHtml].filter(Boolean).join('')}</div>
                 </header>
                 <div class="vs-body">
                     ${aboutHtml}
-                    ${d.skills && d.skills.length ? `<section class="section"><h2 class="section-title">技能</h2><div class="skill-tags">${skillsHtml}</div></section>` : ''}
+                    ${hobbies.length ? `<section class="section"><h2 class="section-title">个人爱好</h2><div class="hobby-tags">${hobbiesHtml}</div></section>` : ''}
                     ${d.languages && d.languages.length ? `<section class="section"><h2 class="section-title">语言</h2>${languagesHtml}</section>` : ''}
                     ${expHtml}
                     ${eduHtml}
@@ -530,16 +661,14 @@ const TEMPLATES = {
             const avatarHtml = d.showPhoto === false ? '' : (d.photo
                 ? `<div class="pl-avatar photo-avatar" style="${getPhotoSizeStyle(d.photoSize)}border-radius:${getPhotoRadius(d.photoShape)}"><img src="${escapeHtml(d.photo)}" alt="avatar" loading="lazy" style="border-radius:${getPhotoRadius(d.photoShape)}" /></div>`
                 : `<div class="pl-avatar">${escapeHtml((d.name || '?').charAt(0))}</div>`);
-            const contactsHtml = (d.contacts || []).map(c =>
-                `<div class="pl-contact-item"><span class="pl-contact-icon">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
-            ).join('');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class="pl-skill-tag">${escapeHtml(s)}</span>`
-            ).join('');
+            const contactsHtml = (d.contacts || []).map(c => buildContactItemHTML(c, 'pl-contact-item', 'pl-contact-icon')).join('');
+            const profileMetaHtml = buildProfileMetaHTML(d, 'pl-profile-meta-item');
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'pl-hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="pl-lang-item"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
+            const aboutHtml = d.showAbout !== false && d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -556,17 +685,19 @@ const TEMPLATES = {
                     ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
                 </section>` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${buildCustomContentHTML(cs.content || '')}</div></section>`
             ).join('');
 
             return `<div class="container template-professional-left">
                 <aside class="pl-sidebar">
                     <div class="pl-sidebar-inner">
+                        ${buildSchoolLogoHTML('school-logo-sidebar')}
                         ${avatarHtml}
                         <h1 class="pl-name">${escapeHtml(d.name || '')}</h1>
                         <p class="pl-subtitle">${escapeHtml(d.subtitle || '')}</p>
+                        ${profileMetaHtml ? `<div class="pl-profile-meta">${profileMetaHtml}</div>` : ''}
                         ${d.contacts && d.contacts.length ? `<div class="pl-contacts">${contactsHtml}</div>` : ''}
-                        ${d.skills && d.skills.length ? `<div class="pl-skills"><h3>专业技能</h3><div class="pl-skill-tags">${skillsHtml}</div></div>` : ''}
+                        ${hobbies.length ? `<div class="pl-hobbies"><h3>个人爱好</h3><div class="pl-hobby-tags">${hobbiesHtml}</div></div>` : ''}
                         ${d.languages && d.languages.length ? `<div class="pl-langs"><h3>语言</h3>${languagesHtml}</div>` : ''}
                     </div>
                 </aside>
@@ -602,13 +733,13 @@ const TEMPLATES = {
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class="dt-contact">${escapeHtml(c.icon || '')} ${escapeHtml(c.value || '')}</span>`
             ).join(' | ');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class="skill-tag">${escapeHtml(s)}</span>`
-            ).join('');
+            const profileInlineHtml = buildInlineProfileMetaHTML(d, 'dt-contact profile-inline-item');
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class="language-item inline"><span>${escapeHtml(l.name || '')}</span><span class="level">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
+            const aboutHtml = d.showAbout !== false && d.about ? `<section class="section"><h2 class="section-title">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class="section">
                     <h2 class="section-title">工作经验</h2>
@@ -625,12 +756,12 @@ const TEMPLATES = {
                     ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
                 </section>` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${escapeHtml(cs.content || '').replace(/\n/g, '<br>')}</div></section>`
+                `<section class="section custom-section"><h2 class="section-title">${escapeHtml(cs.title || '')}</h2><div class="custom-content">${buildCustomContentHTML(cs.content || '')}</div></section>`
             ).join('');
 
             const leftColHtml = `
                 <div class="dt-col-left">
-                    ${d.skills && d.skills.length ? `<section class="section"><h2 class="section-title">技能</h2><div class="skill-tags">${skillsHtml}</div></section>` : ''}
+                    ${hobbies.length ? `<section class="section"><h2 class="section-title">个人爱好</h2><div class="hobby-tags">${hobbiesHtml}</div></section>` : ''}
                     ${d.languages && d.languages.length ? `<section class="section"><h2 class="section-title">语言</h2>${languagesHtml}</section>` : ''}
                     ${aboutHtml}
                 </div>`;
@@ -644,12 +775,13 @@ const TEMPLATES = {
 
             return `<div class="container template-dual-timeline">
                 <header class="dt-header">
+                    ${buildSchoolLogoHTML('school-logo-header')}
                     ${avatarHtml}
                     <div class="dt-title-block">
                         <h1>${escapeHtml(d.name || '')}</h1>
                         <p class="subtitle">${escapeHtml(d.subtitle || '')}</p>
                     </div>
-                    <div class="dt-contacts">${contactsHtml}</div>
+                    <div class="dt-contacts">${[profileInlineHtml, contactsHtml].filter(Boolean).join(' | ')}</div>
                 </header>
                 <div class="dt-body">
                     ${leftColHtml}
@@ -680,13 +812,12 @@ const TEMPLATES = {
             const contactsHtml = (d.contacts || []).map(c =>
                 `<span class=\"lg-contact-item\"><span class=\"icon\">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></span>`
             ).join('');
-            const skillsHtml = (d.skills || []).map(s =>
-                `<span class=\"lg-skill-tag\">${escapeHtml(s)}</span>`
-            ).join('');
+            const hobbies = getHobbies(d);
+            const hobbiesHtml = buildTagsHTML(hobbies, 'lg-hobby-tag');
             const languagesHtml = (d.languages || []).map(l =>
                 `<div class=\"language-item\"><span>${escapeHtml(l.name || '')}</span><span class=\"level\">${escapeHtml(l.level || '')}</span></div>`
             ).join('');
-            const aboutHtml = d.about ? `<section class=\"section\"><h2 class=\"section-title\">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
+            const aboutHtml = d.showAbout !== false && d.about ? `<section class=\"section\"><h2 class=\"section-title\">关于我</h2>${sanitizeHtml(d.about)}</section>` : '';
             const expHtml = (d.experiences || []).length ? `
                 <section class=\"section\">
                     <h2 class=\"section-title\">工作经验</h2>
@@ -703,14 +834,14 @@ const TEMPLATES = {
                     ${(d.projects || []).map(p => buildProjectCardHTML(p)).join('')}
                 </section>` : '';
             const customHtml = (d.customSections || []).map(cs =>
-                `<section class=\"section custom-section\"><h2 class=\"section-title\">${escapeHtml(cs.title || '')}</h2><div class=\"custom-content\">${escapeHtml(cs.content || '').replace(/\\n/g, '<br>')}</div></section>`
+                `<section class=\"section custom-section\"><h2 class=\"section-title\">${escapeHtml(cs.title || '')}</h2><div class=\"custom-content\">${buildCustomContentHTML(cs.content || '')}</div></section>`
             ).join('');
-            const contactListHtml = (d.contacts || []).map(c =>
-                `<div class=\"contact-item\"><span class=\"icon\">${escapeHtml(c.icon || '')}</span><span>${escapeHtml(c.value || '')}</span></div>`
-            ).join('');
+            const contactListHtml = (d.contacts || []).map(c => buildContactItemHTML(c)).join('');
+            const profileMetaHtml = buildProfileMetaHTML(d);
 
             return `<div class=\"container template-luxury-gold\">
                 <header class=\"lg-header\">
+                    ${buildSchoolLogoHTML('school-logo-header')}
                     <div class=\"lg-avatar-wrap\">
                         <div class=\"lg-avatar-ring\">${avatarHtml}</div>
                     </div>
@@ -722,7 +853,8 @@ const TEMPLATES = {
                 </header>
                 <div class=\"lg-body\">
                     <aside class=\"lg-sidebar\">
-                        ${d.skills && d.skills.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">专业技能</h3><div class=\"lg-skill-tags\">${skillsHtml}</div></div>` : ''}
+                        ${profileMetaHtml ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">基本信息</h3>${profileMetaHtml}</div>` : ''}
+                        ${hobbies.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">个人爱好</h3><div class=\"lg-hobby-tags\">${hobbiesHtml}</div></div>` : ''}
                         ${d.languages && d.languages.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">语言</h3>${languagesHtml}</div>` : ''}
                         ${d.contacts && d.contacts.length ? `<div class=\"lg-sidebar-section\"><h3 class=\"lg-sidebar-title\">联系方式</h3>${contactListHtml}</div>` : ''}
                         ${aboutHtml}
@@ -741,92 +873,86 @@ const TEMPLATES = {
 
 // ===== 默认简历数据 =====
 const DEFAULT_RESUME_DATA = {
-    name: '张三',
-    subtitle: '全栈开发工程师',
+    name: '魏鹏滨',
+    subtitle: 'AI应用开发工程师/全栈工程师',
+    age: '26岁',
     photo: '',
     photoShape: 'circle',
     photoSize: 'small',
     showPhoto: true,
     contacts: [
-        { icon: '📧', value: 'zhangsan@example.com' },
-        { icon: '📱', value: '138-0000-0000' },
-        { icon: '📍', value: '北京市朝阳区' },
-        { icon: '🌐', value: 'github.com/zhangsan' }
+        { icon: '📧', label: '邮箱', value: 'weipengbin2000@163.com' },
+        { icon: '📱', label: '电话', value: '18852626505' },
+        { icon: '📍', label: '地址', value: '南京市鼓楼区' },
+        { icon: '🌐', label: '个人项目', value: 'github.com/wei-boundless' }
     ],
-    skills: ['JavaScript', 'TypeScript', 'React', 'Vue', 'Node.js', 'Python', 'FastAPI', 'PostgreSQL', 'Docker', 'Git'],
+    hobbies: ['篮球', 'dota2', '阅读'],
     languages: [
         { name: '中文', level: '母语' },
-        { name: '英语', level: 'CET-6 / 工作流利' }
+        { name: '英语', level: 'CET-6' }
     ],
     about: '5年全栈开发经验，擅长前端工程化与后端架构设计。主导过多个从0到1的中大型项目，具备良好的技术选型能力和团队协作能力。热爱开源，持续关注技术前沿。',
+    showAbout: true,
     experiences: [
         {
-            title: '高级前端工程师',
-            date: '2023.03 - 至今',
-            company: '某科技有限公司',
+            title: '机器视觉开发工程师',
+            date: '2026.7-至今',
+            company: '南京虹集科技有限公司',
             points: [
-                '主导公司核心产品前端架构重构，从 jQuery 迁移至 React + TypeScript',
-                '搭建组件库与工程化体系，提升团队开发效率 40%',
-                '负责前端性能优化，首屏加载时间降低 60%'
-            ]
-        },
-        {
-            title: '全栈开发工程师',
-            date: '2021.06 - 2023.02',
-            company: '某互联网公司',
-            points: [
-                '参与电商平台后端微服务开发（Node.js + Python）',
-                '设计并实现订单系统、支付网关等核心模块',
-                '引入 CI/CD 流水线，缩短发布周期从周级到日级'
-            ]
-        },
-        {
-            title: '初级前端开发',
-            date: '2020.07 - 2021.05',
-            company: '某创业公司',
-            points: [
-                '负责公司官网及管理后台的前端开发',
-                '使用 Vue.js 完成多个活动页面的快速迭代'
+                '参与工业生产线瑕疵检测的模型训练，包括模型选型、图片数据预处理、瑕疵标注、标注质量检测和训练反馈后的数据优化。'
             ]
         }
     ],
     education: [
         {
-            title: '计算机科学与技术 · 硕士',
-            date: '2018.09 - 2020.06',
-            school: '北京大学',
-            note: '研究方向：Web 前端性能优化。GPA 3.8/4.0'
+            title: '通信与信息工程 · 硕士',
+            date: '2024.09-2027.07',
+            school: '南京邮电大学',
+            note: ''
         },
         {
-            title: '软件工程 · 学士',
-            date: '2014.09 - 2018.06',
-            school: '武汉大学',
-            note: '校级优秀毕业生。GPA 3.6/4.0'
+            title: '电子信息工程 · 本科',
+            date: '2017.09-2021.07',
+            school: '金陵科技学院',
+            note: ''
         }
     ],
     projects: [
         {
-            title: 'LangChain Agent 管理系统',
-            tech: 'React · FastAPI · PostgreSQL · Docker',
+            title: '风起于言——AI 智能写作平台',
+            date: '2026.5-至今',
+            subtitle: '<strong>项目介绍：</strong>面向长篇小说创作的AI智能写作平台，将人机交互与专业 Agent 的自动化创作流程融为一体。',
+            tech: 'Java 21 · Spring Boot · Vue 3 · MySQL · Redis · LangGraph4j · Spring AI',
             points: [
-                '设计并实现了多 Agent 协作的任务调度系统',
-                '构建了实时状态监控面板，支持任务追踪与干预',
-                '引入 SSE 流式通信，实现 Agent 执行过程的实时推送'
+                '<strong>架构亮点：</strong>围绕 Agent 宿主、任务契约、能力目录、上下文、记忆和执行回执建立统一运行链路，让用户目标能够被拆解、执行、验收并交付为可追踪产物。',
+                '<strong>通用任务执行内核：</strong>自研图执行内核，负责任务节点就绪、依赖推进、工作订单派发、结果接收和运行状态收敛；LangGraph 只作为断点存储适配层，平台自身掌握任务调度语义。',
+                '<strong>从用户目标到执行计划：</strong>将用户请求整理为包含目标、资源范围、工具范围、输出要求、验收条件和恢复策略的任务契约，再编译为可执行任务图，支持依赖、分支、批量处理和子 Agent 协作。',
+                '<strong>可恢复的任务闭环：</strong>为模型调用和工具操作记录请求指纹、幂等令牌、执行状态和结果回执，在暂停、断线、失败或重启后判断是继续执行、复用结果、重放读取还是请求人工处理，避免重复产生文件等副作用。',
+                '<strong>工具能力与安全控制：</strong>统一管理工具发现、参数校验、资源范围、审批、风险校验、沙箱边界、超时和重复调用；对未知操作、授权缺失或策略不完整的请求默认拒绝，并接入 MCP、A2A 和本地工具。',
+                '<strong>长任务上下文治理：</strong>将会话、状态、工作、正式和持久记忆按生命周期分层，通过权限范围、候选准入、版本管理和 Token 预算筛选上下文；历史过长时执行微压缩或语义压缩，保留目标、事实、决策和下一步动作等恢复信息。',
+                '<strong>从执行到交付的工作台：</strong>统一管理文件、检索结果、OCR/PDF/结构化数据等证据与 Agent 产物，使用 Next.js、React Flow、Monaco Editor、SSE 和 Electron 展示任务图、代码编辑、运行过程、Token 消耗和最终产物。'
             ]
         },
         {
-            title: '电商中台数据面板',
-            tech: 'Vue 3 · ECharts · Node.js · Redis',
+            title: 'Mythical-age——通用型 Harness 智能平台',
+            date: '2026.3-2026.6',
+            subtitle: '<strong>项目介绍：</strong>面向代码处理、数据分析与内容生成等任务的智能体平台，支持 Agent 管理、工具调用、skills、MCP 和多 Agent 协作。',
+            tech: 'LangChain · LlamaIndex · Whisper · OCR · Milvus · Elasticsearch · BGE-M3 Embedding',
             points: [
-                '搭建了支持百万级数据实时渲染的可视化面板',
-                '设计了灵活的数据源适配层，支持多业务线快速接入'
+                '<strong>核心架构：</strong>以作品、卷、阶段、章节构建四层叙事层级，用意图、上下文、工作订单、变更集、回执和交接等强类型契约连接 Agent 调度、叙事数据和创作自动化。',
+                '<strong>三层能力协同：</strong>划分 Agent 操作系统、叙事数据系统和创作自动化三层职责，通过统一契约传递任务、上下文、领域变更、成果回执和层级交接，使不同创作阶段复用同一执行内核。',
+                '<strong>从作品设定到正文事实：</strong>将设计意图、候选成果、作者采用、正文事实、证据和反馈分开建模，通过作品、卷、阶段、章节的父子关系，让上层设定能够逐级下沉，正文结果也能逐级汇总。',
+                '<strong>专业 Agent 协作流程：</strong>组织范围设计、设计审核、章纲生成、正文候选、章节审核、交接、阶段提取、阶段审核和语义结算等角色协作，形成从创作计划到正式沉淀的连续流程。',
+                '<strong>叙事知识与版本追踪：</strong>以版本化对象、关系、事实、证据和变更集承载人物、剧情、组织和规则，支持精确读取、局部采纳、影响分析和后续章节重确认，避免长篇写作中的设定漂移。',
+                '<strong>章节上下文与质量门禁：</strong>生成章节时组合前文、章纲、已采用设定、事实证据和作者要求，通过结构化输出校验、来源校验、内容血缘和双阶段审核控制候选交接，保证正文能够被追溯和复核。',
+                '<strong>作者主导的人机协作：</strong>将作者需求、解释提案、候选比较、采用决定和正式提交串成闭环，支持人工接管、局部确认、返修重审、暂停恢复和幂等重放，让 AI 负责执行，作者掌握创作裁决。'
             ]
         }
     ],
     customSections: [],
     typography: {
         fontFamily: '',
-        fontSize: 13,
+        fontSize: 14,
         lineHeight: 'normal',
         primaryColor: '',
         headingColor: '',
@@ -836,13 +962,40 @@ const DEFAULT_RESUME_DATA = {
     }
 };
 
+DEFAULT_RESUME_DATA.projects[0].points = [
+    '<strong>项目介绍：</strong>面向长篇小说创作的AI智能写作平台，将人机交互与专业 Agent 的自动化创作流程融为一体。',
+    '<strong>Agent 协作与作者控制：</strong>设计统一的任务执行机制，让设计、写作、审校等 Agent 根据任务调用工具、检索资料并按交接成果；关键节点进入人工审批。',
+    '<strong>四层创作流程：</strong>基于 LangGraph4j 构建“作品—卷—阶段—章节”分层工作流，将上层规划逐步落实为章节任务，支持返修和成果汇总。',
+    '<strong>业务数据体系：</strong>建立作品结构、人物关系、事件因果、世界设定及正文证据的数据模型，区分创作计划、待选草稿和正式事实。',
+    '<strong>资料检索与RAG增强：</strong>基于 Elasticsearch 和 RAG 技术，统一支持作者查阅资料与 Agent 获取生成依据，提升设定复用和章节生成的一致性。',
+    '<strong>审核与预稿闭环：</strong>围绕连续性、人物动机、事件因果和文学表达进行审核，支持局部优化与完整重写，并重新确认受影响的下游成果。',
+    '<strong>长期任务恢复：</strong>保存任务进度、待决事项与已完成成果，结合检查点和幂等回执支持审批后继续执行与中断恢复。'
+];
+DEFAULT_RESUME_DATA.projects[1].points = [
+    '<strong>项目介绍：</strong>面向代码处理、数据分析与内容生成等任务的智能体平台，支持 Agent 管理、工具调用、skills、MCP 和多 Agent 协作。',
+    '<strong>Harness 架构：</strong>以交互轮次为基本节拍，将上下文摘要、模型决策、工具调用、观察反馈与结果提交组织为连续循环。',
+    '<strong>Agent 管理与能力装配：</strong>支持自定义 Agent 配置与持久化注册，将工具、技能与 MCP 统一注册为能力单元并按权限生成可见能力目录。',
+    '<strong>任务系统：</strong>支持结构化任务契约描述业务目标、输入输出、交付物、验收规则、人工介入和失败策略。',
+    '<strong>多智能体编排系统：</strong>支持构建持久化、可恢复的多 Agent 编排图，支持条件路由、并行分支、循环和局部故障恢复。',
+    '<strong>权限与沙箱边界：</strong>将任务契约、Agent 能力、资源范围和风险策略编译为运行时授权，越界或高风险操作转人工审批。',
+    '<strong>上下文与记忆系统：</strong>以预算规则筛选临时上下文，支持摘要压缩、记忆分层、证据来源与版本管理，以及上下文快照恢复。',
+    '<strong>可视化与可观测性：</strong>基于 React 构建可视化界面，提供代码编辑、diff 展示、节点状态、工具调用、Token 使用和任务产物监控。'
+];
+DEFAULT_RESUME_DATA.customSections = [{
+    title: '掌握技能',
+    content: '<strong>编程语言：</strong>熟悉 Python 和 Java 的基础语法和面向对象编程，能够使用 Python 和 Java 完成数据处理、模型训练与基础开发任务；<br><strong>AI coding：</strong>熟悉 AI Coding 流程，熟悉多种主流大模型特性，能够通过 AI 完成全栈开发任务。<br><strong>深度学习：</strong>熟悉深度学习基本原理、掌握神经网络、损失函数、反向传播等核心概念，熟悉 PyTorch；熟悉多模态信息处理和多模态网络搭建训练。<br><strong>Agent 架构设计：</strong>了解大语言模型应用开发流程，熟悉 LangChain 框架、Agent 基本架构、Harness 架构、Prompt 设计、工具调用和 RAG 等技术。'
+}, {
+    title: '原始简历文件',
+    content: '<a href="个人简历 - 魏鹏滨.pdf" target="_blank" rel="noopener">打开原始 PDF：个人简历 - 魏鹏滨.pdf</a>'
+}];
+
 // ===== 一键配色预设 =====
 const COLOR_PRESETS = [
-    { name: '沉稳蓝调', primary: '#2563eb', heading: '#1e293b', text: '#334155', bg: '#f8fafc', card: '#ffffff' },
+    { name: '校徽蓝', primary: '#2f7de1', heading: '#2f7de1', text: '#111827', bg: '#f8fafc', card: '#ffffff' },
     { name: '清新绿',   primary: '#059669', heading: '#064e3b', text: '#374151', bg: '#f0fdf4', card: '#ffffff' },
     { name: '暖橙商务', primary: '#ea580c', heading: '#431407', text: '#3d3d3d', bg: '#fff7ed', card: '#ffffff' },
     { name: '极简灰白', primary: '#1f2937', heading: '#111827', text: '#4b5563', bg: '#f9fafb', card: '#ffffff' },
-    { name: '玫瑰紫',   primary: '#9333ea', heading: '#3b0764', text: '#374151', bg: '#faf5ff', card: '#ffffff' },
+    { name: '亮蓝黑',   primary: '#0b4fb3', heading: '#0b4fb3', text: '#111827', bg: '#f7fbff', card: '#ffffff' },
 ];
 
 // ===== 存储 key =====
@@ -882,11 +1035,70 @@ function setActiveCopyId(id) {
     ls.set(ACTIVE_COPY_KEY, id);
 }
 
+function migrateImportedResume(copies) {
+    const sourceCopies = Array.isArray(copies) ? copies.slice() : [];
+    const hasImportedCopy = sourceCopies.some(copy => copy && copy.id === 'weipengbin-imported');
+    if (hasImportedCopy) {
+        return sourceCopies.map(copy => copy && copy.id === 'weipengbin-imported'
+            ? { ...copy, name: '魏鹏滨导入', data: normalizeResumeData(DEFAULT_RESUME_DATA) }
+            : copy
+        );
+    }
+
+    const sampleIndex = sourceCopies.findIndex(copy => {
+        const data = copy && copy.data;
+        return data && (
+            data.name === '张三' ||
+            (Array.isArray(data.experiences) && data.experiences.some(item => item.title === '高级前端工程师'))
+        );
+    });
+    if (sampleIndex < 0) return sourceCopies;
+
+    const original = sourceCopies[sampleIndex];
+    ls.set('resume-original-backup', JSON.stringify({
+        savedAt: new Date().toISOString(),
+        copies: sourceCopies
+    }));
+    const backup = {
+        ...original,
+        name: original.name === '默认副本' ? '原稿备份' : `${original.name}（原稿备份）`
+    };
+    sourceCopies[sampleIndex] = backup;
+    sourceCopies.push({
+        id: 'weipengbin-imported',
+        name: '魏鹏滨导入',
+        data: normalizeResumeData(DEFAULT_RESUME_DATA),
+        createdAt: new Date().toISOString()
+    });
+    if (getActiveCopyId() === original.id) setActiveCopyId('weipengbin-imported');
+    return sourceCopies;
+}
+
 function getActiveCopy() {
     const copies = getCopies();
     if (!copies || copies.length === 0) return null;
     const activeId = getActiveCopyId();
     return copies.find(c => c.id === activeId) || copies[0];
+}
+
+function migrateGeneratedProjectExamples(copies) {
+    const generatedTitlePairs = [
+        ['LangChain Agent 管理系统', '电商中台数据面板'],
+        ['Mythical Age｜Harness 架构通用 AI Agent 平台', 'AI 智能写作平台｜项目化创作与小说知识引擎']
+    ];
+    const latestProjects = JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA.projects));
+    return (copies || []).map(copy => {
+        const projects = copy && copy.data && Array.isArray(copy.data.projects) ? copy.data.projects : [];
+        const titles = projects.map(project => String(project && project.title || ''));
+        const isGeneratedPair = generatedTitlePairs.some(pair =>
+            titles.length === pair.length && pair.every((title, index) => titles[index] === title)
+        );
+        if (!isGeneratedPair) return copy;
+        return {
+            ...copy,
+            data: { ...copy.data, projects: JSON.parse(JSON.stringify(latestProjects)) }
+        };
+    });
 }
 
 function initCopies() {
@@ -895,7 +1107,7 @@ function initCopies() {
         copies = [{
             id: 'default',
             name: '默认副本',
-            data: JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA)),
+            data: normalizeResumeData(DEFAULT_RESUME_DATA),
             createdAt: new Date().toISOString()
         }];
         saveCopies(copies);
@@ -911,14 +1123,20 @@ function initCopies() {
                     defaultCopy.data.name = parsed.name || defaultCopy.data.name;
                     defaultCopy.data.subtitle = parsed.subtitle || defaultCopy.data.subtitle;
                     if (parsed.contacts) defaultCopy.data.contacts = parsed.contacts;
-                    if (parsed.skills) defaultCopy.data.skills = parsed.skills;
+                    if (parsed.hobbies) defaultCopy.data.hobbies = parsed.hobbies;
                     if (parsed.about) defaultCopy.data.about = parsed.about;
-                    saveCopies(copies);
                 }
             } catch (e) { /* ignore */ }
             ls.remove('resume-data');
         }
     }
+
+    copies = migrateImportedResume(copies);
+    copies = migrateGeneratedProjectExamples(copies).map(copy => ({
+        ...copy,
+        data: normalizeResumeData(copy.data)
+    }));
+    saveCopies(copies);
 
     const active = getActiveCopy();
     if (active) {
@@ -988,13 +1206,14 @@ function collectFullResumeData() {
         return JSON.parse(JSON.stringify(currentData));
     }
     // 兜底：从示例数据构造
-    return JSON.parse(JSON.stringify(DEFAULT_RESUME_DATA));
+    return normalizeResumeData(DEFAULT_RESUME_DATA);
 }
 
 // ===== 核心渲染函数 =====
 function populateResumeData(data) {
     if (!data) return;
-    currentData = JSON.parse(JSON.stringify(data));
+    const normalizedData = normalizeResumeData(data);
+    currentData = JSON.parse(JSON.stringify(normalizedData));
     currentData.savedAt = new Date().toISOString();
 
     const root = document.getElementById('resume-root');
@@ -1006,7 +1225,7 @@ function populateResumeData(data) {
 
     // 重新渲染（带异常保护）
     try {
-        root.innerHTML = template.render(data);
+        root.innerHTML = template.render(normalizedData);
     } catch(e) {
         console.error('Template render error:', e);
         root.innerHTML = '<p style="padding:40px;text-align:center;color:red">模板渲染出错，请重新加载页面</p>';
@@ -1020,14 +1239,14 @@ function populateResumeData(data) {
     });
 
     // 应用字体设置
-    const typo = data.typography || { fontFamily: '', fontSize: 13, lineHeight: 'normal' };
+    const typo = normalizedData.typography || { fontFamily: '', fontSize: 14, lineHeight: 'normal' };
     const container = root.querySelector('.container');
     if (container) {
         applyTypography(container, typo);
     }
 
     // 设置页面标题
-    if (data.name) document.title = `个人简历 - ${data.name}`;
+    if (normalizedData.name) document.title = `个人简历 - ${normalizedData.name}`;
 
     // 刷新副本下拉选项
     refreshCopySelect();
@@ -1043,7 +1262,13 @@ function buildTimelineItemHTML(item, isExperience) {
         ? `<ul>${item.points.filter(Boolean).map(p => `<li>${sanitizeHtml(p)}</li>`).join('')}</ul>`
         : '';
 
-    const companyHtml = (isExperience ? item.company : item.school) || '';
+    const schoolHtml = !isExperience && item.school
+        ? `<span class="education-school">${escapeHtml(item.school)}</span>`
+        : '';
+    const titleHtml = !isExperience
+        ? `${item.title ? `<span>${escapeHtml(item.title || '')}</span>` : ''}${item.title && item.school ? '<span class="education-inline-divider">｜</span>' : ''}${schoolHtml}`
+        : escapeHtml(item.title || '');
+    const companyHtml = isExperience ? (item.company || '') : '';
     const noteHtml = !isExperience && item.note ? `<p>${escapeHtml(item.note)}</p>` : '';
 
     return `
@@ -1051,7 +1276,7 @@ function buildTimelineItemHTML(item, isExperience) {
             <div class="timeline-dot"></div>
             <div class="timeline-content">
                 <div class="timeline-header">
-                    <h3>${escapeHtml(item.title || '')}</h3>
+                    <h3>${titleHtml}</h3>
                     <span class="date">${escapeHtml(item.date || '')}</span>
                 </div>
                 ${companyHtml ? `<p class="company">${escapeHtml(companyHtml)}</p>` : ''}
@@ -1061,17 +1286,138 @@ function buildTimelineItemHTML(item, isExperience) {
         </div>`;
 }
 
+function normalizeProjectPoint(point) {
+    return sanitizeHtml(String(point || '').trim()).trim();
+}
+
+function normalizeProjectContentBlock(block) {
+    const source = block && typeof block === 'object'
+        ? (block.html ?? block.text ?? block.value ?? '')
+        : block;
+    const html = normalizeProjectPoint(source);
+    if (!html) return null;
+    const rawType = block && typeof block === 'object' ? String(block.type || '') : '';
+    return {
+        type: rawType === 'paragraph' ? 'paragraph' : 'list-item',
+        html
+    };
+}
+
+function getProjectContentBlocks(project) {
+    if (!project || typeof project !== 'object') return [];
+    let blocks = [];
+    if (Array.isArray(project.contentBlocks)) {
+        blocks = project.contentBlocks;
+    } else if (Array.isArray(project.content)) {
+        blocks = project.content;
+    } else if (Array.isArray(project.points)) {
+        blocks = project.points.map(point => ({ type: 'list-item', html: point }));
+    }
+    return blocks.map(normalizeProjectContentBlock).filter(Boolean);
+}
+
+const LEGACY_PROJECT_BODY_INDENT_CHARS = {
+    none: 0,
+    small: 2,
+    medium: 4,
+    large: 6
+};
+
+function normalizeProjectBodyIndentChars(value) {
+    const raw = value == null ? '' : String(value).trim();
+    if (Object.prototype.hasOwnProperty.call(LEGACY_PROJECT_BODY_INDENT_CHARS, raw)) {
+        return LEGACY_PROJECT_BODY_INDENT_CHARS[raw];
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.min(24, parsed));
+}
+
+function normalizeProjectEntry(project) {
+    const source = project && typeof project === 'object' ? project : {};
+    const bodyIndentChars = normalizeProjectBodyIndentChars(source.bodyIndentChars ?? source.indentChars ?? source.bodyIndent ?? source.indent);
+    return {
+        title: source.title == null ? '' : String(source.title).trim(),
+        date: source.date == null ? '' : String(source.date).trim(),
+        subtitle: source.subtitle == null ? '' : String(source.subtitle).trim(),
+        tech: source.tech == null ? '' : String(source.tech).trim(),
+        titleIndentChars: normalizeProjectBodyIndentChars(source.titleIndentChars ?? source.titleIndent ?? 0),
+        subtitleIndentChars: normalizeProjectBodyIndentChars(source.subtitleIndentChars ?? source.subtitleIndent ?? 0),
+        bodyIndentChars,
+        contentBlocks: getProjectContentBlocks(source)
+    };
+}
+
+function buildProjectContentHTML(blocks) {
+    const normalizedBlocks = (blocks || []).map(normalizeProjectContentBlock).filter(Boolean);
+    let html = '';
+    let listItems = [];
+
+    function flushList() {
+        if (!listItems.length) return;
+        html += `<ul class="project-point-list">${listItems.map(item => `<li class="project-point">${item.html}</li>`).join('')}</ul>`;
+        listItems = [];
+    }
+
+    normalizedBlocks.forEach((block, index) => {
+        // 首条“核心功能”作为项目摘要段落展示，其余内容保持成果列表样式。
+        if (index === 0 && block.type === 'list-item' && /^<strong>核心功能：<\/strong>/.test(block.html)) {
+            flushList();
+            html += `<p class="project-paragraph project-core-summary">${block.html}</p>`;
+            return;
+        }
+        if (block.type === 'list-item') {
+            listItems.push(block);
+            return;
+        }
+        flushList();
+        html += `<p class="project-paragraph">${block.html}</p>`;
+    });
+
+    flushList();
+    return html;
+}
+
 function buildProjectCardHTML(project) {
-    const pointsHtml = project.points && project.points.length
-        ? `<ul>${project.points.filter(Boolean).map(p => `<li>${sanitizeHtml(p)}</li>`).join('')}</ul>`
+    const p = normalizeProjectEntry(project);
+    const titleHtml = p.title
+        ? `<div class="project-field project-field-title" style="--project-layer-indent:${p.titleIndentChars}em">
+            <span class="project-field-label">项目名称</span>
+            <div class="project-heading">
+                <h3>${escapeHtml(p.title || '')}</h3>
+                ${p.date ? `<span class="project-date">${escapeHtml(p.date)}</span>` : ''}
+            </div>
+        </div>`
+        : '';
+    const subtitleHtml = p.subtitle
+        ? `<div class="project-field project-field-subtitle" style="--project-layer-indent:${p.subtitleIndentChars}em">
+            <span class="project-field-label">副标题</span>
+            <p class="project-subtitle">${sanitizeHtml(p.subtitle || '')}</p>
+        </div>`
+        : '';
+    const techHtml = p.tech
+        ? `<div class="project-field project-field-tech">
+            <span class="project-field-label">技术栈</span>
+            <p class="project-tech">${escapeHtml(p.tech || '')}</p>
+        </div>`
+        : '';
+    const contentHtml = buildProjectContentHTML(getProjectContentBlocks(p));
+    const pointsHtml = contentHtml
+        ? `<div class="project-field project-field-description">
+            <span class="project-field-label">项目内容</span>
+            <div class="project-content-blocks">${contentHtml}</div>
+        </div>`
+        : '';
+    const bodyHtml = techHtml || pointsHtml
+        ? `<div class="project-body" style="--project-body-indent:${p.bodyIndentChars}em">${techHtml}${pointsHtml}</div>`
         : '';
 
     const card = document.createElement('div');
     card.className = 'project-card';
     card.innerHTML = `
-        <h3>${escapeHtml(project.title || '')}</h3>
-        <p class="project-tech">${escapeHtml(project.tech || '')}</p>
-        ${pointsHtml}
+        ${titleHtml}
+        ${subtitleHtml}
+        ${bodyHtml}
     `;
     return card.outerHTML;
 }
@@ -1140,7 +1486,7 @@ function sanitizeHtml(html) {
     if (!html) return '';
     var div = document.createElement('div');
     div.innerHTML = html;
-    var allowed = ['b','i','u','strong','em','span','font','p','br','ul','ol','li','img','svg','path','g','rect','circle','line','text','tspan','a'];
+    var allowed = ['b','i','u','strong','em','span','font','p','div','br','ul','ol','li','img','a'];
     function clean(node) {
         if (node.nodeType === 1) {
             var tag = node.tagName.toLowerCase();
@@ -1180,13 +1526,7 @@ function initRichToolbar(editorId) {
             var editor = btn.closest('.rich-editor');
             var content = editor ? editor.querySelector('[contenteditable]') : null;
             if (content) content.focus();
-            var cmd = btn.dataset.cmd;
-            if (cmd === 'insertSVG') {
-                var code = prompt('请输入SVG代码：', '<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></svg>');
-                if (code) document.execCommand('insertHTML', false, sanitizeHtml(code));
-            } else {
-                document.execCommand(cmd, false, null);
-            }
+            document.execCommand(btn.dataset.cmd, false, null);
         });
     });
     container.querySelectorAll('.rich-toolbar select[data-cmd]').forEach(function(sel) {
@@ -1210,19 +1550,180 @@ function initRichToolbar(editorId) {
 function pointsToHtml(points) {
     return (points || []).map(function(p) { return '<p>' + sanitizeHtml(p) + '</p>'; }).join('');
 }
-function htmlToPoints(html) {
-    var div = document.createElement('div');
-    div.innerHTML = html;
-    var result = [];
-    div.querySelectorAll('p').forEach(function(p) {
-        var t = p.innerHTML.trim();
-        if (t) result.push(t);
-    });
-    if (result.length === 0) {
-        var text = div.textContent.trim();
-        if (text) result = text.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+
+function richBlocksToHtml(blocks) {
+    let html = '';
+    let listItems = [];
+
+    function flushList() {
+        if (!listItems.length) return;
+        html += '<ul>' + listItems.map(function(item) {
+            return '<li>' + item.html + '</li>';
+        }).join('') + '</ul>';
+        listItems = [];
     }
-    return result;
+
+    (blocks || []).map(normalizeProjectContentBlock).filter(Boolean).forEach(function(block) {
+        if (block.type === 'list-item') {
+            listItems.push(block);
+            return;
+        }
+        flushList();
+        html += '<p>' + block.html + '</p>';
+    });
+
+    flushList();
+    return html;
+}
+
+function projectContentBlocksToHtml(blocks) {
+    return richBlocksToHtml(blocks || []);
+}
+
+function htmlToRichBlocks(html) {
+    var div = document.createElement('div');
+    div.innerHTML = html || '';
+    var blocks = [];
+
+    function pushRichBlock(type, value) {
+        var cleaned = sanitizeHtml(value || '').trim();
+        if (!cleaned) return;
+        var probe = document.createElement('div');
+        probe.innerHTML = cleaned;
+        if (probe.textContent.trim()) blocks.push({ type: type, html: cleaned });
+    }
+
+    function appendText(parts, text) {
+        if (!text) return;
+        if (text.trim() || parts.length) parts.push(escapeHtml(text.replace(/\u00a0/g, ' ')));
+    }
+
+    function appendInline(parts, node) {
+        if (node.nodeType === 3) {
+            appendText(parts, node.textContent);
+            return;
+        }
+        if (node.nodeType === 1) parts.push(node.outerHTML);
+    }
+
+    function collectListItem(li) {
+        var inlineParts = [];
+
+        function flushListItem() {
+            if (!inlineParts.length) return;
+            pushRichBlock('list-item', inlineParts.join(''));
+            inlineParts = [];
+        }
+
+        Array.from(li.childNodes).forEach(function(node) {
+            if (node.nodeType === 3) {
+                appendText(inlineParts, node.textContent);
+                return;
+            }
+            if (node.nodeType !== 1) return;
+
+            var tag = node.tagName.toLowerCase();
+            if (tag === 'ul' || tag === 'ol') {
+                flushListItem();
+                Array.from(node.children).forEach(function(child) {
+                    if (child.tagName && child.tagName.toLowerCase() === 'li') collectListItem(child);
+                });
+                return;
+            }
+            if (tag === 'br') {
+                if (inlineParts.length) inlineParts.push('<br>');
+                return;
+            }
+            if ((tag === 'p' || tag === 'div') && node.querySelector('ul,ol,li')) {
+                flushListItem();
+                collectChildren(node);
+                return;
+            }
+            if (tag === 'p' || tag === 'div') {
+                inlineParts.push(node.innerHTML);
+                return;
+            }
+            appendInline(inlineParts, node);
+        });
+
+        flushListItem();
+    }
+
+    function collectChildren(parent) {
+        var inlineParts = [];
+
+        function flushParagraph() {
+            if (!inlineParts.length) return;
+            pushRichBlock('paragraph', inlineParts.join(''));
+            inlineParts = [];
+        }
+
+        Array.from(parent.childNodes).forEach(function(node) {
+            if (node.nodeType === 3) {
+                appendText(inlineParts, node.textContent);
+                return;
+            }
+            if (node.nodeType !== 1) return;
+
+            var tag = node.tagName.toLowerCase();
+            if (tag === 'br') {
+                flushParagraph();
+                return;
+            }
+            if (tag === 'ul' || tag === 'ol') {
+                flushParagraph();
+                Array.from(node.children).forEach(function(child) {
+                    if (child.tagName && child.tagName.toLowerCase() === 'li') collectListItem(child);
+                });
+                return;
+            }
+            if (tag === 'li') {
+                flushParagraph();
+                collectListItem(node);
+                return;
+            }
+            if (tag === 'p' || tag === 'div') {
+                flushParagraph();
+                if (node.querySelector('ul,ol,li,p,div')) {
+                    collectChildren(node);
+                } else {
+                    pushRichBlock('paragraph', node.innerHTML);
+                }
+                return;
+            }
+
+            appendInline(inlineParts, node);
+        });
+
+        flushParagraph();
+    }
+
+    collectChildren(div);
+
+    if (blocks.length === 0) {
+        var htmlValue = sanitizeHtml(div.innerHTML || '').trim();
+        if (htmlValue) {
+            var hasStructuralBreak = /<br\s*\/?>|\n/i.test(htmlValue);
+            if (hasStructuralBreak && !/<\/?(b|strong|i|em|u|span|font|a)\b/i.test(htmlValue)) {
+                var text = div.textContent.trim();
+                blocks = text.split('\n').map(function(s) {
+                    var value = escapeHtml(s.trim());
+                    return value ? { type: 'paragraph', html: value } : null;
+                }).filter(Boolean);
+            } else {
+                pushRichBlock('paragraph', htmlValue);
+            }
+        }
+    }
+    return blocks;
+}
+
+function htmlToPoints(html) {
+    return htmlToRichBlocks(html).map(function(block) { return block.html; });
+}
+
+function htmlToProjectContentBlocks(html) {
+    return htmlToRichBlocks(html).map(normalizeProjectContentBlock).filter(Boolean);
 }
 
 function makeRichToolbarHtml() {
@@ -1251,9 +1752,7 @@ function makeRichToolbarHtml() {
         '<button data-cmd="insertUnorderedList" title="项目符号">&#8226; 列表</button>' +
         '<button data-cmd="insertOrderedList" title="编号列表">1. 列表</button>' +
         '<span class="toolbar-sep"></span>' +
-        '<button data-cmd="insertSVG" title="插入SVG图标">SVG</button>' +
-        '<span class="toolbar-sep"></span>' +
-        '<input type="color" data-cmd="foreColor" title="文字颜色" value="#2563eb" style="width:28px;height:24px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer;vertical-align:middle" />' +
+        '<input type="color" data-cmd="foreColor" title="文字颜色" value="#2f7de1" style="width:28px;height:24px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer;vertical-align:middle" />' +
     '</div>';
 }
 
@@ -1330,7 +1829,7 @@ function initTemplateLibrary() {
             const isActive = getCurrentTemplate() === key;
             const descMap = {
                 'classic-blue': '左侧边栏 + 右侧主内容，经典蓝色风格',
-                'full-width': '顶部通栏头部，技能/语言/内容纵向排列',
+                'full-width': '顶部通栏头部，爱好/语言/内容纵向排列',
                 'card-grid': '顶部头部 + 自适应卡片网格布局',
                 'vertical-simple': '纯白极简，全纵向排列，干净利落',
                 'professional-left': '深色宽侧栏 + 金色强调，商务专业风',
@@ -1380,8 +1879,11 @@ function initModalEditor() {
             <div class="modal-backdrop" onclick="closeEditorModal()"></div>
             <div class="modal-panel">
                 <div class="modal-header">
-                    <h2>编辑简历</h2>
-                    <button class="modal-close" onclick="closeEditorModal()">\u2715</button>
+                    <div class="modal-title-block">
+                        <h2>简历编辑器</h2>
+                        <p>按结构维护内容，保存后同步预览与打印版式</p>
+                    </div>
+                    <button class="modal-close" type="button" aria-label="关闭编辑器" onclick="closeEditorModal()">\u2715</button>
                 </div>
                 <div class="modal-body" id="modal-body"></div>
                 <div class="modal-footer">
@@ -1403,7 +1905,7 @@ function openEditorModal(data) {
     const tplModal = document.getElementById('template-library-modal');
     if (tplModal) tplModal.style.display = 'none';
 
-    renderEditorForm(data);
+    renderEditorForm(normalizeResumeData(data));
     const modal = document.getElementById('editor-modal');
     if (modal) modal.style.display = 'flex';
 }
@@ -1413,284 +1915,422 @@ function closeEditorModal() {
     if (modal) modal.style.display = 'none';
 }
 
-function renderEditorForm(data) {
-    const body = document.getElementById('modal-body');
-    if (!body) return;
-    const d = data || {};
+const EDITOR_SECTION_GROUPS = [
+    {
+        label: '基础资料',
+        items: [
+            { id: 'editor-basic-section', title: '基本信息' },
+            { id: 'editor-contact-section', title: '联系方式' }
+        ]
+    },
+    {
+        label: '侧栏信息',
+        items: [
+            { id: 'editor-hobby-section', title: '个人爱好' },
+            { id: 'editor-language-section', title: '语言' }
+        ]
+    },
+    {
+        label: '主体内容',
+        items: [
+            { id: 'editor-experience-section', title: '工作经验' },
+            { id: 'editor-education-section', title: '教育经历' },
+            { id: 'editor-project-section', title: '项目经验' },
+            { id: 'editor-custom-section', title: '自定义区块' },
+            { id: 'editor-about-section', title: '关于我' }
+        ]
+    },
+    {
+        label: '外观设置',
+        items: [
+            { id: 'editor-style-section', title: '排版与配色' }
+        ]
+    }
+];
 
-    let html = '';
+let editorUidSeed = 0;
 
-    // 基本信息
+function nextEditorUid(prefix) {
+    editorUidSeed += 1;
+    return `${prefix}-${Date.now().toString(36)}-${editorUidSeed}`;
+}
+
+function getEditorSectionItems() {
+    return EDITOR_SECTION_GROUPS.reduce((items, group) => items.concat(group.items), []);
+}
+
+function renderEditorSection(id, title, bodyHtml, options) {
+    const opts = options || {};
+    const actionHtml = opts.actionHtml ? `<div class="editor-section-actions">${opts.actionHtml}</div>` : '';
+    const descriptionHtml = opts.description ? `<p class="editor-section-desc">${escapeHtml(opts.description)}</p>` : '';
+    return `<section class="editor-section ${opts.className || ''}" id="${id}">
+        <div class="editor-section-header">
+            <div>
+                <h3 class="editor-section-title">${escapeHtml(title)}</h3>
+                ${descriptionHtml}
+            </div>
+            ${actionHtml}
+        </div>
+        ${bodyHtml}
+    </section>`;
+}
+
+function renderAddButton(label, handlerName) {
+    return `<button type="button" class="btn-add-sm" onclick="${handlerName}()">${escapeHtml(label || '添加')}</button>`;
+}
+
+function renderFormGroup(label, controlHtml, className) {
+    return `<div class="form-group ${className || ''}">
+        <label>${escapeHtml(label)}</label>
+        ${controlHtml}
+    </div>`;
+}
+
+function renderFieldGrid(items, className) {
+    return `<div class="editor-field-grid ${className || ''}">${items.join('')}</div>`;
+}
+
+function renderRichEditor(editorId, contentClass, html, contentId) {
+    const idAttr = contentId ? ` id="${contentId}"` : '';
+    return `<div class="rich-editor" id="${editorId}">
+        ${makeRichToolbarHtml()}
+        <div${idAttr} class="rich-editor-content ${contentClass || ''}" contenteditable="true">${html || ''}</div>
+    </div>`;
+}
+
+function renderCardActions(containerId, index, total) {
+    return `<div class="form-card-actions">
+        <button type="button" class="btn-icon-sm btn-move-up" title="上移" onclick="moveItem(this,'${containerId}',-1)" ${index === 0 ? 'disabled' : ''}>\u25b2</button>
+        <button type="button" class="btn-icon-sm btn-move-down" title="下移" onclick="moveItem(this,'${containerId}',1)" ${index === total - 1 ? 'disabled' : ''}>\u25bc</button>
+        <button type="button" class="btn-icon-sm btn-remove-sm" title="删除" onclick="removeFormCard(this,'${containerId}')">\u2715</button>
+    </div>`;
+}
+
+function renderSortableCard(containerId, title, index, total, bodyHtml, fallbackTitle) {
+    return `<div class="form-card">
+        <div class="form-card-header">
+            <span class="form-card-title">${escapeHtml(title || fallbackTitle || '新条目')}</span>
+            ${renderCardActions(containerId, index, total)}
+        </div>
+        <div class="form-card-body">${bodyHtml}</div>
+    </div>`;
+}
+
+function renderEmptyState(text, actionLabel, handlerName) {
+    return `<div class="editor-empty-state">
+        <span>${escapeHtml(text)}</span>
+        ${handlerName ? `<button type="button" class="btn-empty-add" onclick="${handlerName}()">${escapeHtml(actionLabel || '添加')}</button>` : ''}
+    </div>`;
+}
+
+function renderEditorList(containerId, itemHtml, emptyText, actionLabel, handlerName, extraClass) {
+    return `<div id="${containerId}" class="editor-list ${extraClass || ''}">
+        ${itemHtml || renderEmptyState(emptyText, actionLabel, handlerName)}
+    </div>`;
+}
+
+function renderContactRow(contact) {
+    const c = contact || {};
+    const labelValue = c.label || (c.value ? inferContactLabel(c) : '');
+    return `<div class="form-row contact-editor-row">
+        <input class="form-input contact-icon" value="${escapeHtml(c.icon || '')}" placeholder="图标" />
+        <input class="form-input contact-label-input" value="${escapeHtml(labelValue)}" placeholder="标题" />
+        <input class="form-input contact-value" value="${escapeHtml(c.value || '')}" placeholder="邮箱、电话、链接或地址" />
+        <button type="button" class="btn-icon-sm btn-remove-sm" title="删除" onclick="removeContactRow(this)">\u2715</button>
+    </div>`;
+}
+
+function renderBasicInfoRow(item) {
+    const info = item || {};
+    return `<div class="form-row basic-info-editor-row">
+        <input class="form-input basic-info-label" value="${escapeHtml(info.label || '')}" placeholder="标题，例如：政治面貌" />
+        <input class="form-input basic-info-value" value="${escapeHtml(info.value || '')}" placeholder="内容，例如：共青团员" />
+        <button type="button" class="btn-icon-sm btn-remove-sm" title="删除" onclick="removeBasicInfoRow(this)">\u2715</button>
+    </div>`;
+}
+
+function renderHobbyRow(value) {
+    return `<div class="form-row hobby-row">
+        <input class="form-input hobby-value" value="${escapeHtml(value || '')}" placeholder="例如：摄影、羽毛球、阅读写作" />
+        <button type="button" class="btn-icon-sm btn-remove-sm" title="删除" onclick="removeHobbyRow(this)">\u2715</button>
+    </div>`;
+}
+
+function renderLanguageRow(lang) {
+    const l = lang || {};
+    return `<div class="form-row language-editor-row">
+        <input class="form-input lang-name" value="${escapeHtml(l.name || '')}" placeholder="语言" />
+        <input class="form-input lang-level" value="${escapeHtml(l.level || '')}" placeholder="等级或熟练度" />
+        <button type="button" class="btn-icon-sm btn-remove-sm" title="删除" onclick="removeLanguageRow(this)">\u2715</button>
+    </div>`;
+}
+
+function renderExperienceCard(item, index, total, editorId) {
+    const e = item || {};
+    const richId = editorId || `rich-exp-points-${index}`;
+    const bodyHtml = renderFieldGrid([
+        renderFormGroup('职位', `<input class="form-input exp-title" value="${escapeHtml(e.title || '')}" oninput="updateCardTitle(this,'新条目')" />`),
+        renderFormGroup('公司', `<input class="form-input exp-company" value="${escapeHtml(e.company || '')}" />`),
+        renderFormGroup('日期', `<input class="form-input exp-date" value="${escapeHtml(e.date || '')}" placeholder="例如：2024.09 - 2027.06" />`)
+    ], 'editor-field-grid-three') +
+    renderFormGroup('职责要点', renderRichEditor(richId, 'exp-points', pointsToHtml(e.points)), 'form-group-wide');
+    return renderSortableCard('editor-experiences', e.title, index, total, bodyHtml, '新条目');
+}
+
+function renderEducationCard(item, index, total) {
+    const e = item || {};
+    const bodyHtml = renderFieldGrid([
+        renderFormGroup('学位 / 专业', `<input class="form-input edu-title" value="${escapeHtml(e.title || '')}" oninput="updateCardTitle(this,'新条目')" />`),
+        renderFormGroup('学校', `<input class="form-input edu-school" value="${escapeHtml(e.school || '')}" />`),
+        renderFormGroup('日期', `<input class="form-input edu-date" value="${escapeHtml(e.date || '')}" placeholder="例如：2024.09 - 2027.06" />`)
+    ], 'editor-field-grid-three') +
+    renderFormGroup('备注', `<textarea class="form-textarea edu-note" rows="2">${escapeHtml(e.note || '')}</textarea>`, 'form-group-wide');
+    return renderSortableCard('editor-educations', e.title, index, total, bodyHtml, '新条目');
+}
+
+function renderProjectEditorCard(project, index, total, editorId) {
+    const p = normalizeProjectEntry(project || {});
+    const richId = editorId || `rich-proj-points-${index}`;
+    const bodyHtml = renderFieldGrid([
+        renderFormGroup('项目标题', `<input class="form-input proj-title" value="${escapeHtml(p.title || '')}" placeholder="例如：Mythical Age 通用 AI 智能平台" oninput="updateCardTitle(this,'新条目')" />`),
+        renderFormGroup('项目时间', `<input class="form-input proj-date" value="${escapeHtml(p.date || '')}" placeholder="例如：2024.03 - 至今" />`),
+        renderFormGroup('项目副标题', `<input class="form-input proj-subtitle" value="${escapeHtml(String(p.subtitle || '').replace(/<[^>]*>/g, ''))}" placeholder="一句话定位、项目角色或阶段成果" />`),
+        renderFormGroup('技术栈', `<input class="form-input proj-tech" value="${escapeHtml(p.tech || '')}" placeholder="例如：React · FastAPI · PostgreSQL" />`)
+    ], 'editor-field-grid-project') +
+    renderFieldGrid([
+        renderFormGroup('标题缩进（字符）', `<input class="form-input proj-title-indent-chars" type="number" min="0" max="24" step="1" value="${p.titleIndentChars}" placeholder="0" />`),
+        renderFormGroup('副标题缩进（字符）', `<input class="form-input proj-subtitle-indent-chars" type="number" min="0" max="24" step="1" value="${p.subtitleIndentChars}" placeholder="0" />`),
+        renderFormGroup('主体缩进（字符）', `<input class="form-input proj-body-indent-chars" type="number" min="0" max="24" step="1" value="${p.bodyIndentChars}" placeholder="0" />`)
+    ], 'editor-field-grid-three project-indent-grid') +
+    renderFormGroup('主体内容', renderRichEditor(richId, 'proj-points', projectContentBlocksToHtml(getProjectContentBlocks(p))), 'form-group-wide');
+    return renderSortableCard('editor-projects', p.title, index, total, bodyHtml, '新条目');
+}
+
+function renderCustomSectionCard(section, index, total, editorId) {
+    const cs = section || {};
+    const richId = editorId || `rich-custom-content-${index}`;
+    const bodyHtml = renderFormGroup('区块标题', `<input class="form-input cs-title" value="${escapeHtml(cs.title || '')}" oninput="updateCardTitle(this,'新区块')" />`) +
+        renderFormGroup('内容', renderRichEditor(richId, 'cs-content', customContentToEditorHtml(cs.content || '')), 'form-group-wide');
+    return renderSortableCard('editor-custom-sections', cs.title, index, total, bodyHtml, '新区块');
+}
+
+function renderPhotoEditor(d) {
     const currentPhoto = d.photo || '';
     const photoShape = d.photoShape || 'circle';
     const photoSize = d.photoSize || 'small';
     const photoRadius = getPhotoRadius(photoShape);
     const photoPx = getPhotoSizeValue(photoSize);
     const previewSize = photoPx ? photoPx + 'px' : '48px';
-    html += `<section class="editor-section">
-        <h3 class="editor-section-title">基本信息</h3>
-        <div class="form-group"><label>照片</label>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <input type="file" id="edit-photo-file" accept="image/*" style="flex:1;padding:4px;font-size:12px" onchange="handlePhotoFileSelect(event)" />
-                <input class="form-input" id="edit-photo-url" placeholder="或输入图片链接" value="${escapeHtml(currentPhoto)}" style="flex:2" oninput="updatePhotoPreview(this.value)" />
-                <div id="edit-photo-preview" style="width:${previewSize};height:${previewSize};border-radius:${photoRadius};overflow:hidden;border:2px solid var(--primary);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:20px;color:var(--text-secondary)">${currentPhoto ? `<img src="${escapeHtml(currentPhoto)}" style="width:100%;height:100%;object-fit:cover;border-radius:${photoRadius}" />` : '📷'}</div>
-            </div>
-            <div style="margin-top:6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-                <span style="font-size:12px;color:var(--text-secondary)">照片形状：</span>
-                <select id="edit-photo-shape" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" style="font-size:12px;padding:2px 6px">
-                    <option value="circle" ${photoShape === 'circle' ? 'selected' : ''}>圆形</option>
-                    <option value="rounded" ${photoShape === 'rounded' ? 'selected' : ''}>圆角方形</option>
-                    <option value="square" ${photoShape === 'square' ? 'selected' : ''}>方形</option>
-                </select>
-                <span style="font-size:12px;color:var(--text-secondary)">照片尺寸：</span>
-                <select id="edit-photo-size" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" style="font-size:12px;padding:2px 6px">
-                    <option value="small" ${photoSize === 'small' ? 'selected' : ''}>小（默认）</option>
-                    <option value="medium" ${photoSize === 'medium' ? 'selected' : ''}>中（150px）</option>
-                    <option value="large" ${photoSize === 'large' ? 'selected' : ''}>大（200px，约一寸照）</option>
-                </select>
-                <label style="font-size:12px;display:flex;align-items:center;gap:4px;margin-left:auto;cursor:pointer">
+    const previewHtml = currentPhoto
+        ? `<img src="${escapeHtml(currentPhoto)}" style="border-radius:${photoRadius}" />`
+        : '<span class="editor-photo-placeholder">照片</span>';
+
+    return renderFormGroup('照片', `<div class="editor-photo-panel">
+        <div class="editor-photo-controls">
+            <input type="file" id="edit-photo-file" accept="image/*" onchange="handlePhotoFileSelect(event)" />
+            <input class="form-input" id="edit-photo-url" placeholder="粘贴图片链接，或选择本地图片" value="${escapeHtml(currentPhoto)}" oninput="updatePhotoPreview(this.value)" />
+            <div class="editor-control-row">
+                <label class="editor-inline-field">
+                    <span>形状</span>
+                    <select class="form-input editor-compact-select" id="edit-photo-shape" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)">
+                        <option value="circle" ${photoShape === 'circle' ? 'selected' : ''}>圆形</option>
+                        <option value="rounded" ${photoShape === 'rounded' ? 'selected' : ''}>圆角方形</option>
+                        <option value="square" ${photoShape === 'square' ? 'selected' : ''}>方形</option>
+                    </select>
+                </label>
+                <label class="editor-inline-field">
+                    <span>尺寸</span>
+                    <select class="form-input editor-compact-select" id="edit-photo-size" onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)">
+                        <option value="small" ${photoSize === 'small' ? 'selected' : ''}>小</option>
+                        <option value="medium" ${photoSize === 'medium' ? 'selected' : ''}>中</option>
+                        <option value="large" ${photoSize === 'large' ? 'selected' : ''}>大</option>
+                    </select>
+                </label>
+                <label class="editor-check-field">
                     <input type="checkbox" id="edit-photo-show" ${d.showPhoto !== false ? 'checked' : ''} onchange="updatePhotoPreview(document.getElementById('edit-photo-url').value)" />
                     显示照片
                 </label>
             </div>
-            <small style="color:var(--text-secondary);font-size:11px;margin-top:4px;display:block">选择本地图片（自动转为DataURL）或粘贴网络图片链接。照片尺寸说明：小=各模板默认大小，中≈150px，大≈200px（一寸照标准物理尺寸25×35mm，200px方形在屏幕上接近真实比例）</small>
         </div>
-        <div class="form-group"><label>姓名</label><input class="form-input" id="edit-name" value="${escapeHtml(d.name || '')}" /></div>
-        <div class="form-group"><label>意向岗位</label><input class="form-input" id="edit-subtitle" value="${escapeHtml(d.subtitle || '')}" /></div>
-    </section>`;
+        <div id="edit-photo-preview" class="editor-photo-preview" style="width:${previewSize};height:${previewSize};border-radius:${photoRadius}">${previewHtml}</div>
+    </div>`, 'form-group-wide');
+}
 
-    // 排版与配色
-    const typo = d.typography || { fontFamily: '', fontSize: 13, lineHeight: 'normal', primaryColor: '', headingColor: '', textColor: '', bgColor: '', cardColor: '' };
+function renderBasicSection(d) {
+    const basicInfoHtml = normalizeBasicInfoItems(d.basicInfoItems).map(renderBasicInfoRow).join('');
+    const bodyHtml = renderPhotoEditor(d) + renderFieldGrid([
+        renderFormGroup('姓名', `<input class="form-input" id="edit-name" value="${escapeHtml(d.name || '')}" />`),
+        renderFormGroup('意向岗位', `<input class="form-input" id="edit-subtitle" value="${escapeHtml(d.subtitle || '')}" />`),
+        renderFormGroup('年龄', `<input class="form-input" id="edit-age" value="${escapeHtml(d.age || '')}" placeholder="例如：25岁" />`)
+    ], 'editor-field-grid-three') +
+    `<div class="editor-subsection">
+        <div class="editor-subsection-header">
+            <div>
+                <h4>自定义基本信息</h4>
+                <p>添加会显示在左侧“基本信息”中，适合政治面貌、籍贯、学历层次等短信息。</p>
+            </div>
+            ${renderAddButton('添加信息', 'addBasicInfoRow')}
+        </div>
+        ${renderEditorList('editor-basic-info-items', basicInfoHtml, '还没有自定义基本信息。', '添加信息', 'addBasicInfoRow')}
+    </div>`;
+    return renderEditorSection('editor-basic-section', '基本信息', bodyHtml, {
+        description: '维护姓名、岗位、照片和基础标识。'
+    });
+}
+
+function renderStyleSection(d) {
+    const typo = d.typography || { fontFamily: '', fontSize: 14, lineHeight: 'normal', primaryColor: '', headingColor: '', textColor: '', bgColor: '', cardColor: '' };
     function pc(val, fallback) { return val || fallback || ''; }
-    html += `<section class="editor-section">
-        <h3 class="editor-section-title">排版与配色</h3>
-        <div class="form-row">
-            <div class="form-group" style="flex:1"><label>字体</label><input class="form-input" id="edit-font-family" value="${escapeHtml(typo.fontFamily || '')}" placeholder="例如：微软雅黑, Arial, sans-serif" /></div>
-            <div class="form-group" style="flex:1"><label>字号（px）</label><input class="form-input" id="edit-font-size" type="number" min="8" max="72" value="${typo.fontSize || 13}" placeholder="13" /></div>
-        </div>
-        <div class="form-row">
-            <div class="form-group" style="flex:1"><label>行高</label><select class="form-input" id="edit-line-height">
-                <option value="compact" ${typo.lineHeight === 'compact' ? 'selected' : ''}>紧凑</option>
-                <option value="normal" ${typo.lineHeight === 'normal' ? 'selected' : ''}>标准（默认）</option>
-                <option value="relaxed" ${typo.lineHeight === 'relaxed' ? 'selected' : ''}>宽松</option>
-            </select></div>
-        </div>
-        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
-                    <span>主色调</span>
-                    <input type="color" id="edit-color-primary" value="${pc(typo.primaryColor, '#2563eb')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
-                </label>
-                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
-                    <span>标题色</span>
-                    <input type="color" id="edit-color-heading" value="${pc(typo.headingColor, '#1e293b')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
-                </label>
-                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
-                    <span>正文色</span>
-                    <input type="color" id="edit-color-text" value="${pc(typo.textColor, '#334155')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
-                </label>
-                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
-                    <span>背景色</span>
-                    <input type="color" id="edit-color-bg" value="${pc(typo.bgColor, '#f8fafc')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
-                </label>
-                <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
-                    <span>卡片色</span>
-                    <input type="color" id="edit-color-card" value="${pc(typo.cardColor, '#ffffff')}" style="width:32px;height:28px;padding:0;border:1px solid #ccc;border-radius:3px;cursor:pointer" />
-                </label>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px">
-                <span style="font-size:12px;color:var(--text-secondary);align-self:center">一键配色：</span>
-                ${COLOR_PRESETS.map(function(preset) {
-                    return '<button type="button" class="btn-preset" data-primary="' + preset.primary + '" data-heading="' + preset.heading + '" data-text="' + preset.text + '" data-bg="' + preset.bg + '" data-card="' + preset.card + '" onclick="applyColorPreset(this)" style="font-size:11px;padding:2px 10px;border:1px solid #ccc;border-radius:4px;cursor:pointer;background:' + preset.primary + ';color:#fff">' + preset.name + '</button>';
-                }).join('')}
-            </div>
-        </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0 0">颜色留空则使用当前模板默认配色。点击一键配色按钮快速切换风格，可在此基础上微调。</p>
-    </section>`;
+    const colorControls = [
+        ['主色调', 'edit-color-primary', pc(typo.primaryColor, '#2f7de1')],
+        ['标题色', 'edit-color-heading', pc(typo.headingColor, '#2f7de1')],
+        ['正文色', 'edit-color-text', pc(typo.textColor, '#111827')],
+        ['背景色', 'edit-color-bg', pc(typo.bgColor, '#f8fafc')],
+        ['卡片色', 'edit-color-card', pc(typo.cardColor, '#ffffff')]
+    ].map(item => `<label class="editor-color-field">
+        <span>${item[0]}</span>
+        <input type="color" id="${item[1]}" value="${item[2]}" />
+    </label>`).join('');
+    const presetHtml = COLOR_PRESETS.map(function(preset) {
+        return `<button type="button" class="btn-preset" data-primary="${preset.primary}" data-heading="${preset.heading}" data-text="${preset.text}" data-bg="${preset.bg}" data-card="${preset.card}" onclick="applyColorPreset(this)" style="--preset-color:${preset.primary}">${escapeHtml(preset.name)}</button>`;
+    }).join('');
 
-    // 联系方式
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">联系方式</h3>
-            <button class="btn-add-sm" onclick="addContactRow()">+ 添加</button>
-        </div>
-        <div id="editor-contacts">`;
-    (d.contacts || []).forEach((c, i) => {
-        html += `<div class="form-row">
-            <input class="form-input contact-icon" value="${escapeHtml(c.icon || '')}" placeholder="图标" style="width:60px" />
-            <input class="form-input contact-value" value="${escapeHtml(c.value || '')}" placeholder="值" />
-            <button class="btn-remove-sm" onclick="removeContactRow(this)">\u2715</button>
-        </div>`;
+    const bodyHtml = renderFieldGrid([
+        renderFormGroup('字体', `<input class="form-input" id="edit-font-family" value="${escapeHtml(typo.fontFamily || '')}" placeholder="例如：微软雅黑, Arial, sans-serif" />`),
+        renderFormGroup('字号（px）', `<input class="form-input" id="edit-font-size" type="number" min="8" max="72" value="${typo.fontSize || 14}" />`),
+        renderFormGroup('行高', `<select class="form-input" id="edit-line-height">
+            <option value="compact" ${typo.lineHeight === 'compact' ? 'selected' : ''}>紧凑</option>
+            <option value="normal" ${typo.lineHeight === 'normal' ? 'selected' : ''}>标准</option>
+            <option value="relaxed" ${typo.lineHeight === 'relaxed' ? 'selected' : ''}>宽松</option>
+        </select>`)
+    ], 'editor-field-grid-three') +
+    `<div class="editor-color-panel">
+        <div class="editor-color-grid">${colorControls}</div>
+        <div class="editor-preset-row"><span>一键配色</span>${presetHtml}</div>
+    </div>`;
+    return renderEditorSection('editor-style-section', '排版与配色', bodyHtml, {
+        description: '调整字体、行高和配色，保存后同步应用到简历。'
     });
-    html += `</div></section>`;
+}
 
-    // 技能
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">技能</h3>
-            <button class="btn-add-sm" onclick="addSkillRow()">+ 添加</button>
-        </div>
-        <div id="editor-skills">`;
-    (d.skills || []).forEach(s => {
-        html += `<div class="form-row">
-            <input class="form-input skill-value" value="${escapeHtml(s)}" placeholder="技能名称" />
-            <button class="btn-remove-sm" onclick="removeSkillRow(this)">\u2715</button>
-        </div>`;
-    });
-    html += `</div></section>`;
+function renderEditorForm(data) {
+    const body = document.getElementById('modal-body');
+    if (!body) return;
+    const d = data || {};
+    const hobbies = getHobbies(d);
+    const contactsHtml = (d.contacts || []).map(renderContactRow).join('');
+    const hobbiesHtml = hobbies.map(renderHobbyRow).join('');
+    const languagesHtml = (d.languages || []).map(renderLanguageRow).join('');
+    const expHtml = (d.experiences || []).map((item, index, list) => renderExperienceCard(item, index, list.length)).join('');
+    const eduHtml = (d.education || []).map((item, index, list) => renderEducationCard(item, index, list.length)).join('');
+    const projectHtml = (d.projects || []).map((item, index, list) => renderProjectEditorCard(item, index, list.length)).join('');
+    const customHtml = (d.customSections || []).map((item, index, list) => renderCustomSectionCard(item, index, list.length)).join('');
 
-    // 语言
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">语言</h3>
-            <button class="btn-add-sm" onclick="addLanguageRow()">+ 添加</button>
-        </div>
-        <div id="editor-languages">`;
-    (d.languages || []).forEach(l => {
-        html += `<div class="form-row">
-            <input class="form-input lang-name" value="${escapeHtml(l.name || '')}" placeholder="语言" style="width:120px" />
-            <input class="form-input lang-level" value="${escapeHtml(l.level || '')}" placeholder="等级" />
-            <button class="btn-remove-sm" onclick="removeLanguageRow(this)">\u2715</button>
-        </div>`;
-    });
-    html += `</div></section>`;
+    const sectionsHtml = [
+        renderBasicSection(d),
+        renderEditorSection('editor-contact-section', '联系方式',
+            renderEditorList('editor-contacts', contactsHtml, '还没有联系方式。', '添加联系方式', 'addContactRow'),
+            { actionHtml: renderAddButton('添加联系方式', 'addContactRow'), description: '邮箱、电话、地址和作品链接会自动适配左栏展示。' }
+        ),
+        renderEditorSection('editor-hobby-section', '个人爱好',
+            `<div class="quick-hobby-bar">
+                ${['阅读写作', '摄影', '羽毛球', '跑步', '音乐', '志愿服务', '旅行', '电影'].map(item =>
+                    `<button type="button" class="quick-hobby" onclick="addQuickHobby('${escapeHtml(item)}')">${escapeHtml(item)}</button>`
+                ).join('')}
+            </div>` +
+            renderEditorList('editor-hobbies', hobbiesHtml, '还没有个人爱好。', '添加爱好', 'addHobbyRow', 'tag-editor-list'),
+            { actionHtml: renderAddButton('添加爱好', 'addHobbyRow'), description: '用短标签表达兴趣，避免写成长句。' }
+        ),
+        renderEditorSection('editor-language-section', '语言',
+            renderEditorList('editor-languages', languagesHtml, '还没有语言能力。', '添加语言', 'addLanguageRow'),
+            { actionHtml: renderAddButton('添加语言', 'addLanguageRow') }
+        ),
+        renderEditorSection('editor-experience-section', '工作经验',
+            renderEditorList('editor-experiences', expHtml, '还没有工作经验。', '添加经历', 'addExperienceRow'),
+            { actionHtml: renderAddButton('添加经历', 'addExperienceRow'), description: '每条经历建议保留岗位、公司、时间和 2-4 条结果导向职责。' }
+        ),
+        renderEditorSection('editor-education-section', '教育经历',
+            renderEditorList('editor-educations', eduHtml, '还没有教育经历。', '添加教育经历', 'addEducationRow'),
+            { actionHtml: renderAddButton('添加教育', 'addEducationRow') }
+        ),
+        renderEditorSection('editor-project-section', '项目经验',
+            renderEditorList('editor-projects', projectHtml, '还没有项目经验。', '添加项目', 'addProjectRow'),
+            { actionHtml: renderAddButton('添加项目', 'addProjectRow'), description: '按标题、副标题和主体内容分层维护，可分别填写每层缩进字符数。' }
+        ),
+        renderEditorSection('editor-custom-section', '自定义区块',
+            renderEditorList('editor-custom-sections', customHtml, '还没有自定义区块。', '添加区块', 'addCustomSectionRow'),
+            { actionHtml: renderAddButton('添加区块', 'addCustomSectionRow'), description: '适合放掌握技能、证书、科研经历等补充内容，支持加粗和列表。' }
+        ),
+        renderEditorSection('editor-about-section', '关于我',
+            renderRichEditor('rich-about-wrap', '', sanitizeHtml(d.about || ''), 'edit-about'),
+            {
+                actionHtml: `<label class="editor-check-field"><input type="checkbox" id="edit-about-show" ${d.showAbout !== false ? 'checked' : ''} /> 在简历中显示</label>`,
+                description: '关闭后将保留内容，但不会出现在简历和导出的 PDF 中。'
+            }
+        ),
+        renderStyleSection(d)
+    ].join('');
 
-    // 关于我（富文本）
-    html += `<section class="editor-section">
-        <h3 class="editor-section-title">关于我</h3>
-        <div class="rich-editor" id="rich-about-wrap">
-            ${makeRichToolbarHtml()}
-            <div class="rich-editor-content" id="edit-about" contenteditable="true">${sanitizeHtml(d.about || '')}</div>
-        </div>
-    </section>`;
-
-    // 工作经验
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">工作经验</h3>
-            <button class="btn-add-sm" onclick="addExperienceRow()">+ 添加</button>
-        </div>
-        <div id="editor-experiences">`;
-    (d.experiences || []).forEach((e, i) => {
-        html += `<div class="form-card">
-            <div class="form-card-header">
-                <span>${escapeHtml(e.title || '新条目')}</span>
-                <div>
-                    <button class="btn-move-up" onclick="moveItem(this,'editor-experiences',-1)" ${i===0?'disabled':''}>\u25b2</button>
-                    <button class="btn-move-down" onclick="moveItem(this,'editor-experiences',1)" ${i===(d.experiences||[]).length-1?'disabled':''}>\u25bc</button>
-                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-experiences')">\u2715</button>
-                </div>
-            </div>
-            <div class="form-card-body">
-                <div class="form-group"><label>职位</label><input class="form-input exp-title" value="${escapeHtml(e.title||'')}" /></div>
-                <div class="form-group"><label>公司</label><input class="form-input exp-company" value="${escapeHtml(e.company||'')}" /></div>
-                <div class="form-group"><label>日期</label><input class="form-input exp-date" value="${escapeHtml(e.date||'')}" /></div>
-                <div class="form-group"><label>职责要点</label><div class="rich-editor" id="rich-exp-points-${i}">${makeRichToolbarHtml()}<div class="rich-editor-content exp-points" contenteditable="true">${pointsToHtml(e.points)}</div></div></div>
-            </div>
-        </div>`;
-    });
-    html += `</div></section>`;
-
-    // 教育经历
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">教育经历</h3>
-            <button class="btn-add-sm" onclick="addEducationRow()">+ 添加</button>
-        </div>
-        <div id="editor-educations">`;
-    (d.education || []).forEach((e, i) => {
-        html += `<div class="form-card">
-            <div class="form-card-header">
-                <span>${escapeHtml(e.title || '新条目')}</span>
-                <div>
-                    <button class="btn-move-up" onclick="moveItem(this,'editor-educations',-1)" ${i===0?'disabled':''}>\u25b2</button>
-                    <button class="btn-move-down" onclick="moveItem(this,'editor-educations',1)" ${i===(d.education||[]).length-1?'disabled':''}>\u25bc</button>
-                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-educations')">\u2715</button>
-                </div>
-            </div>
-            <div class="form-card-body">
-                <div class="form-group"><label>学位</label><input class="form-input edu-title" value="${escapeHtml(e.title||'')}" /></div>
-                <div class="form-group"><label>学校</label><input class="form-input edu-school" value="${escapeHtml(e.school||'')}" /></div>
-                <div class="form-group"><label>日期</label><input class="form-input edu-date" value="${escapeHtml(e.date||'')}" /></div>
-                <div class="form-group"><label>备注</label><textarea class="form-textarea edu-note" rows="2">${escapeHtml(e.note||'')}</textarea></div>
-            </div>
-        </div>`;
-    });
-    html += `</div></section>`;
-
-    // 项目经验
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">项目经验</h3>
-            <button class="btn-add-sm" onclick="addProjectRow()">+ 添加</button>
-        </div>
-        <div id="editor-projects">`;
-    (d.projects || []).forEach((p, i) => {
-        html += `<div class="form-card">
-            <div class="form-card-header">
-                <span>${escapeHtml(p.title||'新条目')}</span>
-                <div>
-                    <button class="btn-move-up" onclick="moveItem(this,'editor-projects',-1)" ${i===0?'disabled':''}>\u25b2</button>
-                    <button class="btn-move-down" onclick="moveItem(this,'editor-projects',1)" ${i===(d.projects||[]).length-1?'disabled':''}>\u25bc</button>
-                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-projects')">\u2715</button>
-                </div>
-            </div>
-            <div class="form-card-body">
-                <div class="form-group"><label>项目名称</label><input class="form-input proj-title" value="${escapeHtml(p.title||'')}" /></div>
-                <div class="form-group"><label>技术栈</label><input class="form-input proj-tech" value="${escapeHtml(p.tech||'')}" /></div>
-                <div class="form-group"><label>要点</label><div class="rich-editor" id="rich-proj-points-${i}">${makeRichToolbarHtml()}<div class="rich-editor-content proj-points" contenteditable="true">${pointsToHtml(p.points)}</div></div></div>
-            </div>
-        </div>`;
-    });
-    html += `</div></section>`;
-
-    // 自定义区块
-    html += `<section class="editor-section">
-        <div class="editor-section-header">
-            <h3 class="editor-section-title">自定义区块</h3>
-            <button class="btn-add-sm" onclick="addCustomSectionRow()">+ 添加</button>
-        </div>
-        <div id="editor-custom-sections">`;
-    (d.customSections || []).forEach((cs, i) => {
-        html += `<div class="form-card">
-            <div class="form-card-header">
-                <span>${escapeHtml(cs.title || '新区块')}</span>
-                <div>
-                    <button class="btn-move-up" onclick="moveItem(this,'editor-custom-sections',-1)" ${i===0?'disabled':''}>\u25b2</button>
-                    <button class="btn-move-down" onclick="moveItem(this,'editor-custom-sections',1)" ${i===(d.customSections||[]).length-1?'disabled':''}>\u25bc</button>
-                    <button class="btn-remove-sm" onclick="removeFormCard(this,'editor-custom-sections')">\u2715</button>
-                </div>
-            </div>
-            <div class="form-card-body">
-                <div class="form-group"><label>区块标题</label><input class="form-input cs-title" value="${escapeHtml(cs.title||'')}" /></div>
-                <div class="form-group"><label>内容（自由文本，换行自动分段）</label><textarea class="form-textarea cs-content" rows="4">${escapeHtml(cs.content||'')}</textarea></div>
-            </div>
-        </div>`;
-    });
-    html += `</div></section>`;
-
-    body.innerHTML = html;
-    // 初始化富文本工具栏
+    body.innerHTML = `<div class="editor-layout">
+        ${getEditorNavHTML()}
+        <div class="editor-scroll">${sectionsHtml}</div>
+    </div>`;
     body.querySelectorAll('.rich-editor').forEach(function(el) {
         initRichToolbar(el.id);
     });
+    initEditorNavigation(body);
+}
+
+function getEditorNavHTML() {
+    return `<nav class="editor-nav" aria-label="编辑分类">
+        ${EDITOR_SECTION_GROUPS.map(group => `<div class="editor-nav-group">
+            <div class="editor-nav-label">${escapeHtml(group.label)}</div>
+            ${group.items.map((item, index) => `<button type="button" class="editor-nav-button ${group === EDITOR_SECTION_GROUPS[0] && index === 0 ? 'active' : ''}" data-target="${item.id}">${escapeHtml(item.title)}</button>`).join('')}
+        </div>`).join('')}
+    </nav>`;
+}
+
+function initEditorNavigation(root) {
+    const scroller = root.querySelector('.editor-scroll');
+    const buttons = [...root.querySelectorAll('.editor-nav-button')];
+    if (!scroller || !buttons.length) return;
+    buttons.forEach(button => {
+        button.addEventListener('click', () => {
+            const target = root.querySelector('#' + button.dataset.target);
+            if (!target) return;
+            buttons.forEach(item => item.classList.remove('active'));
+            button.classList.add('active');
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+    scroller.addEventListener('scroll', () => {
+        const sections = buttons
+            .map(button => [button, root.querySelector('#' + button.dataset.target)])
+            .filter(pair => pair[1]);
+        const activePair = sections.find(pair => pair[1].getBoundingClientRect().top >= scroller.getBoundingClientRect().top - 8) || sections[sections.length - 1];
+        if (!activePair) return;
+        buttons.forEach(item => item.classList.toggle('active', item === activePair[0]));
+    }, { passive: true });
 }
 
 function saveEditorData() {
     const photoUrl = document.getElementById('edit-photo-url')?.value?.trim() || '';
     const fontFamily = document.getElementById('edit-font-family')?.value?.trim() || '';
-    const fontSizeVal = parseInt(document.getElementById('edit-font-size')?.value) || 13;
+    const fontSizeVal = parseInt(document.getElementById('edit-font-size')?.value) || 14;
     const lineHeight = document.getElementById('edit-line-height')?.value || 'normal';
 
     const data = {
         name: document.getElementById('edit-name')?.value?.trim() || '',
         subtitle: document.getElementById('edit-subtitle')?.value?.trim() || '',
+        age: document.getElementById('edit-age')?.value?.trim() || '',
         photo: photoUrl,
         photoShape: document.getElementById('edit-photo-shape')?.value || 'circle',
         photoSize: document.getElementById('edit-photo-size')?.value || 'small',
         showPhoto: document.getElementById('edit-photo-show')?.checked !== false,
+        showAbout: document.getElementById('edit-about-show')?.checked !== false,
         contacts: [],
-        skills: [],
+        basicInfoItems: [],
+        hobbies: [],
         languages: [],
         about: sanitizeHtml(document.getElementById('edit-about')?.innerHTML?.trim() || ''),
         experiences: [],
@@ -1711,13 +2351,20 @@ function saveEditorData() {
 
     document.querySelectorAll('#editor-contacts .form-row').forEach(row => {
         const icon = row.querySelector('.contact-icon')?.value?.trim() || '';
+        const label = row.querySelector('.contact-label-input')?.value?.trim() || '';
         const value = row.querySelector('.contact-value')?.value?.trim() || '';
-        if (value) data.contacts.push({ icon, value });
+        if (value) data.contacts.push({ icon, label, value });
     });
 
-    document.querySelectorAll('#editor-skills .form-row').forEach(row => {
-        const val = row.querySelector('.skill-value')?.value?.trim();
-        if (val) data.skills.push(val);
+    document.querySelectorAll('#editor-basic-info-items .basic-info-editor-row').forEach(row => {
+        const label = row.querySelector('.basic-info-label')?.value?.trim() || '';
+        const value = row.querySelector('.basic-info-value')?.value?.trim() || '';
+        if (label && value) data.basicInfoItems.push({ label, value });
+    });
+
+    document.querySelectorAll('#editor-hobbies .hobby-row').forEach(row => {
+        const val = row.querySelector('.hobby-value')?.value?.trim();
+        if (val) data.hobbies.push(val);
     });
 
     document.querySelectorAll('#editor-languages .form-row').forEach(row => {
@@ -1729,40 +2376,52 @@ function saveEditorData() {
     document.querySelectorAll('#editor-experiences .form-card').forEach(card => {
         var ptsEl = card.querySelector('.exp-points');
         var pts = ptsEl ? htmlToPoints(ptsEl.innerHTML) : [];
-        data.experiences.push({
+        const entry = {
             title: card.querySelector('.exp-title')?.value?.trim() || '',
             company: card.querySelector('.exp-company')?.value?.trim() || '',
             date: card.querySelector('.exp-date')?.value?.trim() || '',
             points: pts
-        });
+        };
+        if (entry.title || entry.company || entry.date || entry.points.length) data.experiences.push(entry);
     });
 
     document.querySelectorAll('#editor-educations .form-card').forEach(card => {
-        data.education.push({
+        const entry = {
             title: card.querySelector('.edu-title')?.value?.trim() || '',
             school: card.querySelector('.edu-school')?.value?.trim() || '',
             date: card.querySelector('.edu-date')?.value?.trim() || '',
             note: card.querySelector('.edu-note')?.value?.trim() || ''
-        });
+        };
+        if (entry.title || entry.school || entry.date || entry.note) data.education.push(entry);
     });
 
     document.querySelectorAll('#editor-projects .form-card').forEach(card => {
         var ptsEl = card.querySelector('.proj-points');
-        var pts = ptsEl ? htmlToPoints(ptsEl.innerHTML) : [];
-        data.projects.push({
+        var contentBlocks = ptsEl ? htmlToProjectContentBlocks(ptsEl.innerHTML) : [];
+        const entry = {
             title: card.querySelector('.proj-title')?.value?.trim() || '',
+            date: card.querySelector('.proj-date')?.value?.trim() || '',
+            subtitle: card.querySelector('.proj-subtitle')?.value?.trim() || '',
             tech: card.querySelector('.proj-tech')?.value?.trim() || '',
-            points: pts
-        });
+            titleIndentChars: normalizeProjectBodyIndentChars(card.querySelector('.proj-title-indent-chars')?.value || 0),
+            subtitleIndentChars: normalizeProjectBodyIndentChars(card.querySelector('.proj-subtitle-indent-chars')?.value || 0),
+            bodyIndentChars: normalizeProjectBodyIndentChars(card.querySelector('.proj-body-indent-chars')?.value || 0),
+            contentBlocks: contentBlocks
+        };
+        if (entry.title || entry.date || entry.subtitle || entry.tech || entry.contentBlocks.length) data.projects.push(entry);
     });
 
     // 自定义区块
     data.customSections = [];
     document.querySelectorAll('#editor-custom-sections .form-card').forEach(card => {
-        data.customSections.push({
+        const contentEl = card.querySelector('.cs-content');
+        const entry = {
             title: card.querySelector('.cs-title')?.value?.trim() || '',
-            content: card.querySelector('.cs-content')?.value?.trim() || ''
-        });
+            content: sanitizeHtml(contentEl?.innerHTML?.trim() || '')
+        };
+        const probe = document.createElement('div');
+        probe.innerHTML = entry.content;
+        if (entry.title || probe.textContent.trim()) data.customSections.push(entry);
     });
 
     // 保存到当前副本
@@ -1770,73 +2429,97 @@ function saveEditorData() {
     const activeId = getActiveCopyId();
     const active = copies.find(c => c.id === activeId);
     if (active) {
-        active.data = data;
+        active.data = normalizeResumeData(data);
         saveCopies(copies);
-        populateResumeData(data);
+        populateResumeData(active.data);
         showToast('简历已保存');
     }
     closeEditorModal();
 }
 
 // ===== 表单行 CRUD 辅助函数 =====
+function removeEditorEmptyState(container) {
+    if (!container) return;
+    container.querySelectorAll(':scope > .editor-empty-state').forEach(item => item.remove());
+}
+
+function appendEditorItem(containerId, html, focusSelector) {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+    removeEditorEmptyState(container);
+    container.insertAdjacentHTML('beforeend', html);
+    const added = container.lastElementChild;
+    refreshMoveButtons(container);
+    if (focusSelector && added) {
+        const target = added.querySelector(focusSelector);
+        if (target) target.focus();
+    }
+    return added;
+}
+
 window.addContactRow = function() {
-    const c = document.getElementById('editor-contacts');
-    const div = document.createElement('div'); div.className = 'form-row';
-    div.innerHTML = '<input class="form-input contact-icon" placeholder="图标" style="width:60px" /><input class="form-input contact-value" placeholder="值" /><button class="btn-remove-sm" onclick="removeContactRow(this)">\u2715</button>';
-    c.appendChild(div);
+    appendEditorItem('editor-contacts', renderContactRow({}), '.contact-value');
 };
 window.removeContactRow = function(btn) { btn.closest('.form-row').remove(); };
 
-window.addSkillRow = function() {
-    const c = document.getElementById('editor-skills');
-    const div = document.createElement('div'); div.className = 'form-row';
-    div.innerHTML = '<input class="form-input skill-value" placeholder="技能名称" /><button class="btn-remove-sm" onclick="removeSkillRow(this)">\u2715</button>';
-    c.appendChild(div);
+window.addBasicInfoRow = function() {
+    appendEditorItem('editor-basic-info-items', renderBasicInfoRow({}), '.basic-info-label');
 };
-window.removeSkillRow = function(btn) { btn.closest('.form-row').remove(); };
+window.removeBasicInfoRow = function(btn) { btn.closest('.form-row').remove(); };
+
+window.addHobbyRow = function(value) {
+    appendEditorItem('editor-hobbies', renderHobbyRow(value || ''), '.hobby-value');
+};
+window.addQuickHobby = function(value) {
+    const exists = [...document.querySelectorAll('#editor-hobbies .hobby-value')]
+        .some(input => input.value.trim() === value);
+    if (!exists) window.addHobbyRow(value);
+};
+window.removeHobbyRow = function(btn) { btn.closest('.form-row').remove(); };
 
 window.addLanguageRow = function() {
-    const c = document.getElementById('editor-languages');
-    const div = document.createElement('div'); div.className = 'form-row';
-    div.innerHTML = '<input class="form-input lang-name" placeholder="语言" style="width:120px" /><input class="form-input lang-level" placeholder="等级" /><button class="btn-remove-sm" onclick="removeLanguageRow(this)">\u2715</button>';
-    c.appendChild(div);
+    appendEditorItem('editor-languages', renderLanguageRow({}), '.lang-name');
 };
 window.removeLanguageRow = function(btn) { btn.closest('.form-row').remove(); };
 
 window.addExperienceRow = function() {
     const c = document.getElementById('editor-experiences');
+    if (!c) return;
     const i = c.querySelectorAll('.form-card').length;
-    const div = document.createElement('div'); div.className = 'form-card';
-    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-experiences\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-experiences\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-experiences\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>职位</label><input class="form-input exp-title" /></div><div class="form-group"><label>公司</label><input class="form-input exp-company" /></div><div class="form-group"><label>日期</label><input class="form-input exp-date" /></div><div class="form-group"><label>职责要点</label><div class="rich-editor" id="rich-exp-points-' + i + '">' + makeRichToolbarHtml() + '<div class="rich-editor-content exp-points" contenteditable="true"></div></div></div></div>';
-    c.appendChild(div);
-    initRichToolbar('rich-exp-points-' + i);
-    refreshMoveButtons(c);
+    const richId = nextEditorUid('rich-exp-points');
+    appendEditorItem('editor-experiences', renderExperienceCard({}, i, i + 1, richId), '.exp-title');
+    initRichToolbar(richId);
 };
 
 window.addEducationRow = function() {
     const c = document.getElementById('editor-educations');
-    const div = document.createElement('div'); div.className = 'form-card';
-    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-educations\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-educations\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-educations\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>学位</label><input class="form-input edu-title" /></div><div class="form-group"><label>学校</label><input class="form-input edu-school" /></div><div class="form-group"><label>日期</label><input class="form-input edu-date" /></div><div class="form-group"><label>备注</label><textarea class="form-textarea edu-note" rows="2"></textarea></div></div>';
-    c.appendChild(div);
-    refreshMoveButtons(c);
+    if (!c) return;
+    const i = c.querySelectorAll('.form-card').length;
+    appendEditorItem('editor-educations', renderEducationCard({}, i, i + 1), '.edu-title');
 };
 
 window.addProjectRow = function() {
     const c = document.getElementById('editor-projects');
+    if (!c) return;
     const i = c.querySelectorAll('.form-card').length;
-    const div = document.createElement('div'); div.className = 'form-card';
-    div.innerHTML = '<div class="form-card-header"><span>新条目</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-projects\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-projects\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-projects\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>项目名称</label><input class="form-input proj-title" /></div><div class="form-group"><label>技术栈</label><input class="form-input proj-tech" /></div><div class="form-group"><label>要点</label><div class="rich-editor" id="rich-proj-points-' + i + '">' + makeRichToolbarHtml() + '<div class="rich-editor-content proj-points" contenteditable="true"></div></div></div></div>';
-    c.appendChild(div);
-    initRichToolbar('rich-proj-points-' + i);
-    refreshMoveButtons(c);
+    const richId = nextEditorUid('rich-proj-points');
+    appendEditorItem('editor-projects', renderProjectEditorCard({}, i, i + 1, richId), '.proj-title');
+    initRichToolbar(richId);
 };
 
 window.addCustomSectionRow = function() {
     const c = document.getElementById('editor-custom-sections');
-    const div = document.createElement('div'); div.className = 'form-card';
-    div.innerHTML = '<div class="form-card-header"><span>新区块</span><div><button class="btn-move-up" onclick="moveItem(this,\'editor-custom-sections\',-1)" disabled>\u25b2</button><button class="btn-move-down" onclick="moveItem(this,\'editor-custom-sections\',1)" disabled>\u25bc</button><button class="btn-remove-sm" onclick="removeFormCard(this,\'editor-custom-sections\')">\u2715</button></div></div><div class="form-card-body"><div class="form-group"><label>区块标题</label><input class="form-input cs-title" /></div><div class="form-group"><label>内容（自由文本，换行自动分段）</label><textarea class="form-textarea cs-content" rows="4"></textarea></div></div>';
-    c.appendChild(div);
-    refreshMoveButtons(c);
+    if (!c) return;
+    const i = c.querySelectorAll('.form-card').length;
+    const richId = nextEditorUid('rich-custom-content');
+    appendEditorItem('editor-custom-sections', renderCustomSectionCard({}, i, i + 1, richId), '.cs-title');
+    initRichToolbar(richId);
+};
+
+window.updateCardTitle = function(input, fallback) {
+    const card = input.closest('.form-card');
+    const title = card ? card.querySelector('.form-card-title') : null;
+    if (title) title.textContent = input.value.trim() || fallback || '新条目';
 };
 
 window.removeFormCard = function(btn, containerId) {
@@ -1888,6 +2571,7 @@ function showToast(message) {
 
     const toast = document.createElement('div');
     toast.className = 'toast';
+    toast.setAttribute('aria-live', 'polite');
     toast.textContent = message;
     toast.style.cssText = `
         position: fixed;
@@ -1911,6 +2595,72 @@ function showToast(message) {
         setTimeout(() => toast.remove(), 300);
     }, 2000);
 }
+
+let printStyleSnapshot = null;
+
+function fitResumeToSinglePrintPage() {
+    const container = document.querySelector('#resume-root .container');
+    if (!container) return;
+
+    printStyleSnapshot = {
+        width: container.style.width,
+        maxWidth: container.style.maxWidth,
+        minHeight: container.style.minHeight,
+        height: container.style.height,
+        margin: container.style.margin,
+        zoom: container.style.zoom
+    };
+
+    const mmToPx = 96 / 25.4;
+    const pageWidthMm = 210;
+    const targetHeightPx = 295 * mmToPx;
+    const typographyZoom = Number.parseFloat(container.dataset.typographyZoom || '1') || 1;
+
+    container.style.maxWidth = 'none';
+    container.style.minHeight = '0';
+    container.style.height = 'auto';
+    container.style.margin = '0';
+
+    function measureAtZoom(zoom) {
+        container.style.zoom = String(zoom);
+        container.style.width = `${pageWidthMm / zoom}mm`;
+        return container.getBoundingClientRect().height;
+    }
+
+    let printZoom = typographyZoom;
+    if (measureAtZoom(printZoom) > targetHeightPx) {
+        let low = 0.2;
+        let high = typographyZoom;
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            const candidate = (low + high) / 2;
+            if (measureAtZoom(candidate) <= targetHeightPx) low = candidate;
+            else high = candidate;
+        }
+        printZoom = Math.max(0.2, low * 0.995);
+        measureAtZoom(printZoom);
+    }
+
+    container.dataset.printZoom = String(printZoom);
+}
+
+function restoreResumeAfterPrint() {
+    const container = document.querySelector('#resume-root .container');
+    if (!container || !printStyleSnapshot) return;
+    Object.keys(printStyleSnapshot).forEach(property => {
+        container.style[property] = printStyleSnapshot[property];
+    });
+    delete container.dataset.printZoom;
+    printStyleSnapshot = null;
+}
+
+window.addEventListener('beforeprint', function() {
+    document.querySelectorAll('.toast').forEach(function(toast) {
+        toast.remove();
+    });
+    fitResumeToSinglePrintPage();
+});
+
+window.addEventListener('afterprint', restoreResumeAfterPrint);
 
 // ===== 一键配色预设按钮回调 =====
 window.applyColorPreset = function(btn) {
@@ -1953,16 +2703,19 @@ function applyTypography(container, typo) {
     if (typo.fontFamily) {
         container.style.fontFamily = typo.fontFamily;
     }
-    // 自定义字号：数字表示 px，直接应用到容器
-    if (typo.fontSize && typeof typo.fontSize === 'number') {
-        container.style.fontSize = typo.fontSize + 'px';
-        // 强制标题、段落、列表等常见元素继承字号
-        container.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, span, div, a').forEach(el => {
-            el.style.fontSize = 'inherit';
-        });
-    }
+    // 页面原始排版以 14px 为基准；使用 zoom 让所有固定字号与间距按比例变化。
+    const requestedFontSize = Number.parseInt(typo.fontSize, 10) || 14;
+    const typographyZoom = Math.max(8, Math.min(72, requestedFontSize)) / 14;
+    container.dataset.typographyZoom = String(typographyZoom);
+    container.style.fontSize = '14px';
+    container.style.zoom = String(typographyZoom);
+    container.style.width = '';
+    container.style.maxWidth = '';
     if (typo.lineHeight && lineHeightMap[typo.lineHeight]) {
         container.style.lineHeight = lineHeightMap[typo.lineHeight];
+        container.style.setProperty('--resume-user-line-height', lineHeightMap[typo.lineHeight]);
+    } else {
+        container.style.setProperty('--resume-user-line-height', lineHeightMap.normal);
     }
     // 应用全局配色
     if (typo.primaryColor || typo.headingColor || typo.textColor || typo.bgColor || typo.cardColor) {
@@ -1980,14 +2733,12 @@ style.textContent = `
     /* --heading CSS 变量支持：所有标题默认使用 --heading，回退到 --text */
     .section-title,
     .sidebar-section h2,
-    .sidebar h1, .sidebar h2,
-    .fw-header h1,
+    .fw-side-block h3,
     .cg-card h2,
-    .vs-header h1,
-    .pl-name, .pl-subtitle,
-    .dt-header h1,
-    .lg-name, .lg-subtitle,
-    h1, h2, h3, h4 {
+    .pl-hobbies h3,
+    .pl-langs h3,
+    .dt-col-left .section-title,
+    .lg-sidebar-title {
         color: var(--heading, var(--text)) !important;
     }
     .editor-section-title {
@@ -1996,6 +2747,11 @@ style.textContent = `
     .btn-preset:hover {
         opacity: 0.85;
         box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+    @media print {
+        .toast {
+            display: none !important;
+        }
     }
 `;
 document.head.appendChild(style);
@@ -2007,4 +2763,3 @@ initAll();
 </script>
 </body>
 </html>
-

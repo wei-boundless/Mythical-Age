@@ -102,10 +102,10 @@ def _model_action_payload_for_task_mode_command(
         "request_id": f"slash-task:{mode_kind}:{turn_id}:{uuid.uuid4().hex[:8]}",
         "turn_id": turn_id,
         "action_type": "request_task_run",
-        "public_progress_note": f"已收到 {command} {mode_kind} 命令，正在提交 {mode_label} Mode 任务启动信号。",
+        "public_progress_note": f"已收到 {command} {mode_kind} 命令，正在申请长任务资源。",
         "public_action_state": {
-            "current_judgment": f"用户显式选择 {mode_label} Mode，当前工作需要持续任务生命周期。",
-            "next_action": f"通过 request_task_run 启动 primary {mode_label} Work Mode。",
+            "current_judgment": f"用户显式选择 {mode_label} 意图，当前工作需要长任务资源保存目标和进度游标。",
+            "next_action": "通过 request_task_run 申请长任务资源。",
             "completion_status": "working",
         },
         "task_run_contract_seed": _task_run_contract_seed_for_mode(mode_kind=mode_kind, body=body, command=command),
@@ -119,94 +119,48 @@ def _model_action_payload_for_task_mode_command(
 
 
 def _task_run_contract_seed_for_mode(*, mode_kind: str, body: str, command: str) -> dict[str, Any]:
-    primary_ref = f"work-mode:{mode_kind}:primary"
     title = _command_body_title(body, mode_kind=mode_kind)
-    return {
-        "contract_version": "task_run_contract_v1",
-        "container_contract": {
-            "entry_reason": f"用户通过 {command} 显式要求进入 {mode_kind} 工作模式。",
-            "continuity_required": True,
-            "control_required": True,
-            "projection_required": True,
-            "checkpoint_required": True,
-            "minimum_viable_next_step": _minimum_next_step(mode_kind),
-            "primary_work_mode_ref": primary_ref,
-            "supporting_mode_refs": [],
-            "mode_transition_policy": {
-                "agent_may_propose_transition": True,
-                "system_may_infer_transition": False,
-                "requires_accepted_event": True,
-            },
-        },
-        "work_modes": [
-            {
-                "mode_instance_id": primary_ref,
-                "mode_kind": mode_kind,
-                "mode_role": "primary",
-                "status": "draft",
-                "depends_on_mode_refs": [],
-                "contract": _work_mode_contract(mode_kind=mode_kind, body=body, title=title),
-            }
-        ],
-        "memory_contract": {
-            "checkpoint_policy": {"write_checkpoint_on_step": True},
-            "provider_visible_replay_policy": {"replay_only": True},
-            "recovery_package_policy": {"include_active_work_mode_refs": True},
-        },
-        "acceptance_contract": {
-            "acceptance_mode": "checkpoint",
-            "final_answer_requirements": ["说明完成项", "说明验证结果", "说明未完成项和风险"],
-            "evidence_refs_required": False,
-        },
-    }
-
-
-def _work_mode_contract(*, mode_kind: str, body: str, title: str) -> dict[str, Any]:
-    if mode_kind == "goal":
-        return {
-            "user_visible_goal": title,
-            "task_run_goal": title,
-            "success_definition": "围绕该目标形成可验证进展，并在完成、阻塞或停止时给出明确收口反馈。",
-            "evidence_contract": {"evidence_required": True, "source": "slash_task_command"},
-            "working_scope": {},
-        }
-    if mode_kind == "plan":
-        steps = _split_command_items(body)
-        return {
-            "strategy_summary": title,
-            "major_steps": steps or [title],
-            "plan_status": "agent_managed",
-            "allowed_plan_operations": ["create", "update", "replan", "explain_deviation"],
-            "replan_policy": {"requires_reason": True, "version_must_change_or_reason_required": True},
-            "working_scope": {},
-        }
+    primary_mode = "goal" if mode_kind == "goal" else "plan"
     items = _split_command_items(body) or [title]
     return {
-        "todo_list_id": f"todo:slash:{uuid.uuid4().hex[:8]}",
-        "items": [
-            {
-                "item_id": f"todo-item:{index + 1}",
-                "title": item,
-                "status": "pending",
-            }
-            for index, item in enumerate(items)
-        ],
-        "active_item_id": "todo-item:1",
-        "completion_policy": "checkpoint_only",
-        "working_scope": {},
+        "contract_shape": "compact_task_start_intent",
+        "primary_mode": primary_mode,
+        "task_shape": "standard",
+        "minimum_viable_next_step": _minimum_next_step(mode_kind),
+        "working_scope": {
+            "target_objects": [title],
+            "workspace_refs": [],
+            "source_refs": [f"slash command {command}"],
+            "excluded_scope": [],
+            "known_constraints": [],
+        },
+        "acceptance": {
+            "mode": "checkpoint",
+            "criteria": ["形成可追踪进展", "在完成、阻塞或停止时给出明确收口反馈"],
+            "final_answer_requirements": ["说明完成项", "说明验证结果", "说明未完成项和风险"],
+        },
+        "mode_payload": {
+            "summary": title,
+            "steps": items if primary_mode == "plan" else [_minimum_next_step(mode_kind)],
+            "success_definition": title if primary_mode == "goal" else "",
+            "notes": [f"source_command={command}", f"source_intent={mode_kind}"],
+        },
+        "todo_tool_contract": {
+            "todo_is_tool": True,
+            "cursor_updates": items if mode_kind == "todo" else [],
+        },
     }
-
 
 def _command_body_title(body: str, *, mode_kind: str) -> str:
     text = " ".join(str(body or "").split()).strip()
     if text:
         return text[:500]
     defaults = {
-        "goal": "按用户当前意图建立 Goal Mode 持续任务。",
-        "plan": "按用户当前意图建立 Plan Mode 持续任务。",
-        "todo": "按用户当前意图建立 Todo Mode 持续任务。",
+        "goal": "按用户当前意图申请 Goal 长任务资源。",
+        "plan": "按用户当前意图申请 Plan 长任务资源。",
+        "todo": "按用户当前意图申请带 todo 游标的长任务资源。",
     }
-    return defaults.get(mode_kind, "按用户当前意图建立持续任务。")
+    return defaults.get(mode_kind, "按用户当前意图申请长任务资源。")
 
 
 def _minimum_next_step(mode_kind: str) -> str:

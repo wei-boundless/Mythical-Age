@@ -102,7 +102,7 @@ class RuntimeSemanticsManifest:
         "quarantined",
     )
     step_policy: dict[str, Any] = field(default_factory=dict)
-    legacy_fields: tuple[dict[str, Any], ...] = ()
+    superseded_fields: tuple[dict[str, Any], ...] = ()
     diagnostics: tuple[RuntimeSemanticsDiagnostic, ...] = ()
     summary: dict[str, Any] = field(default_factory=dict)
     authority: str = "task_system.runtime_semantics_manifest"
@@ -115,7 +115,7 @@ class RuntimeSemanticsManifest:
             "edge_semantics": [item.to_dict() for item in self.edge_semantics],
             "artifact_lifecycle_states": list(self.artifact_lifecycle_states),
             "step_policy": dict(self.step_policy),
-            "legacy_fields": [dict(item) for item in self.legacy_fields],
+            "superseded_fields": [dict(item) for item in self.superseded_fields],
             "diagnostics": [item.to_dict() for item in self.diagnostics],
             "summary": dict(self.summary),
         }

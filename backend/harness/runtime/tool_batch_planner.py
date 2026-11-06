@@ -398,7 +398,7 @@ def _resource_key(
     kind = str(operation_type or "").strip()
     if op.startswith("op.git_") or kind == "vcs":
         return f"git:index:{_canonical_root(workspace_root)}"
-    if op in {"op.shell", "op.python_repl"} or kind == "shell":
+    if op in {"op.shell", "op.shell"} or kind == "shell":
         cwd = str(tool_args.get("cwd") or tool_args.get("working_dir") or "")
         return f"shell:{_canonical_path(cwd, workspace_root=workspace_root) if cwd else _canonical_root(workspace_root)}"
     if op == "op.browser_control" or kind == "browser":
@@ -411,21 +411,21 @@ def _resource_key(
         scope = str(tool_args.get("scope") or tool_args.get("memory_scope") or "default").strip() or "default"
         return f"memory:{scope}"
     if kind in {"filesystem", "code_intelligence"} or op in {
-        "op.read_file",
-        "op.write_file",
-        "op.edit_file",
-        "op.path_exists",
-        "op.stat_path",
-        "op.list_dir",
-        "op.glob_paths",
-        "op.search_files",
-        "op.search_text",
+        "op.workspace_read",
+        "op.workspace_write",
+        "op.workspace_edit",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_search",
+        "op.workspace_search",
+        "op.workspace_search",
     }:
         paths = _filesystem_arg_paths(tool_args)
         if paths:
             path = paths[0]
-            scope = "file" if mode == "read" and op not in {"op.list_dir", "op.glob_paths", "op.search_files", "op.search_text"} else "tree"
-            if op in {"op.write_file", "op.edit_file"}:
+            scope = "file" if mode == "read" and op not in {"op.workspace_read", "op.workspace_search", "op.workspace_search", "op.workspace_search"} else "tree"
+            if op in {"op.workspace_write", "op.workspace_edit"}:
                 scope = "file"
             return f"workspace:{scope}:{_canonical_path(path, workspace_root=workspace_root)}"
         return f"workspace:tree:{_canonical_root(workspace_root)}"

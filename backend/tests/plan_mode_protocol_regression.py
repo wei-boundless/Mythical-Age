@@ -36,8 +36,8 @@ def test_single_turn_plan_mode_is_visible_in_dynamic_runtime_and_output_contract
     ).packet
 
     stable_payload = _payload_after_title(packet, "Operating Contract")
-    dynamic_payload = _payload_after_title(packet, "Current Runtime Boundary")
-    planning_cursor = dynamic_payload["runtime_context"]["planning_boundary"]
+    dynamic_payload = _payload_after_title(packet, "Current Request Context")
+    planning_cursor = dynamic_payload["request_context"]["planning_boundary"]
 
     assert "planning_protocol" not in stable_payload
     assert "planning_protocol" not in stable_payload["output_contract"]
@@ -46,7 +46,7 @@ def test_single_turn_plan_mode_is_visible_in_dynamic_runtime_and_output_contract
     assert packet.output_contract["planning_protocol"]["mode"] == "plan_only"
 
 
-def test_task_execution_plan_ref_is_projected_as_task_stable_contract(tmp_path: Path) -> None:
+def test_task_execution_plan_ref_is_projected_as_task_run_contract_context(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
 
@@ -74,10 +74,10 @@ def test_task_execution_plan_ref_is_projected_as_task_stable_contract(tmp_path: 
         },
     ).packet
 
-    payload = _payload_after_title(packet, "Task execution task contract")
+    payload = _payload_after_title(packet, "Task execution task run contract")
 
-    assert payload["task_contract"]["plan_ref"] == "plan:058"
-    assert payload["task_contract"]["implementation_lock"]["status"] == "approved"
+    assert payload["task_run_contract"]["plan_ref"] == "plan:058"
+    assert payload["task_run_contract"]["implementation_lock"]["status"] == "approved"
     assert payload["planning_protocol"]["plan_ref"] == "plan:058"
     assert payload["planning_protocol"]["implementation_allowed"] is True
     assert packet.output_contract["planning_protocol"]["plan_ref"] == "plan:058"
@@ -136,4 +136,3 @@ def _payload_after_title(packet, title: str) -> dict:
         if marker in content:
             return json.loads(content.split(marker, 1)[1])
     raise AssertionError(f"missing message title: {title}")
-

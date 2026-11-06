@@ -12,7 +12,7 @@ from harness.runtime.output_boundary import sanitize_visible_assistant_content
 
 from .paths import normalize_session_id, safe_session_dir
 from .storage.models import Message, utc_now_iso
-from .storage.session_memory import SessionMemoryManager
+from .storage.conversation_continuity import ConversationContinuityManager
 from .storage.text_utils import normalize_storage_text
 
 
@@ -159,7 +159,7 @@ class MemoryMessageAdapter:
         return converted
 
 
-class SessionMemoryLayer:
+class ConversationContinuityLayer:
     def __init__(
         self,
         base_dir: Path,
@@ -197,8 +197,8 @@ class SessionMemoryLayer:
         shutil.rmtree(target)
         return True
 
-    def manager(self, session_id: str) -> SessionMemoryManager:
-        return SessionMemoryManager(self.session_dir(session_id))
+    def manager(self, session_id: str) -> ConversationContinuityManager:
+        return ConversationContinuityManager(self.session_dir(session_id))
 
     def compactor(self, session_id: str):
         from context_system import ContextCompactor

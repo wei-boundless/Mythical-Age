@@ -9,7 +9,9 @@ import { StatusLine, toolRoundStatusLabel } from "./AssistantTrace";
 import { TodoPlan } from "./TodoPlan";
 import { ToolRound, ToolWindow } from "./ToolTrace";
 
+import { workbenchMarkdownComponents } from "@/components/markdown/WorkbenchMarkdownComponents";
 import { publicRuntimeStatusText } from "@/lib/runtimeStatusText";
+import { TOOL_ACTION_LABELS, displayToolActionName, isCommandToolName, toolDisplayFamily } from "@/lib/toolDisplay";
 import type {
   ActivityArchiveProjectionBlock,
   ProjectionRenderBlock,
@@ -34,13 +36,20 @@ export type ActivityEntry = {
   collapsed?: boolean;
   commandLine?: string;
   consoleLabel?: string;
+  contentWindow?: ToolProjectionBlock["contentWindow"];
   detail?: string;
   id: string;
   kind: "activity_archive" | "body_note" | "reasoning_window" | "status_line" | "todo_plan" | "tool_window";
   outputText?: string;
+  polling?: ToolProjectionBlock["polling"];
   reasoningContent?: string;
   reasoningMeta?: string;
   sections: Array<{ label: string; text: string }>;
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
+  firstOffset?: number;
+  lastOffset?: number;
   statusKind?: string;
   state?: string;
   statusLabel?: string;
@@ -76,6 +85,11 @@ export type ActivityRenderUnit =
       entries: ActivityEntry[];
       id: string;
       preview: string;
+      startedAt?: number;
+      updatedAt?: number;
+      completedAt?: number;
+      firstOffset?: number;
+      lastOffset?: number;
       statusLabel: string;
       statusTone: PublicTimelineActivityTone;
     };
@@ -228,7 +242,7 @@ function BodyNote({ entry }: { entry: ActivityEntry }) {
       data-status-tone={statusTone}
     >
       <div className="public-run-activity__body markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown components={workbenchMarkdownComponents} remarkPlugins={[remarkGfm]}>
           {bodyText}
         </ReactMarkdown>
       </div>
@@ -276,7 +290,9 @@ function ReasoningWindow({ entry }: { entry: ActivityEntry }) {
         <div className="public-run-activity__reasoning-body" role="region" aria-label="运行中的模型思考观察">
           {reasoningContent ? (
             <div className="public-run-activity__reasoning-text markdown markdown--reasoning-projection">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{reasoningContent}</ReactMarkdown>
+              <ReactMarkdown components={workbenchMarkdownComponents} remarkPlugins={[remarkGfm]}>
+                {reasoningContent}
+              </ReactMarkdown>
             </div>
           ) : (
             <p>暂无可见思考内容。</p>
@@ -293,12 +309,45 @@ function toolRoundFromEntries(entries: ActivityEntry[], roundKey: string): Activ
   return {
     kind: "tool_round",
     count,
+    completedAt: latestToolTime(entries, "completedAt"),
     entries,
+    firstOffset: earliestToolOffset(entries, "firstOffset"),
     id: `tool-round:${roundKey || entries[0]?.id || "tools"}`,
+    lastOffset: latestToolOffset(entries, "lastOffset"),
     preview: toolRoundPreview(entries),
+    startedAt: earliestToolTime(entries, "startedAt"),
     statusLabel: toolRoundStatusLabel(statusTone),
     statusTone,
+    updatedAt: latestToolTime(entries, "updatedAt"),
   };
+}
+
+function earliestToolTime(entries: ActivityEntry[], key: "startedAt" | "updatedAt" | "completedAt") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return values.length ? Math.min(...values) : undefined;
+}
+
+function latestToolTime(entries: ActivityEntry[], key: "startedAt" | "updatedAt" | "completedAt") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return values.length ? Math.max(...values) : undefined;
+}
+
+function earliestToolOffset(entries: ActivityEntry[], key: "firstOffset" | "lastOffset") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+  return values.length ? Math.min(...values) : undefined;
+}
+
+function latestToolOffset(entries: ActivityEntry[], key: "firstOffset" | "lastOffset") {
+  const values = entries
+    .map((entry) => entry[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+  return values.length ? Math.max(...values) : undefined;
 }
 
 function toolRoundPreview(entries: ActivityEntry[]) {
@@ -317,20 +366,6 @@ function toolRoundPreview(entries: ActivityEntry[]) {
   }
   return entries.length > 3 ? `${preview} 等` : preview;
 }
-
-const TOOL_ACTION_LABELS = [
-  "运行命令",
-  "匹配路径",
-  "列出目录",
-  "检查路径",
-  "读取文件",
-  "搜索文件",
-  "搜索文本",
-  "写入文件",
-  "编辑文件",
-  "批量编辑文件",
-  "应用补丁",
-];
 
 function toolPreviewPart(entry: ActivityEntry) {
   const text = cleanText(entry.text);
@@ -435,17 +470,24 @@ function toolEntryFromBlock(block: ToolProjectionBlock, index: number): Activity
     collapsed: typeof block.collapsed === "boolean" ? block.collapsed : undefined,
     commandLine: toolWindowCommandLine(block, sections),
     consoleLabel: toolWindowConsoleLabel(block),
+    contentWindow: block.contentWindow,
+    completedAt: block.completedAt,
     detail,
+    firstOffset: block.firstOffset,
     id: `tool-window:${stableId}`,
     kind: "tool_window",
     outputText,
+    polling: block.polling,
     sections,
+    startedAt: block.startedAt,
     state: cleanText(block.state).toLowerCase(),
     statusLabel: toolWindowStatusLabel(block),
     statusTone: toolWindowStatusTone(block),
     text,
+    lastOffset: block.lastOffset,
     toolFamily,
     toolRoundKey: toolWindowRoundKey(block),
+    updatedAt: block.updatedAt,
   };
 }
 
@@ -524,7 +566,7 @@ function reasoningMetaFromBlock(block: StatusProjectionBlock) {
 function publicTimelineTone(entries: ActivityEntry[]): PublicTimelineActivityTone {
   const state = [...entries].reverse().map((entry) => cleanText(entry.state).toLowerCase()).find(Boolean) ?? "";
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state)) return "stopped";
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
@@ -541,7 +583,7 @@ function statusBlockTone(block: StatusProjectionBlock): PublicTimelineActivityTo
   if (block.kind === "terminal_event") {
     const state = cleanText(block.state).toLowerCase();
     if (["failed", "error", "blocked"].includes(state)) return "soft_error";
-    if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+    if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state)) return "stopped";
     if (["completed", "complete", "done", "success"].includes(state)) return "done";
     return "stopped";
   }
@@ -601,25 +643,10 @@ function toolInvocationName(block: ToolProjectionBlock) {
   if (!rawTool || normalized === "tool") {
     return actionLabelFromText(block.title) || actionLabelFromText(block.detail) || "工具操作";
   }
-  if (isCommandToolName(normalized)) {
-    return "运行命令";
-  }
-  const labels: Record<string, string> = {
-    glob_paths: "匹配路径",
-    list_dir: "列出目录",
-    path_exists: "检查路径",
-    read_file: "读取文件",
-    read_files: "读取文件",
-    read_path: "读取文件",
-    search_files: "搜索文件",
-    search_text: "搜索文本",
-    stat_path: "检查路径",
-    write_file: "写入文件",
-    edit_file: "编辑文件",
-    batch_edit_file: "批量编辑文件",
-    apply_patch: "应用补丁",
-  };
-  return labels[normalized] || rawTool;
+  return displayToolActionName({
+    actionKind: cleanText(block.actionKind),
+    toolName: rawTool,
+  });
 }
 
 function toolInvocationTarget(block: ToolProjectionBlock) {
@@ -632,7 +659,7 @@ function toolInvocationTarget(block: ToolProjectionBlock) {
 function toolWindowStatusTone(block: ToolProjectionBlock): PublicTimelineActivityTone {
   const state = cleanText(block.state).toLowerCase();
   if (["error", "failed", "blocked", "missing"].includes(state)) return "soft_error";
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(state)) return "stopped";
+  if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state)) return "stopped";
   if (["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state)) return "waiting";
   if (["completed", "complete", "done", "ready", "passed", "success"].includes(state)) return "done";
   return "running";
@@ -657,6 +684,17 @@ function toolWindowSections(block: ToolProjectionBlock) {
   }
   if (argumentsPreview) {
     sections.push({ label: "参数预览", text: argumentsPreview });
+  }
+  const polling = block.polling;
+  if (polling?.mode === "poll") {
+    const interval = Number(polling.interval_ms || 0);
+    const timeout = Number(polling.timeout_ms || 0);
+    const parts = [
+      polling.poll_id ? `轮询 ${polling.poll_id}` : "轮询",
+      interval > 0 ? `每 ${Math.round(interval / 1000)} 秒` : "",
+      timeout > 0 ? `最长 ${Math.round(timeout / 1000)} 秒` : "",
+    ].filter(Boolean);
+    sections.push({ label: "轮询策略", text: parts.join(" · ") });
   }
   return sections.filter((section) => !isInternalToolWindowSection(section.label));
 }
@@ -760,16 +798,11 @@ function isShellTool(block: ToolProjectionBlock) {
 }
 
 function toolWindowFamily(block: ToolProjectionBlock): ToolUiFamily {
-  const tool = cleanText(block.toolName || block.actionKind).toLowerCase();
-  if (isCommandToolName(tool)) return "command";
-  if (["read_file", "read_files", "read_path", "read_structured_file", "attachment_extract_text"].includes(tool)) return "file";
-  if (["search_files", "search_text", "glob_paths", "web_search", "deepsearch"].includes(tool)) return "search";
-  if (["list_dir", "stat_path", "path_exists"].includes(tool)) return "inspect";
-  if (["write_file", "edit_file", "batch_edit_file", "apply_patch"].includes(tool)) return "write";
-  if (["image_generate", "generate_image", "image_edit"].includes(tool)) return "media";
-  if (["mcp_structured_data", "structured_data", "read_spreadsheet", "read_table"].includes(tool)) return "data";
-  if (["memory_read", "memory_write", "memory_write_candidate"].includes(tool)) return "memory";
-  if (["browser_control", "browser", "playwright"].includes(tool)) return "browser";
+  const family = toolDisplayFamily({
+    actionKind: cleanText(block.actionKind),
+    toolName: cleanText(block.toolName),
+  });
+  if (family !== "generic") return family;
   const inferredAction = actionLabelFromText(block.title)
     || actionLabelFromText(block.detail)
     || actionLabelFromText(block.output);
@@ -779,7 +812,8 @@ function toolWindowFamily(block: ToolProjectionBlock): ToolUiFamily {
 }
 
 function toolFamilyFromActionLabel(label: string): ToolUiFamily | "" {
-  if (["读取文件"].includes(label)) return "file";
+  if (["读取文件", "读取工作区"].includes(label)) return "file";
+  if (["读取工具结果"].includes(label)) return "data";
   if (["搜索文件", "搜索文本", "匹配路径"].includes(label)) return "search";
   if (["列出目录", "检查路径"].includes(label)) return "inspect";
   if (["写入文件", "编辑文件", "批量编辑文件", "应用补丁"].includes(label)) return "write";
@@ -794,7 +828,7 @@ function isGenericToolText(value: string) {
 
 function commandInvocationText(block: ToolProjectionBlock) {
   const direct = cleanText(block.target);
-  if (direct && !isCommandToolName(direct.toLowerCase())) return direct;
+  if (direct && !isCommandToolName(direct.toLowerCase()) && !/^action\s*=\s*command$/i.test(direct)) return direct;
   return previewArgumentValue(block.argumentsPreview, ["command", "cmd", "script", "code"]);
 }
 
@@ -823,10 +857,6 @@ function stripWrappingQuotes(value: string) {
   return trimmed;
 }
 
-function isCommandToolName(value: string) {
-  return COMMAND_TOOL_NAMES.has(cleanText(value).toLowerCase());
-}
-
 function actionLabelFromText(value: unknown) {
   const text = cleanText(value).replace(/完成[:：]?.*$/u, "").trim();
   for (const label of TOOL_ACTION_LABELS) {
@@ -842,8 +872,6 @@ function actionLabelFromText(value: unknown) {
 function compactText(value: string) {
   return cleanText(value).replace(/\s+/g, "").toLowerCase();
 }
-
-const COMMAND_TOOL_NAMES = new Set(["bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"]);
 
 function cleanText(value: unknown) {
   return String(value ?? "")

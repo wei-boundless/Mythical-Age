@@ -25,11 +25,11 @@ class HealthAgentExecutionPlan:
     workflow_id: str
     runtime_lane: str
     resource_policy_ref: str
-    task_contract_ref: str
+    task_system_contract_ref: str
     task_execution_assembly: dict[str, Any]
     task_body_assembly: dict[str, Any]
     agent_runtime_spec: dict[str, Any]
-    task_contract: dict[str, Any] = field(default_factory=dict)
+    task_system_contract: dict[str, Any] = field(default_factory=dict)
     operation_requirement: dict[str, Any] = field(default_factory=dict)
     flow: dict[str, Any] = field(default_factory=dict)
     binding: dict[str, Any] = field(default_factory=dict)
@@ -64,11 +64,11 @@ def build_health_agent_execution_plan(
         workflow_id="",
         runtime_lane="",
         resource_policy_ref="",
-        task_contract_ref="",
+        task_system_contract_ref="",
         task_execution_assembly={},
         task_body_assembly={},
         agent_runtime_spec={},
-        task_contract={},
+        task_system_contract={},
         operation_requirement={},
         flow={},
         binding={},
@@ -107,6 +107,5 @@ def build_health_agent_run_preview(plan: HealthAgentExecutionPlan, *, issue: Hea
             "plan_authority": plan.authority,
         },
     }
-
 
 

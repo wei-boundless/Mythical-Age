@@ -5,11 +5,11 @@ import React, { useMemo, useState } from "react";
 
 import type { PublicTodoItem } from "@/lib/api";
 import type { ProjectionRenderBlock, TodoPlanProjectionBlock } from "@/lib/projection/chronological";
-import type { Message } from "@/lib/store/types";
+import type { ProjectedMessage } from "@/components/chat/projectedMessages";
 
 type SessionTodoPanelProps = {
   active?: boolean;
-  messages: Message[];
+  messages: ProjectedMessage[];
 };
 
 type TodoStatusTone = "active" | "blocked" | "done" | "pending";
@@ -115,7 +115,7 @@ function TodoPanelItem({
   );
 }
 
-function latestTodoSnapshotFromMessages(messages: Message[]): TodoPanelSnapshot {
+function latestTodoSnapshotFromMessages(messages: ProjectedMessage[]): TodoPanelSnapshot {
   const block = latestTodoPlanFromMessages(messages);
   const items: PublicTodoItem[] = (block?.items ?? []).filter((item: PublicTodoItem) => cleanText(item.content));
   const completed = items.filter((item) => normalizedTodoStatus(item) === "completed").length;
@@ -136,7 +136,7 @@ function latestTodoSnapshotFromMessages(messages: Message[]): TodoPanelSnapshot 
   };
 }
 
-function latestTodoPlanFromMessages(messages: Message[]): TodoPlanProjectionBlock | null {
+function latestTodoPlanFromMessages(messages: ProjectedMessage[]): TodoPlanProjectionBlock | null {
   let latestBlock: TodoPlanProjectionBlock | null = null;
   let latestMessageIndex = -1;
   messages.forEach((message, messageIndex) => {

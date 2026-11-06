@@ -51,32 +51,14 @@ export function RunMonitorPanel({ embedded = false }: { embedded?: boolean } = {
       });
       if (!approved) return;
     }
-    if (action === "stop_task") {
-      const approved = await confirm({
-        title: "停止当前运行",
-        body: "停止请求会让当前任务在运行边界结束，不会清除已经产生的记录。",
-        confirmLabel: "停止",
-        tone: "warning",
-      });
-      if (!approved) return;
-    }
-    if (action === "close_runtime") {
-      const approved = await confirm({
-        title: "关闭运行",
-        body: "关闭会终止该任务或图任务的运行状态，并保留记录供健康系统追踪和清理。",
-        confirmLabel: "关闭运行",
-        tone: "warning",
-      });
-      if (!approved) return;
-    }
     await runMonitorAction(payload);
   }
 
   function openSignalLog(signal: RunMonitorSignal) {
-    const runId = String(signal.task_run_id || "").trim();
+    const runId = signalLogRunId(signal);
     if (!runId) return;
     openRuntimeLog({
-      scope: "task_run",
+      scope: signalLogScope(signal),
       run_id: runId,
       title: signal.title || "TaskRun",
       subtitle: signal.line || runId,
@@ -123,4 +105,17 @@ export function RunMonitorPanel({ embedded = false }: { embedded?: boolean } = {
       </div>
     </section>
   );
+}
+
+function signalLogScope(signal: RunMonitorSignal) {
+  const kind = String(signal.detail_ref?.kind || signal.source_kind || "").trim();
+  return kind === "turn_run" ? "turn_run" : "task_run";
+}
+
+function signalLogRunId(signal: RunMonitorSignal) {
+  const kind = signalLogScope(signal);
+  if (kind === "turn_run") {
+    return String(signal.detail_ref?.turn_run_id || signal.turn_run_id || "").trim();
+  }
+  return String(signal.task_run_id || signal.detail_ref?.task_run_id || "").trim();
 }

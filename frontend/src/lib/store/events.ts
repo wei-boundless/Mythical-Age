@@ -13,7 +13,7 @@ import {
   projectionFrameFromRecord,
 } from "@/lib/projection/reducer";
 
-import type { AssistantTextSegmentState, AssistantTextStreamState, ChatStreamConnectionStatus, Message, StoreState } from "./types";
+import type { ChatStreamConnectionStatus, Message, StoreState } from "./types";
 import {
   makeId
 } from "./utils";
@@ -95,10 +95,6 @@ function isProjectionOwnedHarnessTurnEvent(event: string) {
     || normalized.startsWith("tool_");
 }
 
-function rawStringValue(value: unknown) {
-  return typeof value === "string" ? value : "";
-}
-
 function stringArrayValue(value: unknown) {
   if (!Array.isArray(value)) return undefined;
   const values = value.map((item) => String(item ?? "").trim()).filter(Boolean);
@@ -117,412 +113,6 @@ function answerMetadataFromEvent(data: Record<string, unknown>): Partial<Message
     answerSelectedSource: stringValue(data.answer_selected_source) || undefined,
     answerLeakFlags: stringArrayValue(data.answer_leak_flags),
   };
-}
-
-function assistantBodySegmentId(
-  data: Record<string, unknown>,
-  current?: AssistantTextStreamState,
-  segments?: Record<string, AssistantTextSegmentState>,
-) {
-  const explicit = stringValue(data.body_segment_id)
-    || stringValue(data.segment_id)
-    || stringValue(data.stream_ref)
-    || stringValue(data.message_ref);
-  if (explicit) {
-    return explicit;
-  }
-  const segmentIds = Object.keys(segments ?? assistantTextSegments(current));
-  return segmentIds.length === 1 ? segmentIds[0] : "assistant-body";
-}
-
-function assistantBodySegmentRole(data: Record<string, unknown>) {
-  return stringValue(data.segment_role)
-    || stringValue(data.answer_channel)
-    || "conversation";
-}
-
-function assistantBodySequence(
-  current: AssistantTextStreamState | undefined,
-  segmentId: string,
-  data: Record<string, unknown>,
-) {
-  const explicit = numberValue(data.body_sequence);
-  if (explicit > 0) {
-    return explicit;
-  }
-  const existing = current?.segmentsById?.[segmentId]?.bodySequence;
-  if (existing && existing > 0) {
-    return existing;
-  }
-  return (current?.orderedSegmentIds?.length ?? 0) + 1;
-}
-
-function hasExplicitAssistantBodySegmentId(data: Record<string, unknown>) {
-  return Boolean(stringValue(data.body_segment_id) || stringValue(data.segment_id));
-}
-
-function assistantProgressiveFinalSegmentId(
-  baseSegmentId: string,
-  current: AssistantTextStreamState | undefined,
-  segments: Record<string, AssistantTextSegmentState>,
-  data: Record<string, unknown>,
-) {
-  const ref = stringValue(data.stream_ref)
-    || stringValue(data.message_ref)
-    || baseSegmentId
-    || "assistant-body";
-  const sequence = numberValue(data.body_sequence) || numberValue(data.sequence) || (current?.orderedSegmentIds?.length ?? Object.keys(segments).length) + 1;
-  let candidate = `${ref}:final:${sequence}`;
-  let duplicate = 2;
-  while (segments[candidate]) {
-    candidate = `${ref}:final:${sequence}:${duplicate}`;
-    duplicate += 1;
-  }
-  return candidate;
-}
-
-function progressiveFinalSegmentContent(previousContent: string, incomingContent: string) {
-  if (!incomingContent) {
-    return "";
-  }
-  if (!previousContent || previousContent === incomingContent) {
-    return previousContent === incomingContent ? "" : incomingContent;
-  }
-  const previousTrimmedEnd = previousContent.trimEnd();
-  if (previousTrimmedEnd && incomingContent.trimEnd() === previousTrimmedEnd) {
-    return "";
-  }
-  if (incomingContent.startsWith(previousContent)) {
-    return trimLeadingSegmentBreak(incomingContent.slice(previousContent.length));
-  }
-  if (previousTrimmedEnd && incomingContent.startsWith(previousTrimmedEnd)) {
-    return trimLeadingSegmentBreak(incomingContent.slice(previousTrimmedEnd.length));
-  }
-  return incomingContent;
-}
-
-function trimLeadingSegmentBreak(value: string) {
-  return value.replace(/^(?:[ \t]*\r?\n){1,2}/, "").replace(/^[ \t]+/, "");
-}
-
-function assistantTextSegments(current: AssistantTextStreamState | undefined): Record<string, AssistantTextSegmentState> {
-  if (!current) {
-    return {};
-  }
-  if (current.segmentsById) {
-    return current.segmentsById;
-  }
-  if (!current.canonicalContent) {
-    return {};
-  }
-  const segmentId = current.streamRef || current.messageRef || "assistant-body";
-  return {
-    [segmentId]: {
-      segmentId,
-      messageRef: current.messageRef,
-      streamRef: current.streamRef,
-      bodySequence: 1,
-      segmentRole: "conversation",
-      latestSequence: current.latestSequence,
-      canonicalContent: current.canonicalContent,
-      canonicalContentSha256: current.canonicalContentSha256,
-      accumulatedUtf8Bytes: current.accumulatedUtf8Bytes,
-      finalReceived: current.finalReceived,
-      terminal: current.terminal,
-      repairState: current.repairState,
-      displayHintsBySequence: current.displayHintsBySequence,
-    },
-  };
-}
-
-function assistantTextOrderedSegmentIds(
-  current: AssistantTextStreamState | undefined,
-  segments: Record<string, AssistantTextSegmentState>,
-) {
-  const ordered = (current?.orderedSegmentIds ?? []).filter((id) => Boolean(segments[id]));
-  for (const segmentId of Object.keys(segments)) {
-    if (!ordered.includes(segmentId)) {
-      ordered.push(segmentId);
-    }
-  }
-  return ordered.sort((left, right) => {
-    const leftSequence = segments[left]?.bodySequence ?? 0;
-    const rightSequence = segments[right]?.bodySequence ?? 0;
-    if (leftSequence !== rightSequence) {
-      return leftSequence - rightSequence;
-    }
-    return ordered.indexOf(left) - ordered.indexOf(right);
-  });
-}
-
-function composeAssistantBodyContent(
-  orderedSegmentIds: string[],
-  segments: Record<string, AssistantTextSegmentState>,
-) {
-  return orderedSegmentIds
-    .map((segmentId) => segments[segmentId]?.canonicalContent ?? "")
-    .filter((content) => content.length > 0)
-    .join("\n\n");
-}
-
-function assistantStreamRepairState(segments: Record<string, AssistantTextSegmentState>) {
-  const states = Object.values(segments).map((segment) => segment.repairState);
-  if (states.includes("pending")) return "pending";
-  if (states.includes("failed")) return "failed";
-  if (states.includes("applied")) return "applied";
-  return "none";
-}
-
-function assistantTextStreamStateFromSegments(
-  current: AssistantTextStreamState | undefined,
-  assistantId: string,
-  segments: Record<string, AssistantTextSegmentState>,
-) {
-  const orderedSegmentIds = assistantTextOrderedSegmentIds(current, segments);
-  const canonicalContent = composeAssistantBodyContent(orderedSegmentIds, segments);
-  const lastSegment = segments[orderedSegmentIds[orderedSegmentIds.length - 1]];
-  const allSegments = Object.values(segments);
-  const finalReceived = allSegments.some((segment) => segment.finalReceived);
-  return {
-    messageId: assistantId,
-    messageRef: lastSegment?.messageRef || current?.messageRef || "",
-    streamRef: lastSegment?.streamRef || current?.streamRef || "",
-    latestSequence: Math.max(0, ...allSegments.map((segment) => segment.latestSequence)),
-    canonicalContent,
-    canonicalContentSha256: lastSegment?.canonicalContentSha256 || current?.canonicalContentSha256 || "",
-    accumulatedUtf8Bytes: utf8ByteLength(canonicalContent),
-    finalReceived,
-    terminal: finalReceived && allSegments.every((segment) => segment.finalReceived),
-    repairState: assistantStreamRepairState(segments),
-    displayHintsBySequence: current?.displayHintsBySequence ?? {},
-    orderedSegmentIds,
-    segmentsById: segments,
-  } satisfies AssistantTextStreamState;
-}
-
-function applyAssistantTextStreamState(
-  state: StoreState,
-  assistantId: string,
-  streamState: AssistantTextStreamState,
-  options: { patchContent?: boolean; metadata?: Partial<Message> } = {},
-) {
-  const withStream = {
-    ...state,
-    assistantTextStreamsByMessageId: {
-      ...state.assistantTextStreamsByMessageId,
-      [assistantId]: streamState,
-    },
-  };
-  if (options.patchContent === false) {
-    return withStream;
-  }
-  return patchAssistant(withStream, assistantId, (message) => ({
-    ...message,
-    ...(options.metadata ?? {}),
-    content: streamState.canonicalContent,
-  }));
-}
-
-function mergeAssistantTextDeltaEvent(
-  state: StoreState,
-  assistantId: string,
-  data: Record<string, unknown>,
-): StoreState {
-  const content = rawStringValue(data.content);
-  const sequence = numberValue(data.sequence);
-  if (content.length === 0 || sequence <= 0) {
-    return state;
-  }
-  const current = state.assistantTextStreamsByMessageId[assistantId];
-  const segments = assistantTextSegments(current);
-  const segmentId = assistantBodySegmentId(data, current, segments);
-  const currentSegment = segments[segmentId];
-  if (currentSegment && sequence <= currentSegment.latestSequence) {
-    return state;
-  }
-  if (!currentSegment && sequence !== 1) {
-    const pendingSegment: AssistantTextSegmentState = {
-      segmentId,
-      messageRef: stringValue(data.message_ref) || current?.messageRef || "",
-      streamRef: stringValue(data.stream_ref) || current?.streamRef || "",
-      bodySequence: assistantBodySequence(current, segmentId, data),
-      segmentRole: assistantBodySegmentRole(data),
-      latestSequence: 0,
-      canonicalContent: "",
-      canonicalContentSha256: "",
-      accumulatedUtf8Bytes: 0,
-      finalReceived: false,
-      terminal: false,
-      repairState: "pending",
-      displayHintsBySequence: {},
-    };
-    const streamState = assistantTextStreamStateFromSegments(
-      current,
-      assistantId,
-      { ...segments, [segmentId]: pendingSegment },
-    );
-    return applyAssistantTextStreamState(state, assistantId, streamState, { patchContent: false });
-  }
-  if (currentSegment && sequence !== currentSegment.latestSequence + 1) {
-    const streamState = assistantTextStreamStateFromSegments(
-      current,
-      assistantId,
-      {
-        ...segments,
-        [segmentId]: {
-          ...currentSegment,
-          repairState: "pending",
-        },
-      },
-    );
-    return applyAssistantTextStreamState(state, assistantId, streamState, { patchContent: false });
-  }
-  const previousContent = currentSegment?.canonicalContent ?? "";
-  const expectedStart = optionalNumberValue(data.content_utf8_start);
-  const canonicalContent = `${previousContent}${content}`;
-  const previousUtf8Bytes = utf8ByteLength(previousContent);
-  const contentUtf8Bytes = utf8ByteLength(content);
-  const canonicalUtf8Bytes = previousUtf8Bytes + contentUtf8Bytes;
-  const reportedEnd = optionalNumberValue(data.content_utf8_end);
-  const reportedContentBytes = optionalNumberValue(data.content_utf8_bytes);
-  const reportedAccumulatedBytes = optionalNumberValue(data.accumulated_utf8_bytes);
-  const hasOffsetMismatch =
-    (expectedStart !== null && expectedStart !== previousUtf8Bytes)
-    || (reportedEnd !== null && reportedEnd !== canonicalUtf8Bytes)
-    || (reportedContentBytes !== null && reportedContentBytes !== contentUtf8Bytes)
-    || (reportedAccumulatedBytes !== null && reportedAccumulatedBytes !== canonicalUtf8Bytes);
-  const repairState = hasOffsetMismatch ? "pending" : currentSegment?.repairState ?? "none";
-  const segmentState: AssistantTextSegmentState = {
-    segmentId,
-    messageRef: stringValue(data.message_ref) || currentSegment?.messageRef || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || currentSegment?.streamRef || current?.streamRef || "",
-    bodySequence: assistantBodySequence(current, segmentId, data),
-    segmentRole: assistantBodySegmentRole(data),
-    latestSequence: sequence,
-    canonicalContent,
-    canonicalContentSha256: stringValue(data.accumulated_sha256) || currentSegment?.canonicalContentSha256 || "",
-    accumulatedUtf8Bytes: hasOffsetMismatch ? canonicalUtf8Bytes : reportedAccumulatedBytes ?? canonicalUtf8Bytes,
-    finalReceived: false,
-    terminal: false,
-    repairState,
-    displayHintsBySequence: {
-      ...(currentSegment?.displayHintsBySequence ?? {}),
-      [sequence]: recordValue(data.display_hint),
-    },
-  };
-  const streamState = assistantTextStreamStateFromSegments(
-    current,
-    assistantId,
-    { ...segments, [segmentId]: segmentState },
-  );
-  return applyAssistantTextStreamState(state, assistantId, streamState, {
-    patchContent: state.chatStreamDisplayEnabled,
-  });
-}
-
-function mergeAssistantTextFinalEvent(
-  state: StoreState,
-  assistantId: string,
-  data: Record<string, unknown>,
-): StoreState {
-  const content = rawStringValue(data.content);
-  const sequence = numberValue(data.sequence);
-  const current = state.assistantTextStreamsByMessageId[assistantId];
-  const segments = assistantTextSegments(current);
-  const initialSegmentId = assistantBodySegmentId(data, current, segments);
-  const currentSegment = segments[initialSegmentId];
-  const shouldAppendProgressiveFinal = Boolean(
-    currentSegment?.finalReceived
-    && !hasExplicitAssistantBodySegmentId(data),
-  );
-  const progressiveContent = shouldAppendProgressiveFinal
-    ? progressiveFinalSegmentContent(currentSegment?.canonicalContent ?? "", content)
-    : content;
-  if (shouldAppendProgressiveFinal && !progressiveContent) {
-    return state;
-  }
-  const segmentId = shouldAppendProgressiveFinal
-    ? assistantProgressiveFinalSegmentId(initialSegmentId, current, segments, data)
-    : initialSegmentId;
-  const targetSegment = shouldAppendProgressiveFinal ? segments[segmentId] : currentSegment;
-  const sourceSegment = targetSegment ?? currentSegment;
-  const usesIncomingWholeContent = progressiveContent === content;
-  const segmentState: AssistantTextSegmentState = {
-    segmentId,
-    messageRef: stringValue(data.message_ref) || sourceSegment?.messageRef || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || sourceSegment?.streamRef || current?.streamRef || "",
-    bodySequence: assistantBodySequence(current, segmentId, data),
-    segmentRole: assistantBodySegmentRole(data),
-    latestSequence: Math.max(sequence, targetSegment?.latestSequence ?? 0),
-    canonicalContent: progressiveContent,
-    canonicalContentSha256: usesIncomingWholeContent ? stringValue(data.content_sha256) || targetSegment?.canonicalContentSha256 || "" : "",
-    accumulatedUtf8Bytes: usesIncomingWholeContent ? optionalNumberValue(data.content_utf8_bytes) ?? utf8ByteLength(progressiveContent) : utf8ByteLength(progressiveContent),
-    finalReceived: true,
-    terminal: true,
-    repairState: targetSegment?.repairState === "pending" ? "applied" : targetSegment?.repairState ?? "none",
-    displayHintsBySequence: targetSegment?.displayHintsBySequence ?? {},
-  };
-  const streamState = assistantTextStreamStateFromSegments(
-    current,
-    assistantId,
-    { ...segments, [segmentId]: segmentState },
-  );
-  return applyAssistantTextStreamState(state, assistantId, streamState, {
-    metadata: answerMetadataFromEvent(data),
-  });
-}
-
-function mergeAssistantStreamRepairEvent(
-  state: StoreState,
-  assistantId: string,
-  data: Record<string, unknown>,
-): StoreState {
-  const replacement = rawStringValue(data.replacement_content);
-  if (replacement.length === 0) {
-    return state;
-  }
-  const current = state.assistantTextStreamsByMessageId[assistantId];
-  const segments = assistantTextSegments(current);
-  const segmentId = assistantBodySegmentId(data, current, segments);
-  const currentSegment = segments[segmentId];
-  const repairSequence = numberValue(data.repair_sequence);
-  const segmentState: AssistantTextSegmentState = {
-    segmentId,
-    messageRef: stringValue(data.message_ref) || currentSegment?.messageRef || current?.messageRef || "",
-    streamRef: stringValue(data.stream_ref) || currentSegment?.streamRef || current?.streamRef || "",
-    bodySequence: assistantBodySequence(current, segmentId, data),
-    segmentRole: assistantBodySegmentRole(data),
-    latestSequence: Math.max(repairSequence, currentSegment?.latestSequence ?? 0),
-    canonicalContent: replacement,
-    canonicalContentSha256: stringValue(data.replacement_content_sha256) || currentSegment?.canonicalContentSha256 || "",
-    accumulatedUtf8Bytes: utf8ByteLength(replacement),
-    finalReceived: currentSegment?.finalReceived ?? false,
-    terminal: currentSegment?.terminal ?? false,
-    repairState: "applied",
-    displayHintsBySequence: currentSegment?.displayHintsBySequence ?? {},
-  };
-  const streamState = assistantTextStreamStateFromSegments(
-    current,
-    assistantId,
-    { ...segments, [segmentId]: segmentState },
-  );
-  return applyAssistantTextStreamState(state, assistantId, streamState, {
-    patchContent: state.chatStreamDisplayEnabled || streamState.finalReceived,
-  });
-}
-
-function numberValue(value: unknown) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function optionalNumberValue(value: unknown) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function utf8ByteLength(value: string) {
-  return new TextEncoder().encode(String(value || "")).length;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -562,7 +152,7 @@ function bindStreamSessionAnchor(
   bind("boundTurnId", stringValue(data.turn_id));
   bind("boundStreamRunId", stringValue(data.stream_run_id) || stringValue(data.streamRunId));
   bind("boundRunId", stringValue(data.runtime_run_id) || stringValue(data.run_id));
-  bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id) || stringValue(data.bound_task_run_id));
+  bind("boundTaskRunId", stringValue(data.runtime_task_run_id) || stringValue(data.task_run_id));
   bind("boundTurnRunId", stringValue(data.turn_run_id));
   return next;
 }
@@ -602,8 +192,16 @@ const ACTIVE_TASK_GATE_RELEASE_STATES = new Set([
   "stopped",
   "stop_requested",
   "aborted",
+  "interrupted",
   "cancelled",
   "canceled",
+]);
+
+const TURN_COMPLETED_GATE_RELEASE_STATES = new Set([
+  ...ACTIVE_TASK_GATE_RELEASE_STATES,
+  "failed",
+  "error",
+  "blocked",
 ]);
 
 const ACTIVE_TASK_GATE_RELEASE_REASONS = new Set([
@@ -612,6 +210,8 @@ const ACTIVE_TASK_GATE_RELEASE_REASONS = new Set([
   "user_stopped",
   "stopped",
   "aborted",
+  "interrupted",
+  "runtime_interruption_closed",
   "cancelled",
   "canceled",
 ]);
@@ -638,9 +238,6 @@ function streamEventReleasesActiveTaskTurnGate(
   const status = stringValue(data.status).toLowerCase();
   const state = stringValue(data.state).toLowerCase();
   const phase = stringValue(data.phase).toLowerCase();
-  if (terminalReason === "task_executor_scheduled" || completionState === "task_executor_scheduled") {
-    return false;
-  }
   if (
     ACTIVE_TASK_GATE_RELEASE_REASONS.has(terminalReason)
     || ACTIVE_TASK_GATE_RELEASE_REASONS.has(completionState)
@@ -653,7 +250,7 @@ function streamEventReleasesActiveTaskTurnGate(
   if (eventName === "stopped") {
     return true;
   }
-  if (eventName === TURN_COMPLETED_EVENT && ACTIVE_TASK_GATE_RELEASE_STATES.has(status)) {
+  if (eventName === TURN_COMPLETED_EVENT && TURN_COMPLETED_GATE_RELEASE_STATES.has(status)) {
     return true;
   }
   if (eventName === "runtime_status" && phase === "work_control" && ACTIVE_TASK_GATE_RELEASE_STATES.has(state)) {
@@ -665,14 +262,15 @@ function streamEventReleasesActiveTaskTurnGate(
 function releaseActiveTaskTurnGate(
   state: StoreState,
   turnId: string,
+  streamRunId: string,
   taskRunId: string,
 ) {
   const snapshot = state.activeTurnSnapshot;
   const snapshotTurnId = stringValue(snapshot?.turn_id);
-  const snapshotTaskRunId = stringValue(snapshot?.task_run_id);
+  const snapshotStreamRunId = stringValue(snapshot?.stream_run_id);
   const snapshotMatches = Boolean(snapshot) && (
     Boolean(turnId && snapshotTurnId === turnId)
-    || Boolean(taskRunId && snapshotTaskRunId === taskRunId)
+    || Boolean(streamRunId && snapshotStreamRunId === streamRunId)
   );
   const monitorTaskRunId = taskGraphLiveMonitorTaskRunId(state.taskGraphLiveMonitor);
   const monitorMatches = Boolean(taskRunId && monitorTaskRunId === taskRunId);
@@ -700,33 +298,34 @@ function patchActiveTaskTurnGate(
     || stringValue(originBinding.active_turn_id)
     || stringValue(originBinding.turn_id)
     || stringValue(activeTurn.turn_id);
+  const streamRunId = stringValue(session.boundStreamRunId)
+    || stringValue(data.stream_run_id)
+    || stringValue(data.streamRunId)
+    || stringValue(activeTurn.stream_run_id);
   const taskRunId = stringValue(session.boundTaskRunId)
     || stringValue(data.runtime_task_run_id)
     || stringValue(data.task_run_id)
     || stringValue(originBinding.task_run_id)
-    || stringValue(activeTurn.bound_task_run_id);
+    || stringValue(activeTurn.task_run_id);
   const currentTaskRunId = stringValue(state.activeTurnSnapshot?.task_run_id);
-  if (!turnId && !taskRunId) {
+  if (!turnId && !streamRunId) {
     return state;
   }
   if (streamEventReleasesActiveTaskTurnGate(event, data)) {
-    return releaseActiveTaskTurnGate(state, turnId, taskRunId);
+    return releaseActiveTaskTurnGate(state, turnId, streamRunId, taskRunId);
   }
   const effectiveTaskRunId = taskRunId || currentTaskRunId;
-  if (!effectiveTaskRunId) {
-    return state;
-  }
   const terminalReason = stringValue(data.terminal_reason);
   const nextState = stringValue(data.active_turn_state)
     || stringValue(activeTurn.state)
-    || (terminalReason === "task_executor_scheduled" ? "waiting_executor" : "")
     || state.activeTurnSnapshot?.state
     || "running_task";
   return {
     ...state,
     activeTurnSnapshot: {
       turn_id: turnId || state.activeTurnSnapshot?.turn_id || "",
-      task_run_id: effectiveTaskRunId,
+      stream_run_id: streamRunId || state.activeTurnSnapshot?.stream_run_id,
+      task_run_id: effectiveTaskRunId || undefined,
       state: nextState as NonNullable<StoreState["activeTurnSnapshot"]>["state"],
       turn_run_id: stringValue(session.boundTurnRunId)
         || stringValue(originBinding.turn_run_id)
@@ -764,9 +363,6 @@ function isRawToolOutputText(value: string) {
 function stageStatusForRuntimeEvent(eventType: string) {
   if (!eventType) {
     return "";
-  }
-  if (eventType === "task_contract_built") {
-    return "理解任务";
   }
   if (eventType === "memory_runtime_view_built") {
     return "读取记忆";
@@ -871,7 +467,7 @@ function eventNodeId(event: string) {
   if (event === TOOL_ITEM_STARTED_EVENT || event === TOOL_ITEM_COMPLETED_EVENT || event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "stream_recovery" || event === "debug") {
+  if (event === "token" || event === "assistant_text_delta" || event === "assistant_text_final" || event === "assistant_stream_repair" || event === "stream_recovery" || event === "stream_recoverable_interruption" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error" || event === TURN_COMPLETED_EVENT) {
@@ -973,6 +569,7 @@ function publicStreamEventLabel(event: string) {
     prompt_manifest: "上下文已整理",
     retrieval: "检索证据",
     stream_recovery: "正在恢复输出",
+    stream_recoverable_interruption: "连接恢复后待续跑",
     worker_end: "子任务已完成",
     worker_start: "子任务已开始",
   };
@@ -997,7 +594,6 @@ function runtimeControlWarningLabel(warning: string) {
 
 function runtimeEventToUiEvent(eventType: string) {
   if (eventType === "loop_terminal") return TURN_COMPLETED_EVENT;
-  if (eventType === "task_contract_built") return "harness_plan";
   if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") return "harness_loop_event";
   if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") return "context_management";
   if (eventType === "memory_runtime_view_built") return "memory_context";
@@ -1426,6 +1022,14 @@ function chatStreamConnectionStatusFromEvent(
   if (event === "stopped") {
     return { state: "stopped", reason: stringValue(data.reason), updatedAt };
   }
+  if (event === "stream_recoverable_interruption") {
+    return {
+      state: "paused",
+      reason: "runtime_restart_waiting_resume",
+      lastEventOffset: finiteNumber(data.event_offset),
+      updatedAt,
+    };
+  }
   if (event === "done" || event === TURN_COMPLETED_EVENT) {
     return { state: "idle", updatedAt };
   }
@@ -1460,4 +1064,3 @@ function finiteNumber(value: unknown) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
-

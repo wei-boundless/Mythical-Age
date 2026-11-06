@@ -4,6 +4,10 @@ from .models import (
     CodebaseSearchConfig,
     CodebaseSearchPlan,
     CodebaseSearchResult,
+    SearchCandidate,
+    SearchFeedback,
+    SearchLifecycleRecord,
+    SearchResultEnvelope,
     normalize_codebase_search_config,
     required_operations_for_codebase_search,
 )
@@ -16,6 +20,10 @@ __all__ = [
     "CodebaseSearchPlan",
     "CodebaseSearchResult",
     "CodebaseSearchCapability",
+    "SearchCandidate",
+    "SearchFeedback",
+    "SearchLifecycleRecord",
+    "SearchResultEnvelope",
     "normalize_codebase_search_config",
     "required_operations_for_codebase_search",
 ]

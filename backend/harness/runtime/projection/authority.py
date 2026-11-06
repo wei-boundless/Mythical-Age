@@ -117,6 +117,10 @@ def build_public_projection_frame(
     }
     for key in (
         "source_item_id",
+        "body_ref",
+        "message_ref",
+        "content_sha256",
+        "content_utf8_bytes",
         "tool_call_id",
         "permission_decision_id",
         "parent_tool_call_id",
@@ -140,10 +144,12 @@ def build_public_projection_frame(
         "arguments_preview",
         "target",
         "collapsed",
+        "duration_ms",
         "plan_id",
         "active_item_id",
         "completion_ready",
         "todo_items",
+        "content_window",
     ):
         value = frame_spec.get(key)
         if value not in ("", None, [], {}):
@@ -152,6 +158,9 @@ def build_public_projection_frame(
         value = frame_spec.get(key)
         if isinstance(value, list) and value:
             frame[key] = value
+    if slot == "body":
+        frame["body_ref"] = text(frame.get("body_ref") or frame.get("item_id") or frame_id)
+        frame["message_ref"] = text(frame.get("message_ref") or anchor.get("message_id"))
     commit = record(frame_spec.get("commit"))
     if commit:
         frame["commit"] = commit

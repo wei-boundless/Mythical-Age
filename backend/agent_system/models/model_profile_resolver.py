@@ -19,6 +19,9 @@ def build_provider_catalog(settings_service: AppSettingsService | None = None) -
     providers: dict[str, Any] = {}
     for provider, defaults in LLM_PROVIDER_DEFAULTS.items():
         credential_configured = _provider_credential_configured(provider, settings=settings)
+        model_presets = [str(item or "").strip() for item in (defaults.get("model_presets") or []) if str(item or "").strip()]
+        if provider == active_provider and active_model and active_model not in model_presets:
+            model_presets.insert(0, active_model)
         providers[provider] = {
             "provider": provider,
             "display_name": str(defaults.get("display_name") or provider),
@@ -29,7 +32,7 @@ def build_provider_catalog(settings_service: AppSettingsService | None = None) -
             "fallback_credential_ref": f"provider:{provider}:fallback",
             "credential_configured": credential_configured,
             "credential_envs": list(defaults.get("credential_envs") or []),
-            "model_presets": list(defaults.get("model_presets") or [str(defaults.get("model") or "")]),
+            "model_presets": model_presets or [str(defaults.get("model") or "")],
             "capability_tags": list(defaults.get("capability_tags") or []),
             "recommended": bool(defaults.get("recommended", False)),
             "active": provider == active_provider,

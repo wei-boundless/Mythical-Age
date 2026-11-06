@@ -11,17 +11,14 @@ import {
   enqueueQueuedChatInput,
   getChatRun,
   getLatestChatRunForSession,
+  getLatestSessionContinuation,
   getModelProviderConfig,
   getImageAssetConfig,
   getTaskEnvironmentCatalog,
   getWorkspaceContext,
   getHarnessSessionLiveMonitor,
-  approveHarnessTaskRunLaunch,
-  approveHarnessTaskRunToolCall,
-  pauseHarnessTaskRun,
   pauseGraphRun,
   getPermissionMode,
-  resumeHarnessTaskRun,
   resumeGraphRun,
   setPermissionMode as setRuntimePermissionMode,
   setSessionActiveTaskEnvironment,
@@ -49,7 +46,7 @@ import {
   createProjectWorkspaceSession,
   selectManagedFileForOpen,
   selectProjectWorkspaceDirectory,
-  stopHarnessTaskRun,
+  stopGraphRun,
   clearChatStreamCursor,
   clearWorkbenchCurrentSession,
   readChatStreamCursor,
@@ -128,12 +125,18 @@ type PendingChatStreamInterruption = {
   expectedTurnId: string;
 };
 
+type PendingResumeBoundary = {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
+
 const MANAGED_PROJECT_PROFILE_ID = "file_profile.managed_project_workspace";
 const MANAGED_PROJECT_REPOSITORY_ID = "repo.managed_project.project_workspace";
 
 const LEGACY_INTERNAL_INSPECTOR_PREFIXES = [
   "durable_memory/",
-  "session-memory/",
+  "conversation-continuity/",
   "sessions/",
   "knowledge/",
   "capability_system/skills/builtin/",
@@ -156,6 +159,8 @@ type PendingVisibleStreamFlush = {
 
 const DEFAULT_SESSION_TITLE = "New Session";
 const VISIBLE_STREAM_FLUSH_FRAME_FALLBACK_MS = 16;
+const VISIBLE_STREAM_INTERRUPT_SIGNAL_KEY_PREFIX = "agentWorkbench.visibleStreamInterrupt.";
+const VISIBLE_STREAM_INTERRUPT_SIGNAL_SCHEMA = 1;
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
@@ -165,6 +170,7 @@ export class WorkspaceRuntime {
   private sessionRuntimeProjectionTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTokenStatsTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionHistoryInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getSessionHistory>>>>();
+  private chatWorkspaceHydratePromise: Promise<void> | null = null;
   private harnessTurnHydrateRequest = 0;
   private workspaceTreeRequest = 0;
   private workspaceTreeInFlightKey = "";
@@ -175,9 +181,11 @@ export class WorkspaceRuntime {
   private tokenStatsRefreshInFlight = false;
   private lastMonitorTokenStatsRefreshAt = 0;
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">>();
+  private visibleRuntimeProjectionCache = new Map<string, Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">>();
   private activeChatStreamBindings = new Map<string, ActiveChatStreamBinding>();
   private chatStreamEpochBySession = new Map<string, number>();
   private pendingChatStreamInterruptions = new Map<string, PendingChatStreamInterruption>();
+  private pendingResumeBoundaries = new Map<string, PendingResumeBoundary>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
@@ -271,15 +279,6 @@ export class WorkspaceRuntime {
       stopCurrentStream: () => {
         this.stopCurrentStream();
       },
-      pauseActiveTaskRun: async () => {
-        await this.pauseActiveTaskRun();
-      },
-      resumeActiveTaskRun: async () => {
-        await this.resumeActiveTaskRun();
-      },
-      stopActiveTaskRun: async () => {
-        await this.stopActiveTaskRun();
-      },
       resendEditedMessage: async (messageId, value) => {
         await this.resendEditedMessage(messageId, value);
       },
@@ -288,6 +287,9 @@ export class WorkspaceRuntime {
       },
       setSelectedChatModel: (selectionId) => {
         this.setSelectedChatModel(selectionId);
+      },
+      refreshModelProviderConfig: async () => {
+        await this.refreshModelProviderConfig();
       },
       setSelectedChatMode: (mode) => {
         this.setSelectedChatMode(mode);
@@ -437,25 +439,13 @@ export class WorkspaceRuntime {
       ...prev,
       workspaceInitializing: true,
     }));
+    const initialWorkspaceView = this.store.getState().activeWorkspaceView;
     try {
       void this.refreshTaskEnvironmentCatalog().catch(() => undefined);
-      let restoredCurrentSession = false;
-      let preferLatestVisibleSession = false;
-      const persistedSessionRef = await this.readPersistedCurrentSessionRef();
-      const rememberedSessionRef = readRememberedSessionRef();
-      const restoreCandidates = this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
-      for (const candidate of restoreCandidates) {
-        const restored = await this.restoreRememberedSessionOnStartup(candidate);
-        restoredCurrentSession = restored === "restored";
-        if (restored === "non_main") {
-          preferLatestVisibleSession = true;
-        }
-        if (restoredCurrentSession) {
-          break;
-        }
-      }
-      if (!restoredCurrentSession) {
-        await this.initializeFromSessionList(undefined, { preferLatestVisibleSession });
+      if (initialWorkspaceView === "chat") {
+        await this.hydrateChatWorkspaceIfNeeded();
+      } else {
+        await this.initializeSystemWorkspaceShell();
       }
     } catch (error) {
       this.store.setState((prev) => ({
@@ -480,8 +470,83 @@ export class WorkspaceRuntime {
     }
 
     void this.loadWorkspaceMetadata().catch(() => undefined);
-    void this.refreshWorkspaceTree().catch(() => undefined);
-    void this.loadInspectorMemoryFile().catch(() => undefined);
+  }
+
+  private async initializeChatWorkspace() {
+    let restoredCurrentSession = false;
+    let preferLatestVisibleSession = false;
+    const persistedSessionRef = await this.readPersistedCurrentSessionRef();
+    const rememberedSessionRef = readRememberedSessionRef();
+    const restoreCandidates = rememberedSessionRef?.updatedAt
+      ? this.startupSessionRestoreCandidates(rememberedSessionRef, persistedSessionRef)
+      : this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
+    for (const candidate of restoreCandidates) {
+      const restored = await this.restoreRememberedSessionOnStartup(candidate);
+      restoredCurrentSession = restored === "restored";
+      if (restored === "non_main") {
+        preferLatestVisibleSession = true;
+      }
+      if (restoredCurrentSession) {
+        break;
+      }
+    }
+    if (!restoredCurrentSession) {
+      await this.initializeFromSessionList(undefined, { preferLatestVisibleSession });
+    }
+  }
+
+  private hydrateChatWorkspaceIfNeeded() {
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+    if (this.chatWorkspaceHydratePromise) {
+      return this.chatWorkspaceHydratePromise;
+    }
+    const run = (async () => {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceInitializing: true,
+      }));
+      await this.initializeChatWorkspace();
+      if (this.disposed) {
+        return;
+      }
+      this.startRunMonitor();
+      void this.refreshWorkspaceTree().catch(() => undefined);
+      void this.loadInspectorMemoryFile().catch(() => undefined);
+    })();
+    this.chatWorkspaceHydratePromise = run;
+    const clear = () => {
+      if (this.chatWorkspaceHydratePromise === run) {
+        this.chatWorkspaceHydratePromise = null;
+      }
+    };
+    run.then(clear, clear);
+    return run;
+  }
+
+  private requestChatWorkspaceHydrate() {
+    void this.hydrateChatWorkspaceIfNeeded().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
+  }
+
+  private async initializeSystemWorkspaceShell() {
+    const persistedSessionRef = await this.readPersistedCurrentSessionRef();
+    const rememberedSessionRef = readRememberedSessionRef();
+    const restoreCandidates = rememberedSessionRef?.updatedAt
+      ? this.startupSessionRestoreCandidates(rememberedSessionRef, persistedSessionRef)
+      : this.startupSessionRestoreCandidates(persistedSessionRef, rememberedSessionRef);
+    for (const candidate of restoreCandidates) {
+      const restored = await this.restoreRememberedSessionShellOnStartup(candidate);
+      if (restored === "restored" || restored === "non_main") {
+        break;
+      }
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceInitializing: false,
+    }));
   }
 
   private startupSessionRestoreCandidates(...refs: Array<SessionRef | null | undefined>) {
@@ -506,14 +571,7 @@ export class WorkspaceRuntime {
       seen.add(key);
       candidates.push(normalized);
     }
-    return candidates.sort((left, right) => {
-      const rightUpdatedAt = Number(right.updatedAt || 0);
-      const leftUpdatedAt = Number(left.updatedAt || 0);
-      if (rightUpdatedAt !== leftUpdatedAt) {
-        return rightUpdatedAt - leftUpdatedAt;
-      }
-      return 0;
-    });
+    return candidates;
   }
 
   private async readPersistedCurrentSessionRef() {
@@ -595,11 +653,15 @@ export class WorkspaceRuntime {
     }));
 
     const restoredFromStreamCache = this.applySelectedSessionShell(summary.id, restoredRef);
-    if (!restoredFromStreamCache) {
+    if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(summary.id);
+    } else {
       const reattached = await this.reattachChatRunForSession(summary.id);
       if (!reattached) {
         void this.refreshSessionDetails(summary.id).catch(() => undefined);
         void this.hydrateLatestHarnessTurnSnapshot(summary.id).catch(() => undefined);
+      } else {
+        this.refreshSessionDetailsAfterRuntimeRestore(summary.id);
       }
     }
     this.store.setState((prev) => ({
@@ -611,8 +673,62 @@ export class WorkspaceRuntime {
         this.noteSessionRefreshFailure(error);
       });
     } else {
-      this.refreshRestoredSessionIndexesInBackground(summary);
+    this.refreshRestoredSessionIndexesInBackground(summary);
     }
+    return "restored";
+  }
+
+  private async restoreRememberedSessionShellOnStartup(ref: SessionRef) {
+    const normalized = this.normalizeSessionRef(ref, this.store.getState());
+    if (!normalized.sessionId) {
+      clearRememberedSessionRef();
+      return false;
+    }
+
+    let summary: SessionSummary;
+    try {
+      summary = await getSessionSummary(normalized.sessionId, normalized.scope);
+    } catch (error) {
+      if (shouldClearRememberedSessionAfterError(error)) {
+        clearRememberedSessionRef(normalized.sessionId);
+        this.clearPersistedCurrentSessionRef(normalized.sessionId);
+        return "invalid";
+      }
+      return "failed";
+    }
+
+    const restoredPoolKey = normalized.poolKey ?? sessionPoolKeyForScope(summary.scope);
+    if (restoredPoolKey === MAIN_CHAT_POOL_KEY && !isVisibleMainChatSession(summary)) {
+      clearRememberedSessionRef(normalized.sessionId);
+      this.clearPersistedCurrentSessionRef(normalized.sessionId);
+      return "non_main";
+    }
+
+    const restoredScope = summary.scope ?? normalized.scope;
+    const restoredRef: SessionRef = {
+      sessionId: summary.id,
+      ...(restoredScope ? { scope: restoredScope } : {}),
+      poolKey: normalized.poolKey ?? sessionPoolKeyForScope(restoredScope),
+    };
+    this.store.setState((prev) => {
+      const sessions = mergeSessionSummaries(prev.sessions, [summary]);
+      const stateWithSummary = { ...prev, sessions };
+      const conversationActiveEnvironment = this.shouldUseConversationEnvironment(restoredRef)
+        ? this.activeEnvironmentForSession(summary) ?? prev.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
+        : prev.conversationActiveEnvironment;
+      const permissionMode = this.permissionModeForSession(summary.id, stateWithSummary, prev.permissionMode);
+      const selectedChatModelId = this.chatModelSelectionIdFromConversationState(summary.conversation_state, prev.selectedChatModelId);
+      return {
+        ...stateWithSummary,
+        currentSessionId: summary.id,
+        activeSessionScope: restoredScope ?? null,
+        activeSessionRef: restoredRef,
+        conversationActiveEnvironment,
+        permissionMode,
+        selectedChatModelId,
+        selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
+      };
+    });
     return "restored";
   }
 
@@ -626,15 +742,15 @@ export class WorkspaceRuntime {
     }
     this.store.setState((prev) => ({
       ...prev,
+      activeProjectKey: activeProject?.key || prev.activeProjectKey,
+      activeProjectRoot: activeProject?.workspace_root || prev.activeProjectRoot,
       projectWorkspaces: mergeProjectWorkspaces(prev.projectWorkspaces, projects),
     }));
     if (!activeProject) {
       return;
     }
-    await this.selectProjectWorkspace(activeProject.key, {
-      preferredSessionId: summary.id,
-      fallbackSession: summary,
-    });
+    await this.refreshProjectSessions(activeProject.key);
+    void this.refreshWorkspaceTree().catch(() => undefined);
   }
 
   private refreshRestoredSessionIndexesInBackground(restoredSession: SessionSummary) {
@@ -646,7 +762,7 @@ export class WorkspaceRuntime {
   private async refreshRestoredSessionIndexes(restoredSession: SessionSummary) {
     const [projectPayload, allSessions] = await Promise.all([
       listProjectWorkspaces(),
-      listSessions(),
+      listSessions(undefined, { mainChatOnly: true }),
     ]);
     const visibleRestored = isVisibleMainChatSession(restoredSession) ? [restoredSession] : [];
     const sessions = mergeSessionSummaries(visibleMainChatSessions(allSessions), visibleRestored);
@@ -696,7 +812,7 @@ export class WorkspaceRuntime {
   ) {
     const [projectPayload, allSessions] = await Promise.all([
       projectPayloadOverride ? Promise.resolve(projectPayloadOverride) : listProjectWorkspaces(),
-      listSessions(),
+      listSessions(undefined, { mainChatOnly: true }),
     ]);
     const sessions = visibleMainChatSessions(allSessions);
     const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
@@ -732,11 +848,15 @@ export class WorkspaceRuntime {
           scope: nextSession.scope,
           poolKey: MAIN_CHAT_POOL_KEY,
         });
-        if (!restoredFromStreamCache) {
+        if (restoredFromStreamCache) {
+          this.refreshSessionDetailsAfterRuntimeRestore(sessionId);
+        } else {
           const reattached = await this.reattachChatRunForSession(sessionId);
           if (!reattached) {
             void this.refreshSessionDetails(sessionId).catch(() => undefined);
             void this.hydrateLatestHarnessTurnSnapshot(sessionId).catch(() => undefined);
+          } else {
+            this.refreshSessionDetailsAfterRuntimeRestore(sessionId);
           }
         }
       }
@@ -745,11 +865,15 @@ export class WorkspaceRuntime {
         scope: currentSession.scope,
         poolKey: MAIN_CHAT_POOL_KEY,
       });
-      if (!restoredFromStreamCache) {
+      if (restoredFromStreamCache) {
+        this.refreshSessionDetailsAfterRuntimeRestore(currentSession.id);
+      } else {
         const reattached = await this.reattachChatRunForSession(currentSession.id);
         if (!reattached) {
           void this.refreshSessionDetails(currentSession.id).catch(() => undefined);
           void this.hydrateLatestHarnessTurnSnapshot(currentSession.id).catch(() => undefined);
+        } else {
+          this.refreshSessionDetailsAfterRuntimeRestore(currentSession.id);
         }
       }
     }
@@ -771,6 +895,7 @@ export class WorkspaceRuntime {
       const supportedPermissionModes = Array.isArray(permissionMode?.supported_modes) && permissionMode.supported_modes.length
         ? permissionMode.supported_modes.map(String)
         : prev.supportedPermissionModes;
+      const selectedChatModelId = this.normalizeChatModelSelectionForConfig(prev.selectedChatModelId, modelProviderConfig);
       return {
         ...prev,
         permissionMode: this.permissionModeForSession(
@@ -783,10 +908,36 @@ export class WorkspaceRuntime {
         imageAssetConfig,
         workspaceContext,
         skills,
-        selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
+        selectedChatModelId,
+        selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, modelProviderConfig),
         chatThinkingMode: chatThinkingModeFromProviderConfig(modelProviderConfig),
       };
     });
+  }
+
+  private async refreshModelProviderConfig() {
+    const modelProviderConfig = await getModelProviderConfig();
+    const state = this.store.getState();
+    const selectedChatModelId = this.normalizeChatModelSelectionForConfig(
+      state.selectedChatModelId,
+      modelProviderConfig,
+    );
+    const sessionId = state.currentSessionId || "";
+    this.store.setState((prev) => ({
+      ...prev,
+      modelProviderConfig,
+      selectedChatModelId,
+      selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, modelProviderConfig),
+      sessions: sessionId && selectedChatModelId !== prev.selectedChatModelId
+        ? this.sessionsWithChatModelSelection(prev.sessions, sessionId, selectedChatModelId)
+        : prev.sessions,
+      projectSessions: sessionId && selectedChatModelId !== prev.selectedChatModelId
+        ? this.sessionsWithChatModelSelection(prev.projectSessions, sessionId, selectedChatModelId)
+        : prev.projectSessions,
+    }));
+    if (sessionId && selectedChatModelId !== state.selectedChatModelId) {
+      this.persistSelectedChatModelInBackground(sessionId, selectedChatModelId);
+    }
   }
 
   private async loadInspectorMemoryFile() {
@@ -858,7 +1009,7 @@ export class WorkspaceRuntime {
   }
 
   private async refreshMainSessionPool() {
-    const sessions = visibleMainChatSessions(await listSessions());
+    const sessions = visibleMainChatSessions(await listSessions(undefined, { mainChatOnly: true }));
     this.sessionListFailureNotifiedAt = 0;
     this.store.setState((prev) => {
       const activeProjectRoot = prev.activeProjectRoot;
@@ -977,11 +1128,15 @@ export class WorkspaceRuntime {
       scope: nextSession.scope,
       poolKey: MAIN_CHAT_POOL_KEY,
     });
-    if (!restoredFromStreamCache) {
+    if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(nextSession.id);
+    } else {
       const reattached = await this.reattachChatRunForSession(nextSession.id);
       if (!reattached) {
         void this.refreshSessionDetails(nextSession.id).catch(() => undefined);
         void this.hydrateLatestHarnessTurnSnapshot(nextSession.id).catch(() => undefined);
+      } else {
+        this.refreshSessionDetailsAfterRuntimeRestore(nextSession.id);
       }
     }
   }
@@ -1064,7 +1219,7 @@ export class WorkspaceRuntime {
       const removal = await removeProjectWorkspace(normalizedKey, { detachSessions: true });
       const [projectPayload, allSessions] = await Promise.all([
         listProjectWorkspaces(),
-        listSessions(),
+        listSessions(undefined, { mainChatOnly: true }),
       ]);
       const sessions = visibleMainChatSessions(allSessions);
       const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
@@ -1116,12 +1271,15 @@ export class WorkspaceRuntime {
       poolKey: MAIN_CHAT_POOL_KEY,
     });
     if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(session.id);
       return;
     }
     const reattached = await this.reattachChatRunForSession(session.id);
     if (!reattached) {
       void this.refreshSessionDetails(session.id).catch(() => undefined);
       void this.hydrateLatestHarnessTurnSnapshot(session.id).catch(() => undefined);
+    } else {
+      this.refreshSessionDetailsAfterRuntimeRestore(session.id);
     }
   }
 
@@ -1286,16 +1444,17 @@ export class WorkspaceRuntime {
           },
           (history as { runtime_attachments?: SessionRuntimeAttachment[] }).runtime_attachments,
         );
-        const refreshedMessages = this.mergeVolatileMessageProgress(
-          hydratedProjection.messages,
-          prev.messages,
-        );
-        const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
-        const activeProjectionsByKey = this.activeProjectionsForSessionDetailsRefresh(
-          sessionId,
-          prev,
-          hydratedProjection.activeProjectionsByKey,
-        );
+      const refreshedMessages = prev.currentSessionId === sessionId
+        && prev.activeStreamSessionIds.includes(sessionId)
+        ? hydratedProjection.messages
+        : this.mergeVolatileMessageProgress(hydratedProjection.messages, prev.messages);
+      const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
+      const activeProjectionsByKey = this.activeProjectionsForSessionDetailsRefresh(
+        sessionId,
+        prev,
+        hydratedProjection.activeProjectionsByKey,
+        visibleMessages,
+      );
         const next: StoreState = {
           ...prev,
           messages: visibleMessages,
@@ -1404,17 +1563,19 @@ export class WorkspaceRuntime {
         },
         projection.runtime_attachments,
       );
-      const refreshedMessages = this.mergeVolatileMessageProgress(
-        hydratedProjection.messages,
-        prev.messages,
-      );
+      const refreshedMessages = prev.currentSessionId === sessionId
+        && prev.activeStreamSessionIds.includes(sessionId)
+        ? hydratedProjection.messages
+        : this.mergeVolatileMessageProgress(hydratedProjection.messages, prev.messages);
+      const visibleMessages = this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages);
       return {
         ...prev,
-        messages: this.messagesForSessionDetailsRefresh(sessionId, prev, refreshedMessages),
+        messages: visibleMessages,
         activeProjectionsByKey: this.activeProjectionsForSessionDetailsRefresh(
           sessionId,
           prev,
           hydratedProjection.activeProjectionsByKey,
+          visibleMessages,
         ),
       };
     });
@@ -1473,13 +1634,26 @@ export class WorkspaceRuntime {
     sessionId: string,
     current: StoreState,
     refreshedActiveProjections: StoreState["activeProjectionsByKey"],
+    visibleMessages: Message[] = [],
   ) {
     if (
       current.currentSessionId === sessionId
       && current.activeStreamSessionIds.includes(sessionId)
       && current.messages.length > 0
     ) {
-      return this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections);
+      return this.projectionStateForVisibleMessages(
+        this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections),
+        visibleMessages,
+      );
+    }
+    if (
+      current.currentSessionId === sessionId
+      && current.messages.some((message) => message.role === "assistant" && this.messageHasRuntimeVolatileState(message))
+    ) {
+      return this.projectionStateForVisibleMessages(
+        this.mergeActiveStreamProjectionState(current.activeProjectionsByKey, refreshedActiveProjections),
+        visibleMessages,
+      );
     }
     return refreshedActiveProjections;
   }
@@ -1524,15 +1698,16 @@ export class WorkspaceRuntime {
     if (message.role !== "assistant") {
       return true;
     }
-    return Boolean(message.projectionKeyString || message.projectionView);
+    return Boolean(message.projectionKeyString);
   }
 
   private mergeActiveStreamProjectionMessage(current: Message, refreshed: Message): Message {
     if (current.role !== refreshed.role) {
       return current;
     }
+    const currentBase = stripLegacyMessageProjectionView(current);
     return {
-      ...current,
+      ...currentBase,
       content: current.content || refreshed.content,
       toolCalls: current.toolCalls.length ? current.toolCalls : refreshed.toolCalls,
       retrievals: current.retrievals.length ? current.retrievals : refreshed.retrievals,
@@ -1543,7 +1718,6 @@ export class WorkspaceRuntime {
       sourceTaskRunId: current.sourceTaskRunId || refreshed.sourceTaskRunId,
       sourceTurnRunId: current.sourceTurnRunId || refreshed.sourceTurnRunId,
       projectionKeyString: refreshed.projectionKeyString || current.projectionKeyString,
-      projectionView: current.projectionView ?? refreshed.projectionView,
       closeoutSummary: current.closeoutSummary ?? refreshed.closeoutSummary,
       runtimeLogRef: current.runtimeLogRef ?? refreshed.runtimeLogRef,
       toolEventCount: current.toolEventCount ?? refreshed.toolEventCount,
@@ -1575,6 +1749,28 @@ export class WorkspaceRuntime {
     return next;
   }
 
+  private projectionStateForVisibleMessages(
+    projections: StoreState["activeProjectionsByKey"],
+    visibleMessages: Message[],
+  ) {
+    const visibleProjectionKeys = new Set(
+      visibleMessages
+        .map((message) => String(message.projectionKeyString ?? "").trim())
+        .filter(Boolean),
+    );
+    if (!visibleProjectionKeys.size) {
+      return {};
+    }
+    const next: StoreState["activeProjectionsByKey"] = {};
+    for (const key of visibleProjectionKeys) {
+      const projection = projections[key];
+      if (projection) {
+        next[key] = projection;
+      }
+    }
+    return next;
+  }
+
   private projectionStateIsNewer(
     candidate: StoreState["activeProjectionsByKey"][string],
     current: StoreState["activeProjectionsByKey"][string],
@@ -1584,12 +1780,35 @@ export class WorkspaceRuntime {
     if (candidateOffset !== currentOffset) {
       return candidateOffset > currentOffset;
     }
+    const candidateQuality = this.projectionStateCompletenessScore(candidate);
+    const currentQuality = this.projectionStateCompletenessScore(current);
+    if (candidateQuality !== currentQuality) {
+      return candidateQuality > currentQuality;
+    }
     if (!current.view && candidate.view) {
       return true;
     }
     const candidateContentLength = String(candidate.view?.canonicalContent ?? candidate.ledger?.bodyText ?? "").length;
     const currentContentLength = String(current.view?.canonicalContent ?? current.ledger?.bodyText ?? "").length;
     return candidateContentLength > currentContentLength;
+  }
+
+  private projectionStateCompletenessScore(projection: StoreState["activeProjectionsByKey"][string]) {
+    const ledger = projection.ledger;
+    const tools = ledger?.toolLifecycles ?? [];
+    let score = 0;
+    score += tools.length * 8;
+    score += (ledger?.bodySegments?.length ?? 0) * 4;
+    score += (ledger?.todoPlans?.length ?? 0) * 3;
+    score += (ledger?.statusEvents?.length ?? 0);
+    for (const tool of tools) {
+      if (tool.contentWindow?.text) score += 160;
+      if (tool.startedAt) score += 12;
+      if (tool.updatedAt) score += 4;
+      if (tool.completedAt) score += 16;
+      if (tool.output) score += 4;
+    }
+    return score;
   }
 
   private sortMessagesBySourceIndex(messages: Message[]) {
@@ -1604,29 +1823,48 @@ export class WorkspaceRuntime {
 
   private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
     if (!currentMessages.some((message) => this.messageHasRuntimeVolatileState(message))) {
-      return refreshedMessages;
+      return refreshedMessages.map(stripLegacyMessageProjectionView);
     }
     const currentVolatileMessages = currentMessages.filter((message) =>
       message.role === "assistant" && this.messageHasRuntimeVolatileState(message)
     );
     const currentById = new Map(currentVolatileMessages.map((message) => [message.id, message]));
     const refreshedWithMergedProgress = refreshedMessages.map((message) => {
+      const messageBase = stripLegacyMessageProjectionView(message);
       if (message.role !== "assistant") {
-        return message;
+        return messageBase;
       }
       const current = currentById.get(message.id)
         ?? this.findCurrentRuntimeMessageForRefresh(message, currentVolatileMessages);
       if (!current || !this.messageHasRuntimeVolatileState(current)) {
-        return message;
+        return messageBase;
       }
       return {
-        ...message,
+        ...messageBase,
         runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress ?? []),
+        projectionKeyString: message.projectionKeyString ?? current.projectionKeyString,
         closeoutSummary: message.closeoutSummary ?? current.closeoutSummary,
         runtimeLogRef: message.runtimeLogRef ?? current.runtimeLogRef,
         toolEventCount: message.toolEventCount ?? current.toolEventCount,
         content: message.content || current.content,
         stageStatus: message.stageStatus ?? current.stageStatus,
+        sourceIndex: message.sourceIndex ?? current.sourceIndex,
+        sourceTurnId: message.sourceTurnId || current.sourceTurnId,
+        sourceStreamRunId: message.sourceStreamRunId || current.sourceStreamRunId,
+        sourceRunId: message.sourceRunId || current.sourceRunId,
+        sourceTaskRunId: message.sourceTaskRunId || current.sourceTaskRunId,
+        sourceTurnRunId: message.sourceTurnRunId || current.sourceTurnRunId,
+        answerChannel: message.answerChannel ?? current.answerChannel,
+        answerSource: message.answerSource ?? current.answerSource,
+        answerCanonicalState: message.answerCanonicalState ?? current.answerCanonicalState,
+        answerPersistPolicy: message.answerPersistPolicy ?? current.answerPersistPolicy,
+        answerFinalizationPolicy: message.answerFinalizationPolicy ?? current.answerFinalizationPolicy,
+        answerFallbackReason: message.answerFallbackReason ?? current.answerFallbackReason,
+        answerSelectedChannel: message.answerSelectedChannel ?? current.answerSelectedChannel,
+        answerSelectedSource: message.answerSelectedSource ?? current.answerSelectedSource,
+        answerLeakFlags: message.answerLeakFlags ?? current.answerLeakFlags,
+        image: message.image ?? current.image ?? null,
+        attachments: message.attachments?.length ? message.attachments : current.attachments,
       };
     });
     const refreshedMessageIds = new Set(refreshedWithMergedProgress.map((message) => message.id));
@@ -1634,7 +1872,7 @@ export class WorkspaceRuntime {
       !refreshedMessageIds.has(message.id)
       && !this.refreshedMessagesContainRuntimeAnchor(refreshedWithMergedProgress, message)
       && this.refreshedHistoryContainsRuntimeTurn(refreshedMessages, message)
-    );
+    ).map(stripLegacyMessageProjectionView);
     return [...refreshedWithMergedProgress, ...preservedRuntimeMessages]
       .sort((left, right) => {
         const leftIndex = left.sourceIndex ?? Number.MAX_SAFE_INTEGER;
@@ -1649,7 +1887,194 @@ export class WorkspaceRuntime {
     return Boolean(
       message.runtimeProgress?.length
       || message.projectionKeyString
+      || message.closeoutSummary
+      || message.runtimeLogRef
+      || message.toolEventCount
+      || message.stageStatus
+      || this.messageHasRecoverableTransientAssistantContent(message)
     );
+  }
+
+  private rememberVisibleRuntimeProjection(
+    sessionId: string,
+    snapshot: Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot">,
+  ) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const hasProjectionState = Object.keys(snapshot.activeProjectionsByKey ?? {}).length > 0
+      || snapshot.messages.some((message) => this.messageHasRuntimeVolatileState(message))
+      || (snapshot.messages.length > 0 && this.visibleStreamInterruptSignalPresent(normalizedSessionId));
+    if (!hasProjectionState) {
+      this.visibleRuntimeProjectionCache.delete(normalizedSessionId);
+      return;
+    }
+    this.visibleRuntimeProjectionCache.set(normalizedSessionId, {
+      messages: snapshot.messages,
+      activeProjectionsByKey: snapshot.activeProjectionsByKey,
+      harnessTurnSnapshot: snapshot.harnessTurnSnapshot,
+      activeTurnSnapshot: snapshot.activeTurnSnapshot,
+    });
+  }
+
+  private visibleRuntimeProjectionSnapshot(
+    sessionId: string,
+    state: StoreState = this.store.getState(),
+  ): Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot"> | null {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return null;
+    }
+    if (
+      state.currentSessionId === normalizedSessionId
+      && (
+        Object.keys(state.activeProjectionsByKey ?? {}).length > 0
+        || state.messages.some((message) => this.messageHasRuntimeVolatileState(message))
+        || (state.messages.length > 0 && this.visibleStreamInterruptSignalPresent(normalizedSessionId))
+      )
+    ) {
+      return {
+        messages: state.messages,
+        activeProjectionsByKey: state.activeProjectionsByKey,
+        harnessTurnSnapshot: state.harnessTurnSnapshot,
+        activeTurnSnapshot: state.activeTurnSnapshot,
+      };
+    }
+    return this.visibleRuntimeProjectionCache.get(normalizedSessionId) ?? null;
+  }
+
+  private visibleRuntimeProjectionSnapshotForRelease(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return null;
+    }
+    const pending = this.pendingVisibleStreamFlushes.get(normalizedSessionId);
+    const snapshot = pending
+      ? {
+          messages: pending.streamState.messages,
+          activeProjectionsByKey: pending.streamState.activeProjectionsByKey,
+          harnessTurnSnapshot: pending.streamState.harnessTurnSnapshot,
+          activeTurnSnapshot: pending.streamState.activeTurnSnapshot,
+        }
+      : this.streamingSessionCache.get(normalizedSessionId) ?? this.visibleRuntimeProjectionSnapshot(normalizedSessionId);
+    if (snapshot) {
+      this.rememberVisibleRuntimeProjection(normalizedSessionId, snapshot);
+    }
+    return snapshot;
+  }
+
+  private stateWithVisibleRuntimeProjectionSnapshot(
+    state: StoreState,
+    sessionId: string,
+    snapshot: Pick<StoreState, "messages" | "activeProjectionsByKey" | "harnessTurnSnapshot" | "activeTurnSnapshot"> | null,
+  ): StoreState {
+    if (!snapshot || state.currentSessionId !== sessionId) {
+      return state;
+    }
+    return {
+      ...state,
+      messages: snapshot.messages,
+      activeProjectionsByKey: snapshot.activeProjectionsByKey,
+      harnessTurnSnapshot: snapshot.harnessTurnSnapshot,
+      activeTurnSnapshot: snapshot.activeTurnSnapshot,
+    };
+  }
+
+  private visibleStreamInterruptSignalKey(sessionId: string) {
+    return `${VISIBLE_STREAM_INTERRUPT_SIGNAL_KEY_PREFIX}${encodeURIComponent(String(sessionId || "").trim())}`;
+  }
+
+  private rememberVisibleStreamInterruptSignal(
+    sessionId: string,
+    event: string,
+    data: Record<string, unknown> = {},
+  ) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    storageSet(this.visibleStreamInterruptSignalKey(normalizedSessionId), JSON.stringify({
+      schema: VISIBLE_STREAM_INTERRUPT_SIGNAL_SCHEMA,
+      sessionId: normalizedSessionId,
+      event: runtimeText(event),
+      streamRunId: runtimeText(data.stream_run_id) || runtimeText(data.streamRunId),
+      eventLogId: runtimeText(data.event_log_id) || runtimeText(data.eventLogId),
+      lastEventOffset: Number(data.event_offset ?? data.lastEventOffset ?? -1),
+      reason: runtimeText(data.reason) || runtimeText(data.terminal_reason) || runtimeText(data.status),
+      updatedAt: Date.now(),
+    }));
+  }
+
+  private clearVisibleStreamInterruptSignal(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (normalizedSessionId) {
+      storageRemove(this.visibleStreamInterruptSignalKey(normalizedSessionId));
+    }
+  }
+
+  private visibleStreamInterruptSignalPresent(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return false;
+    }
+    const raw = storageGet(this.visibleStreamInterruptSignalKey(normalizedSessionId));
+    if (!raw) {
+      return false;
+    }
+    try {
+      const payload = JSON.parse(raw) as Record<string, unknown>;
+      return Number(payload.schema) === VISIBLE_STREAM_INTERRUPT_SIGNAL_SCHEMA
+        && runtimeText(payload.sessionId) === normalizedSessionId;
+    } catch {
+      storageRemove(this.visibleStreamInterruptSignalKey(normalizedSessionId));
+      return false;
+    }
+  }
+
+  private visibleStreamEventIsInterruptSignal(event: string, data: Record<string, unknown>) {
+    const eventName = runtimeText(event).toLowerCase();
+    if (eventName === "stream_recoverable_interruption") {
+      return true;
+    }
+    const values = [
+      eventName,
+      runtimeText(data.status).toLowerCase(),
+      runtimeText(data.state).toLowerCase(),
+      runtimeText(data.reason).toLowerCase(),
+      runtimeText(data.terminal_reason).toLowerCase(),
+      runtimeText(data.completion_state).toLowerCase(),
+      runtimeText(data.runtime_interruption_code).toLowerCase(),
+      runtimeText(data.recovery_kind).toLowerCase(),
+    ];
+    return values.some((value) =>
+      value === "interrupted"
+      || value === "runtime_interruption_closed"
+      || value === "runtime_stream_interrupted"
+      || value === "runtime_process_restarted"
+      || value === "runtime_cell_missing_after_restart"
+    );
+  }
+
+  private visibleStreamEventClearsInterruptSignal(event: string, data: Record<string, unknown>) {
+    if (this.visibleStreamEventIsInterruptSignal(event, data)) {
+      return false;
+    }
+    const eventName = runtimeText(event).toLowerCase();
+    if (eventName === "done") {
+      return true;
+    }
+    return eventName === "turn_completed" && runtimeText(data.status).toLowerCase() === "completed";
+  }
+
+  private messageHasRecoverableTransientAssistantContent(message: Message) {
+    if (message.role !== "assistant") {
+      return false;
+    }
+    if (!String(message.content || "").trim() && !String(message.image?.src || "").trim()) {
+      return false;
+    }
+    return this.messageRuntimeTurnIds(message).size > 0 || this.messageRuntimeRunIds(message).size > 0;
   }
 
   private findCurrentRuntimeMessageForRefresh(message: Message, candidates: Message[]) {
@@ -1778,6 +2203,7 @@ export class WorkspaceRuntime {
         permission_mode: this.permissionModeForSession(sessionId, requestState),
         editor_context: this.chatEditorContextPayload(requestState, sessionId),
       });
+      this.updateQueuedUserInputLifecycle(sessionId, response.item);
       const streamRunId = String(response.item?.dispatch_stream_run_id ?? "").trim();
       if (streamRunId && !this.store.getState().activeStreamSessionIds.includes(sessionId)) {
         const run = await getChatRun(streamRunId).catch(() => null);
@@ -1797,8 +2223,11 @@ export class WorkspaceRuntime {
         void this.reattachChatRunForSession(sessionId).catch(() => undefined);
       }
     } catch (error) {
+      this.forgetQueuedVisibleUserInput(sessionId, messageId);
+      this.patchPendingVisibleStreamFlushWithQueuedInput(sessionId);
       this.store.setState((prev) => ({
         ...prev,
+        messages: prev.messages.filter((message) => message.id !== messageId),
         sessionActivity: prev.currentSessionId === sessionId
           ? {
               level: "error",
@@ -1820,66 +2249,101 @@ export class WorkspaceRuntime {
   }
 
   private applyQueuedUserInputVisibleState(sessionId: string, content: string, messageId: string) {
-    const queuedMessage = this.queuedUserInputMessage(content, messageId);
-    const activityTitle = "已加入当前回合";
-    const activityDetail = "agent 下一次判断前会纳入这条补充。";
+    const queuedMessage = this.queuedUserInputMessage(
+      content,
+      messageId,
+      this.nextQueuedUserInputSourceIndex(sessionId),
+    );
     this.rememberQueuedVisibleUserInput(sessionId, queuedMessage);
     this.patchPendingVisibleStreamFlushWithQueuedInput(sessionId);
-    this.patchStreamingSessionCacheWithQueuedInput(sessionId);
     this.store.setState((prev) => {
-      const shouldPatchVisibleMessages = prev.currentSessionId === sessionId;
-      const alreadyVisible = prev.messages.some((message) => message.id === messageId);
-      const nextMessages = shouldPatchVisibleMessages
-        ? alreadyVisible
-          ? prev.messages.map((message) => message.id === messageId ? { ...message, content } : message)
-          : [...prev.messages, queuedMessage]
-        : prev.messages;
+      const queuedActivity = this.visibleQueuedUserInputActivity(sessionId);
+      const messages = prev.messages.some((message) => message.id === queuedMessage.id)
+        ? prev.messages
+        : this.sortMessagesBySourceIndex([...prev.messages, queuedMessage]);
       return {
         ...prev,
-        messages: nextMessages,
-        sessionActivity: prev.currentSessionId === sessionId
-          ? {
-              level: "running",
-              title: activityTitle,
-              detail: activityDetail,
-              event: "user_input_queued",
-              receipt: {
-                level: "running",
-                title: activityTitle,
-                body: activityDetail,
-                debug: { event: "user_input_queued" },
-              },
-              updatedAt: Date.now(),
-            }
+        messages,
+        sessionActivity: prev.currentSessionId === sessionId && queuedActivity
+          ? queuedActivity
           : prev.sessionActivity,
         sessionActivitiesById: {
           ...prev.sessionActivitiesById,
-          [sessionId]: {
-            level: "running",
-            title: activityTitle,
-            detail: activityDetail,
-            event: "user_input_queued",
-            receipt: {
-              level: "running",
-              title: activityTitle,
-              body: activityDetail,
-              debug: { event: "user_input_queued" },
-            },
-            updatedAt: Date.now(),
-          },
+          ...(queuedActivity ? { [sessionId]: queuedActivity } : {}),
         },
       };
     });
   }
 
-  private queuedUserInputMessage(content: string, messageId: string): Message {
+  private updateQueuedUserInputLifecycle(
+    sessionId: string,
+    item: { lifecycle_state?: string; content?: string; client_message_id?: string; queue_item_id?: string },
+  ) {
+    const lifecycle = runtimeText(item.lifecycle_state).toLowerCase();
+    if (!lifecycle) {
+      return;
+    }
+    const labels: Record<string, { title: string; level: "running" | "success" | "error" }> = {
+      accepted: { title: "补充要求已接收", level: "running" },
+      waiting_boundary: { title: "补充要求等待当前边界", level: "running" },
+      included: { title: "补充要求已注入当前回合", level: "success" },
+      failed: { title: "补充要求处理失败", level: "error" },
+      canceled: { title: "补充要求已取消", level: "error" },
+    };
+    const label = labels[lifecycle];
+    if (!label) {
+      return;
+    }
+    const excerpt = runtimeText(item.content).replace(/\s+/g, " ").slice(0, 120);
+    this.store.setState((prev) => {
+      if (prev.currentSessionId !== sessionId && !prev.sessionActivitiesById[sessionId]) {
+        return prev;
+      }
+      const activity = {
+        level: label.level,
+        title: label.title,
+        detail: excerpt,
+        event: `user_input_${lifecycle}`,
+        receipt: {
+          level: label.level,
+          title: label.title,
+          body: excerpt,
+          debug: {
+            event: `user_input_${lifecycle}`,
+            queue_item_id: item.queue_item_id || item.client_message_id || "",
+          },
+        },
+        updatedAt: Date.now(),
+      } as StoreState["sessionActivity"];
+      return {
+        ...prev,
+        sessionActivity: prev.currentSessionId === sessionId ? activity : prev.sessionActivity,
+        sessionActivitiesById: {
+          ...prev.sessionActivitiesById,
+          [sessionId]: activity,
+        },
+      };
+    });
+  }
+
+  private queuedUserInputMessage(content: string, messageId: string, sourceIndex?: number): Message {
     return {
       id: messageId,
       role: "user",
       content,
       toolCalls: [],
       retrievals: [],
+      sourceIndex,
     };
+  }
+
+  private nextQueuedUserInputSourceIndex(sessionId: string) {
+    const messageIndex = this.nextMessageSourceIndex(this.store.getState().messages);
+    const queuedIndex = this.queuedVisibleUserMessages(sessionId).reduce((max, message) => {
+      const sourceIndex = Number(message.sourceIndex ?? -1);
+      return Number.isFinite(sourceIndex) ? Math.max(max, Math.floor(sourceIndex) + 1) : max;
+    }, -1);
+    return Math.max(messageIndex, queuedIndex);
   }
 
   private rememberQueuedVisibleUserInput(sessionId: string, message: Message) {
@@ -1892,28 +2356,78 @@ export class WorkspaceRuntime {
     this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
   }
 
+  private forgetQueuedVisibleUserInput(sessionId: string, messageId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    const normalizedMessageId = String(messageId || "").trim();
+    if (!normalizedSessionId || !normalizedMessageId) {
+      return;
+    }
+    const existing = this.queuedVisibleUserInputsBySession.get(normalizedSessionId);
+    if (!existing) {
+      return;
+    }
+    existing.delete(normalizedMessageId);
+    if (existing.size) {
+      this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
+    } else {
+      this.queuedVisibleUserInputsBySession.delete(normalizedSessionId);
+    }
+  }
+
   private queuedVisibleUserMessages(sessionId: string) {
     return Array.from(this.queuedVisibleUserInputsBySession.get(sessionId)?.values() ?? []);
   }
 
-  private mergeQueuedVisibleUserInputs(sessionId: string, messages: Message[]) {
-    const queuedMessages = this.queuedVisibleUserMessages(sessionId);
-    if (!queuedMessages.length) {
-      return messages;
+  private promoteQueuedVisibleUserInputForProjectionFrame(
+    sessionId: string,
+    state: StoreState,
+    data: Record<string, unknown>,
+  ): StoreState {
+    const frame = projectionFrameFromRecord(data.public_projection_frame);
+    const anchor = frame?.anchor ?? {};
+    const turnId = runtimeText(anchor.turn_id);
+    if (!frame || !turnId) {
+      return state;
     }
-    const existingIds = new Set(messages.map((message) => message.id));
-    const merged = messages.map((message) => {
-      const queued = this.queuedVisibleUserInputsBySession.get(sessionId)?.get(message.id);
-      return queued && message.role === "user"
-        ? { ...message, content: queued.content, attachments: queued.attachments ?? message.attachments }
-        : message;
-    });
-    for (const queued of queuedMessages) {
-      if (!existingIds.has(queued.id)) {
-        merged.push(queued);
-      }
+    if (state.messages.some((message) => message.role === "user" && runtimeText(message.sourceTurnId) === turnId)) {
+      return state;
     }
-    return merged;
+    const queuedMessage = this.shiftQueuedVisibleUserInput(sessionId);
+    if (!queuedMessage) {
+      return state;
+    }
+    const promotedMessage: Message = {
+      ...queuedMessage,
+      sourceIndex: typeof queuedMessage.sourceIndex === "number"
+        ? queuedMessage.sourceIndex
+        : this.nextMessageSourceIndex(state.messages),
+      sourceTurnId: turnId,
+      sourceStreamRunId: queuedMessage.sourceStreamRunId || runtimeText(anchor.stream_run_id) || undefined,
+      sourceRunId: queuedMessage.sourceRunId || runtimeText(anchor.run_id) || undefined,
+      sourceTaskRunId: queuedMessage.sourceTaskRunId || runtimeText(anchor.task_run_id) || undefined,
+      sourceTurnRunId: queuedMessage.sourceTurnRunId || runtimeText(anchor.turn_run_id) || undefined,
+    };
+    const messages = state.messages.some((message) => message.id === promotedMessage.id)
+      ? state.messages.map((message) => message.id === promotedMessage.id ? { ...message, ...promotedMessage } : message)
+      : this.sortMessagesBySourceIndex([...state.messages, promotedMessage]);
+    return this.clearQueuedVisibleUserInputActivity(sessionId, { ...state, messages });
+  }
+
+  private shiftQueuedVisibleUserInput(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    const existing = this.queuedVisibleUserInputsBySession.get(normalizedSessionId);
+    const first = existing ? Array.from(existing.entries())[0] : undefined;
+    if (!existing || !first) {
+      return null;
+    }
+    const [messageId, message] = first;
+    existing.delete(messageId);
+    if (existing.size) {
+      this.queuedVisibleUserInputsBySession.set(normalizedSessionId, existing);
+    } else {
+      this.queuedVisibleUserInputsBySession.delete(normalizedSessionId);
+    }
+    return message;
   }
 
   private patchPendingVisibleStreamFlushWithQueuedInput(sessionId: string) {
@@ -1922,36 +2436,30 @@ export class WorkspaceRuntime {
       return;
     }
     const queuedActivity = this.visibleQueuedUserInputActivity(sessionId);
-    pending.streamState = {
-      ...pending.streamState,
-      messages: this.mergeQueuedVisibleUserInputs(sessionId, pending.streamState.messages),
-      sessionActivity: queuedActivity ?? pending.streamState.sessionActivity,
-      sessionActivitiesById: {
-        ...pending.streamState.sessionActivitiesById,
-        ...(queuedActivity
-          ? { [sessionId]: queuedActivity }
-          : {}),
-      },
-    };
-  }
-
-  private patchStreamingSessionCacheWithQueuedInput(sessionId: string) {
-    const cache = this.streamingSessionCache.get(sessionId);
-    if (!cache) {
-      return;
-    }
-    this.streamingSessionCache.set(sessionId, {
-      ...cache,
-      messages: this.mergeQueuedVisibleUserInputs(sessionId, cache.messages),
-    });
+    pending.streamState = queuedActivity
+      ? {
+          ...pending.streamState,
+          sessionActivity: queuedActivity,
+          sessionActivitiesById: {
+            ...pending.streamState.sessionActivitiesById,
+            [sessionId]: queuedActivity,
+          },
+        }
+      : this.clearQueuedVisibleUserInputActivity(sessionId, pending.streamState);
   }
 
   private visibleQueuedUserInputActivity(sessionId: string): StoreState["sessionActivity"] | null {
-    if (!this.queuedVisibleUserInputsBySession.get(sessionId)?.size) {
+    const queuedMessages = this.queuedVisibleUserMessages(sessionId);
+    if (!queuedMessages.length) {
       return null;
     }
-    const activityTitle = "已加入当前回合";
-    const activityDetail = "agent 下一次判断前会纳入这条补充。";
+    const latest = queuedMessages[queuedMessages.length - 1];
+    const moreCount = queuedMessages.length - 1;
+    const activityTitle = queuedMessages.length > 1
+      ? `${queuedMessages.length} 条补充要求排队中`
+      : "补充要求排队中";
+    const excerpt = runtimeText(latest?.content).replace(/\s+/g, " ").slice(0, 120);
+    const activityDetail = `${excerpt}${runtimeText(latest?.content).length > 120 ? "..." : ""}${moreCount ? `（另有 ${moreCount} 条）` : ""}`;
     return {
       level: "running",
       title: activityTitle,
@@ -1965,6 +2473,16 @@ export class WorkspaceRuntime {
       },
       updatedAt: Date.now(),
     };
+  }
+
+  private clearQueuedVisibleUserInputActivity(sessionId: string, state: StoreState): StoreState {
+    if (
+      state.sessionActivity.event !== "user_input_queued"
+      && state.sessionActivitiesById[sessionId]?.event !== "user_input_queued"
+    ) {
+      return state;
+    }
+    return this.clearSessionActivityFor(state, sessionId);
   }
 
   private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
@@ -2106,16 +2624,13 @@ export class WorkspaceRuntime {
       ? rebuildProjectionViews(streamState)
       : streamState;
     const visibleSessionId = String(latency?.sessionId || visibleStreamState.currentSessionId || this.store.getState().currentSessionId || "").trim();
-    const mergedMessages = visibleSessionId
-      ? this.mergeQueuedVisibleUserInputs(visibleSessionId, visibleStreamState.messages)
-      : visibleStreamState.messages;
     const queuedActivity = visibleSessionId ? this.visibleQueuedUserInputActivity(visibleSessionId) : null;
     const nextSessionActivity = queuedActivity && this.streamActivityCanKeepQueuedInputVisible(visibleStreamState.sessionActivity)
       ? queuedActivity
       : visibleStreamState.sessionActivity;
     this.store.setState((prev) => ({
       ...prev,
-      messages: mergedMessages,
+      messages: visibleStreamState.messages,
       activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
       harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
       activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -2134,7 +2649,20 @@ export class WorkspaceRuntime {
     }));
     if (latency?.sessionId) {
       this.streamingSessionCache.set(latency.sessionId, {
-        messages: mergedMessages,
+        messages: visibleStreamState.messages,
+        activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
+        harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
+        activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
+      });
+    }
+    if (visibleSessionId) {
+      if (latency && this.visibleStreamEventIsInterruptSignal(latency.event, latency.data)) {
+        this.rememberVisibleStreamInterruptSignal(visibleSessionId, latency.event, latency.data);
+      } else if (latency && this.visibleStreamEventClearsInterruptSignal(latency.event, latency.data)) {
+        this.clearVisibleStreamInterruptSignal(visibleSessionId);
+      }
+      this.rememberVisibleRuntimeProjection(visibleSessionId, {
+        messages: visibleStreamState.messages,
         activeProjectionsByKey: visibleStreamState.activeProjectionsByKey,
         harnessTurnSnapshot: visibleStreamState.harnessTurnSnapshot,
         activeTurnSnapshot: visibleStreamState.activeTurnSnapshot,
@@ -2153,6 +2681,7 @@ export class WorkspaceRuntime {
     return !event
       || event === "user_input_queued"
       || event === "stream_cursor_restore_started"
+      || event === "stream_recoverable_interruption"
       || event === "stream_reconnecting"
       || event === "stream_reconnect_failed";
   }
@@ -2473,10 +3002,12 @@ export class WorkspaceRuntime {
     }
     const restoredFromStreamCache = this.applySelectedSessionShell(normalized.sessionId, normalized);
     if (restoredFromStreamCache) {
+      this.refreshSessionDetailsAfterRuntimeRestore(normalized.sessionId);
       return;
     }
     const reattached = await this.reattachChatRunForSession(normalized.sessionId);
     if (reattached) {
+      this.refreshSessionDetailsAfterRuntimeRestore(normalized.sessionId);
       return;
     }
     await this.refreshSessionDetails(normalized.sessionId).catch(() => undefined);
@@ -2544,6 +3075,25 @@ export class WorkspaceRuntime {
 
   private normalizeChatModelSelectionId(selectionId: string | null | undefined) {
     return String(selectionId || "").trim() || "system-default";
+  }
+
+  private normalizeChatModelSelectionForConfig(
+    selectionId: string | null | undefined,
+    config: StoreState["modelProviderConfig"],
+  ) {
+    const normalized = this.normalizeChatModelSelectionId(selectionId);
+    if (normalized === "system-default" || !config) {
+      return normalized;
+    }
+    const [provider, ...modelParts] = normalized.split("::");
+    const selectedProvider = provider.trim().toLowerCase();
+    const selectedModel = modelParts.join("::").trim();
+    const primaryProvider = String(config.provider || "").trim().toLowerCase();
+    const fallbackProvider = String(config.fallback_provider || "").trim().toLowerCase();
+    const isPrimaryProviderModel = selectedProvider === primaryProvider && Boolean(selectedModel);
+    const isFallbackProviderModel = selectedProvider === fallbackProvider
+      && selectedModel === String(config.fallback_model || "").trim();
+    return isPrimaryProviderModel || isFallbackProviderModel ? normalized : "system-default";
   }
 
   private chatModelSelectionIdFromConversationState(
@@ -2868,9 +3418,9 @@ export class WorkspaceRuntime {
     }
     rememberSessionRef(normalized);
     this.persistCurrentSessionRef(normalized);
+    const currentState = this.store.getState();
     const streamingCache = this.streamingSessionCache.get(normalized.sessionId);
-    if (this.store.getState().activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
-      const currentState = this.store.getState();
+    if (currentState.activeStreamSessionIds.includes(normalized.sessionId) && streamingCache) {
       const selectedSession = currentState.sessions.find((session) => session.id === normalized.sessionId);
       const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
         ? this.activeEnvironmentForSession(selectedSession) ?? currentState.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
@@ -2896,10 +3446,9 @@ export class WorkspaceRuntime {
       }, normalized.sessionId));
       this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
       this.projectPermissionModeToRuntime(permissionMode);
-      void this.refreshWorkspaceTree().catch(() => undefined);
       return true;
     }
-    const currentState = this.store.getState();
+    const visibleProjectionSnapshot = this.visibleRuntimeProjectionSnapshot(normalized.sessionId, currentState);
     const selectedSession = currentState.sessions.find((session) => session.id === normalized.sessionId);
     const conversationActiveEnvironment = this.shouldUseConversationEnvironment(normalized)
       ? this.activeEnvironmentForSession(selectedSession) ?? currentState.conversationActiveEnvironment ?? this.defaultActiveTaskEnvironment()
@@ -2916,17 +3465,34 @@ export class WorkspaceRuntime {
       permissionMode,
       selectedChatModelId,
       selectedChatMode: this.resolveSelectedChatMode(selectedChatModelId, prev.modelProviderConfig),
-      messages: [],
-      activeProjectionsByKey: {},
-      harnessTurnSnapshot: null,
-      activeTurnSnapshot: null,
+      messages: visibleProjectionSnapshot?.messages ?? [],
+      activeProjectionsByKey: visibleProjectionSnapshot?.activeProjectionsByKey ?? {},
+      harnessTurnSnapshot: visibleProjectionSnapshot?.harnessTurnSnapshot ?? null,
+      activeTurnSnapshot: visibleProjectionSnapshot?.activeTurnSnapshot ?? null,
       taskGraphLiveMonitor: null,
       tokenStats: null
     }, normalized.sessionId));
     this.store.setState((prev) => this.projectSelectedSessionActivity(prev, normalized.sessionId));
     this.projectPermissionModeToRuntime(permissionMode);
-    void this.refreshWorkspaceTree().catch(() => undefined);
     return false;
+  }
+
+  private async resumeContinuableWork(
+    sessionId: string,
+    scope: Partial<SessionScope> | undefined,
+  ): Promise<boolean> {
+    // A paused turn is not a finished turn. The chat run is orphaned, but the
+    // task environment stays paused and resumable, so reconnecting a run cannot
+    // see it. Continuation is a separate path from reconnect: it asks the
+    // backend whether resumable work still exists and, when it does, loads the
+    // prior work context so the new session continues instead of starting over.
+    const continuation = await getLatestSessionContinuation(sessionId, scope).catch(() => null);
+    if (continuation?.available !== true) {
+      return false;
+    }
+    await this.refreshSessionDetails(sessionId).catch(() => undefined);
+    await this.hydrateLatestHarnessTurnSnapshot(sessionId).catch(() => false);
+    return true;
   }
 
   private async reattachChatRunForSession(sessionId: string) {
@@ -2935,41 +3501,54 @@ export class WorkspaceRuntime {
     }
     this.recoveringStreamSessionIds.add(sessionId);
     try {
+      const scope = this.sessionScopeForSession(sessionId);
+      const cursor = readChatStreamCursor(sessionId);
       let latestRunLookupFailed = false;
-      const latestRun = await getLatestChatRunForSession(sessionId, this.sessionScopeForSession(sessionId)).catch(() => {
+      const latestRun = await getLatestChatRunForSession(sessionId, scope).catch(() => {
         latestRunLookupFailed = true;
         return null;
       });
+      const cursorRun = latestRun ? null : await this.chatRunFromCursor(sessionId, cursor);
+      const latestRestorableRun = latestRun || cursorRun
+        ? null
+        : await getLatestChatRunForSession(sessionId, scope, { activeOnly: false, restoreOnly: true })
+          .catch(() => null);
+      const restorableRun = latestRun
+        ?? cursorRun
+        ?? (this.chatRunRestorable(latestRestorableRun) ? latestRestorableRun : null);
+
       if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-        if (latestRunLookupFailed) {
+        if (latestRunLookupFailed && !restorableRun) {
           if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
             await this.refreshSessionDetails(sessionId).catch(() => undefined);
           }
           return true;
         }
-        if (!latestRun) {
+        if (!restorableRun) {
           this.releaseActiveChatStreamForSwitch(sessionId);
           clearChatStreamCursor(sessionId);
           await this.refreshSessionDetails(sessionId).catch(() => undefined);
           return false;
         }
-        if (latestRun && !this.activeChatStreamMatchesRun(sessionId, latestRun)) {
-          this.releaseActiveChatStreamForSwitch(sessionId);
-          clearChatStreamCursor(sessionId);
-        } else {
+        if (this.chatRunLiveReconnectable(restorableRun) && this.activeChatStreamMatchesRun(sessionId, restorableRun)) {
           if (!this.streamingSessionCache.has(sessionId) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
             await this.refreshSessionDetails(sessionId).catch(() => undefined);
           }
           return true;
         }
+        this.releaseActiveChatStreamForSwitch(sessionId);
+        if (cursor?.streamRunId && cursor.streamRunId !== restorableRun.stream_run_id) {
+          clearChatStreamCursor(sessionId);
+        }
       }
-      if (!latestRun) {
-        clearChatStreamCursor(sessionId);
-        return false;
+      if (!restorableRun) {
+        if (!latestRunLookupFailed) {
+          clearChatStreamCursor(sessionId);
+        }
+        return await this.resumeContinuableWork(sessionId, scope);
       }
-      const cursor = readChatStreamCursor(sessionId);
-      const latestRunCursor = this.chatRunCursorFromActiveRun(latestRun);
-      if (!latestRunCursor) {
+      const latestRunCursor = this.chatRunCursorFromRestorableRun(restorableRun);
+      if (!latestRunCursor || !this.chatRunRestorable(restorableRun)) {
         clearChatStreamCursor(sessionId);
         return false;
       }
@@ -2980,36 +3559,67 @@ export class WorkspaceRuntime {
         clearChatStreamCursor(sessionId);
       }
       const streamRunId = latestRunCursor.streamRunId;
-      const cursorRun = latestRun;
+      const selectedRun = restorableRun;
       if (
-        !cursorRun
-        || cursorRun.session_id !== sessionId
-        || cursorRun.event_log_id !== effectiveCursor.eventLogId
-        || cursorRun.is_reconnectable === false
+        !selectedRun
+        || selectedRun.session_id !== sessionId
+        || selectedRun.event_log_id !== effectiveCursor.eventLogId
+        || !this.chatRunRestorable(selectedRun)
       ) {
         clearChatStreamCursor(sessionId);
         return false;
       }
-      if (this.chatRunCursorAlreadyReachedTerminal(cursorRun, effectiveCursor)) {
+      if (!this.chatRunReplayRestorable(selectedRun) && this.chatRunCursorAlreadyReachedTerminal(selectedRun, effectiveCursor)) {
         clearChatStreamCursor(sessionId);
         await this.refreshSessionDetails(sessionId).catch(() => undefined);
         return false;
       }
-      this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(cursorRun));
-      if (this.visibleSessionNeedsHistoryHydration(sessionId)) {
+      this.updateActiveChatStreamBinding(sessionId, this.chatRunBinding(selectedRun));
+      if (this.chatRunReplayRestorable(selectedRun) || this.visibleSessionNeedsHistoryHydration(sessionId)) {
         await this.refreshSessionDetails(sessionId).catch(() => undefined);
       }
-      this.startRecoveredChatRunStream(sessionId, streamRunId, effectiveCursor, cursorRun);
+      this.startRecoveredChatRunStream(sessionId, streamRunId, effectiveCursor, selectedRun);
       return true;
     } finally {
       this.recoveringStreamSessionIds.delete(sessionId);
     }
   }
 
-  private chatRunCursorFromActiveRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
+  private refreshSessionDetailsAfterRuntimeRestore(sessionId: string) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    void this.refreshSessionDetails(normalizedSessionId).catch((error) => {
+      console.debug("[workspace-runtime] runtime restore history hydration skipped", {
+        event: "runtime_restore_history_hydration_failed",
+        sessionId: normalizedSessionId,
+        error: this.errorMessage(error, "运行中会话历史恢复暂时失败。"),
+      });
+    });
+    void this.hydrateLatestHarnessTurnSnapshot(normalizedSessionId).catch(() => undefined);
+  }
+
+  private async chatRunFromCursor(sessionId: string, cursor: ChatStreamCursor | null): Promise<ChatRun | null> {
+    if (!cursor?.streamRunId || !cursor.eventLogId) {
+      return null;
+    }
+    const run = await getChatRun(cursor.streamRunId).catch(() => null);
+    if (
+      !run
+      || run.session_id !== sessionId
+      || run.event_log_id !== cursor.eventLogId
+      || !this.chatRunRestorable(run)
+    ) {
+      return null;
+    }
+    return run;
+  }
+
+  private chatRunCursorFromRestorableRun(run: ChatRun | null | undefined): ChatStreamCursor | null {
     const streamRunId = runtimeText(run?.stream_run_id);
     const eventLogId = runtimeText(run?.event_log_id);
-    if (!streamRunId || !eventLogId || run?.is_reconnectable === false) {
+    if (!streamRunId || !eventLogId || !this.chatRunRestorable(run)) {
       return null;
     }
     return {
@@ -3020,9 +3630,33 @@ export class WorkspaceRuntime {
     };
   }
 
+  private chatRunLiveReconnectable(run: ChatRun | null | undefined) {
+    return run?.live_reconnectable === true;
+  }
+
+  private chatRunReplayRestorable(run: ChatRun | null | undefined) {
+    return run?.replay_available === true && run?.recoverable_interruption === true;
+  }
+
+  private chatRunRestorable(run: ChatRun | null | undefined) {
+    return this.chatRunLiveReconnectable(run) || this.chatRunReplayRestorable(run);
+  }
+
   private visibleSessionNeedsHistoryHydration(sessionId: string) {
     const state = this.store.getState();
-    return state.currentSessionId === sessionId && state.messages.length === 0;
+    if (state.currentSessionId !== sessionId) {
+      return false;
+    }
+    if (state.messages.length === 0) {
+      return true;
+    }
+    const session = state.sessions.find((item) => item.id === sessionId)
+      ?? state.projectSessions.find((item) => item.id === sessionId);
+    const persistedMessageCount = Number(session?.message_count ?? 0);
+    if (!Number.isFinite(persistedMessageCount) || persistedMessageCount <= 0) {
+      return false;
+    }
+    return state.messages.length < persistedMessageCount;
   }
 
   private chatRunCursorAlreadyReachedTerminal(run: { terminal_event?: string; latest_event_offset?: number }, cursor: ChatStreamCursor | null) {
@@ -3049,7 +3683,8 @@ export class WorkspaceRuntime {
     return {
       turn_id: turnId,
       turn_run_id: String(payload.turn_run_id ?? "").trim() || undefined,
-      task_run_id: String(payload.bound_task_run_id ?? payload.task_run_id ?? "").trim() || undefined,
+      stream_run_id: String(payload.stream_run_id ?? "").trim() || undefined,
+      task_run_id: String(payload.task_run_id ?? "").trim() || undefined,
       state: this.activeTurnStateFromPayload(payload.state),
       updated_at: Number(payload.updated_at ?? 0) || undefined,
     };
@@ -3093,7 +3728,6 @@ export class WorkspaceRuntime {
         || fallbackStreamRunId,
       taskRunId: runtimeText(data.runtime_task_run_id)
         || runtimeText(data.task_run_id)
-        || runtimeText(data.bound_task_run_id)
         || runtimeText(frameAnchor.task_run_id),
       turnId: runtimeText(data.active_turn_id)
         || runtimeText(data.turn_id)
@@ -3137,7 +3771,48 @@ export class WorkspaceRuntime {
     void this.interruptChatRunForResume(binding.streamRunId, {
       taskRunId: pending.taskRunId || binding.taskRunId,
       expectedTurnId: pending.expectedTurnId || binding.turnId,
+    }).then(
+      () => this.resolveResumeBoundary(sessionId),
+      (error) => this.rejectResumeBoundary(sessionId, error),
+    );
+  }
+
+  private createResumeBoundary(sessionId: string): PendingResumeBoundary {
+    const existing = this.pendingResumeBoundaries.get(sessionId);
+    if (existing) {
+      return existing;
+    }
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
     });
+    // A user may pause and never submit a follow-up message. Mark the
+    // deferred rejection as handled so an interruption failure cannot become
+    // an unhandled browser promise rejection.
+    void promise.catch(() => undefined);
+    const boundary = { promise, resolve, reject };
+    this.pendingResumeBoundaries.set(sessionId, boundary);
+    return boundary;
+  }
+
+  private resolveResumeBoundary(sessionId: string) {
+    const boundary = this.pendingResumeBoundaries.get(sessionId);
+    if (!boundary) {
+      return;
+    }
+    this.pendingResumeBoundaries.delete(sessionId);
+    boundary.resolve();
+  }
+
+  private rejectResumeBoundary(sessionId: string, error: unknown) {
+    const boundary = this.pendingResumeBoundaries.get(sessionId);
+    if (!boundary) {
+      return;
+    }
+    this.pendingResumeBoundaries.delete(sessionId);
+    boundary.reject(error);
   }
 
   private currentChatStreamEpoch(sessionId: string) {
@@ -3175,12 +3850,18 @@ export class WorkspaceRuntime {
   private releaseActiveChatStreamForSwitch(sessionId: string) {
     this.nextChatStreamEpoch(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
+    const snapshot = this.visibleRuntimeProjectionSnapshotForRelease(sessionId);
     this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
     this.streamAbortControllers.delete(sessionId);
     this.streamingSessionCache.delete(sessionId);
     this.activeChatStreamBindings.delete(sessionId);
-    this.store.setState((prev) => this.removeActiveStreamSession(prev, sessionId));
+    this.store.setState((prev) =>
+      this.removeActiveStreamSession(
+        this.stateWithVisibleRuntimeProjectionSnapshot(prev, sessionId, snapshot),
+        sessionId,
+      )
+    );
   }
 
   private recordProjectionCommitAck(sessionId: string, data: Record<string, unknown>) {
@@ -3307,6 +3988,26 @@ export class WorkspaceRuntime {
     ];
   }
 
+  private recoverableChatRunActivity(run: ChatRun | null): StoreState["sessionActivity"] {
+    const detail = "公开投影已按事件日志恢复；旧轮已中断闭合，工作状态会作为下一轮记忆读取。";
+    return {
+      level: "waiting",
+      title: "中断记忆已保存",
+      detail,
+      event: "stream_recoverable_interruption",
+      receipt: {
+        level: "waiting",
+        title: "中断记忆已保存",
+        body: detail,
+        debug: {
+          event: "stream_recoverable_interruption",
+          stream_run_id: runtimeText(run?.stream_run_id),
+        },
+      },
+      updatedAt: Date.now(),
+    };
+  }
+
   private startRecoveredChatRunStream(
     sessionId: string,
     streamRunId: string,
@@ -3372,7 +4073,11 @@ export class WorkspaceRuntime {
 
     void (async () => {
       let streamEndedWithError = false;
+      let streamEndedWithRecoverableInterruption = false;
       try {
+        const replayOnlyRecovery = run
+          ? !this.chatRunLiveReconnectable(run) && this.chatRunReplayRestorable(run)
+          : false;
         const streamResult = await streamExistingChatRun(
           sessionId,
           streamRunId,
@@ -3394,7 +4099,8 @@ export class WorkspaceRuntime {
               const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
                 ? this.store.getState()
                 : streamState;
-              const transition = reduceStreamEvent(baseState, transitionSession, event, data, { deferProjectionViewBuild });
+              const projectionBaseState = this.promoteQueuedVisibleUserInputForProjectionFrame(sessionId, baseState, data);
+              const transition = reduceStreamEvent(projectionBaseState, transitionSession, event, data, { deferProjectionViewBuild });
               this.recordProjectionCommitAck(sessionId, data);
               transitionSession = transition.session;
               const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
@@ -3427,10 +4133,26 @@ export class WorkspaceRuntime {
           },
           {
             signal: abortController.signal,
-            initialCursor: cursor,
+            initialCursor: replayOnlyRecovery ? null : cursor,
+            replayFromStart: replayOnlyRecovery,
+            replayOnly: replayOnlyRecovery,
           }
         );
         streamEndedWithError = streamResult.terminalStatus === "failed";
+        streamEndedWithRecoverableInterruption = streamResult.terminalStatus === "recoverable_interruption";
+        if (streamEndedWithRecoverableInterruption) {
+          const updatedAt = Date.now();
+          streamState = this.captureSessionActivity({
+            ...streamState,
+            chatStreamConnectionStatus: {
+              state: "paused",
+              reason: "runtime_restart_waiting_resume",
+              lastEventOffset: streamResult.lastEventOffset,
+              updatedAt,
+            },
+            sessionActivity: this.recoverableChatRunActivity(run),
+          }, sessionId);
+        }
         if (streamResult.terminalStatus === "stopped") {
           this.stoppedStreamingSessionIds.add(sessionId);
         }
@@ -3487,19 +4209,25 @@ export class WorkspaceRuntime {
             ...next.sessionActivitiesById,
             [sessionId]: streamState.sessionActivity,
           };
-          if (streamEndedWithError) {
+          if (streamEndedWithError || streamEndedWithRecoverableInterruption) {
             next.sessionActivity = next.currentSessionId === sessionId
               ? streamState.sessionActivity
               : this.visibleSessionActivity(next);
           }
           return next;
         });
+        this.rememberVisibleRuntimeProjection(sessionId, {
+          messages: streamState.messages,
+          activeProjectionsByKey: streamState.activeProjectionsByKey,
+          harnessTurnSnapshot: streamState.harnessTurnSnapshot,
+          activeTurnSnapshot: streamState.activeTurnSnapshot,
+        });
         this.streamingSessionCache.delete(sessionId);
         const streamSessionWasRemoved = this.removedStreamingSessionIds.has(sessionId);
         const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
         this.removedStreamingSessionIds.delete(sessionId);
         this.stoppedStreamingSessionIds.delete(sessionId);
-        if (!streamSessionWasRemoved) {
+        if (!streamSessionWasRemoved && !streamEndedWithRecoverableInterruption) {
           await this.hydrateCommittedProjectionIfPending(sessionId);
         }
         if (
@@ -3507,6 +4235,7 @@ export class WorkspaceRuntime {
           && !streamSessionWasRemoved
           && !streamSessionWasStopped
           && !streamEndedWithError
+          && !streamEndedWithRecoverableInterruption
         ) {
           this.requestFirstUserSessionTitleInBackground(sessionId);
         }
@@ -3514,6 +4243,7 @@ export class WorkspaceRuntime {
           !streamSessionWasRemoved
           && !streamSessionWasStopped
           && !streamEndedWithError
+          && !streamEndedWithRecoverableInterruption
           && this.store.getState().currentSessionId === sessionId
         ) {
           await this.hydrateLatestHarnessTurnSnapshot(sessionId);
@@ -3563,6 +4293,10 @@ export class WorkspaceRuntime {
         },
       }));
       throw error;
+    }
+    const resumeBoundary = this.pendingResumeBoundaries.get(sessionId);
+    if (resumeBoundary) {
+      await resumeBoundary.promise;
     }
     this.invalidateSessionHistoryCache(sessionId);
     const activeStreamState = this.store.getState();
@@ -3621,6 +4355,9 @@ export class WorkspaceRuntime {
       await this.enqueueUserInputForSession(sessionId, trimmed, options.queuedUserMessageId);
       return;
     }
+    // The stopped turn has been consumed by this new user turn. Keep its
+    // visible messages, but stop treating its interruption boundary as active.
+    this.clearVisibleStreamInterruptSignal(sessionId);
     const shouldDeriveTitleAfterCompletion = this.shouldDeriveSessionTitleFromFirstUser(sessionId);
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
@@ -3727,13 +4464,27 @@ export class WorkspaceRuntime {
               return;
             }
             this.noteFileChangeSignalFromPayload(data);
+            if (event === "active_turn_steer_included") {
+              const includedSteers = Array.isArray(data.queued_user_steers) ? data.queued_user_steers : [];
+              for (const steer of includedSteers) {
+                if (steer && typeof steer === "object") {
+                  this.updateQueuedUserInputLifecycle(sessionId, steer as {
+                    lifecycle_state?: string;
+                    content?: string;
+                    client_message_id?: string;
+                    queue_item_id?: string;
+                  });
+                }
+              }
+            }
             this.updateActiveChatStreamBinding(sessionId, this.eventChatStreamBinding(data));
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const deferProjectionViewBuild = this.streamEventCanUseDeferredVisibleFlush(event, data);
             const baseState = isCurrentStreamSession && !this.pendingVisibleStreamFlushes.has(sessionId)
               ? this.store.getState()
               : streamState;
-            transition = reduceStreamEvent(baseState, transition.session, event, data, { deferProjectionViewBuild });
+            const projectionBaseState = this.promoteQueuedVisibleUserInputForProjectionFrame(sessionId, baseState, data);
+            transition = reduceStreamEvent(projectionBaseState, transition.session, event, data, { deferProjectionViewBuild });
             this.recordProjectionCommitAck(sessionId, data);
             const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
               ? this.store.getState().activeStreamSessionIds
@@ -3833,6 +4584,12 @@ export class WorkspaceRuntime {
         }
         return next;
       });
+      this.rememberVisibleRuntimeProjection(sessionId, {
+        messages: streamState.messages,
+        activeProjectionsByKey: streamState.activeProjectionsByKey,
+        harnessTurnSnapshot: streamState.harnessTurnSnapshot,
+        activeTurnSnapshot: streamState.activeTurnSnapshot,
+      });
       this.streamingSessionCache.delete(sessionId);
       const streamSessionWasRemoved = this.removedStreamingSessionIds.has(sessionId);
       const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
@@ -3877,16 +4634,19 @@ export class WorkspaceRuntime {
     const released = this.releaseStoppedChatStreamBoundary(sessionId, "user_interrupted_for_resume", {
       taskRunId,
       turnId: expectedTurnId,
-      preserveActiveWorkContext: true,
     });
     if (!released) {
       return;
     }
+    const resumeBoundary = normalizedSessionId ? this.createResumeBoundary(normalizedSessionId) : null;
     if (streamRunId) {
       void this.interruptChatRunForResume(streamRunId, {
         taskRunId,
         expectedTurnId,
-      });
+      }).then(
+        () => resumeBoundary?.resolve(),
+        (error) => resumeBoundary?.reject(error),
+      );
       return;
     }
     if (normalizedSessionId && streamEpoch > 0) {
@@ -3906,16 +4666,6 @@ export class WorkspaceRuntime {
     return this.releaseControlledChatStreamBoundary(sessionId, reason, {
       ...options,
       connectionState: "stopped",
-    });
-  }
-
-  private releasePausedChatStreamBoundary(
-    sessionId: string | null | undefined,
-    options: { abortStream?: boolean; taskRunId?: string; turnId?: string } = {},
-  ) {
-    return this.releaseControlledChatStreamBoundary(sessionId, "user_paused", {
-      ...options,
-      connectionState: "paused",
     });
   }
 
@@ -3940,20 +4690,29 @@ export class WorkspaceRuntime {
     } else {
       this.removedStreamingSessionIds.add(normalizedSessionId);
     }
+    const snapshot = this.visibleRuntimeProjectionSnapshotForRelease(normalizedSessionId);
     this.clearPendingVisibleStreamFlush(normalizedSessionId);
     if (options.abortStream !== false) {
       this.streamAbortControllers.get(normalizedSessionId)?.abort();
       this.streamAbortControllers.delete(normalizedSessionId);
     }
-    this.streamingSessionCache.delete(normalizedSessionId);
     const streamBinding = this.activeChatStreamBindings.get(normalizedSessionId);
+    if (reason === "user_interrupted_for_resume") {
+      this.rememberVisibleStreamInterruptSignal(normalizedSessionId, "user_interrupted_for_resume", {
+        stream_run_id: streamBinding?.streamRunId,
+        reason,
+      });
+    }
+    this.streamingSessionCache.delete(normalizedSessionId);
     const stoppedTaskRunId = String(options.taskRunId ?? "").trim() || String(streamBinding?.taskRunId ?? "").trim();
     const stoppedTurnId = String(options.turnId ?? "").trim() || String(streamBinding?.turnId ?? "").trim();
+    const stoppedStreamRunId = String(streamBinding?.streamRunId ?? "").trim();
     this.activeChatStreamBindings.delete(normalizedSessionId);
     this.store.setState((prev) => {
-      const detached = this.removeActiveStreamSession(prev, normalizedSessionId);
+      const projected = this.stateWithVisibleRuntimeProjectionSnapshot(prev, normalizedSessionId, snapshot);
+      const detached = this.removeActiveStreamSession(projected, normalizedSessionId);
       const nextState = options.connectionState === "stopped" && options.preserveActiveWorkContext !== true
-        ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId)
+        ? this.releaseActiveTurnGateForStoppedStream(detached, stoppedTaskRunId, stoppedTurnId, stoppedStreamRunId)
         : detached;
       return {
         ...nextState,
@@ -3980,7 +4739,7 @@ export class WorkspaceRuntime {
     this.setChatInterruptionActivity({
       level: "running",
       title: "正在中断",
-      detail: "输出流已断开，正在把任务进度和运行事实交给后端保存。",
+      detail: "输出流已断开，正在把本轮工作状态保存为记忆包。",
       event: "chat_stream_interrupt_requested",
       taskRunId,
       streamRunId: normalizedStreamRunId,
@@ -3990,7 +4749,6 @@ export class WorkspaceRuntime {
         mode: "interrupt_for_resume",
         reason: "user_stop_from_chat_stream",
         expected_active_turn_id: expectedTurnId,
-        expected_task_run_id: taskRunId,
         cascade_subagents: "interrupt_for_resume",
       });
       await this.refreshActiveSessionMonitor();
@@ -4001,11 +4759,17 @@ export class WorkspaceRuntime {
       this.setChatInterruptionActivity({
         level: "idle",
         title: "已中断",
-        detail: "上下文已保持连续，任务断开事实会交给下一轮 agent 判断。",
+        detail: "本轮已按中断闭合，下一条输入会开启新轮并读取这份记忆。",
         event: "chat_stream_interrupt_recorded",
         taskRunId,
         streamRunId: normalizedStreamRunId,
       });
+      if (currentSessionId) {
+        this.rememberVisibleStreamInterruptSignal(currentSessionId, "chat_stream_interrupt_recorded", {
+          stream_run_id: normalizedStreamRunId,
+          reason: "interrupt_for_resume",
+        });
+      }
     } catch (error) {
       this.setChatInterruptionActivity({
         level: "error",
@@ -4015,14 +4779,15 @@ export class WorkspaceRuntime {
         taskRunId,
         streamRunId: normalizedStreamRunId,
       });
+      throw error;
     }
   }
 
-  private releaseActiveTurnGateForStoppedStream(state: StoreState, taskRunId: string, turnId: string) {
+  private releaseActiveTurnGateForStoppedStream(state: StoreState, taskRunId: string, turnId: string, streamRunId: string) {
     const activeTurnSnapshot = state.activeTurnSnapshot;
     const snapshotMatches = Boolean(activeTurnSnapshot) && (
       Boolean(turnId && activeTurnSnapshot?.turn_id === turnId)
-      || Boolean(taskRunId && activeTurnSnapshot?.task_run_id === taskRunId)
+      || Boolean(streamRunId && activeTurnSnapshot?.stream_run_id === streamRunId)
     );
     const monitorInfo = this.singleAgentTaskMonitorInfo(state.taskGraphLiveMonitor);
     const monitorMatches = Boolean(taskRunId && monitorInfo?.taskRunId === taskRunId);
@@ -4074,158 +4839,6 @@ export class WorkspaceRuntime {
     }));
   }
 
-  private async pauseActiveTaskRun() {
-    const taskRunId = this.activeControllableTaskRunId();
-    if (!taskRunId) {
-      return;
-    }
-    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    this.releasePausedChatStreamBoundary(this.store.getState().currentSessionId, {
-      taskRunId,
-      turnId: expectedTurnId,
-    });
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "running",
-      title: "正在暂停",
-      detail: "暂停请求已发送，当前输出流已断开。",
-      event: "active_task_pause_requested",
-    });
-    try {
-      await pauseHarnessTaskRun(taskRunId, "user_pause_from_chat", expectedTurnId);
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError("pause", taskRunId, error);
-    }
-  }
-
-  private async resumeActiveTaskRun() {
-    const taskRunId = this.activeControllableTaskRunId();
-    if (!taskRunId) {
-      return;
-    }
-    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    const approvalKind = this.activeTaskRunWaitingApprovalKind(taskRunId);
-    const approvingLaunchGate = approvalKind === "launch_gate";
-    const approvingToolCall = approvalKind === "tool_call";
-    const approving = approvingLaunchGate || approvingToolCall;
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "running",
-      title: approving ? "正在确认" : "正在继续",
-      detail: approvingLaunchGate
-        ? "启动确认已发送，等待任务进入执行。"
-        : approvingToolCall
-          ? "确认请求已发送，等待工具调用继续。"
-          : "继续请求已发送，等待当前任务恢复执行。",
-      event: approving ? "active_task_approval_requested" : "active_task_resume_requested",
-    });
-    try {
-      if (approvingLaunchGate) {
-        await approveHarnessTaskRunLaunch(taskRunId, "user_approve_launch_from_chat", 12, expectedTurnId);
-      } else if (approvingToolCall) {
-        await approveHarnessTaskRunToolCall(taskRunId, "user_approve_tool_from_chat", 12, expectedTurnId);
-      } else {
-        await resumeHarnessTaskRun(taskRunId, 12, expectedTurnId);
-      }
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError(approving ? "approve" : "resume", taskRunId, error);
-    }
-  }
-
-  private async stopActiveTaskRun() {
-    const taskRunId = this.activeControllableTaskRunId();
-    if (!taskRunId) {
-      this.releaseStoppedChatStreamBoundary(this.store.getState().currentSessionId);
-      return;
-    }
-    const expectedTurnId = this.activeExpectedTurnIdForTaskRun(taskRunId);
-    this.releaseStoppedChatStreamBoundary(this.store.getState().currentSessionId, "user_stopped", { taskRunId, turnId: expectedTurnId });
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "running",
-      title: "正在停止",
-      detail: "停止请求已发送，当前步骤到达运行边界后会结束。",
-      event: "active_task_stop_requested",
-    });
-    try {
-      await stopHarnessTaskRun(taskRunId, "user_stop_from_chat", expectedTurnId);
-      await this.refreshActiveSessionMonitor();
-    } catch (error) {
-      this.setActiveTaskControlError("stop", taskRunId, error);
-    }
-  }
-
-  private setActiveTaskControlActivity(input: {
-    taskRunId: string;
-    level: StoreState["sessionActivity"]["level"];
-    title: string;
-    detail: string;
-    event: string;
-  }) {
-    const sessionId = this.store.getState().currentSessionId;
-    this.store.setState((prev) => ({
-      ...prev,
-      sessionActivity: sessionId
-        ? {
-            level: input.level,
-            title: input.title,
-            detail: input.detail,
-            event: input.event,
-            receipt: {
-              level: input.level,
-              title: input.title,
-              body: input.detail,
-              debug: {
-                event: input.event,
-                taskRunId: input.taskRunId,
-              },
-            },
-            updatedAt: Date.now(),
-          }
-        : prev.sessionActivity,
-      sessionActivitiesById: sessionId
-        ? {
-            ...prev.sessionActivitiesById,
-            [sessionId]: {
-              level: input.level,
-              title: input.title,
-              detail: input.detail,
-              event: input.event,
-              receipt: {
-                level: input.level,
-                title: input.title,
-                body: input.detail,
-                debug: {
-                  event: input.event,
-                  taskRunId: input.taskRunId,
-                },
-              },
-              updatedAt: Date.now(),
-            },
-          }
-        : prev.sessionActivitiesById,
-    }));
-  }
-
-  private setActiveTaskControlError(action: "approve" | "pause" | "resume" | "stop", taskRunId: string, error: unknown) {
-    const titles: Record<typeof action, string> = {
-      approve: "确认失败",
-      pause: "暂停失败",
-      resume: "继续失败",
-      stop: "停止失败",
-    };
-    const fallback = `${titles[action]}，请稍后重试或在运行监控里查看当前状态。`;
-    this.setActiveTaskControlActivity({
-      taskRunId,
-      level: "error",
-      title: titles[action],
-      detail: this.errorMessage(error, fallback),
-      event: `active_task_${action}_failed`,
-    });
-  }
-
   private activeControllableTaskRunId() {
     const state = this.store.getState();
     const monitor = state.taskGraphLiveMonitor;
@@ -4241,53 +4854,6 @@ export class WorkspaceRuntime {
         ? this.activeChatStreamBindings.get(state.currentSessionId)?.taskRunId ?? ""
         : ""
     ).trim();
-  }
-
-  private activeTaskRunStatus(taskRunId: string) {
-    const monitor = this.store.getState().taskGraphLiveMonitor;
-    if (!monitor) {
-      return "";
-    }
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const currentId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-    if (currentId !== taskRunId) {
-      return "";
-    }
-    return String(monitor.status ?? taskRun.status ?? "").trim();
-  }
-
-  private activeTaskRunWaitingApprovalKind(taskRunId: string) {
-    const monitor = this.store.getState().taskGraphLiveMonitor;
-    if (!monitor) {
-      return "";
-    }
-    const taskRun = this.harnessMonitorTaskRun(monitor);
-    const monitorRecord = monitor as unknown as Record<string, unknown>;
-    const currentId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
-    if (currentId !== taskRunId) {
-      return "";
-    }
-    const status = String(monitor.status ?? taskRun.status ?? "").trim();
-    if (status !== "waiting_approval") {
-      return "";
-    }
-    const diagnostics = recordValue(taskRun.diagnostics);
-    const pendingLaunchGate = {
-      ...recordValue(diagnostics.pending_launch_gate),
-      ...recordValue(monitorRecord.pending_launch_gate),
-    };
-    const waitReason = String(monitorRecord.wait_reason ?? diagnostics.wait_reason ?? "").trim();
-    if (String(pendingLaunchGate.status ?? "").trim() === "pending" || waitReason === "task_launch_supervision") {
-      return "launch_gate";
-    }
-    const pendingApproval = {
-      ...recordValue(diagnostics.pending_approval),
-      ...recordValue(monitorRecord.pending_approval),
-    };
-    if (String(pendingApproval.status ?? "").trim() === "pending" || waitReason === "tool_approval_required") {
-      return "tool_call";
-    }
-    return "tool_call";
   }
 
   private activeExpectedTurnIdForTaskRun(taskRunId: string) {
@@ -4377,7 +4943,7 @@ export class WorkspaceRuntime {
       return false;
     }
     const snapshotState = String(snapshot?.state ?? "").trim();
-    return snapshotState !== "terminal";
+    return snapshotState !== "terminal" && snapshotState !== "interrupting";
   }
 
   private shouldQueueActiveTurnInput(state: StoreState, sessionId: string) {
@@ -4797,9 +5363,10 @@ export class WorkspaceRuntime {
     const option = this.providerCatalogOption(config, provider);
     const isPrimaryConfigured = provider === config.provider && model === config.model;
     const isFallbackConfigured = provider === config.fallback_provider && model === config.fallback_model;
-    const isProviderPreset = provider === config.provider
+    const isConfiguredProviderModel = provider === config.provider && Boolean(model);
+    const isProviderPreset = isConfiguredProviderModel
       && Boolean(option?.model_presets?.some((preset) => String(preset || "").trim() === model));
-    if (!isPrimaryConfigured && !isFallbackConfigured && !isProviderPreset) {
+    if (!isPrimaryConfigured && !isFallbackConfigured && !isConfiguredProviderModel && !isProviderPreset) {
       return null;
     }
     return {
@@ -5077,6 +5644,8 @@ export class WorkspaceRuntime {
     const deletedActivity = beforeDelete.sessionActivitiesById[sessionId] ?? null;
     const deletedEditorContext = beforeDelete.sessionEditorContexts[sessionId] ?? null;
     this.streamingSessionCache.delete(sessionId);
+    this.visibleRuntimeProjectionCache.delete(sessionId);
+    this.clearVisibleStreamInterruptSignal(sessionId);
     this.removedStreamingSessionIds.add(sessionId);
     this.clearPendingVisibleStreamFlush(sessionId);
     this.streamAbortControllers.get(sessionId)?.abort();
@@ -5606,6 +6175,9 @@ export class WorkspaceRuntime {
       ...prev,
       activeWorkspaceView: workspaceView,
     }));
+    if (workspaceView === "chat") {
+      this.requestChatWorkspaceHydrate();
+    }
   }
 
   private workspaceViewForTaskEnvironment(taskEnvironmentId: string): WorkspaceView {
@@ -5658,6 +6230,9 @@ export class WorkspaceRuntime {
       conversationActiveEnvironment: activeEnvironment,
       chatTaskEnvironmentBinding: null,
     }));
+    if (view === "chat") {
+      this.requestChatWorkspaceHydrate();
+    }
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.persistActiveTaskEnvironment(sessionId, activeEnvironment).catch((error) => {
@@ -5931,11 +6506,14 @@ export class WorkspaceRuntime {
   }
 
   private async stopBoundTaskGraphRun() {
-    const taskRunId = this.boundTaskGraphRunTaskRunId();
-    if (!taskRunId) {
+    const state = this.store.getState();
+    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
+    const graphRunId = String(state.taskGraphMonitorBinding?.graph_run_id || monitor?.graph_run_id || "").trim();
+    const graphConfigId = String(state.taskGraphMonitorBinding?.graph_config_id || monitor?.graph_config_id || "").trim();
+    if (!graphRunId || !graphConfigId) {
       this.store.setState((prev) => ({
         ...prev,
-        taskGraphMonitorError: "当前 GraphRun 没有关联可停止的 TaskRun。",
+        taskGraphMonitorError: "当前 GraphRun 缺少可停止的图运行绑定。",
       }));
       return;
     }
@@ -5947,7 +6525,11 @@ export class WorkspaceRuntime {
       taskGraphMonitorError: "",
     }));
     try {
-      await stopHarnessTaskRun(taskRunId, "user_stop_graph_run", "");
+      await stopGraphRun(graphRunId, {
+        graph_config_id: graphConfigId,
+        session_scope: state.taskGraphMonitorBinding?.session_scope,
+        reason: "user_stop_graph_run",
+      });
       await this.runMonitorController.evaluateBoundGraphMonitor().catch(() => undefined);
       await this.refreshRunMonitor();
     } catch (error) {
@@ -5961,26 +6543,6 @@ export class WorkspaceRuntime {
         taskGraphMonitorActionLoading: false,
       }));
     }
-  }
-
-  private boundTaskGraphRunTaskRunId() {
-    const state = this.store.getState();
-    const monitor = state.taskGraphBoundRunMonitor as Record<string, unknown> | null;
-    const taskRun = monitor?.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
-      ? monitor.task_run as Record<string, unknown>
-      : {};
-    const taskRunMonitor = (monitor?.task_run_monitor && typeof monitor.task_run_monitor === "object" && !Array.isArray(monitor.task_run_monitor)
-      ? monitor.task_run_monitor
-      : monitor?.run_monitor && typeof monitor.run_monitor === "object" && !Array.isArray(monitor.run_monitor)
-        ? monitor.run_monitor
-        : {}) as Record<string, unknown>;
-    return String(
-      state.taskGraphMonitorBinding?.task_run_id
-      || monitor?.task_run_id
-      || taskRun.task_run_id
-      || taskRunMonitor.task_run_id
-      || ""
-    ).trim();
   }
 
   private boundTaskGraphRunControlState() {
@@ -6094,7 +6656,7 @@ export class WorkspaceRuntime {
       const staleOrDiagnostic = stale || lifecycle === "stale" || bucket === "diagnostics";
       const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "waiting_safe_boundary", "blocked"].includes(liveStatus) && !staleOrDiagnostic;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
-      const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
+      const taskRunId = this.liveMonitorTaskRunId(activeMonitor, liveMonitor);
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
       this.updateSessionActivityFromLiveMonitor(
         staleOrDiagnostic && controlState.trim().toLowerCase() !== "paused" ? "stale" : liveStatus,
@@ -6142,6 +6704,20 @@ export class WorkspaceRuntime {
       ? monitor.task_run as Record<string, unknown>
       : {};
     return Object.keys(nested).length ? nested : monitor as unknown as Record<string, unknown>;
+  }
+
+  private liveMonitorTaskRunId(
+    monitor: HarnessSessionMonitor,
+    liveMonitor?: Awaited<ReturnType<typeof getHarnessSessionLiveMonitor>>,
+  ) {
+    const monitorRecord = monitor as unknown as Record<string, unknown>;
+    const sourceKind = String(monitorRecord.source_kind ?? "").trim();
+    const executionRuntimeKind = String(monitor.execution_runtime_kind ?? monitorRecord.execution_runtime_kind ?? "").trim();
+    if (sourceKind === "turn_run" || executionRuntimeKind === "single_agent_turn") {
+      return "";
+    }
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    return String(taskRun.task_run_id ?? monitor.task_run_id ?? liveMonitor?.active_task_run_id ?? "").trim();
   }
 
   private runtimeControlState(monitor: HarnessSessionMonitor) {
@@ -6283,7 +6859,7 @@ export class WorkspaceRuntime {
       return;
     }
     const liveStatus = runtimeText(signal.status || signal.activity_state || signal.state);
-    const taskRunId = runtimeText(signal.task_run_id || signal.detail_ref?.task_run_id || signal.task_instance_id);
+    const taskRunId = this.runMonitorSignalTaskRunId(signal);
     const graphRunId = runtimeText(signal.graph_run_id || signal.graph_ref?.graph_run_id || signal.detail_ref?.graph_run_id);
     this.updateSessionActivityFromLiveMonitor(
       liveStatus,
@@ -6292,6 +6868,14 @@ export class WorkspaceRuntime {
       this.runMonitorSignalControlState(signal),
       signal as unknown as Record<string, unknown>,
     );
+  }
+
+  private runMonitorSignalTaskRunId(signal: RunMonitorSignal) {
+    const kind = runtimeText(signal.detail_ref?.kind || signal.source_kind);
+    if (kind === "turn_run") {
+      return "";
+    }
+    return runtimeText(signal.task_run_id || signal.detail_ref?.task_run_id || signal.task_instance_id);
   }
 
   private currentSessionActivitySignal(monitor: RunMonitorEnvelope, currentSessionId: string): RunMonitorSignal | null {
@@ -6597,6 +7181,11 @@ export class WorkspaceRuntime {
   }
 }
 
+function stripLegacyMessageProjectionView(message: Message): Message {
+  const { projectionView: _discarded, ...rest } = message;
+  return rest;
+}
+
 function finiteNumber(value: unknown): number | undefined {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
@@ -6774,6 +7363,3 @@ function clientNow() {
   }
   return Date.now();
 }
-
-
-

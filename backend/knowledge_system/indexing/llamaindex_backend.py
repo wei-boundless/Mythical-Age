@@ -41,7 +41,7 @@ class LlamaIndexRetrievalBackend:
         self._units_cache: dict[str, dict[str, dict[str, Any]]] = {}
         self._hybrid_ranker = HybridRanker()
 
-    def ensure_layout(self, *, collections: tuple[str, ...] = ("knowledge", "durable_memory", "session_memory")) -> None:
+    def ensure_layout(self, *, collections: tuple[str, ...] = ("knowledge", "durable_memory", "conversation_continuity")) -> None:
         self.layout.ensure(collections=collections)
         for collection in collections:
             self.layout.dense_dir(collection).mkdir(parents=True, exist_ok=True)
@@ -1192,6 +1192,5 @@ class LlamaIndexRetrievalBackend:
             return int(value)
         except (TypeError, ValueError):
             return None
-
 
 

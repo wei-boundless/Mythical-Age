@@ -20,7 +20,12 @@ _JSON_SYMBOL_RE = re.compile(r"[{}\[\]\":,]")
 def _encoder():
     if tiktoken is None:
         return None
-    return tiktoken.get_encoding("cl100k_base")
+    try:
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        # Frozen builds may omit tiktoken's dynamically discovered encoding plugin.
+        # Token accounting must remain observational and cannot abort a chat run.
+        return None
 
 
 def count_text_tokens(text: str) -> int:

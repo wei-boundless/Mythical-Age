@@ -95,14 +95,14 @@ def render_environment_instruction(
     )
 
 
-def render_lifecycle_instruction(lifecycle_prompt_assembly: Any | None) -> str:
-    content = _lifecycle_prompt_section_content(lifecycle_prompt_assembly)
+def render_environment_guidance_instruction(environment_guidance_prompt_assembly: Any | None) -> str:
+    content = _environment_guidance_prompt_section_content(environment_guidance_prompt_assembly)
     if not content:
         return ""
     return _render_instruction_fragment(
-        kind="lifecycle_instruction",
-        title="当前执行生命周期规则",
-        content="当前执行生命周期规则：\n" + content + "\n",
+        kind="environment_guidance_instruction",
+        title="当前环境工作提示",
+        content="当前环境工作提示：\n" + content + "\n",
     )
 
 
@@ -123,12 +123,12 @@ def _environment_prompt_section_content(environment_prompt_assembly: Any) -> str
     return "\n\n".join(rendered).strip()
 
 
-def _lifecycle_prompt_section_content(lifecycle_prompt_assembly: Any | None) -> str:
-    if lifecycle_prompt_assembly is None:
+def _environment_guidance_prompt_section_content(environment_guidance_prompt_assembly: Any | None) -> str:
+    if environment_guidance_prompt_assembly is None:
         return ""
     sections = [
         section
-        for section in tuple(getattr(lifecycle_prompt_assembly, "sections", ()) or ())
+        for section in tuple(getattr(environment_guidance_prompt_assembly, "sections", ()) or ())
         if str(getattr(section, "content", "") or "").strip()
     ]
     if not sections:
@@ -136,8 +136,8 @@ def _lifecycle_prompt_section_content(lifecycle_prompt_assembly: Any | None) -> 
     rendered: list[str] = []
     for section in sections:
         prompt_ref = str(getattr(section, "prompt_ref", "") or "").strip()
-        title = str(getattr(section, "title", "") or prompt_ref or "生命周期提示").strip()
-        rendered.append(f"【生命周期提示：{title}】\n{str(getattr(section, 'content', '') or '').strip()}")
+        title = str(getattr(section, "title", "") or prompt_ref or "环境工作提示").strip()
+        rendered.append(f"【环境工作提示：{title}】\n{str(getattr(section, 'content', '') or '').strip()}")
     return "\n\n".join(rendered).strip()
 
 

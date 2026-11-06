@@ -5,10 +5,10 @@ from typing import Any
 
 from context_system.models.context_models import (
     ContextBudget,
-    ContextPackage,
+    TurnContextPackage,
     CONTEXT_TEXT_NORMALIZATION_VERSION,
-    SealedContextLedgerEntry,
-    SealedContextReceipt,
+    ContextSelectionReceiptEntry,
+    ContextSelectionReceipt,
     hash_context_section_package,
     hash_context_sections,
     hash_context_text,
@@ -17,7 +17,7 @@ from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
 from core.token_accounting import count_text_tokens
 
-from .contracts import ContextCandidateDecision, ContextPolicyResult
+from .contracts import TurnContextCandidateDecision, TurnContextPolicyResult
 
 
 SECTION_BY_LAYER = {
@@ -36,20 +36,20 @@ PRIORITY_BY_LAYER = {
 
 
 @dataclass(slots=True, frozen=True)
-class MemoryContextPolicy:
+class TurnMemoryContextPolicy:
     available_context_tokens: int = 6_000
     reserved_output_tokens: int = 1_200
     static_tokens: int = 0
     retrieval_tokens: int = 0
     long_term_token_cap: int = 1_000
 
-    def build_context_package_result(
+    def build_turn_context_package_result(
         self,
         memory_view: MemoryRuntimeView,
         *,
-        rebuild_reason: str = "memory_context_policy_result",
+        rebuild_reason: str = "turn_memory_context_policy_result",
         retrieval_results: list[dict[str, Any]] | None = None,
-    ) -> ContextPolicyResult:
+    ) -> TurnContextPolicyResult:
         budget = self._budget()
         sorted_candidates = sorted(
             memory_view.context_candidates,
@@ -73,8 +73,8 @@ class MemoryContextPolicy:
             "debug_session_trace": [],
         }
         debug_sections = {name: list(items) for name, items in sections.items()}
-        decisions: list[ContextCandidateDecision] = []
-        ledger_entries: list[SealedContextLedgerEntry] = []
+        decisions: list[TurnContextCandidateDecision] = []
+        selection_entries: list[ContextSelectionReceiptEntry] = []
         dropped_items: list[str] = []
 
         retrieval_render = _render_retrieval_results(
@@ -92,8 +92,8 @@ class MemoryContextPolicy:
             section_tokens["retrieval_evidence"] = retrieval_used
         for dropped_reason in retrieval_render["dropped_items"]:
             dropped_items.append(str(dropped_reason))
-        for entry in retrieval_render["ledger_entries"]:
-            ledger_entries.append(entry)
+        for entry in retrieval_render["selection_entries"]:
+            selection_entries.append(entry)
 
         for candidate in sorted_candidates:
             section_name = SECTION_BY_LAYER.get(candidate.memory_layer, "debug_session_trace")
@@ -117,8 +117,8 @@ class MemoryContextPolicy:
                 section_tokens[section_name] = section_tokens.get(section_name, 0) + tokens
                 remaining -= tokens
                 decisions.append(self._decision(candidate, section_name, "include", reason, tokens))
-                ledger_entries.append(
-                    self._candidate_ledger_entry(
+                selection_entries.append(
+                    self._candidate_selection_entry(
                         candidate,
                         section_name=section_name,
                         decision="include",
@@ -130,8 +130,8 @@ class MemoryContextPolicy:
             else:
                 dropped_items.append(f"{candidate.candidate_id}: {reason}")
                 decisions.append(self._decision(candidate, section_name, "drop", reason, tokens))
-                ledger_entries.append(
-                    self._candidate_ledger_entry(
+                selection_entries.append(
+                    self._candidate_selection_entry(
                         candidate,
                         section_name=section_name,
                         decision="drop",
@@ -158,12 +158,12 @@ class MemoryContextPolicy:
             ),
             "remaining_context": total_remaining,
         }
-        sealed_receipt = self._sealed_receipt(
+        selection_receipt = self._selection_receipt(
             memory_view=memory_view,
             sections=sections,
-            ledger_entries=ledger_entries,
+            selection_entries=selection_entries,
         )
-        package = ContextPackage(
+        package = TurnContextPackage(
             pressure_level="normal",
             budget=budget,
             sections=sections,
@@ -180,17 +180,17 @@ class MemoryContextPolicy:
                 "state memory outranks conversation memory; long-term memory is optional and verification-scoped",
             ],
             token_accounting=token_accounting,
-            sealed_receipt=sealed_receipt,
+            selection_receipt=selection_receipt,
         )
-        return ContextPolicyResult(
+        return TurnContextPolicyResult(
             package=package,
             decisions=tuple(decisions),
-            sealed_receipt=sealed_receipt,
+            selection_receipt=selection_receipt,
             read_only=True,
             diagnostics={
                 "memory_runtime_view_ref": memory_view.view_id,
-                "context_package_receipt_ref": sealed_receipt.receipt_id,
-                "context_package_sha256": sealed_receipt.package_sha256,
+                "context_package_receipt_ref": selection_receipt.receipt_id,
+                "context_package_sha256": selection_receipt.package_sha256,
                 "context_candidate_count": len(memory_view.context_candidates),
                 "restore_candidate_count": len(memory_view.restore_candidates),
                 "retrieval_evidence_count": len(retrieval_items),
@@ -252,8 +252,8 @@ class MemoryContextPolicy:
         decision: str,
         reason: str,
         tokens: int,
-    ) -> ContextCandidateDecision:
-        return ContextCandidateDecision(
+    ) -> TurnContextCandidateDecision:
+        return TurnContextCandidateDecision(
             candidate_id=candidate.candidate_id,
             memory_layer=candidate.memory_layer,
             target_section=section_name,
@@ -276,7 +276,7 @@ class MemoryContextPolicy:
             f"tokens={tokens} source={candidate.source}\n{candidate.rendered_preview}"
         )
 
-    def _candidate_ledger_entry(
+    def _candidate_selection_entry(
         self,
         candidate: MemoryContextCandidate,
         *,
@@ -285,9 +285,9 @@ class MemoryContextPolicy:
         reason: str,
         tokens: int,
         rendered: str,
-    ) -> SealedContextLedgerEntry:
-        entry_id = f"ledger:{candidate.candidate_id}:{decision}"
-        return SealedContextLedgerEntry(
+    ) -> ContextSelectionReceiptEntry:
+        entry_id = f"selection-receipt-entry:{candidate.candidate_id}:{decision}"
+        return ContextSelectionReceiptEntry(
             entry_id=entry_id,
             source_kind="memory_candidate",
             target_section=section_name,
@@ -308,40 +308,40 @@ class MemoryContextPolicy:
             },
         )
 
-    def _sealed_receipt(
+    def _selection_receipt(
         self,
         *,
         memory_view: MemoryRuntimeView,
         sections: dict[str, list[str]],
-        ledger_entries: list[SealedContextLedgerEntry],
-    ) -> SealedContextReceipt:
+        selection_entries: list[ContextSelectionReceiptEntry],
+    ) -> ContextSelectionReceipt:
         package_sha256 = hash_context_section_package(sections)
-        return SealedContextReceipt(
+        return ContextSelectionReceipt(
             receipt_id=f"context-receipt:{memory_view.view_id}:{package_sha256[:12]}",
             memory_runtime_view_ref=memory_view.view_id,
             package_sha256=package_sha256,
             normalization_version=CONTEXT_TEXT_NORMALIZATION_VERSION,
             section_item_hashes=hash_context_sections(sections),
-            included_entries=tuple(entry for entry in ledger_entries if entry.decision == "include"),
-            dropped_entries=tuple(entry for entry in ledger_entries if entry.decision == "drop"),
+            included_selection_entries=tuple(entry for entry in selection_entries if entry.decision == "include"),
+            dropped_selection_entries=tuple(entry for entry in selection_entries if entry.decision == "drop"),
             read_only=True,
         )
 
 
-def build_context_package_result(
+def build_turn_context_package_result(
     memory_view: MemoryRuntimeView,
     *,
-    rebuild_reason: str = "memory_context_policy_result",
+    rebuild_reason: str = "turn_memory_context_policy_result",
     retrieval_results: list[dict[str, Any]] | None = None,
     available_context_tokens: int = 6_000,
     reserved_output_tokens: int = 1_200,
     long_term_token_cap: int = 1_000,
-) -> ContextPolicyResult:
-    return MemoryContextPolicy(
+) -> TurnContextPolicyResult:
+    return TurnMemoryContextPolicy(
         available_context_tokens=available_context_tokens,
         reserved_output_tokens=reserved_output_tokens,
         long_term_token_cap=long_term_token_cap,
-    ).build_context_package_result(
+    ).build_turn_context_package_result(
         memory_view,
         rebuild_reason=rebuild_reason,
         retrieval_results=retrieval_results,
@@ -364,7 +364,7 @@ def _render_retrieval_results(
     total_remaining: int,
 ) -> dict[str, Any]:
     rendered: list[str] = []
-    ledger_entries: list[SealedContextLedgerEntry] = []
+    selection_entries: list[ContextSelectionReceiptEntry] = []
     dropped_items: list[str] = []
     remaining = max(0, min(retrieval_budget, total_remaining))
     used_tokens = 0
@@ -395,9 +395,9 @@ def _render_retrieval_results(
         if tokens > remaining:
             dropped_items.append(f"retrieval:{index + 1}: retrieval_budget_exceeded")
             dropped_count += 1
-            ledger_entries.append(
-                SealedContextLedgerEntry(
-                    entry_id=f"ledger:retrieval:{index + 1}:drop",
+            selection_entries.append(
+                ContextSelectionReceiptEntry(
+                    entry_id=f"selection-receipt-entry:retrieval:{index + 1}:drop",
                     source_kind="retrieval_evidence",
                     target_section="retrieval_evidence",
                     decision="drop",
@@ -410,9 +410,9 @@ def _render_retrieval_results(
             )
             continue
         rendered.append(rendered_item)
-        ledger_entries.append(
-            SealedContextLedgerEntry(
-                entry_id=f"ledger:retrieval:{index + 1}:include",
+        selection_entries.append(
+            ContextSelectionReceiptEntry(
+                entry_id=f"selection-receipt-entry:retrieval:{index + 1}:include",
                 source_kind="retrieval_evidence",
                 target_section="retrieval_evidence",
                 decision="include",
@@ -433,7 +433,7 @@ def _render_retrieval_results(
         "used_tokens": used_tokens,
         "dropped_count": dropped_count,
         "dropped_items": dropped_items,
-        "ledger_entries": ledger_entries,
+        "selection_entries": selection_entries,
     }
 
 

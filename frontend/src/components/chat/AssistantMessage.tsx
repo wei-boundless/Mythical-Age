@@ -6,6 +6,8 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { markdownLinkOpensOutsideWorkbench, workbenchMarkdownComponents } from "@/components/markdown/WorkbenchMarkdownComponents";
+
 type AssistantMessageImage = {
   alt?: string;
   caption?: string;
@@ -117,16 +119,6 @@ type FileReference = FileReferenceCandidate & {
   index: number;
 };
 
-const assistantMarkdownComponents: Components = {
-  table({ children, node: _node, ...props }) {
-    return (
-      <div className="markdown-table-frame" role="region" aria-label="表格内容">
-        <table {...props}>{children}</table>
-      </div>
-    );
-  },
-};
-
 function formatAssistantMarkdownForReading(text: string): string {
   const lines = repairRunawayMarkdownFences(str(text).replace(/\r\n/g, "\n")).split("\n");
   const output: string[] = [];
@@ -231,7 +223,7 @@ function createAssistantMarkdownComponents(
   const richFenceComponents = createRichFenceMarkdownComponents(renderTextReferences);
 
   return {
-    ...assistantMarkdownComponents,
+    ...workbenchMarkdownComponents,
     a({ children, href, node: _node, ...props }) {
       const reference = href ? indexedFileReferenceFromCandidate(href, fileReferences, fileNameIndex) : null;
       if (reference) {
@@ -243,8 +235,13 @@ function createAssistantMarkdownComponents(
           />
         );
       }
+      const opensOutsideWorkbench = markdownLinkOpensOutsideWorkbench(href);
       return (
-        <a {...props} href={href}>
+        <a
+          {...props}
+          href={href}
+          {...(opensOutsideWorkbench ? { rel: "noopener noreferrer", target: "_blank" } : {})}
+        >
           {children}
         </a>
       );
@@ -320,7 +317,7 @@ function createRichFenceMarkdownComponents(
   renderTextReferences: (children: React.ReactNode) => React.ReactNode,
 ): Components {
   const components: Components = {
-    ...assistantMarkdownComponents,
+    ...workbenchMarkdownComponents,
     pre({ children, className, node: _node, ref: _ref, ...props }) {
       const fence = codeFenceFromPreChildren(children);
       if (fence && shouldRenderFenceAsRichMarkdown(fence.text, fence.language)) {
@@ -648,6 +645,10 @@ function workspaceRelativeFilePath(path: string, fileNameIndex?: Map<string, str
   const parts = trimmed.split("/").filter(Boolean);
   const rootIndex = parts.findIndex((part) => WORKSPACE_ROOT_SEGMENTS.has(part));
   if (rootIndex < 0) {
+    // 不在已知根目录白名单中时，如果已经是合法相对路径则直接返回
+    if (!/^[A-Za-z]:[/\\]/.test(trimmed) && !trimmed.startsWith("/")) {
+      return trimmed;
+    }
     return "";
   }
   return parts.slice(rootIndex).join("/");

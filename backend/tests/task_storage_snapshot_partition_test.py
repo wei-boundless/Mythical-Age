@@ -8,10 +8,10 @@ def test_task_system_storage_keeps_snapshots_out_of_registry_root(tmp_path) -> N
     backend.mkdir()
     storage = TaskSystemStorage(backend)
 
-    storage.write_object("task_graphs.json", {"task_graphs": []})
+    storage.write_object("task_domains.json", {"task_domains": []})
     storage.write_snapshot("debug_snapshots", "run/latest.json", {"monitor": {"status": "ok"}})
 
-    assert (tmp_path / "storage" / "tasks" / "task_graphs.json").exists()
+    assert (tmp_path / "storage" / "tasks" / "task_domains.json").exists()
     assert (tmp_path / "storage" / "tasks" / "debug_snapshots" / "run" / "latest.json").exists()
     assert not (tmp_path / "storage" / "tasks" / "run" / "latest.json").exists()
     assert storage.read_snapshot("debug_snapshots", "run/latest.json", {})["monitor"]["status"] == "ok"

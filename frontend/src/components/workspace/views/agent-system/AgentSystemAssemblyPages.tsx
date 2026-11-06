@@ -8,6 +8,7 @@ import {
   AgentSystemContextMemoryWorkbench,
   AgentSystemDiagnosticsWorkbench,
   AgentSystemModelRuntimeWorkbench,
+  AgentSystemPromptWiringWorkbench,
   AgentSystemRuntimeConfigWorkbench,
   AgentSystemRuntimePermissionWorkbench,
 } from "@/components/workspace/views/agent-system/AgentSystemConfigWorkbenches";
@@ -114,6 +115,16 @@ export function AgentSystemAssemblyPages({
             />
           ) : null}
 
+          {controller.activeLayer === "prompt_wiring" ? (
+            <AgentSystemPromptWiringWorkbench
+              patchRuntimeDraft={controller.patchRuntimeDraft}
+              runtimeDraft={controller.runtimeDraft}
+              runtimeSaveBlocked={controller.runtimeSaveBlocked}
+              saveRuntimeProfile={controller.saveRuntimeProfile}
+              saving={controller.saving}
+            />
+          ) : null}
+
           {controller.activeLayer === "context_memory" ? (
             <AgentSystemContextMemoryWorkbench
               contextSectionOptionItems={controller.contextSectionOptionItems}
@@ -167,7 +178,6 @@ export function AgentSystemAssemblyPages({
     </>
   );
 }
-
 
 
 

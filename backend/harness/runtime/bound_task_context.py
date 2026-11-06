@@ -56,9 +56,9 @@ class BoundTaskContext:
             return {}
         return _drop_empty_payload(
             {
-                "bound_task_runtime_context": {
+                "bound_task_current_context": {
                     "stable_context_hash": self.context_hash,
-                    "runtime_state_hash": str(self.diagnostics.get("runtime_state_hash") or ""),
+                    "current_state_hash": str(self.diagnostics.get("runtime_state_hash") or ""),
                     **body,
                     "authority": self.authority,
                 }
@@ -217,7 +217,6 @@ def _task_files(value: Any, *, file_evidence_decisions: dict[str, dict[str, Any]
                 "last_observation_ref": str(item.get("last_observation_ref") or "").strip(),
                 "has_more": item.get("has_more") if isinstance(item.get("has_more"), bool) else None,
                 "write_event_count": item.get("write_event_count") if isinstance(item.get("write_event_count"), int) else None,
-                "next_suggested_read": dict(item.get("next_suggested_read") or {}),
                 "evidence_refs": _string_list(item.get("evidence_refs"))[-5:],
             }
         )
@@ -361,19 +360,7 @@ def _artifact_refs(*values: Any) -> list[dict[str, Any]]:
 
 def _rehydration_refs(*, task_files: list[dict[str, Any]], replay_entries: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
-    for item in task_files:
-        next_read = dict(item.get("next_suggested_read") or {})
-        if next_read:
-            refs.append(
-                _drop_empty_payload(
-                    {
-                        "source": "file_state",
-                        "path": str(item.get("path") or ""),
-                        "next_read": next_read,
-                        "reason": "bound file window is partial or stale",
-                    }
-                )
-            )
+    _ = task_files
     for entry in replay_entries:
         plan = dict(entry.get("rehydration_plan") or {})
         content_range = dict(entry.get("content_range") or {})

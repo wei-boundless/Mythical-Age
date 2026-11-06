@@ -80,7 +80,6 @@ _PUBLIC_EVENT_FAMILY_BY_TYPE = {
     "runtime_status": STATUS_TRACE_EVENT_FAMILY,
     "runtime_step_summary": STATUS_TRACE_EVENT_FAMILY,
     "tool_batch_group_started": STATUS_TRACE_EVENT_FAMILY,
-    "active_task_steer_accepted": STATUS_TRACE_EVENT_FAMILY,
     "error": STATUS_TRACE_EVENT_FAMILY,
     "stopped": STATUS_TRACE_EVENT_FAMILY,
 }

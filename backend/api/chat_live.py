@@ -162,6 +162,7 @@ def _resolve_subscription(registry: Any, session_id: str, message: Any) -> tuple
 async def _send_catchup(websocket: WebSocket, replay: Any, registry: Any, run: RuntimeRun, *, latest_offset: int) -> tuple[int, bool]:
     terminal = False
     current = registry.get_run(run.stream_run_id) or run
+    replay.ensure_terminal_reconciliation_event(current)
     events = replay.list_public_events_after(current, after_offset=latest_offset)
     for event in events:
         if event.offset <= latest_offset:

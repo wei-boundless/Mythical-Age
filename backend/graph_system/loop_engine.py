@@ -71,6 +71,9 @@ def _frame_projection(frame: dict[str, Any]) -> dict[str, Any]:
         "scope_id": str(frame.get("scope_id") or ""),
         "parent_scope_id": str(frame.get("parent_scope_id") or ""),
         "status": str(frame.get("status") or ""),
+        "kind": str(frame.get("kind") or ""),
+        "algorithm_kind": str(frame.get("algorithm_kind") or frame.get("kind") or ""),
+        "unit_kind": str(frame.get("unit_kind") or ""),
         "iteration_index": frame.get("iteration_index"),
         "iteration_id": str(frame.get("active_iteration_id") or ""),
         "cursor_key": str(frame.get("cursor_key") or ""),
@@ -78,4 +81,26 @@ def _frame_projection(frame: dict[str, Any]) -> dict[str, Any]:
         "start": frame.get("start"),
         "end": frame.get("end"),
         "step": frame.get("step"),
+        "tree_reduce": _tree_reduce_projection(frame.get("tree_reduce")),
+        "aggregate_policy": dict(frame.get("aggregate_policy") or {}),
+    }
+
+
+def _tree_reduce_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    if not payload:
+        return {}
+    return {
+        "physical_authority": str(payload.get("physical_authority") or ""),
+        "semantic_authority": str(payload.get("semantic_authority") or ""),
+        "frame_status": str(payload.get("frame_status") or ""),
+        "depth": payload.get("depth"),
+        "folder_node_id": str(payload.get("folder_node_id") or ""),
+        "folder_stable_ref": str(payload.get("folder_stable_ref") or ""),
+        "manifest_ref": str(payload.get("manifest_ref") or ""),
+        "direct_file_count": payload.get("direct_file_count"),
+        "child_folder_count": payload.get("child_folder_count"),
+        "child_return_count": payload.get("child_return_count"),
+        "aggregate_policy": str(payload.get("aggregate_policy") or ""),
+        "authority": "graph_system.loop_engine.tree_reduce_projection",
     }

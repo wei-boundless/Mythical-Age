@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from graph_system.lifecycle_manager import GraphTaskLifecycleManager
-from harness.loop.task_run_execution_control import executor_control_signal_effect, request_executor_control_signal
+from harness.loop.runtime_cell_control import runtime_cell_control_signal_effect, request_runtime_cell_control_signal
 
 
 class SessionRuntimeLifecycleManager:
@@ -28,7 +28,7 @@ class SessionRuntimeLifecycleManager:
         runtime_runs = list(refs["runtime_runs"])
         task_run_sessions = await asyncio.to_thread(self._task_run_sessions, task_run_ids)
         runtime_run_sessions = self._runtime_run_sessions(runtime_runs)
-        executor_stop_effect = self._request_executor_stop(task_run_ids=task_run_ids)
+        runtime_cell_stop_effect = self._request_runtime_cell_stop(task_run_ids=task_run_ids)
         tombstone_effect = await asyncio.to_thread(self.host.state_index.mark_session_deleted, normalized)
         cell_cancel_effect = self.host.cancel_task_run_cells(
             task_run_sessions=task_run_sessions,
@@ -66,8 +66,8 @@ class SessionRuntimeLifecycleManager:
             "missing_scope_task_run_ids": [],
             "reason": "no_late_runtime_tasks",
         }
-        late_executor_stop_effect = {
-            "authority": "harness.runtime.session_lifecycle.executor_stop",
+        late_runtime_cell_stop_effect = {
+            "authority": "harness.runtime.session_lifecycle.runtime_cell_stop",
             "requested_task_run_ids": [],
             "accepted_task_run_ids": [],
             "control_signals": [],
@@ -85,7 +85,7 @@ class SessionRuntimeLifecycleManager:
         if late_task_run_ids or late_runtime_runs:
             late_task_run_sessions = await asyncio.to_thread(self._task_run_sessions, late_task_run_ids)
             late_runtime_run_sessions = self._runtime_run_sessions(late_runtime_runs)
-            late_executor_stop_effect = self._request_executor_stop(task_run_ids=late_task_run_ids)
+            late_runtime_cell_stop_effect = self._request_runtime_cell_stop(task_run_ids=late_task_run_ids)
             late_cell_cancel_effect = self.host.cancel_task_run_cells(
                 task_run_sessions=late_task_run_sessions,
                 reason="session_deleted",
@@ -124,8 +124,8 @@ class SessionRuntimeLifecycleManager:
                 "late_runtime_run_cells": late_runtime_cell_cancel_effect,
                 "background_tasks": cancel_effect,
                 "late_background_tasks": late_cancel_effect,
-                "executor_stop": executor_stop_effect,
-                "late_executor_stop": late_executor_stop_effect,
+                "runtime_cell_stop": runtime_cell_stop_effect,
+                "late_runtime_cell_stop": late_runtime_cell_stop_effect,
                 "session_deletion_tombstone": tombstone_effect,
                 "active_turn": active_turn_effect,
                 "runtime_runs": storage_effect["runtime_runs"],
@@ -215,12 +215,12 @@ class SessionRuntimeLifecycleManager:
             if str(getattr(item, "turn_run_id", "") or "").strip()
         }
 
-    def _request_executor_stop(self, *, task_run_ids: set[str]) -> dict[str, Any]:
+    def _request_runtime_cell_stop(self, *, task_run_ids: set[str]) -> dict[str, Any]:
         accepted: list[str] = []
         signals: list[dict[str, Any]] = []
         failed: list[str] = []
         for task_run_id in sorted(task_run_ids):
-            signal = request_executor_control_signal(
+            signal = request_runtime_cell_control_signal(
                 self.host,
                 task_run_id=task_run_id,
                 kind="stop",
@@ -233,11 +233,11 @@ class SessionRuntimeLifecycleManager:
                 continue
             if signal.signal_id:
                 accepted.append(task_run_id)
-                signals.append(executor_control_signal_effect(signal))
+                signals.append(runtime_cell_control_signal_effect(signal))
             else:
                 failed.append(task_run_id)
         return {
-            "authority": "harness.runtime.session_lifecycle.executor_stop",
+            "authority": "harness.runtime.session_lifecycle.runtime_cell_stop",
             "requested_task_run_ids": sorted(task_run_ids),
             "accepted_task_run_ids": accepted,
             "control_signals": signals,

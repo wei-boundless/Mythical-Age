@@ -3,16 +3,16 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from graph_system.lifecycle_manager import GraphTaskLifecycleManager
 from graph_system.models import GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from graph_system.runtime_objects import node_result_summary, work_order_summary
 from sessions import InvalidSessionId, SessionTaskBindingConflict, SessionTaskBindingMissing, validate_session_id
 from task_system import TaskFlowRegistry
-from task_system.graph_instances import GraphTaskInstanceRepository
-from task_system.repositories.project_instance_repository import ProjectInstanceRepository
+from task_system.graph_instances import GraphTaskInstanceLaunchService
 from task_system.session_scope import (
     SessionScope,
     assert_session_scope,
@@ -58,6 +58,7 @@ class GraphRunRequeueNodesRequest(BaseModel):
     graph_config_id: str = Field(..., min_length=1, max_length=240)
     session_scope: dict[str, Any] | None = None
     start_node_ids: list[str] = Field(default_factory=list)
+    checkpoint_id: str = Field(default="", max_length=240)
     runtime_settings_patch: dict[str, Any] = Field(default_factory=dict)
     reset_downstream: bool = True
 
@@ -87,7 +88,7 @@ class GraphRunUntilIdleRequest(BaseModel):
 
 
 class GraphRunControlRequest(BaseModel):
-    graph_config_id: str = Field(..., min_length=1, max_length=240)
+    graph_config_id: str = Field(default="", max_length=240)
     session_scope: dict[str, Any] | None = None
     reason: str = Field(default="", max_length=1000)
 
@@ -117,13 +118,29 @@ async def start_task_graph_system_run(
             },
         )
     launch_session_id = _validated_session_id(payload.session_id)
-    resolved_scope = _validated_graph_request_scope(
+    launch_scope = _validated_graph_launch_scope(
         runtime=runtime,
-        graph_config=graph_config,
         session_id=launch_session_id,
         session_scope=payload.session_scope,
     )
     run_mode = _validated_graph_start_run_mode(payload.run_mode)
+    graph_instance_service = GraphTaskInstanceLaunchService(runtime.base_dir)
+    try:
+        instance_binding = graph_instance_service.ensure_for_graph_start(
+            runtime=runtime,
+            graph_id=graph_config.graph_id,
+            graph_title=graph_config.graph_title,
+            launch_session_id=launch_session_id,
+            launch_scope=launch_scope.to_dict(),
+            initial_inputs=payload.initial_inputs,
+            source="graph_system.api.task_graph_run_start",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    resolved_scope = normalize_session_scope(instance_binding.scope)
+    start_initial_inputs = instance_binding.initial_inputs
     graph_system = runtime.harness_runtime.graph_system
     graph_session_id = _create_graph_run_session(
         runtime=runtime,
@@ -132,21 +149,22 @@ async def start_task_graph_system_run(
     )
     start = None
     try:
-        graph_task_instance_id = _graph_task_instance_id_from_inputs(payload.initial_inputs, resolved_scope)
         start = graph_system.start_run(
             session_id=graph_session_id,
             task_id=payload.task_id.strip(),
             graph_config=graph_config,
-            initial_inputs=_graph_start_initial_inputs(payload.initial_inputs, resolved_scope),
+            initial_inputs=_graph_start_initial_inputs(start_initial_inputs, resolved_scope),
             diagnostics={
                 "source": "graph_system.task_graph_start_api",
                 "launch_session_id": launch_session_id,
+                "graph_task_instance_root_session_id": instance_binding.instance.root_session_id,
                 "graph_root_session_id": graph_session_id,
                 "session_scope": resolved_scope.to_dict(),
                 "session_scope_key": resolved_scope.key,
                 "workspace_view": resolved_scope.workspace_view,
                 "project_id": resolved_scope.project_id,
-                "graph_task_instance_id": graph_task_instance_id,
+                "graph_task_instance_id": instance_binding.instance.graph_task_instance_id,
+                "source_project_id": instance_binding.source_project_id,
                 "runtime_scope": resolved_scope.to_dict(),
             },
             dispatch_ready=False,
@@ -161,6 +179,17 @@ async def start_task_graph_system_run(
             task_environment_id="",
             project_id=resolved_scope.project_id,
         )
+        graph_task_instance = graph_instance_service.record_graph_run(
+            instance_binding.instance.graph_task_instance_id,
+            graph_run_id=start.graph_run.graph_run_id,
+            status="running",
+            metadata={
+                "latest_task_run_id": start.task_run.task_run_id,
+                "latest_graph_config_id": graph_config.config_id,
+                "latest_graph_session_id": graph_session_id,
+                "latest_launch_session_id": launch_session_id,
+            },
+        )
     except (SessionTaskBindingConflict, SessionTaskBindingMissing) as exc:
         if start is not None:
             GraphTaskLifecycleManager(
@@ -169,11 +198,16 @@ async def start_task_graph_system_run(
             ).delete_graph_run(start.graph_run.graph_run_id)
         _delete_graph_run_session(runtime=runtime, graph_session_id=graph_session_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (KeyError, ValueError) as exc:
+        if start is not None:
+            GraphTaskLifecycleManager(
+                base_dir=runtime.base_dir,
+                graph_system=graph_system,
+            ).delete_graph_run(start.graph_run.graph_run_id)
         _delete_graph_run_session(runtime=runtime, graph_session_id=graph_session_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    events = [dict(item) for item in start.events]
-    node_work_orders = [item.to_dict() for item in tuple(start.node_work_orders or ())]
+    events = [_graph_api_event_view(dict(item)) for item in start.events]
+    node_work_orders = [_graph_api_work_order_view(item) for item in tuple(start.node_work_orders or ())]
     response_loop_state = start.loop_state.to_dict()
     response_checkpoint = dict(start.checkpoint)
     if payload.dispatch_ready:
@@ -184,10 +218,10 @@ async def start_task_graph_system_run(
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        node_work_orders = [item.to_dict() for item in tuple(dispatch.node_work_orders or ())]
+        node_work_orders = [_graph_api_work_order_view(item) for item in tuple(dispatch.node_work_orders or ())]
         response_loop_state = dispatch.loop_state.to_dict()
         response_checkpoint = dict(dispatch.checkpoint)
-        events.extend(dict(item) for item in dispatch.events)
+        events.extend(_graph_api_event_view(dict(item)) for item in dispatch.events)
     if payload.runtime_settings_patch and run_mode != "auto_run":
         try:
             patched = graph_system.apply_runtime_settings_patch(
@@ -198,7 +232,7 @@ async def start_task_graph_system_run(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         response_loop_state = dict(patched.get("graph_loop_state") or response_loop_state)
         response_checkpoint = dict(patched.get("checkpoint") or response_checkpoint)
-        events.extend(dict(item) for item in list(patched.get("events") or []) if isinstance(item, dict))
+        events.extend(_graph_api_event_view(dict(item)) for item in list(patched.get("events") or []) if isinstance(item, dict))
     runner_result = None
     background_submission = None
     if run_mode == "auto_run":
@@ -233,27 +267,43 @@ async def start_task_graph_system_run(
         if latest_graph_run:
             response_graph_run = latest_graph_run.to_dict() if hasattr(latest_graph_run, "to_dict") else dict(latest_graph_run)
         monitor = graph_system.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
-        node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
+        node_work_orders = [_graph_api_work_order_view(dict(item)) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
     elif background_submission is not None:
         latest_state = graph_system.graph_loop.get_state(start.graph_run.graph_run_id)
         if latest_state is not None:
             response_loop_state = latest_state.to_dict() if hasattr(latest_state, "to_dict") else dict(latest_state)
         response_checkpoint = graph_system.get_latest_checkpoint(start.graph_run.graph_run_id)
         monitor = graph_system.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
-        node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
+        node_work_orders = [_graph_api_work_order_view(dict(item)) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
+    graph_task_instance = graph_instance_service.record_graph_run(
+        instance_binding.instance.graph_task_instance_id,
+        graph_run_id=start.graph_run.graph_run_id,
+        status=_graph_start_status(response_graph_run=response_graph_run, response_task_run=response_task_run),
+        metadata={
+            "latest_task_run_id": start.task_run.task_run_id,
+            "latest_graph_config_id": graph_config.config_id,
+            "latest_graph_session_id": graph_session_id,
+            "latest_launch_session_id": launch_session_id,
+        },
+    )
     trace = graph_system.get_trace(start.task_run.task_run_id) if payload.include_trace else None
     return {
         "authority": "graph_system.api.task_graph_run_start",
         "graph_id": graph_config.graph_id,
+        "graph_task_instance_id": graph_task_instance.graph_task_instance_id,
+        "graph_task_instance": graph_task_instance.to_dict(),
+        "graph_task_instance_created": instance_binding.created,
         "graph_run_id": start.graph_run.graph_run_id,
+        "runtime_anchor_id": start.runtime_anchor.runtime_anchor_id,
         "graph_config_id": graph_config.config_id,
         "launch_session_id": launch_session_id,
         "graph_session_id": graph_session_id,
         "task_run_id": start.task_run.task_run_id,
+        "runtime_anchor": start.runtime_anchor.to_dict(),
         "task_run": response_task_run,
         "graph_run": response_graph_run,
-        "checkpoint": response_checkpoint,
-        "graph_loop_state": response_loop_state,
+        "checkpoint": _graph_api_checkpoint_view(response_checkpoint),
+        "graph_loop_state": _graph_api_loop_state_view(response_loop_state),
         "graph_config": _graph_config_api_view(graph_config, include_config=payload.include_graph_config),
         "node_work_orders": node_work_orders,
         "runner_result": runner_result.to_dict() if runner_result is not None else None,
@@ -310,6 +360,41 @@ async def get_graph_run_monitor(
     return monitor
 
 
+@router.get("/graph-system/graph-runs/{graph_run_id}/checkpoints")
+async def list_graph_run_checkpoints(
+    graph_run_id: str,
+    graph_config_id: str = "",
+    limit: int = Query(default=80, ge=1, le=500),
+    workspace_view: str | None = None,
+    task_environment_id: str | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = None
+    if graph_config_id:
+        graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(graph_config_id)
+        if graph_config is None:
+            raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
+    _assert_graph_run_scope(
+        runtime=runtime,
+        graph_run_id=graph_run_id,
+        graph_config_id=graph_config_id,
+        session_scope=_session_scope_from_query(
+            workspace_view=workspace_view,
+            task_environment_id=task_environment_id,
+            project_id=project_id,
+        ),
+        graph_config=graph_config,
+    )
+    checkpoints = runtime.harness_runtime.graph_system.list_checkpoints(graph_run_id, limit=limit)
+    return {
+        "authority": "graph_system.api.graph_run_checkpoints",
+        "graph_run_id": graph_run_id,
+        "checkpoint_count": len(checkpoints),
+        "checkpoints": [_graph_api_checkpoint_view(item) for item in checkpoints],
+    }
+
+
 @router.delete("/graph-system/graph-runs/{graph_run_id}")
 async def delete_graph_task_run(graph_run_id: str, payload: GraphRunDeleteRequest | None = None) -> dict[str, Any]:
     runtime = require_runtime()
@@ -362,11 +447,11 @@ async def dispatch_graph_run_ready_nodes(
         "authority": "graph_system.api.graph_run_dispatch_ready",
         "graph_run_id": graph_run_id,
         "graph_config_id": graph_config.config_id,
-        "graph_loop_state": dispatch.loop_state.to_dict(),
-        "checkpoint": dict(dispatch.checkpoint),
-        "node_work_orders": [item.to_dict() for item in dispatch.node_work_orders],
+        "graph_loop_state": _graph_api_loop_state_view(dispatch.loop_state),
+        "checkpoint": _graph_api_checkpoint_view(dispatch.checkpoint),
+        "node_work_orders": [_graph_api_work_order_view(item) for item in dispatch.node_work_orders],
         "work_order_count": len(dispatch.node_work_orders),
-        "events": [dict(item) for item in dispatch.events],
+        "events": [_graph_api_event_view(dict(item)) for item in dispatch.events],
     }
 
 
@@ -391,6 +476,7 @@ async def requeue_graph_run_nodes(
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             start_node_ids=tuple(payload.start_node_ids or ()),
+            checkpoint_id=payload.checkpoint_id,
             runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
             reset_downstream=payload.reset_downstream,
         )
@@ -401,9 +487,9 @@ async def requeue_graph_run_nodes(
         "graph_run_id": graph_run_id,
         "graph_config_id": graph_config.config_id,
         "graph_structure_hash": requeue.loop_state.structure_hash,
-        "graph_loop_state": requeue.loop_state.to_dict(),
-        "checkpoint": dict(requeue.checkpoint),
-        "events": [dict(item) for item in requeue.events],
+        "graph_loop_state": _graph_api_loop_state_view(requeue.loop_state),
+        "checkpoint": _graph_api_checkpoint_view(requeue.checkpoint),
+        "events": [_graph_api_event_view(dict(item)) for item in requeue.events],
     }
 
 
@@ -439,12 +525,12 @@ async def accept_graph_node_result(
         "authority": "graph_system.api.graph_node_result_accept",
         "graph_run_id": graph_run_id,
         "graph_config_id": graph_config.config_id,
-        "accepted_result": advance.accepted_result.to_dict() if advance.accepted_result is not None else None,
-        "graph_result": advance.graph_result.to_dict() if advance.graph_result is not None else None,
-        "graph_loop_state": advance.loop_state.to_dict(),
-        "checkpoint": dict(advance.checkpoint),
-        "node_work_orders": [item.to_dict() for item in advance.node_work_orders],
-        "events": [dict(item) for item in advance.events],
+        "accepted_result": _graph_api_node_result_view(advance.accepted_result),
+        "graph_result": _graph_api_graph_result_view(advance.graph_result),
+        "graph_loop_state": _graph_api_loop_state_view(advance.loop_state),
+        "checkpoint": _graph_api_checkpoint_view(advance.checkpoint),
+        "node_work_orders": [_graph_api_work_order_view(item) for item in advance.node_work_orders],
+        "events": [_graph_api_event_view(dict(item)) for item in advance.events],
     }
 
 
@@ -562,14 +648,10 @@ async def pause_graph_run(
     payload: GraphRunControlRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
-    if graph_config is None:
-        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_config_id=graph_config.config_id,
-        graph_config=graph_config,
+        graph_config_id=payload.graph_config_id,
         session_scope=payload.session_scope,
     )
     try:
@@ -582,6 +664,12 @@ async def pause_graph_run(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not bool(result.get("accepted", False)):
         raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_pause_rejected"))
+    _attach_graph_task_instance_control_update(
+        runtime=runtime,
+        result=result,
+        graph_run_id=graph_run_id,
+        status="paused",
+    )
     return result
 
 
@@ -591,14 +679,10 @@ async def resume_graph_run(
     payload: GraphRunControlRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(payload.graph_config_id)
-    if graph_config is None:
-        raise HTTPException(status_code=404, detail="ExecutableGraphConfig not found")
     _assert_graph_run_scope(
         runtime=runtime,
         graph_run_id=graph_run_id,
-        graph_config_id=graph_config.config_id,
-        graph_config=graph_config,
+        graph_config_id=payload.graph_config_id,
         session_scope=payload.session_scope,
     )
     try:
@@ -611,6 +695,43 @@ async def resume_graph_run(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not bool(result.get("accepted", False)):
         raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_resume_rejected"))
+    _attach_graph_task_instance_control_update(
+        runtime=runtime,
+        result=result,
+        graph_run_id=graph_run_id,
+        status="running",
+    )
+    return result
+
+
+@router.post("/graph-system/graph-runs/{graph_run_id}/stop")
+async def stop_graph_run(
+    graph_run_id: str,
+    payload: GraphRunControlRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    _assert_graph_run_scope(
+        runtime=runtime,
+        graph_run_id=graph_run_id,
+        graph_config_id=payload.graph_config_id,
+        session_scope=payload.session_scope,
+    )
+    try:
+        result = runtime.harness_runtime.graph_system.request_graph_run_stop(
+            graph_run_id,
+            reason=payload.reason,
+            requested_by="user",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not bool(result.get("accepted", False)):
+        raise HTTPException(status_code=409, detail=str(result.get("reason") or "graph_run_stop_rejected"))
+    _attach_graph_task_instance_control_update(
+        runtime=runtime,
+        result=result,
+        graph_run_id=graph_run_id,
+        status="stopped",
+    )
     return result
 
 
@@ -624,6 +745,34 @@ def _validated_session_id(value: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _attach_graph_task_instance_control_update(
+    *,
+    runtime: Any,
+    result: dict[str, Any],
+    graph_run_id: str,
+    status: str,
+) -> None:
+    task_run = dict(result.get("task_run") or {})
+    graph_run = dict(result.get("graph_run") or {})
+    updated = GraphTaskInstanceLaunchService(runtime.base_dir).record_graph_run_status(
+        graph_run_id,
+        status=status,
+        metadata={
+            "latest_task_run_id": str(result.get("task_run_id") or task_run.get("task_run_id") or ""),
+            "latest_graph_config_id": str(
+                graph_run.get("config_id")
+                or dict(graph_run.get("diagnostics") or {}).get("graph_config_id")
+                or ""
+            ),
+            "latest_graph_control_status": status,
+            "latest_graph_control_reason": str(result.get("reason") or ""),
+        },
+    )
+    if updated is not None:
+        result["graph_task_instance_id"] = updated.graph_task_instance_id
+        result["graph_task_instance"] = updated.to_dict()
+
+
 def _validated_graph_start_run_mode(value: str) -> str:
     mode = str(value or "dispatch_only").strip()
     if mode not in {"dispatch_only", "auto_run"}:
@@ -631,10 +780,9 @@ def _validated_graph_start_run_mode(value: str) -> str:
     return mode
 
 
-def _validated_graph_request_scope(
+def _validated_graph_launch_scope(
     *,
     runtime: Any,
-    graph_config: Any,
     session_id: str,
     session_scope: dict[str, Any] | None,
 ) -> SessionScope:
@@ -642,24 +790,13 @@ def _validated_graph_request_scope(
     requested = normalize_session_scope(session_scope) if session_scope is not None else launch_scope
     if requested is not None and requested.workspace_view not in {"project", "task_environment", GRAPH_TASK_WORKSPACE_VIEW}:
         raise HTTPException(status_code=400, detail="graph task runs must use graph_task, project, or task_environment scope")
-    project_id = requested.project_id
-    workspace_view = GRAPH_TASK_WORKSPACE_VIEW
-    if project_id:
-        workspace_view = GRAPH_TASK_WORKSPACE_VIEW
-    elif requested.workspace_view in {"project", GRAPH_TASK_WORKSPACE_VIEW}:
-        workspace_view = GRAPH_TASK_WORKSPACE_VIEW
-    resolved = normalize_session_scope(
+    return normalize_session_scope(
         {
-            "workspace_view": workspace_view,
-            "task_environment_id": "",
-            "project_id": project_id,
+            "workspace_view": requested.workspace_view or GRAPH_TASK_WORKSPACE_VIEW,
+            "task_environment_id": requested.task_environment_id,
+            "project_id": requested.project_id,
         }
     )
-    if _graph_config_requires_project(graph_config) and not resolved.project_id:
-        raise HTTPException(status_code=400, detail="project_id is required for graph runs with project-scoped resources")
-    if resolved.project_id:
-        _require_graph_scope_project_or_instance(runtime=runtime, project_id=resolved.project_id)
-    return _graph_instance_scope(resolved)
 
 
 def _assert_graph_run_scope(
@@ -760,21 +897,14 @@ def _graph_start_initial_inputs(initial_inputs: dict[str, Any] | None, scope: Se
         **scope.to_dict(),
         "scope_source": "graph_system.api.task_graph_run_start.graph_binding_contract",
     }
+    for key in ("graph_task_instance_id", "source_project_id", "project_path", "artifact_root"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            runtime_scope[key] = value.replace("\\", "/").strip("/")
     payload["runtime_scope"] = runtime_scope
     payload["workspace_view"] = scope.workspace_view
     payload["project_id"] = scope.project_id
     return payload
-
-
-def _graph_task_instance_id_from_inputs(initial_inputs: dict[str, Any] | None, scope: SessionScope) -> str:
-    payload = dict(initial_inputs or {})
-    runtime_scope = dict(payload.get("runtime_scope") or {})
-    return str(
-        payload.get("graph_task_instance_id")
-        or runtime_scope.get("graph_task_instance_id")
-        or (scope.project_id if scope.workspace_view == GRAPH_TASK_WORKSPACE_VIEW else "")
-        or ""
-    ).strip()
 
 
 def _graph_instance_scope(scope: SessionScope) -> SessionScope:
@@ -785,21 +915,6 @@ def _graph_instance_scope(scope: SessionScope) -> SessionScope:
             "project_id": scope.project_id,
         }
     )
-
-
-def _require_graph_scope_project_or_instance(*, runtime: Any, project_id: str) -> None:
-    target = str(project_id or "").strip()
-    if not target:
-        return
-    try:
-        GraphTaskInstanceRepository(runtime.base_dir).require(target)
-        return
-    except KeyError:
-        pass
-    try:
-        ProjectInstanceRepository(runtime.base_dir).require(target)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f"project or graph task instance not found: {target}") from exc
 
 
 def _require_launch_session(*, runtime: Any, session_id: str) -> SessionScope:
@@ -837,19 +952,200 @@ def _delete_graph_run_session(*, runtime: Any, graph_session_id: str) -> None:
         pass
 
 
-def _graph_config_requires_project(graph_config: Any) -> bool:
-    environment = dict(getattr(graph_config, "environment", {}) or {})
-    file_management = dict(environment.get("file_management") or {})
-    storage_space = dict(environment.get("storage_space") or {})
-    project_policy = str(
-        file_management.get("project_file_policy")
-        or storage_space.get("workspace_policy")
-        or environment.get("project_file_policy")
-        or ""
-    ).strip().lower()
-    if project_policy and project_policy not in {"none", "disabled", "conversation_only"}:
-        return True
-    return bool(file_management.get("required_repository_kinds") or storage_space.get("required_repository_kinds"))
+def _graph_api_work_order_view(order: Any) -> dict[str, Any]:
+    if isinstance(order, GraphNodeWorkOrder):
+        return work_order_summary(order)
+    payload = order.to_dict() if hasattr(order, "to_dict") else (dict(order) if isinstance(order, dict) else {})
+    input_package = dict(payload.get("input_package") or {})
+    dispatch_context = dict(payload.get("dispatch_context") or {})
+    return {
+        "authority": str(payload.get("authority") or "graph_system_node_work_order_summary"),
+        "work_order_id": str(payload.get("work_order_id") or ""),
+        "work_order_ref": str(payload.get("work_order_ref") or ""),
+        "work_kind": str(payload.get("work_kind") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or ""),
+        "executor_type": str(payload.get("executor_type") or ""),
+        "node_session_id": str(payload.get("node_session_id") or ""),
+        "node_session_policy": dict(payload.get("node_session_policy") or {}),
+        "agent_id": str(payload.get("agent_id") or ""),
+        "agent_profile_id": str(payload.get("agent_profile_id") or ""),
+        "idempotency_key": str(payload.get("idempotency_key") or ""),
+        "input_package_ref": str(payload.get("input_package_ref") or input_package.get("package_id") or ""),
+        "graph_node_task_binding_hint": dict(
+            payload.get("graph_node_task_binding_hint")
+            or dispatch_context.get("graph_node_task_binding_hint")
+            or {}
+        ),
+        "inbound_context_count": int(payload.get("inbound_context_count") or len(list(input_package.get("inbound_context") or []))),
+        "artifact_space_ref": str(payload.get("artifact_space_ref") or ""),
+        "memory_space_ref": str(payload.get("memory_space_ref") or ""),
+    }
+
+
+def _graph_api_checkpoint_view(checkpoint: Any) -> dict[str, Any]:
+    payload = checkpoint.to_dict() if hasattr(checkpoint, "to_dict") else (dict(checkpoint) if isinstance(checkpoint, dict) else {})
+    state = dict(payload.get("state") or payload.get("graph_loop_state") or {})
+    return {
+        "checkpoint_id": str(payload.get("checkpoint_id") or ""),
+        "thread_id": str(payload.get("thread_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or state.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or state.get("task_run_id") or ""),
+        "config_id": str(payload.get("config_id") or state.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or state.get("config_hash") or ""),
+        "event_cursor": payload.get("event_cursor", state.get("event_cursor", -1)),
+        "created_at": payload.get("created_at", 0.0),
+        "state": _graph_api_loop_state_view(state),
+    }
+
+
+def _graph_api_loop_state_view(state: Any) -> dict[str, Any]:
+    payload = state.to_dict() if hasattr(state, "to_dict") else (dict(state) if isinstance(state, dict) else {})
+    node_states = {
+        str(node_id): _graph_api_node_state_view(dict(node_state or {}))
+        for node_id, node_state in dict(payload.get("node_states") or {}).items()
+    }
+    return {
+        "authority": str(payload.get("authority") or "graph_system_loop_state"),
+        "state_id": str(payload.get("state_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "config_hash": str(payload.get("config_hash") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "structure_hash": str(payload.get("structure_hash") or ""),
+        "structure_version": str(payload.get("structure_version") or ""),
+        "config_snapshot_id": str(payload.get("config_snapshot_id") or ""),
+        "config_snapshot_hash": str(payload.get("config_snapshot_hash") or ""),
+        "status": str(payload.get("status") or ""),
+        "ready_node_ids": list(payload.get("ready_node_ids") or []),
+        "running_node_ids": list(payload.get("running_node_ids") or []),
+        "completed_node_ids": list(payload.get("completed_node_ids") or []),
+        "failed_node_ids": list(payload.get("failed_node_ids") or []),
+        "blocked_node_ids": list(payload.get("blocked_node_ids") or []),
+        "active_node_ids": list(payload.get("running_node_ids") or []),
+        "active_work_order_node_ids": list(dict(payload.get("active_work_orders") or {}).keys()),
+        "node_states": node_states,
+        "node_state_count": len(node_states),
+        "edge_state_count": len(dict(payload.get("edge_states") or {})),
+        "result_count": len(dict(payload.get("result_index") or {})),
+        "event_cursor": payload.get("event_cursor", -1),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _graph_api_node_state_view(node_state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_id": str(node_state.get("node_id") or ""),
+        "status": str(node_state.get("status") or ""),
+        "executor_type": str(node_state.get("executor_type") or ""),
+        "created_at": node_state.get("created_at", 0.0),
+        "updated_at": node_state.get("updated_at", 0.0),
+        "work_order_id": str(node_state.get("work_order_id") or ""),
+        "result_ref": str(node_state.get("result_ref") or ""),
+        "blocked_reason": str(node_state.get("blocked_reason") or ""),
+        "terminal_reason": str(node_state.get("terminal_reason") or ""),
+    }
+
+
+def _graph_api_node_result_view(result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    if isinstance(result, NodeResultEnvelope):
+        return node_result_summary(result)
+    payload = result.to_dict() if hasattr(result, "to_dict") else (dict(result) if isinstance(result, dict) else {})
+    return {
+        "authority": str(payload.get("authority") or "graph_system_node_result_summary"),
+        "result_id": str(payload.get("result_id") or ""),
+        "result_ref": str(payload.get("result_ref") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "work_order_id": str(payload.get("work_order_id") or ""),
+        "executor_type": str(payload.get("executor_type") or ""),
+        "status": str(payload.get("status") or ""),
+        "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
+        "handoff_summary": str(payload.get("handoff_summary") or "")[:1200],
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "error": dict(payload.get("error") or {}),
+    }
+
+
+def _graph_api_graph_result_view(result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    payload = result.to_dict() if hasattr(result, "to_dict") else (dict(result) if isinstance(result, dict) else {})
+    return {
+        "authority": str(payload.get("authority") or "graph_system_result_summary"),
+        "result_id": str(payload.get("result_id") or ""),
+        "graph_run_id": str(payload.get("graph_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "artifact_refs": [str(item) for item in list(payload.get("artifact_refs") or [])],
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+    }
+
+
+def _graph_api_event_view(event: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(event.get("payload") or {})
+    return {
+        "event_id": str(event.get("event_id") or ""),
+        "run_id": str(event.get("run_id") or ""),
+        "event_type": str(event.get("event_type") or ""),
+        "offset": event.get("offset", -1),
+        "created_at": event.get("created_at", 0.0),
+        "payload": _graph_api_event_payload_view(payload),
+        "refs": dict(event.get("refs") or {}),
+        "authority": str(event.get("authority") or ""),
+    }
+
+
+def _graph_api_event_payload_view(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_scalars = {
+        "authority",
+        "graph_run_id",
+        "graph_config_id",
+        "node_id",
+        "work_order_id",
+        "status",
+        "terminal_reason",
+        "blocked_reason",
+        "reason",
+        "budget_exhausted",
+        "executed_work_order_count",
+        "accepted_result_count",
+        "dispatch_count",
+    }
+    public: dict[str, Any] = {
+        key: value
+        for key, value in payload.items()
+        if key in allowed_scalars and (isinstance(value, (str, int, float, bool)) or value is None)
+    }
+    if isinstance(payload.get("work_order"), dict):
+        public["work_order"] = _graph_api_work_order_view(dict(payload["work_order"]))
+    if isinstance(payload.get("node_work_orders"), list):
+        public["node_work_orders"] = [
+            _graph_api_work_order_view(dict(item))
+            for item in payload["node_work_orders"]
+            if isinstance(item, dict)
+        ]
+    if isinstance(payload.get("graph_loop_state"), dict):
+        public["graph_loop_state"] = _graph_api_loop_state_view(dict(payload["graph_loop_state"]))
+    if isinstance(payload.get("graph_result"), dict):
+        public["graph_result"] = {
+            "result_id": str(dict(payload["graph_result"]).get("result_id") or ""),
+            "graph_run_id": str(dict(payload["graph_result"]).get("graph_run_id") or ""),
+            "task_run_id": str(dict(payload["graph_result"]).get("task_run_id") or ""),
+            "status": str(dict(payload["graph_result"]).get("status") or ""),
+            "terminal_reason": str(dict(payload["graph_result"]).get("terminal_reason") or ""),
+        }
+    return public
 
 
 def _graph_config_api_view(graph_config: Any, *, include_config: bool = False) -> dict[str, Any]:
@@ -871,6 +1167,15 @@ def _graph_config_api_view(graph_config: Any, *, include_config: bool = False) -
         "loop_frame_count": len(graph_config.loop_frames),
         "composition_source_count": len(graph_config.composition_sources),
     }
+
+
+def _graph_start_status(*, response_graph_run: dict[str, Any], response_task_run: dict[str, Any]) -> str:
+    status = str(
+        dict(response_graph_run or {}).get("status")
+        or dict(response_task_run or {}).get("status")
+        or "running"
+    ).strip()
+    return status or "running"
 
 
 def _runner_budget_kwargs(payload: dict[str, Any]) -> dict[str, Any]:

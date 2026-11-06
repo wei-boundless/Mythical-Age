@@ -5,23 +5,11 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from capability_system.tools.tool_surface import special_tool_contract_summary as surface_tool_contract_summary
 from prompt_library.tool_prompts import tool_guidance_payload_for_visible_tools
+from .tool_schema_identity import canonical_provider_tool_binding_schema, provider_input_schema_ref
 
 _MODEL_VISIBLE_PROMPT_POLICIES = {"schema_only", "schema_plus_guidance"}
-_SPECIAL_CONTRACT_TOOL_NAMES = {
-    "agent_todo",
-    "write_file",
-    "edit_file",
-    "batch_edit_file",
-    "spawn_subagent",
-    "glob_paths",
-    "search_files",
-    "read_file",
-    "search_text",
-    "path_exists",
-    "stat_path",
-    "list_dir",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,11 +149,11 @@ def _model_visible_tool_entry(tool_payload: dict[str, Any]) -> dict[str, Any]:
             }.items()
             if value
         }
-    input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
+    input_schema = canonical_provider_tool_binding_schema(tool)
     if input_schema:
         input_schema_summary = _input_schema_summary(input_schema)
         payload["input_schema_summary"] = input_schema_summary
-        payload["input_schema_ref"] = _short_hash(_stable_json_hash(input_schema))
+        payload["input_schema_ref"] = provider_input_schema_ref(input_schema)
         tool_contract_summary = _special_tool_contract_summary(
             tool_name=name,
             input_schema_summary=input_schema_summary,
@@ -325,183 +313,12 @@ def _resolve_schema_ref(schema: dict[str, Any], *, root_schema: dict[str, Any]) 
 
 
 def _special_tool_contract_summary(*, tool_name: str, input_schema_summary: dict[str, Any]) -> dict[str, Any]:
-    name = str(tool_name or "").strip()
-    if name not in _SPECIAL_CONTRACT_TOOL_NAMES:
-        return {}
-    summary: dict[str, Any] = {
-        "authority": "harness.runtime.tool_catalog_manifest.tool_contract_summary",
-        "required_inputs": [str(item) for item in list(input_schema_summary.get("required") or []) if str(item)],
-        "optional_inputs": [str(item) for item in list(input_schema_summary.get("optional") or []) if str(item)],
-        "forbidden_unknown_fields": bool(input_schema_summary.get("forbidden_unknown_fields") is True),
-    }
-    field_paths = dict(input_schema_summary.get("field_paths") or {})
-    if name == "agent_todo":
-        summary.update(
-            {
-                "critical_fields": {
-                    "items[].status": dict(field_paths.get("items[].status") or {}),
-                    "todo_id": dict(field_paths.get("todo_id") or {}),
-                    "status": dict(field_paths.get("status") or {}),
-                },
-                "forbidden_fields": ["id", "item_id", "todo", "todos"],
-                "forbidden_values": {"items[].status": ["active"], "status": ["active"]},
-            }
-        )
-    elif name == "spawn_subagent":
-        summary.update(
-            {
-                "critical_fields": {"target_agent_id": dict(field_paths.get("target_agent_id") or {})},
-                "runtime_constraint": "target_agent_id must be one of runtime_boundary.tool_boundary.allowed_subagent_ids.",
-                "forbidden_fields": ["agent_id", "target_subagent_id"],
-            }
-        )
-    elif name == "write_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "content": dict(field_paths.get("content") or {}),
-                    "allow_overwrite": dict(field_paths.get("allow_overwrite") or {}),
-                    "expected_previous_sha256": dict(field_paths.get("expected_previous_sha256") or {}),
-                }
-            }
-        )
-    elif name == "edit_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "old_text": dict(field_paths.get("old_text") or {}),
-                    "new_text": dict(field_paths.get("new_text") or {}),
-                }
-            }
-        )
-    elif name == "batch_edit_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "edits": dict(field_paths.get("edits") or {}),
-                    "edits[].old_text": dict(field_paths.get("edits[].old_text") or {}),
-                    "edits[].new_text": dict(field_paths.get("edits[].new_text") or {}),
-                    "base_sha256": dict(field_paths.get("base_sha256") or {}),
-                    "base_mtime_ns": dict(field_paths.get("base_mtime_ns") or {}),
-                },
-                "usage_hint": (
-                    "Use for multiple precise edits to the same file planned from the same current read evidence. "
-                    "Do not split same-file independent edits into several edit_file calls. "
-                    "If rejected_edits is returned, only reread and retry those edit indexes."
-                ),
-            }
-        )
-    elif name == "read_file":
-        summary.update(
-            {
-                "critical_fields": {
-                    "path": dict(field_paths.get("path") or {}),
-                    "start_line": dict(field_paths.get("start_line") or {}),
-                    "line_count": dict(field_paths.get("line_count") or {}),
-                    "read_intent": dict(field_paths.get("read_intent") or {}),
-                },
-                "usage_hint": (
-                    "Use directly for known file paths, including file-like task_run_contract GoalContext/PlanContext/TodoContext working_scope target_objects, "
-                    "source_refs, workspace_refs, or bound/editor paths. line_count may be omitted; use returned window facts "
-                    "and the file evidence contract/read_resource_state before deciding whether another read is needed. "
-                    "has_more is a window fact, not a continuation command; continue only for target lines outside coverage, "
-                    "search recommendations, stale evidence, or an explicit need for broader context. "
-                    "Do not call search_files first for a known path."
-                ),
-                "output_facts": ["start_line", "end_line", "returned_lines", "line_count", "total_lines", "has_more", "next_start_line", "content_sha256", "exact_artifact_ref", "visible_exact"],
-            }
-        )
-    elif name == "path_exists":
-        summary.update(
-            {
-                "critical_fields": {"path": dict(field_paths.get("path") or {})},
-                "usage_hint": (
-                    "Use to confirm a known path from task_run_contract WorkModeContext working_scope, bound context, or editor context. "
-                    "It is a direct path check, not a search tool."
-                ),
-                "output_facts": ["path", "exists", "kind"],
-            }
-        )
-    elif name == "stat_path":
-        summary.update(
-            {
-                "critical_fields": {"path": dict(field_paths.get("path") or {})},
-                "usage_hint": "Use for metadata about a known path. Do not use search_files first when the path is already known.",
-                "output_facts": ["path", "exists", "kind", "size", "modified_at"],
-            }
-        )
-    elif name == "list_dir":
-        summary.update(
-            {
-                "critical_fields": {"path": dict(field_paths.get("path") or {})},
-                "usage_hint": "Use for a known directory path. Do not use search_files to rediscover an already known directory.",
-                "output_facts": ["path", "entries"],
-            }
-        )
-    elif name == "glob_paths":
-        summary.update(
-            {
-                "critical_fields": {"pattern": dict(field_paths.get("pattern") or {})},
-                "usage_hint": "Use for explicit wildcard path patterns such as *.html, **/*.py, or backend/**/*.ts. It returns paths, not file contents.",
-                "output_facts": ["pattern", "matches"],
-            }
-        )
-    elif name == "search_files":
-        summary.update(
-            {
-                "critical_fields": {
-                    "query": dict(field_paths.get("query") or {}),
-                    "roots": dict(field_paths.get("roots") or {}),
-                },
-                "usage_hint": (
-                    "Use for filename or path keywords only when the exact path is unknown. "
-                    "If task_run_contract GoalContext/PlanContext/TodoContext working_scope target_objects/source_refs/workspace_refs or bound/editor context already gives a file-like path, "
-                    "use path_exists/read_file directly instead of search_files."
-                ),
-                "output_facts": ["query", "matches", "searched_roots", "used_default_roots", "omitted_workspace_root", "search_meta"],
-            }
-        )
-    elif name == "search_text":
-        summary.update(
-            {
-                "critical_fields": {
-                    "query": dict(field_paths.get("query") or {}),
-                    "roots": dict(field_paths.get("roots") or {}),
-                    "paths": dict(field_paths.get("paths") or {}),
-                    "glob": dict(field_paths.get("glob") or {}),
-                    "output_mode": dict(field_paths.get("output_mode") or {}),
-                    "context": dict(field_paths.get("context") or {}),
-                    "head_limit": dict(field_paths.get("head_limit") or {}),
-                    "offset": dict(field_paths.get("offset") or {}),
-                },
-                "usage_hint": (
-                    "Use for file contents. Put known files in paths, directory scopes in roots, and file-type filters in glob. "
-                    "Do not use search_text to rediscover a known file-like target object; read_file is the direct path tool. "
-                    "paths accepts files only; directories must go in roots. Do not pass path or pattern. "
-                    "If recommended_read_windows are returned, treat them as candidate_read_windows and call read_file on a candidate only when exact source evidence is needed."
-                ),
-                "forbidden_fields": ["path", "pattern"],
-                "output_facts": ["matches", "recommended_read_windows", "applied_limit", "applied_offset"],
-            }
-        )
-    return {key: _json_stable(value) for key, value in summary.items() if value not in ("", [], {})}
+    return surface_tool_contract_summary(tool_name, input_schema_summary)
 
 
 def _stable_json_hash(value: Any) -> str:
     payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
-
-
-def _short_hash(value: str, *, prefix_chars: int = 10) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if text.startswith("sha256:"):
-        return "sha256:" + text.removeprefix("sha256:")[:prefix_chars]
-    return text[:prefix_chars]
 
 
 def _digest(value: Any) -> str:

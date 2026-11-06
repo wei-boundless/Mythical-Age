@@ -8,7 +8,9 @@ from typing import Any
 from artifact_system.artifact_authority import artifact_ref_value, dedupe_artifact_refs
 from core.project_layout import ProjectLayout
 
+from .active_execution_lease import build_active_execution_lease_context
 from .execution_state_projector import ExecutionStateProjector
+from .evidence_acquisition_horizon import build_evidence_acquisition_horizon
 from .evidence_index_cursor import build_evidence_index_cursor, split_evidence_index_cursor
 from .history_projector import HistoryProjector
 from .models import (
@@ -26,7 +28,7 @@ from .observation_projector import ObservationProjector
 from .replacement_store import MemoryReplacementStore, ReplacementStore
 from .runtime_delta_projector import RuntimeDeltaProjector
 from .task_context_baseline import build_task_context_baseline_receipt
-from .task_mode_tail_context import build_task_mode_tail_contexts
+from .turn_state_attention_context import build_turn_state_attention_contexts
 from .task_state_projector import TaskStateProjector
 from .token_budget import build_budget_report
 from .tool_result_projector import ToolResultProjector
@@ -98,6 +100,11 @@ class DynamicContextManager:
         session_file_state_projection = self._session_file_state_projection(request)
         if session_file_state_projection:
             dynamic_payload.update(session_file_state_projection)
+        project_semantic_space_projection, project_network_control_projection = self._project_network_lane_projection(request)
+        if project_semantic_space_projection:
+            dynamic_payload["project_semantic_space"] = project_semantic_space_projection
+        if project_network_control_projection:
+            dynamic_payload["project_network_control"] = project_network_control_projection
         budget_report = build_budget_report(
             invocation_kind=request.invocation_kind,
             projection_policy=request.projection_policy,
@@ -139,6 +146,8 @@ class DynamicContextManager:
             stable_runtime_baseline_refs=baseline_refs,
             dynamic_runtime_delta=runtime_delta,
             dynamic_runtime_projection=dynamic_payload,
+            project_semantic_space_projection=project_semantic_space_projection,
+            project_network_control_projection=project_network_control_projection,
             inherited_start_context_projection=inherited_start_context_projection,
             task_state_replay_entries=task_state_replay_entries,
             volatile_request_projection=volatile_request,
@@ -220,6 +229,7 @@ class DynamicContextManager:
             read_resource_state=read_resource_state,
             evidence_confidence=evidence_confidence,
         )
+        evidence_horizon = build_evidence_acquisition_horizon(evidence_index_cursor_payload=evidence_cursor)
         return drop_empty(
             {
                 "file_evidence_scope": dict(request.file_evidence_scope or {}),
@@ -227,8 +237,27 @@ class DynamicContextManager:
                 "read_resource_state": read_resource_state,
                 "evidence_confidence": evidence_confidence,
                 **evidence_cursor,
+                **evidence_horizon,
             }
         )
+
+    def _project_network_lane_projection(self, request: DynamicContextInput) -> tuple[dict[str, Any], dict[str, Any]]:
+        semantic_source = (
+            dict(request.project_semantic_space or {})
+            or _dict_from_container(request.session_context, "project_semantic_space")
+            or _dict_from_container(request.runtime_assembly, "project_semantic_space")
+        )
+        control_source = (
+            dict(request.project_network_control or {})
+            or _dict_from_container(request.session_context, "project_network_control")
+            or _dict_from_container(request.runtime_assembly, "project_network_control")
+            or _latest_project_network_control_tool_result(request.tool_results)
+        )
+        control_projection = _project_network_control_lane_projection(control_source)
+        semantic_projection = _project_semantic_space_lane_projection(semantic_source)
+        if not semantic_projection and control_source:
+            semantic_projection = _project_semantic_space_lane_projection(dict(control_source).get("local_slice"))
+        return semantic_projection, control_projection
 
     def _volatile_state_projection(
         self,
@@ -249,10 +278,16 @@ class DynamicContextManager:
             envelope_projection=envelope_projection,
             include_task_run_context=bool(dict(request.projection_policy or {}).get("include_task_run_context", True)),
         )
-        task_mode_tail_contexts = build_task_mode_tail_contexts(
+        turn_state_attention_contexts = build_turn_state_attention_contexts(
             task_state,
             task_run_id=request.task_run_id,
-            task_contract=request.task_contract,
+            task_run_contract=request.task_run_contract,
+        )
+        active_execution_lease_context = build_active_execution_lease_context(
+            task_run=request.task_run,
+            task_run_contract=request.task_run_contract,
+            turn_state_attention_contexts=turn_state_attention_contexts,
+            task_state=task_state,
         )
         replay_entries, task_state_cursor = self.task_state_projector.split_for_prompt_cache(
             task_state,
@@ -260,14 +295,23 @@ class DynamicContextManager:
         )
         replay_entries = self._ordered_task_state_replay_entries(request, replay_entries)
         evidence_index_cursor, _evidence_source_remainder = split_evidence_index_cursor(task_state)
+        editor_context_payload = _editor_context_dynamic_projection(request.editor_context)
+        evidence_horizon = build_evidence_acquisition_horizon(
+            evidence_index_cursor_payload=evidence_index_cursor,
+            editor_context_payload=editor_context_payload,
+        )
         payload = {
             "task_state": task_state_cursor,
         }
-        if task_mode_tail_contexts:
-            payload.update(task_mode_tail_contexts)
+        if turn_state_attention_contexts:
+            payload.update(turn_state_attention_contexts)
+        if active_execution_lease_context:
+            payload.update(active_execution_lease_context)
         if evidence_index_cursor:
             payload.update(evidence_index_cursor)
-        payload.update(_editor_context_dynamic_projection(request.editor_context))
+        if evidence_horizon:
+            payload.update(evidence_horizon)
+        payload.update(editor_context_payload)
         return drop_empty(payload), replay_entries
 
     def _ordered_task_state_replay_entries(
@@ -404,10 +448,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_state",
                     source="task_state",
-                    volatility_reason="task execution state, observations, and work progress change each step",
+                    volatility_reason="task execution state cursor changes each step but remains a provider-visible task-state fact after success",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations, "work_rollout": request.work_rollout}),
                     output_chars=estimate_chars(volatile_state),
                     projection_strategy="white_listed_task_state_projection",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=(),
                 )
             )
@@ -439,7 +484,7 @@ class DynamicContextManager:
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_state_replay_entries),
                     projection_strategy="append_only_task_state_replay_entries",
-                    cache_impact="task_prefix_append_only",
+                    cache_impact="provider_visible_context_prefix_append_only",
                     refs=tuple(_task_state_replay_refs(task_state_replay_entries)),
                 )
             )
@@ -451,11 +496,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_goal_context",
                     source="task_goal_context",
-                    volatility_reason="active goal mode boundary can change only through task contract revision; the current boundary stays in the dynamic tail while historical context remains sealed",
-                    input_chars=estimate_chars({"task_contract": request.task_contract}),
+                    volatility_reason="active goal mode boundary can change only through task contract revision and is emitted as a content-versioned task-state fact",
+                    input_chars=estimate_chars({"task_run_contract": request.task_run_contract}),
                     output_chars=estimate_chars(task_goal_context),
                     projection_strategy="goal_work_mode_contract_projection",
-                    cache_impact="dynamic_tail_only",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
@@ -473,11 +518,11 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_plan_context",
                     source="task_plan_context",
-                    volatility_reason="active plan mode strategy can be revised by the agent; it is projected as its own dynamic tail segment instead of absorbing todo execution state",
-                    input_chars=estimate_chars({"task_contract": request.task_contract}),
+                    volatility_reason="active plan mode strategy can be revised by the agent and is emitted as a content-versioned task-state fact",
+                    input_chars=estimate_chars({"task_run_contract": request.task_run_contract}),
                     output_chars=estimate_chars(task_plan_context),
                     projection_strategy="plan_work_mode_baseline_projection",
-                    cache_impact="dynamic_tail_only",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
@@ -497,17 +542,48 @@ class DynamicContextManager:
                 VolatileSectionReport(
                     section_id=f"dynamic_context:{request.invocation_kind}:task_todo_context",
                     source="task_todo_context",
-                    volatility_reason="todo execution cursor changes as the agent works; it is projected as a separate dynamic tail segment and does not rewrite the plan baseline",
+                    volatility_reason="todo execution cursor changes as the agent works and is emitted as a content-versioned task-state fact",
                     input_chars=estimate_chars({"execution_state": request.execution_state, "observations": request.observations}),
                     output_chars=estimate_chars(task_todo_context),
                     projection_strategy="todo_work_mode_baseline_plus_runtime_cursor_projection",
-                    cache_impact="dynamic_tail_only",
+                    cache_impact="context_append_then_sealed_prefix",
                     refs=tuple(
                         ref
                         for ref in (
                             str(baseline.get("todo_baseline_ref") or ""),
                             str(cursor.get("active_item_ref") or ""),
                             str(delta.get("cursor_hash") or ""),
+                        )
+                        if ref
+                    ),
+                )
+            )
+        active_execution_lease = (
+            dict(volatile_state.get("active_execution_lease") or {})
+            if isinstance(volatile_state.get("active_execution_lease"), dict)
+            else {}
+        )
+        if active_execution_lease:
+            plan_source = dict(active_execution_lease.get("plan_source_snapshot") or {})
+            execution_contract = dict(active_execution_lease.get("execution_contract") or {})
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:active_execution_lease",
+                    source="active_execution_lease",
+                    volatility_reason=(
+                        "active execution lease is the current task execution occupancy boundary; "
+                        "released/completed/superseded leases must not be projected into current model context"
+                    ),
+                    input_chars=estimate_chars({"task_run": request.task_run, "task_run_contract": request.task_run_contract}),
+                    output_chars=estimate_chars(active_execution_lease),
+                    projection_strategy="plan_source_execution_contract_active_lease_projection",
+                    cache_impact="dynamic_tail_only",
+                    refs=tuple(
+                        ref
+                        for ref in (
+                            str(active_execution_lease.get("lease_id") or ""),
+                            str(plan_source.get("snapshot_id") or ""),
+                            str(execution_contract.get("execution_contract_id") or ""),
                         )
                         if ref
                     ),
@@ -541,6 +617,36 @@ class DynamicContextManager:
                         for item in list(evidence_index_cursor.get("files") or [])
                         if isinstance(item, dict) and str(item.get("latest_evidence_ref") or "")
                     ),
+                )
+            )
+        evidence_horizon = (
+            dict(volatile_state.get("evidence_acquisition_horizon") or {})
+            if isinstance(volatile_state.get("evidence_acquisition_horizon"), dict)
+            else dict(dynamic_payload.get("evidence_acquisition_horizon") or {})
+            if isinstance(dynamic_payload.get("evidence_acquisition_horizon"), dict)
+            else {}
+        )
+        if evidence_horizon:
+            reports.append(
+                VolatileSectionReport(
+                    section_id=f"dynamic_context:{request.invocation_kind}:evidence_acquisition_horizon",
+                    source="evidence_acquisition_horizon",
+                    volatility_reason=(
+                        "evidence acquisition horizon is the current invocation read-before-judgment boundary; "
+                        "it is derived from refs/ranges/freshness and must not be sealed into provider-visible history"
+                    ),
+                    input_chars=estimate_chars(
+                        {
+                            "execution_state": request.execution_state,
+                            "observations": request.observations,
+                            "file_state": request.file_state,
+                            "editor_context": request.editor_context,
+                        }
+                    ),
+                    output_chars=estimate_chars(evidence_horizon),
+                    projection_strategy="current_invocation_evidence_action_boundary",
+                    cache_impact="dynamic_tail_only",
+                    refs=tuple(_evidence_horizon_refs(evidence_horizon)),
                 )
             )
         editor_context_payload = _editor_context_dynamic_projection(request.editor_context)
@@ -777,7 +883,6 @@ def _inherited_file_state_projection(value: Any) -> list[dict[str, Any]]:
                     ],
                     "coverage": _bounded_projection_dict(item.get("coverage"), limit=12, chars=800),
                     "exact_coverage": _bounded_projection_dict(item.get("exact_coverage"), limit=12, chars=800),
-                    "next_suggested_read": _bounded_projection_dict(item.get("next_suggested_read"), limit=8, chars=500),
                     "content_sha256": compact_text(item.get("content_sha256") or "", limit=120),
                     "last_observation_ref": compact_text(item.get("last_observation_ref") or "", limit=220),
                     "authority": compact_text(item.get("authority") or "runtime.memory.file_state_authority.task_file_state", limit=160),
@@ -919,7 +1024,7 @@ def _attachment_context_index_projection(value: Any) -> list[dict[str, Any]]:
                     "height": item.get("height"),
                     "extraction_status": str(item.get("extraction_status") or "not_extracted"),
                     "freshness": "fresh" if content_sha256 else "metadata_only",
-                    "rehydration_action": "attachment_extract_text" if _attachment_is_extractable(mime_type) else "",
+                    "rehydration_action": "image_ocr" if _attachment_is_extractable(mime_type) else "",
                     "authority": "harness.runtime.dynamic_context.attachment_context_index",
                 }
             )
@@ -1039,6 +1144,157 @@ def _editor_index_record(
             "freshness": _editor_freshness(value, buffer_hash=buffer_hash),
             "rehydration_action": "editor_buffer_rehydrate_before_disk_claim" if dirty else "",
             "authority": "harness.runtime.dynamic_context.editor_context_index",
+        }
+    )
+
+
+def _dict_from_container(container: Any, key: str) -> dict[str, Any]:
+    if not isinstance(container, dict):
+        return {}
+    value = container.get(key)
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _latest_project_network_control_tool_result(tool_results: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    entries = [dict(entry) for entry in list(tool_results or ()) if isinstance(entry, dict)]
+    for item in reversed(entries):
+        candidates = [item]
+        structured = dict(item.get("structured_payload") or {}) if isinstance(item.get("structured_payload"), dict) else {}
+        if structured:
+            candidates.append(structured)
+        if isinstance(item.get("tool_result"), dict):
+            candidates.append(dict(item.get("tool_result") or {}))
+        if isinstance(structured.get("tool_result"), dict):
+            candidates.append(dict(structured.get("tool_result") or {}))
+        for candidate in candidates:
+            if candidate.get("navigation_session") or candidate.get("path_candidates"):
+                return candidate
+    return {}
+
+
+def _project_network_control_lane_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload:
+        return {}
+    local_slice = dict(payload.get("local_slice") or {}) if isinstance(payload.get("local_slice"), dict) else {}
+    return drop_empty(
+        {
+            "navigation_session": _bounded_projection_dict(payload.get("navigation_session"), limit=16, chars=1200),
+            "path_candidates": [
+                _project_network_path_card(dict(item))
+                for item in list(payload.get("path_candidates") or [])[:12]
+                if isinstance(item, dict)
+            ],
+            "path_candidate_count": len(list(payload.get("path_candidates") or [])),
+            "opened_ref_count": len(list(payload.get("opened_refs") or [])),
+            "opened_refs": [
+                _bounded_projection_dict(item, limit=8, chars=500)
+                for item in list(payload.get("opened_refs") or [])[:20]
+                if isinstance(item, dict)
+            ],
+            "recent_decisions": [
+                _bounded_projection_dict(item, limit=10, chars=700)
+                for item in list(payload.get("recent_decisions") or [])[:8]
+                if isinstance(item, dict)
+            ],
+            "local_slice_summary": _project_network_slice_summary(local_slice),
+            "limitations": string_tuple(payload.get("limitations"))[:8],
+            "authority": "harness.runtime.dynamic_context.project_network_control_lane",
+        }
+    )
+
+
+def _project_semantic_space_lane_projection(value: Any) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    if not payload:
+        return {}
+    if payload.get("local_slice") and isinstance(payload.get("local_slice"), dict):
+        payload = dict(payload.get("local_slice") or {})
+    return drop_empty(
+        {
+            "build_id": compact_text(payload.get("build_id") or "", limit=160),
+            "generation": payload.get("generation"),
+            "seed_node_ids": string_tuple(payload.get("seed_node_ids"))[:12],
+            "node_count": len(list(payload.get("nodes") or [])),
+            "edge_count": len(list(payload.get("edges") or [])),
+            "semantic_overlay_count": len(list(payload.get("semantic_overlays") or [])),
+            "nodes": [
+                _project_network_node_card(dict(item))
+                for item in list(payload.get("nodes") or [])[:24]
+                if isinstance(item, dict)
+            ],
+            "edges": [
+                _project_network_edge_card(dict(item))
+                for item in list(payload.get("edges") or [])[:24]
+                if isinstance(item, dict)
+            ],
+            "semantic_overlays": [
+                _bounded_projection_dict(item, limit=8, chars=700)
+                for item in list(payload.get("semantic_overlays") or [])[:16]
+                if isinstance(item, dict)
+            ],
+            "limitations": string_tuple(payload.get("limitations"))[:8],
+            "authority": "harness.runtime.dynamic_context.project_semantic_space_lane",
+        }
+    )
+
+
+def _project_network_path_card(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "path_candidate_id": compact_text(item.get("path_candidate_id") or "", limit=180),
+            "path_kind": compact_text(item.get("path_kind") or "", limit=80),
+            "path_label": compact_text(item.get("path_label") or "", limit=300),
+            "score": item.get("score"),
+            "status": compact_text(item.get("status") or "", limit=80),
+            "target_node_id": compact_text(item.get("target_node_id") or "", limit=180),
+            "node_ids": string_tuple(item.get("node_ids"))[:8],
+            "edge_ids": string_tuple(item.get("edge_ids"))[:8],
+            "stable_refs": string_tuple(item.get("stable_refs"))[:8],
+            "semantic_overlay_ids": string_tuple(item.get("semantic_overlay_ids"))[:8],
+            "reason": compact_text(item.get("reason") or "", limit=240),
+        }
+    )
+
+
+def _project_network_node_card(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "node_id": compact_text(item.get("node_id") or "", limit=180),
+            "node_kind": compact_text(item.get("node_kind") or "", limit=80),
+            "stable_ref": compact_text(item.get("stable_ref") or "", limit=260),
+            "display_name": compact_text(item.get("display_name") or "", limit=180),
+            "path": compact_text(item.get("path") or "", limit=260),
+            "layer_kind": compact_text(item.get("layer_kind") or "", limit=80),
+        }
+    )
+
+
+def _project_network_edge_card(item: dict[str, Any]) -> dict[str, Any]:
+    return drop_empty(
+        {
+            "edge_id": compact_text(item.get("edge_id") or "", limit=180),
+            "edge_kind": compact_text(item.get("edge_kind") or "", limit=100),
+            "src_node_id": compact_text(item.get("src_node_id") or "", limit=180),
+            "dst_node_id": compact_text(item.get("dst_node_id") or "", limit=180),
+            "dst_candidate_ref": compact_text(item.get("dst_candidate_ref") or "", limit=220),
+            "resolution_status": compact_text(item.get("resolution_status") or "", limit=80),
+            "freshness": compact_text(item.get("freshness") or "", limit=80),
+        }
+    )
+
+
+def _project_network_slice_summary(value: dict[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    return drop_empty(
+        {
+            "build_id": compact_text(value.get("build_id") or "", limit=160),
+            "generation": value.get("generation"),
+            "seed_node_ids": string_tuple(value.get("seed_node_ids"))[:8],
+            "node_count": len(list(value.get("nodes") or [])),
+            "edge_count": len(list(value.get("edges") or [])),
+            "semantic_overlay_count": len(list(value.get("semantic_overlays") or [])),
         }
     )
 
@@ -1459,6 +1715,25 @@ def _attachment_context_refs(attachment_context_index: Any) -> list[str]:
         if not isinstance(item, dict):
             continue
         ref = str(item.get("attachment_id") or item.get("storage_ref") or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
+def _evidence_horizon_refs(evidence_horizon: Any) -> list[str]:
+    payload = dict(evidence_horizon or {}) if isinstance(evidence_horizon, dict) else {}
+    refs: list[str] = []
+    for value in (
+        payload.get("horizon_id"),
+        dict(payload.get("source_refs") or {}).get("evidence_index_cursor_ref"),
+    ):
+        ref = str(value or "").strip()
+        if ref and ref not in refs:
+            refs.append(ref)
+    for item in list(payload.get("usable_evidence_refs") or [])[:12]:
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("evidence_ref") or item.get("artifact_ref") or "").strip()
         if ref and ref not in refs:
             refs.append(ref)
     return refs

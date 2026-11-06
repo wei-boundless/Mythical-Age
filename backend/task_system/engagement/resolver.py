@@ -24,8 +24,12 @@ def resolve_engagement_plan(
     )
     assignee_profile: dict[str, Any] = {}
     if plan.assignee.kind == "agent":
-        profile_ref = plan.assignee.agent_id or "agent:0"
-        profile = AgentRuntimeRegistry(Path(backend_dir)).get_profile(profile_ref)
+        registry = AgentRuntimeRegistry(Path(backend_dir))
+        agent_profile_id = str(plan.assignee.agent_profile_id or "").strip()
+        agent_id = str(plan.assignee.agent_id or "").strip()
+        profile = registry.get_profile_by_profile_id(agent_profile_id) if agent_profile_id else None
+        if profile is None and agent_id:
+            profile = registry.get_profile(agent_id)
         if profile is not None:
             assignee_profile = profile.to_dict()
     return ResolvedEngagementPlan(
@@ -43,7 +47,14 @@ def resolve_engagement_plan(
 def _missing_refs(*, plan: Any, assignee_profile: dict[str, Any]) -> tuple[str, ...]:
     missing: list[str] = []
     if plan.assignee.kind == "agent" and not assignee_profile:
-        missing.append(f"agent_profile:{plan.assignee.agent_id or 'agent:0'}")
+        agent_profile_id = str(plan.assignee.agent_profile_id or "").strip()
+        agent_id = str(plan.assignee.agent_id or "").strip()
+        if agent_profile_id:
+            missing.append(f"agent_profile_id:{agent_profile_id}")
+        elif agent_id:
+            missing.append(f"agent_id:{agent_id}")
+        else:
+            missing.append("agent_assignee_ref_required")
     if plan.assignee.kind == "workflow" and not plan.assignee.workflow_id:
         missing.append("workflow_id")
     return tuple(missing)

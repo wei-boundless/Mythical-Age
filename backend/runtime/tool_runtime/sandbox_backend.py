@@ -6,35 +6,23 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "batch_edit_file", "terminal", "python_repl"}
+DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"workspace_edit", "local_execution"}
 REAL_WORKSPACE_READ_TOOL_NAMES = {
-    "read_file",
-    "read_structured_file",
-    "stat_path",
-    "path_exists",
-    "glob_paths",
-    "search_files",
-    "search_text",
-    "list_dir",
+    "workspace_read",
+    "workspace_search",
+    "code_structure",
 }
 DEFAULT_OVERLAY_TOOL_NAMES = {
-    "read_file",
-    "read_structured_file",
-    "stat_path",
-    "path_exists",
-    "glob_paths",
-    "search_files",
-    "search_text",
-    "write_file",
-    "edit_file",
-    "batch_edit_file",
-    "terminal",
-    "python_repl",
+    "workspace_read",
+    "workspace_search",
+    "workspace_edit",
+    "code_structure",
+    "local_execution",
 }
-FIXED_STORE_TOOL_NAMES = {"image_generate"}
-OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file", "batch_edit_file"}
-OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file", "stat_path", "path_exists"}
-OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"terminal", "python_repl"}
+FIXED_STORE_TOOL_NAMES = {"image"}
+OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"workspace_edit"}
+OVERLAY_COPY_ON_READ_TOOL_NAMES = {"workspace_read"}
+OVERLAY_MATERIALIZE_BEFORE_TOOL_NAMES = {"local_execution"}
 DEFAULT_FULL_WORKSPACE_EXCLUDED_DIR_NAMES = {
     ".cache",
     ".git",
@@ -296,14 +284,14 @@ def _is_excluded_workspace_relative_path(relative: Path) -> bool:
 
 def _requested_materialized_roots(context: SandboxToolContext, tool_name: str, tool_args: dict[str, Any]) -> tuple[str, ...]:
     args = dict(tool_args or {})
-    if tool_name in {"search_files", "search_text"}:
+    if tool_name == "workspace_search":
         roots = _normalized_path_list(args.get("roots"), workspace_root=context.workspace_root)
         if roots:
             return roots
         paths = _normalized_path_list(args.get("paths"), workspace_root=context.workspace_root)
         if paths:
             return tuple(dict.fromkeys(_parent_root(path) for path in paths if path))
-    if tool_name == "list_dir":
+    if tool_name == "workspace_read" and str(args.get("action") or "").strip() == "dir":
         return tuple(_normalized_path_list(args.get("path") or ".", workspace_root=context.workspace_root))
     return ()
 

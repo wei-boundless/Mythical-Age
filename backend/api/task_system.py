@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import time
+
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import require_runtime
@@ -44,6 +46,7 @@ from task_system.node_configurations import (
 )
 from task_system.projects import ProjectFileService, ProjectLifecycleService
 from task_system.session_scope import normalize_session_scope, session_scope_matches
+from task_system.work_environments import TaskEnvironmentViewService, TaskScheduler, TaskWorkEnvironmentService
 
 router = APIRouter()
 
@@ -260,6 +263,42 @@ class TaskEnvironmentSessionResolveRequest(BaseModel):
     startup_parameters: dict[str, object] = Field(default_factory=dict)
 
 
+class TaskEnvironmentStaleLeaseRecoveryRequest(BaseModel):
+    limit: int = Field(default=200, ge=1, le=1000)
+    reason: str = Field(default="task_environment_lease_expired", max_length=240)
+    idempotency_key: str = Field(default="", max_length=240)
+
+
+class TaskEnvironmentEpisodePrepareRequest(BaseModel):
+    agent_id: str = Field(default="", max_length=160)
+    agent_profile_id: str = Field(default="", max_length=160)
+    invocation_kind: str = Field(default="task_episode", max_length=120)
+    caller_kind: str = Field(default="task_system", max_length=120)
+    role_contract: str = Field(default="", max_length=12000)
+    scope: dict[str, object] = Field(default_factory=dict)
+    acceptance: dict[str, object] = Field(default_factory=dict)
+    resource_handles: dict[str, object] = Field(default_factory=dict)
+    graph_context: dict[str, object] = Field(default_factory=dict)
+    project_network_handles: dict[str, object] = Field(default_factory=dict)
+    output_contract: dict[str, object] = Field(default_factory=dict)
+    packet_policy: dict[str, object] = Field(default_factory=dict)
+    continuation_hint: str = Field(default="", max_length=4000)
+    idempotency_key: str = Field(default="", max_length=240)
+
+
+class TaskEnvironmentEpisodeRunRequest(BaseModel):
+    max_steps: int = Field(default=12, ge=1, le=100)
+    idempotency_key: str = Field(default="", max_length=240)
+
+
+class TaskEnvironmentCommandRequest(BaseModel):
+    command_kind: str = Field(..., min_length=3, max_length=120)
+    requested_by: str = Field(default="user", max_length=120)
+    payload: dict[str, object] = Field(default_factory=dict)
+    idempotency_key: str = Field(default="", max_length=240)
+    dispatch_now: bool = True
+
+
 class ProjectLifecycleRunStartRequest(BaseModel):
     action: str = Field(..., min_length=3, max_length=160)
     execute: bool = False
@@ -459,6 +498,28 @@ def _task_graph_overview_item(graph) -> dict[str, object]:
         "warning_count": warning_count,
         "valid": error_count == 0,
         "overview_mode": "summary",
+    }
+
+
+def _task_graph_fast_overview_item(graph) -> dict[str, object]:
+    return {
+        "graph_id": graph.graph_id,
+        "title": graph.title,
+        "domain_id": graph.domain_id,
+        "graph_kind": graph.graph_kind,
+        "entry_node_id": graph.entry_node_id,
+        "output_node_id": graph.output_node_id,
+        "nodes": [],
+        "edges": [],
+        "node_count": len(graph.nodes),
+        "edge_count": len(graph.edges),
+        "publish_state": graph.publish_state,
+        "enabled": graph.enabled,
+        "metadata": {
+            "overview_mode": "fast",
+            "detail_required_for_edit": True,
+        },
+        "overview_mode": "fast",
     }
 
 
@@ -820,6 +881,130 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     }
 
 
+def _empty_task_management_payload(task_assignments: list[dict[str, object]] | None = None) -> dict[str, object]:
+    return {
+        "entry_policies": [],
+        "task_domains": [],
+        "engagement_plans": [],
+        "specific_task_records": [],
+        "task_flow_definitions": [],
+        "flow_contract_bindings": [],
+        "execution_policies": [],
+        "contract_catalog": [],
+        "task_assignments": task_assignments or [],
+        "workflow_resources": [],
+    }
+
+
+def _contract_management_shell(contract_management: dict[str, object]) -> dict[str, object]:
+    return {
+        "authority": "task_system.contract_management",
+        "contract_specs": [],
+        "contract_families": [],
+        "contract_family_catalog": {},
+        "contract_kind_options": list(contract_management.get("contract_kind_options") or []),
+        "field_type_options": list(contract_management.get("field_type_options") or []),
+        "source_hint_options": list(contract_management.get("source_hint_options") or []),
+        "visibility_options": list(contract_management.get("visibility_options") or []),
+        "acceptance_rule_type_options": list(contract_management.get("acceptance_rule_type_options") or []),
+        "validation_issues": [],
+        "summary": dict(contract_management.get("summary") or {}),
+    }
+
+
+def _task_system_environment_payload(base_dir) -> dict[str, object]:
+    registry = TaskFlowRegistry(base_dir)
+    contract_registry = TaskContractRegistry(base_dir)
+    task_assignments = [item.to_dict() for item in registry.list_task_assignments()]
+    task_environment_management = build_task_environment_catalog(
+        registry=task_environment_registry_from_backend_dir(base_dir),
+        engagement_plans=[],
+    ).management_payload()
+    environment_kind_management = _environment_kind_management_payload(base_dir)
+    environment_task_inventory = _environment_task_inventory(task_assignments)
+    project_instance_management = _project_instance_management(
+        base_dir,
+        environment_ids=_visible_task_environment_ids(task_environment_management),
+    )
+    contract_management = contract_registry.build_catalog()
+    return {
+        "authority": "task_system.management_console",
+        "summary": {
+            "task_assignment_count": len(task_assignments),
+            "contract_spec_count": int(dict(contract_management.get("summary") or {}).get("contract_spec_count") or 0),
+            "contract_spec_validation_issue_count": int(dict(contract_management.get("summary") or {}).get("validation_issue_count") or 0),
+        },
+        "task_management": _empty_task_management_payload(),
+        "task_environment_management": task_environment_management,
+        "project_instance_management": project_instance_management,
+        "environment_kind_management": environment_kind_management,
+        "environment_task_inventory": environment_task_inventory,
+        "contract_management": _contract_management_shell(contract_management),
+        "contract_usage_index": {
+            "authority": "task_system.contract_usage_index",
+            "by_contract_id": {},
+            "summary": {"contract_with_usage_count": 0, "usage_count": 0},
+        },
+        "diagnostics": {
+            "overview_mode": "environment",
+            "deferred_sections": ["task_assignments", "task_graphs", "contract_specs", "node_configurations"],
+        },
+    }
+
+
+def _task_system_graph_payload(base_dir) -> dict[str, object]:
+    registry = TaskFlowRegistry(base_dir)
+    task_graph_models = registry.list_task_graphs()
+    task_graphs = [_task_graph_fast_overview_item(item) for item in task_graph_models]
+    semantic_relations = semantic_relation_catalog()
+    communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
+    return {
+        "authority": "task_system.management_console",
+        "summary": {
+            "task_graph_count": len(task_graphs),
+            "communication_protocol_count": len(communication_protocols),
+        },
+        "task_management": _empty_task_management_payload(),
+        "task_graph_management": {
+            "task_graphs": task_graphs,
+            "task_graph_specs": [],
+            "semantic_relation_catalog": semantic_relations,
+            "semantic_relations": semantic_relations["relations"],
+            "communication_protocols": communication_protocols,
+            "a2a": {
+                "protocol_version": "0.3.0",
+                "transport": "JSONRPC",
+                "protocol_locked": True,
+                "agent_cards": [],
+                "message_types": [
+                    "message/send",
+                    "message/stream",
+                    "task/status",
+                    "task/artifact",
+                ],
+                "part_types": ["text", "data", "file"],
+                "task_states": [
+                    "submitted",
+                    "working",
+                    "input-required",
+                    "completed",
+                    "canceled",
+                    "failed",
+                    "rejected",
+                    "auth-required",
+                    "unknown",
+                ],
+                "overview_mode": "protocol_only",
+            },
+            "overview_mode": "graph",
+        },
+        "diagnostics": {
+            "overview_mode": "graph",
+            "deferred_sections": ["task_assignments", "contract_specs", "node_configurations"],
+        },
+    }
+
+
 def _task_node_configuration_for_preview(base_dir, node_config_id: str) -> TaskNodeConfigurationSpec | None:
     spec = TaskNodeConfigurationRepository(base_dir).get(node_config_id)
     if spec is not None:
@@ -834,8 +1019,12 @@ def _task_node_configuration_for_preview(base_dir, node_config_id: str) -> TaskN
 
 
 @router.get("/tasks/overview")
-async def task_system_overview() -> dict[str, object]:
+async def task_system_overview(scope: str = Query(default="full", pattern="^(full|environment|graph)$")) -> dict[str, object]:
     runtime = require_runtime()
+    if scope == "environment":
+        return _task_system_environment_payload(runtime.base_dir)
+    if scope == "graph":
+        return _task_system_graph_payload(runtime.base_dir)
     return _task_system_payload(runtime.base_dir)
 
 
@@ -1505,6 +1694,421 @@ async def list_task_system_environment_projects(environment_id: str) -> dict[str
     }
 
 
+def _task_scheduler(runtime) -> TaskScheduler:
+    harness_runtime = getattr(runtime, "harness_runtime", None)
+    graph_system = getattr(harness_runtime, "graph_system", None)
+    return TaskScheduler(
+        runtime.base_dir,
+        harness_runtime=harness_runtime,
+        graph_system=graph_system,
+    )
+
+
+async def _submit_task_environment_command(
+    runtime,
+    *,
+    environment_id: str,
+    command_kind: str,
+    requested_by: str,
+    payload: dict[str, object],
+    idempotency_key: str,
+    dispatch_now: bool = True,
+) -> dict[str, object]:
+    scheduler = _task_scheduler(runtime)
+    submitted = scheduler.submit_command(
+        command_kind=command_kind,
+        task_environment_id=environment_id,
+        requested_by=requested_by,
+        payload=dict(payload or {}),
+        idempotency_key=idempotency_key,
+    )
+    dispatch: dict[str, object] = {}
+    if dispatch_now:
+        command = dict(submitted.get("command") or {})
+        dispatch = await scheduler.dispatch_command(str(command.get("command_id") or ""))
+    return {
+        "authority": "task_system.task_command_api.submit",
+        "submission": submitted,
+        "dispatch": dispatch,
+    }
+
+
+@router.get("/task-environments")
+async def list_task_work_environments(
+    status: str = "",
+    task_kind: str = "",
+    project_id: str = "",
+    caller_kind: str = "",
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    return TaskEnvironmentViewService(runtime.base_dir).list_task_environments(
+        status=status,
+        task_kind=task_kind,
+        project_id=project_id,
+        caller_kind=caller_kind,
+        limit=limit,
+    )
+
+
+@router.get("/task-environments/resumable")
+async def list_resumable_task_work_environments(
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    payload = TaskEnvironmentViewService(runtime.base_dir).list_resumable_task_environments(limit=limit)
+    items = []
+    for item in list(payload.get("task_environments") or []):
+        row = dict(item or {})
+        row["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, row)
+        items.append(row)
+    payload["task_environments"] = items
+    return payload
+
+
+@router.post("/task-environments/recover-stale-leases")
+async def recover_stale_task_environment_leases(
+    payload: TaskEnvironmentStaleLeaseRecoveryRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    scheduler = _task_scheduler(runtime)
+    submitted = scheduler.submit_command(
+        command_kind="recover_stale_lease",
+        task_environment_id="",
+        requested_by="system",
+        payload={
+            "limit": payload.limit,
+            "reason": payload.reason,
+        },
+        idempotency_key=payload.idempotency_key or f"recover-stale-lease:{time.time()}",
+    )
+    dispatched = await scheduler.dispatch_command(str(dict(submitted.get("command") or {}).get("command_id") or ""))
+    result = dict(dict(dispatched.get("result") or {}).get("recovery") or {})
+    recovered_items = []
+    for item in list(result.get("recovered_leases") or []):
+        row = dict(item or {})
+        recovery_projection = dict(row.get("recovery_projection") or {})
+        if recovery_projection:
+            row["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, recovery_projection)
+        recovered_items.append(row)
+    result["recovered_leases"] = recovered_items
+    result["command"] = dict(dispatched.get("command") or submitted.get("command") or {})
+    result["dispatch"] = dict(dispatched.get("dispatch") or {})
+    return result
+
+
+@router.get("/task-environments/{environment_id}")
+async def get_task_work_environment(
+    environment_id: str,
+    event_limit: int = Query(default=80, ge=1, le=500),
+    episode_limit: int = Query(default=40, ge=1, le=200),
+    context_package_limit: int = Query(default=10, ge=1, le=100),
+    work_product_limit: int = Query(default=40, ge=1, le=200),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    detail = TaskEnvironmentViewService(runtime.base_dir).task_environment_detail(
+        environment_id,
+        event_limit=event_limit,
+        episode_limit=episode_limit,
+        context_package_limit=context_package_limit,
+        work_product_limit=work_product_limit,
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    detail["graph_runtime_projection"] = _task_environment_graph_runtime_projection(runtime, detail)
+    return detail
+
+
+@router.get("/task-environments/{environment_id}/graph-runtime")
+async def get_task_work_environment_graph_runtime(environment_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    detail = TaskEnvironmentViewService(runtime.base_dir).task_environment_detail(
+        environment_id,
+        event_limit=1,
+        episode_limit=1,
+        context_package_limit=1,
+        work_product_limit=1,
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    return _task_environment_graph_runtime_projection(runtime, detail)
+
+
+@router.get("/task-environments/{environment_id}/commands")
+async def list_task_work_environment_commands(
+    environment_id: str,
+    status: str = "",
+    command_kind: str = "",
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    repository = TaskWorkEnvironmentService(runtime.base_dir).repository
+    if repository.get_task_environment(environment_id) is None:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    commands = repository.list_task_commands(
+        environment_id,
+        status=status,
+        command_kind=command_kind,
+        limit=limit,
+    )
+    dispatch_records = repository.list_task_dispatch_records(task_environment_id=environment_id, limit=limit)
+    return {
+        "authority": "task_system.task_command_api.list",
+        "task_environment_id": environment_id,
+        "commands": [item.to_dict() for item in commands],
+        "dispatch_records": [item.to_dict() for item in dispatch_records],
+        "summary": {
+            "command_count": len(commands),
+            "dispatch_record_count": len(dispatch_records),
+            "status": status,
+            "command_kind": command_kind,
+        },
+    }
+
+
+@router.post("/task-environments/{environment_id}/commands")
+async def submit_task_work_environment_command(
+    environment_id: str,
+    payload: TaskEnvironmentCommandRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return await _submit_task_environment_command(
+            runtime,
+            environment_id=environment_id,
+            command_kind=payload.command_kind,
+            requested_by=payload.requested_by,
+            payload=dict(payload.payload or {}),
+            idempotency_key=payload.idempotency_key,
+            dispatch_now=payload.dispatch_now,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/task-environments/{environment_id}/episodes/prepare")
+async def prepare_task_work_environment_episode(
+    environment_id: str,
+    payload: TaskEnvironmentEpisodePrepareRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return await _submit_task_environment_command(
+            runtime,
+            environment_id=environment_id,
+            command_kind="prepare_episode",
+            requested_by="user",
+            payload={
+                "agent_id": payload.agent_id,
+                "agent_profile_id": payload.agent_profile_id,
+                "invocation_kind": payload.invocation_kind,
+                "caller_kind": payload.caller_kind,
+                "role_contract": payload.role_contract,
+                "scope": dict(payload.scope or {}),
+                "acceptance": dict(payload.acceptance or {}),
+                "resource_handles": dict(payload.resource_handles or {}),
+                "graph_context": dict(payload.graph_context or {}),
+                "project_network_handles": dict(payload.project_network_handles or {}),
+                "output_contract": dict(payload.output_contract or {}),
+                "packet_policy": dict(payload.packet_policy or {}),
+                "continuation_hint": payload.continuation_hint,
+                "episode_idempotency_key": payload.idempotency_key,
+            },
+            idempotency_key=payload.idempotency_key,
+            dispatch_now=True,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        reason = str(exc)
+        status_code = 409 if "active lease" in reason else 400
+        raise HTTPException(status_code=status_code, detail=reason) from exc
+
+
+@router.post("/task-environments/{environment_id}/episodes/{episode_id}/run")
+async def run_task_work_environment_episode(
+    environment_id: str,
+    episode_id: str,
+    payload: TaskEnvironmentEpisodeRunRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        return await _submit_task_environment_command(
+            runtime,
+            environment_id=environment_id,
+            command_kind="run_episode",
+            requested_by="user",
+            payload={
+                "episode_id": episode_id,
+                "max_steps": payload.max_steps,
+            },
+            idempotency_key=payload.idempotency_key or f"run-episode:{environment_id}:{episode_id}:{payload.max_steps}:{time.time()}",
+            dispatch_now=True,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        reason = str(exc)
+        status_code = 409 if "active lease" in reason or "does not belong" in reason else 400
+        raise HTTPException(status_code=status_code, detail=reason) from exc
+
+
+@router.get("/task-environments/{environment_id}/control-signals")
+async def list_task_work_environment_control_signals(
+    environment_id: str,
+    status: str = "",
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, object]:
+    runtime = require_runtime()
+    repository = TaskWorkEnvironmentService(runtime.base_dir).repository
+    if repository.get_task_environment(environment_id) is None:
+        raise HTTPException(status_code=404, detail="TaskWorkEnvironment not found")
+    signals = repository.list_control_signals(environment_id, status=status, limit=limit)
+    return {
+        "authority": "task_system.task_environment_control_signal_api.list",
+        "task_environment_id": environment_id,
+        "control_signals": [item.to_dict() for item in signals],
+        "summary": {
+            "control_signal_count": len(signals),
+            "status": status,
+        },
+    }
+
+
+def _task_environment_graph_runtime_projection(runtime, detail: dict[str, object]) -> dict[str, object]:
+    binding = dict(detail.get("graph_node_binding") or {})
+    graph_run_id = str(binding.get("graph_run_id") or "").strip()
+    node_id = str(binding.get("node_id") or "").strip()
+    config_id = str(binding.get("config_id") or "").strip()
+    if not graph_run_id:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "no_graph_node_binding",
+        }
+    graph_system = getattr(getattr(runtime, "harness_runtime", None), "graph_system", None)
+    if graph_system is None:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "graph_system_unavailable",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+        }
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_config(config_id) if config_id else None
+    monitor_loader = getattr(graph_system, "get_graph_run_monitor", None)
+    if not callable(monitor_loader):
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "graph_run_monitor_unavailable",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+            "graph_config_available": graph_config is not None,
+        }
+    try:
+        monitor = monitor_loader(
+            graph_run_id,
+            graph_config=graph_config,
+            event_limit=1,
+            include_config=False,
+        )
+    except ValueError as exc:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": str(exc),
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+            "graph_config_available": graph_config is not None,
+        }
+    if not monitor:
+        return {
+            "authority": "task_system.task_environment_graph_runtime_projection",
+            "available": False,
+            "reason": "graph_run_monitor_not_found",
+            "graph_run_id": graph_run_id,
+            "node_id": node_id,
+            "config_id": config_id,
+            "graph_config_available": graph_config is not None,
+        }
+    monitor_payload = dict(monitor or {})
+    loop_state = dict(monitor_payload.get("graph_loop_state") or {})
+    graph_run = dict(monitor_payload.get("graph_run") or {})
+    task_run = dict(monitor_payload.get("task_run") or {})
+    active_orders = [dict(item) for item in list(monitor_payload.get("active_node_work_orders") or []) if isinstance(item, dict)]
+    node_states = dict(loop_state.get("node_states") or {})
+    node_state = dict(node_states.get(node_id) or {})
+    active_order = _first_work_order_for_node(active_orders, node_id=node_id)
+    latest_checkpoint = {}
+    checkpoint_loader = getattr(graph_system, "get_latest_checkpoint", None)
+    if callable(checkpoint_loader):
+        try:
+            latest_checkpoint = dict(checkpoint_loader(graph_run_id) or {})
+        except ValueError:
+            latest_checkpoint = {}
+    return {
+        "authority": "task_system.task_environment_graph_runtime_projection",
+        "available": True,
+        "graph_run_id": graph_run_id,
+        "graph_id": str(binding.get("graph_id") or loop_state.get("graph_id") or graph_run.get("graph_id") or ""),
+        "config_id": config_id or str(loop_state.get("config_id") or graph_run.get("config_id") or ""),
+        "graph_config_available": graph_config is not None,
+        "graph_run_status": str(graph_run.get("status") or loop_state.get("status") or ""),
+        "task_run": {
+            key: task_run.get(key)
+            for key in ("task_run_id", "status", "terminal_reason")
+            if task_run.get(key) not in (None, "", [], {})
+        },
+        "loop_state": {
+            "status": str(loop_state.get("status") or ""),
+            "terminal_reason": str(loop_state.get("terminal_reason") or ""),
+            "ready_node_ids": _id_list(loop_state.get("ready_node_ids")),
+            "running_node_ids": _id_list(loop_state.get("running_node_ids")),
+            "blocked_node_ids": _id_list(loop_state.get("blocked_node_ids")),
+            "failed_node_ids": _id_list(loop_state.get("failed_node_ids")),
+            "active_work_order_node_ids": _id_list(loop_state.get("active_work_order_node_ids")),
+            "event_cursor": loop_state.get("event_cursor", -1),
+        },
+        "node_runtime": {
+            "node_id": node_id,
+            "status": str(node_state.get("status") or ""),
+            "result_ref": str(node_state.get("result_ref") or ""),
+            "active_work_order_id": str(active_order.get("work_order_id") or ""),
+            "is_active": bool(active_order),
+        },
+        "active_node_work_order_count": len(active_orders),
+        "latest_checkpoint": _compact_checkpoint(latest_checkpoint),
+    }
+
+
+def _first_work_order_for_node(work_orders: list[dict[str, object]], *, node_id: str) -> dict[str, object]:
+    target = str(node_id or "").strip()
+    for item in work_orders:
+        if str(item.get("node_id") or "").strip() == target:
+            return dict(item)
+    return {}
+
+
+def _compact_checkpoint(checkpoint: dict[str, object]) -> dict[str, object]:
+    if not checkpoint:
+        return {}
+    return {
+        key: checkpoint.get(key)
+        for key in ("checkpoint_id", "id", "graph_run_id", "state_id", "created_at", "event_cursor")
+        if checkpoint.get(key) not in (None, "", [], {})
+    }
+
+
+def _id_list(value: object) -> list[str]:
+    return [str(item) for item in list(value or []) if str(item)]
+
+
 @router.get("/task-environments/{environment_id}/sessions")
 async def list_task_environment_sessions(
     environment_id: str,
@@ -2032,4 +2636,3 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
-

@@ -29,6 +29,11 @@ class ToolRegistry:
         if not name:
             return None
         target = name.strip().lower()
+        # Keep the former write entrypoint executable for stale provider
+        # transcripts, while exposing only workspace_edit(action="write") in
+        # the current tool catalog.
+        if target == "workspace_write":
+            target = "workspace_edit"
         for tool in self._tools:
             if tool.name.lower() == target:
                 return tool

@@ -172,23 +172,18 @@ class AppSettingsService:
             "authority": "runtime.context_budget_presets",
         }
 
-    def task_executor_backend_config(self) -> dict[str, Any]:
-        image_payload = ImageAssetService(self.base_dir).config_summary()
-        return {
-            "image_assets": {
-                "base_url": str(image_payload.get("base_url") or ""),
-                "model": str(image_payload.get("model") or ""),
-                "api_key_present": bool(image_payload.get("api_key_present")),
-            },
-            "attachments": runtime_config.get_attachments_config(),
-            "image_ocr": runtime_config.get_image_ocr_config(),
-        }
-
     def model_provider_payload(self) -> dict[str, Any]:
         from agent_system.models.model_profile_resolver import build_provider_catalog
 
         settings = self.static
         provider_catalog = build_provider_catalog(self)
+        registered_models = self._registered_model_records()
+        for record in registered_models:
+            provider = str(record["provider"])
+            model = str(record["model"])
+            provider_payload = provider_catalog["providers"].get(provider)
+            if provider_payload is not None and model not in provider_payload["model_presets"]:
+                provider_payload["model_presets"].append(model)
         return {
             "provider": settings.llm_provider,
             "model": settings.llm_model,
@@ -202,10 +197,43 @@ class AppSettingsService:
             "fallback_base_url": settings.llm_fallback_base_url or "",
             "fallback_credential_ref": f"provider:{settings.llm_fallback_provider}:fallback" if settings.llm_fallback_provider else "",
             "fallback_api_key_configured": bool(settings.llm_fallback_api_key),
+            "registered_models": registered_models,
             "supported_providers": provider_catalog["providers"],
             "provider_catalog": provider_catalog,
             "authority": "runtime.model_provider",
         }
+
+    def _registered_model_records(self) -> list[dict[str, Any]]:
+        raw = runtime_config.load().get("model_provider") or {}
+        records = raw.get("registered_models") if isinstance(raw, dict) else None
+        normalized: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in records if isinstance(records, list) else []:
+            if not isinstance(item, dict):
+                continue
+            provider = str(item.get("provider") or "").strip().lower()
+            model = str(item.get("model") or "").strip()
+            base_url = str(item.get("base_url") or "").strip()
+            if not provider or not model or not base_url or (provider, model) in seen:
+                continue
+            seen.add((provider, model))
+            normalized.append({
+                "provider": provider,
+                "model": model,
+                "base_url": base_url,
+                "credential_ref": str(item.get("credential_ref") or f"provider:{provider}:primary"),
+                "active": provider == self.static.llm_provider and model == self.static.llm_model,
+            })
+        current = (self.static.llm_provider, self.static.llm_model)
+        if current[0] and current[1] and current not in seen:
+            normalized.insert(0, {
+                "provider": current[0],
+                "model": current[1],
+                "base_url": self.static.llm_base_url,
+                "credential_ref": f"provider:{current[0]}:primary",
+                "active": True,
+            })
+        return normalized
 
     def set_model_provider(
         self,
@@ -230,6 +258,17 @@ class AppSettingsService:
             "model": str(model or defaults["model"]).strip() or defaults["model"],
             "base_url": str(base_url or defaults["base_url"]).strip() or defaults["base_url"],
         }
+        registered_models = [
+            item for item in self._registered_model_records()
+            if not (str(item.get("provider")) == normalized_provider and str(item.get("model")) == payload["model"])
+        ]
+        registered_models.insert(0, {
+            "provider": normalized_provider,
+            "model": payload["model"],
+            "base_url": payload["base_url"],
+            "credential_ref": f"provider:{normalized_provider}:primary",
+            "active": True,
+        })
         normalized_fallback_provider = _normalize_provider_with_payload_hints(
             str(fallback_provider or ""),
             fallback_model,
@@ -263,6 +302,8 @@ class AppSettingsService:
                 existing_key = str(current.get("fallback_api_key") or "").strip()
                 if existing_key:
                     payload["fallback_api_key"] = existing_key
+        runtime_config.save({"model_provider": payload})
+        payload["registered_models"] = registered_models
         runtime_config.save({"model_provider": payload})
         cache_clear = getattr(cached_get_settings, "cache_clear", None)
         if callable(cache_clear):
@@ -528,7 +569,7 @@ class AppSettingsService:
                     "type": "boolean",
                     "value": bool(ocr_payload.get("enabled")),
                     "source": "runtime_override" if "enabled" in ocr_overrides else "env_or_default",
-                    "description": "关闭后 attachment_extract_text 会返回明确的配置关闭错误。",
+                    "description": "关闭后本地图片 OCR 能力会返回明确的配置关闭错误。",
                     "restart_required": False,
                 },
                 {
@@ -570,7 +611,7 @@ class AppSettingsService:
                 },
             ],
             "metadata": {
-                "tool_name": "attachment_extract_text",
+                "capability_name": "image_ocr",
                 "mcp_route": str(ocr_payload.get("mcp_route") or "image_ocr"),
                 "local_mcp_unit": "local_mcp:image_ocr",
                 "authority": "runtime.image_ocr",
@@ -776,7 +817,5 @@ class AppSettingsService:
         for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
             normalized.pop(alias, None)
         return normalized
-
-
 
 

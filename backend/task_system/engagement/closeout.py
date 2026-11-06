@@ -6,7 +6,7 @@ from typing import Any
 from .run_repository import EngagementRunRepository
 
 
-TERMINAL_TASK_STATUSES = {"completed", "failed", "blocked", "canceled"}
+TERMINAL_GRAPH_STATUSES = {"completed", "failed", "blocked", "cancelled", "canceled", "stopped"}
 
 
 def sync_engagement_run_closeout(
@@ -19,30 +19,47 @@ def sync_engagement_run_closeout(
     run = repository.get_run(engagement_run_id)
     if run is None:
         raise KeyError(f"engagement run not found: {engagement_run_id}")
-    if not run.task_run_id:
-        return {"changed": False, "reason": "engagement_run_has_no_task_run", "engagement_run": run.to_dict()}
-    task_run = runtime_host.state_index.get_task_run(run.task_run_id)
-    if task_run is None:
-        return {"changed": False, "reason": "task_run_not_found", "engagement_run": run.to_dict()}
-    task_status = str(getattr(task_run, "status", "") or "")
-    if task_status not in TERMINAL_TASK_STATUSES:
+    if run.strategy_kind != "graph_task_run":
         return {
             "changed": False,
-            "reason": "task_run_not_terminal",
-            "task_run_status": task_status,
+            "reason": f"unsupported_strategy:{run.strategy_kind}",
             "engagement_run": run.to_dict(),
+            "authority": "task_system.engagement_closeout",
         }
-    artifacts = _task_run_artifacts(runtime_host, run.task_run_id)
-    verification_refs = _verification_refs(task_run)
+    monitor_result = _graph_run_monitor(runtime_host, run.workflow_run_id)
+    if not monitor_result.get("available"):
+        return {
+            "changed": False,
+            "reason": str(monitor_result.get("reason") or "graph_run_monitor_unavailable"),
+            "engagement_run": run.to_dict(),
+            "graph_run_id": run.workflow_run_id,
+            "authority": "task_system.engagement_closeout",
+        }
+    monitor = dict(monitor_result.get("monitor") or {})
+    graph_status = _graph_status(monitor)
+    if graph_status not in TERMINAL_GRAPH_STATUSES:
+        return {
+            "changed": False,
+            "reason": "graph_run_not_terminal",
+            "graph_run_status": graph_status,
+            "graph_run_id": run.workflow_run_id,
+            "engagement_run": run.to_dict(),
+            "authority": "task_system.engagement_closeout",
+        }
+    graph_result = _graph_result(monitor)
+    artifacts = _artifact_refs_from_graph_result(graph_result)
+    verification_refs = _verification_refs_from_graph_result(graph_result)
     closeout = {
         **dict(run.closeout or {}),
-        "task_run_status": task_status,
-        "task_run_terminal_reason": str(getattr(task_run, "terminal_reason", "") or ""),
+        "graph_run_id": run.workflow_run_id,
+        "graph_run_status": graph_status,
+        "graph_run_terminal_reason": _graph_terminal_reason(monitor, graph_result=graph_result),
         "verified_artifact_count": len(artifacts),
         "verification_ref_count": len(verification_refs),
+        "node_result_ref_count": len(list(graph_result.get("node_result_refs") or [])),
         "authority": "task_system.engagement_closeout",
     }
-    status = _engagement_status_from_task_status(task_status)
+    status = _engagement_status_from_graph_status(graph_status)
     updated = repository.update_run(
         engagement_run_id,
         status=status,
@@ -56,65 +73,88 @@ def sync_engagement_run_closeout(
         _event_model(
             updated.engagement_run_id,
             "closeout_synced",
-            f"承接计划运行已随 TaskRun 收口：{status}。",
+            f"承接计划运行已随 GraphRun 收口：{status}。",
         )
     )
     return {
         "changed": True,
-        "task_run_status": task_status,
+        "graph_run_status": graph_status,
+        "graph_run_id": run.workflow_run_id,
         "engagement_run": updated.to_dict(),
         "closeout": closeout,
         "authority": "task_system.engagement_closeout",
     }
 
 
-def sync_engagement_runs_for_terminal_task(
-    *,
-    backend_dir: Path | str,
-    runtime_host: Any,
-    task_run_id: str,
-) -> list[dict[str, Any]]:
-    repository = EngagementRunRepository(backend_dir)
-    results: list[dict[str, Any]] = []
-    for item in repository.list_runs():
-        if str(item.get("task_run_id") or "") != str(task_run_id or ""):
-            continue
-        results.append(
-            sync_engagement_run_closeout(
-                backend_dir=backend_dir,
-                runtime_host=runtime_host,
-                engagement_run_id=str(item.get("engagement_run_id") or ""),
-            )
-        )
-    return results
+def _graph_run_monitor(runtime_host: Any, graph_run_id: str) -> dict[str, Any]:
+    target = str(graph_run_id or "").strip()
+    if not target:
+        return {"available": False, "reason": "engagement_run_has_no_graph_run"}
+    graph_system = getattr(runtime_host, "graph_system", None)
+    if graph_system is None:
+        return {"available": False, "reason": "graph_system_unavailable"}
+    monitor_loader = getattr(graph_system, "get_graph_run_monitor", None)
+    if not callable(monitor_loader):
+        return {"available": False, "reason": "graph_run_monitor_unavailable"}
+    try:
+        monitor = monitor_loader(target, graph_config=None, event_limit=1, include_config=False)
+    except ValueError as exc:
+        return {"available": False, "reason": str(exc) or "graph_run_monitor_failed"}
+    if not monitor:
+        return {"available": False, "reason": "graph_run_monitor_not_found"}
+    return {"available": True, "monitor": dict(monitor)}
 
 
-def _task_run_artifacts(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
-    if hasattr(runtime_host, "get_task_run_artifacts"):
-        try:
-            payload = runtime_host.get_task_run_artifacts(task_run_id)
-            return [dict(item) for item in list(payload.get("artifact_refs") or []) if isinstance(item, dict)]
-        except Exception:
-            return []
-    return []
+def _graph_status(monitor: dict[str, Any]) -> str:
+    loop_state = dict(monitor.get("graph_loop_state") or {})
+    graph_run = dict(monitor.get("graph_run") or {})
+    return str(loop_state.get("status") or graph_run.get("status") or "").strip()
 
 
-def _verification_refs(task_run: Any) -> list[dict[str, Any]]:
-    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+def _graph_result(monitor: dict[str, Any]) -> dict[str, Any]:
+    graph_run = dict(monitor.get("graph_run") or {})
+    diagnostics = dict(graph_run.get("diagnostics") or {})
+    result = diagnostics.get("graph_result")
+    return dict(result) if isinstance(result, dict) else {}
+
+
+def _graph_terminal_reason(monitor: dict[str, Any], *, graph_result: dict[str, Any]) -> str:
+    loop_state = dict(monitor.get("graph_loop_state") or {})
+    graph_run = dict(monitor.get("graph_run") or {})
+    return str(
+        graph_result.get("terminal_reason")
+        or loop_state.get("terminal_reason")
+        or graph_run.get("terminal_reason")
+        or _graph_status(monitor)
+    )
+
+
+def _artifact_refs_from_graph_result(graph_result: dict[str, Any]) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
-    for key in ("verification_refs", "verified_artifacts", "completion_verdicts"):
-        for item in list(diagnostics.get(key) or []):
-            if isinstance(item, dict):
-                refs.append(dict(item))
+    for item in list(graph_result.get("artifact_refs") or []):
+        if isinstance(item, dict):
+            refs.append(dict(item))
+        elif str(item or "").strip():
+            refs.append({"ref": str(item).strip(), "source": "graph_result.artifact_refs"})
     return _dedupe_dicts(refs)
 
 
-def _engagement_status_from_task_status(task_status: str) -> str:
-    if task_status == "completed":
+def _verification_refs_from_graph_result(graph_result: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics = dict(graph_result.get("diagnostics") or {})
+    refs: list[dict[str, Any]] = []
+    for key in ("verification_refs", "verified_artifacts", "completion_verdicts", "artifact_materialization_receipts", "memory_commit_receipts"):
+        for item in list(diagnostics.get(key) or []):
+            if isinstance(item, dict):
+                refs.append({**dict(item), "source": f"graph_result.diagnostics.{key}"})
+    return _dedupe_dicts(refs)
+
+
+def _engagement_status_from_graph_status(graph_status: str) -> str:
+    if graph_status == "completed":
         return "completed"
-    if task_status == "blocked":
+    if graph_status == "blocked":
         return "blocked"
-    if task_status == "canceled":
+    if graph_status in {"cancelled", "canceled", "stopped"}:
         return "canceled"
     return "failed"
 

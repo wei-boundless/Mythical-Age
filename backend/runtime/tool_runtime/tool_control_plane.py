@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import asyncio
 import json
 import time
 import uuid
 from pathlib import Path
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from artifact_system.artifact_authority import artifact_refs_from_tool_result_payload
+from capability_system.tools.tool_surface import action_kind_for_surface_tool
 from file_management import build_file_access_table, resolve_file_environment
 from permissions.operations import build_default_operation_registry
 from runtime.shared.runtime_directive import RuntimeDirective
@@ -28,10 +31,9 @@ from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tool_runtime.supervision import ToolSupervisor
 
 _AGENT_TURN_SANDBOX_AUTO_ALLOW_OPERATIONS = {
-    "op.write_file",
-    "op.edit_file",
+    "op.workspace_write",
+    "op.workspace_edit",
     "op.shell",
-    "op.python_repl",
     "op.browser_control",
     "op.image_generate",
 }
@@ -44,15 +46,15 @@ _EXPLICIT_HUMAN_APPROVAL_POLICIES = {
 }
 _DENY_DESTRUCTIVE_APPROVAL_POLICIES = {"deny_destructive"}
 _FILE_WRITE_OPERATION_ACTIONS = {
-    "op.write_file": "write",
-    "op.edit_file": "edit",
+    "op.workspace_write": "write",
+    "op.workspace_edit": "edit",
 }
-_SUBAGENT_OPERATION_BY_TOOL_NAME = {
-    "spawn_subagent": "op.subagent_spawn",
-    "send_subagent_message": "op.subagent_message",
-    "wait_subagent": "op.subagent_wait",
-    "list_subagents": "op.subagent_list",
-    "close_subagent": "op.subagent_close",
+_SUBAGENT_OPERATION_BY_ACTION = {
+    "spawn": "op.subagent_spawn",
+    "send": "op.subagent_message",
+    "wait": "op.subagent_wait",
+    "list": "op.subagent_list",
+    "close": "op.subagent_close",
 }
 
 
@@ -103,7 +105,7 @@ _DEFAULT_TOOL_HANDLER_REGISTRY = ToolDispatchHandlerRegistry(
         ToolDispatchHandler(
             handler_id="subagent_control",
             caller_kinds=("task_run", "agent_turn"),
-            tool_names=tuple(sorted(_SUBAGENT_OPERATION_BY_TOOL_NAME)),
+            tool_names=("subagent",),
             operation_prefixes=("op.subagent_",),
         ),
         ToolDispatchHandler(
@@ -131,6 +133,7 @@ class RuntimeToolControlPlane:
     tool_runtime_executor: Any | None = None
     tool_supervisor: Any | None = None
     operation_gate: Any | None = None
+    _poll_sessions: dict[str, dict[str, float]] = field(default_factory=dict)
 
     async def invoke(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
         permit_denial = _action_permit_denial(request)
@@ -169,32 +172,6 @@ class RuntimeToolControlPlane:
                     "dispatchable_tool_names": list(tool_plan.dispatchable_tool_names),
                 },
             )
-        if request.caller_kind != "task_run":
-            handler = _tool_handler_registry().handler_for(request)
-            if handler is None:
-                return _observation(
-                    request,
-                    status="error",
-                    text="caller tool dispatch is not connected for this caller",
-                    diagnostics={
-                        "stage": "caller_dispatch_not_connected",
-                        "caller_kind": request.caller_kind,
-                        "tool_plan_ref": tool_plan.plan_id,
-                    },
-                )
-            if handler.handler_id != "agent_turn_core":
-                return _observation(
-                    request,
-                    status="error",
-                    text="caller tool dispatch handler is not valid for this caller",
-                    diagnostics={
-                        "stage": "caller_dispatch_handler_mismatch",
-                        "handler_id": handler.handler_id,
-                        "caller_kind": request.caller_kind,
-                        "tool_plan_ref": tool_plan.plan_id,
-                    },
-                )
-            return await self._invoke_agent_turn_with_boundary_observation(request, tool_plan=tool_plan)
         handler = _tool_handler_registry().handler_for(request)
         if handler is None:
             return _observation(
@@ -207,6 +184,8 @@ class RuntimeToolControlPlane:
                     "tool_plan_ref": tool_plan.plan_id,
                 },
             )
+        if request.caller_kind != "task_run" and handler.handler_id == "agent_turn_core":
+            return await self._invoke_agent_turn_with_boundary_observation(request, tool_plan=tool_plan)
         directive, runtime_action, sandbox_policy, file_policy, resource_policy = _execution_contracts(request, tool_plan=tool_plan)
         execution_record = None
         execution_store = _execution_store(request)
@@ -320,6 +299,9 @@ class RuntimeToolControlPlane:
         )
         if duplicate_lifecycle is not None:
             return duplicate_lifecycle
+        poll_timeout = await self._enforce_polling_window(request)
+        if poll_timeout is not None:
+            return poll_timeout
         normalized_args = dict(supervision.normalized_args or request.tool_args or {})
         runtime_action = _runtime_action_with_args(runtime_action, tool_name=request.tool_name, tool_call_id=request.tool_call_id, tool_args=normalized_args)
         if handler.handler_id == "subagent_control":
@@ -461,6 +443,7 @@ class RuntimeToolControlPlane:
                 "supervision": supervision.to_dict(),
             },
         )
+        observation = _with_tool_memory_commit_diagnostics(request, observation)
         completed_event = _publish_tool_execution_completed(
             request,
             tool_plan=tool_plan,
@@ -477,6 +460,40 @@ class RuntimeToolControlPlane:
                 observation=observation,
             )
         return observation
+
+    async def _enforce_polling_window(self, request: ToolInvocationRequest) -> ToolObservation | None:
+        policy = _validated_polling_policy(request)
+        if not policy:
+            return None
+        key = ":".join((request.session_id, request.turn_id, request.tool_name, policy["poll_id"]))
+        now = time.monotonic()
+        state = self._poll_sessions.get(key)
+        if state is None:
+            self._poll_sessions[key] = {
+                "started_at": now,
+                "next_at": now,
+                "deadline": now + (policy["timeout_ms"] / 1000),
+            }
+            return None
+        deadline = float(state.get("deadline") or now)
+        if now >= deadline:
+            self._poll_sessions.pop(key, None)
+            return _observation(
+                request,
+                status="error",
+                text="tool_poll_timeout",
+                diagnostics={
+                    "stage": "tool_poll_timeout",
+                    "poll_id": policy["poll_id"],
+                    "timeout_ms": policy["timeout_ms"],
+                    "authority": "runtime.tool_runtime.tool_control_plane",
+                },
+            )
+        wait_seconds = max(0.0, float(state.get("next_at") or now) - now)
+        if wait_seconds:
+            await asyncio.sleep(wait_seconds)
+        state["next_at"] = time.monotonic() + (policy["interval_ms"] / 1000)
+        return None
 
     async def _invoke_agent_turn_with_boundary_observation(self, request: ToolInvocationRequest, *, tool_plan: Any) -> ToolObservation:
         if request.caller_kind != "agent_turn":
@@ -724,9 +741,12 @@ def _action_permit_denial(request: ToolInvocationRequest) -> str:
 
 
 def _request_operation_id(request: ToolInvocationRequest) -> str:
+    definition = _definition(request)
     return _canonical_operation_id(
         tool_name=str(request.tool_name or "").strip(),
         operation_id=str(request.operation_id or "").strip(),
+        tool_args=dict(request.tool_args or {}),
+        definition=definition,
     )
 
 
@@ -838,7 +858,7 @@ def _publish_tool_execution_completed(
             "artifact_refs": [dict(item) for item in tuple(getattr(observation, "artifact_refs", ()) or ())],
         }
     )
-    return _publish_tool_lifecycle_signal(
+    published = _publish_tool_lifecycle_signal(
         request,
         signal_type="tool.execution.completed",
         signal_id=f"toolexec:{request.invocation_id}:completed",
@@ -848,6 +868,24 @@ def _publish_tool_execution_completed(
             "result_ref": str(getattr(observation, "result_ref", "") or ""),
         },
     )
+    # Publish one additional signal keyed by the semantic tool call, not by the
+    # invocation id. invocation_id derives from action_request_ref, which is
+    # fresh for every model tool call, so the lifecycle guard above cannot catch
+    # a model that keeps re-issuing the same read with identical arguments.
+    semantic_key = _semantic_tool_call_key(request)
+    if semantic_key:
+        _publish_tool_lifecycle_signal(
+            request,
+            signal_type="tool.execution.completed",
+            signal_id=f"toolexec:semantic:{semantic_key}:completed",
+            payload=payload,
+            refs={
+                "observation_ref": str(getattr(observation, "observation_id", "") or ""),
+                "result_ref": str(getattr(observation, "result_ref", "") or ""),
+                "semantic_tool_call_key": semantic_key,
+            },
+        )
+    return published
 
 
 def _tool_lifecycle_signal(request: ToolInvocationRequest, *, signal_type: str, signal_id: str) -> Any | None:
@@ -905,25 +943,142 @@ def _duplicate_tool_lifecycle_observation(
         signal_type="tool.execution.started",
         signal_id=f"toolexec:{request.invocation_id}:started",
     )
-    if started is None:
+    if started is not None:
+        payload = dict(getattr(started, "payload", {}) or {})
+        return _observation(
+            request,
+            status="error",
+            text="tool_lifecycle_duplicate_invocation_in_progress",
+            operation_gate=dict(operation_gate or {}),
+            diagnostics={
+                "stage": "tool_lifecycle_duplicate_invocation_in_progress",
+                "handler_id": str(handler_id or ""),
+                "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
+                "started_signal_ref": str(getattr(started, "signal_id", "") or ""),
+                "started_directive_ref": str(payload.get("directive_ref") or ""),
+                "started_handler_id": str(payload.get("handler_id") or ""),
+                "requires_new_invocation_id": True,
+                "authority": "runtime.tool_runtime.tool_control_plane",
+            },
+        )
+    return _repeated_semantic_tool_call_observation(
+        request,
+        tool_plan=tool_plan,
+        handler_id=handler_id,
+        operation_gate=operation_gate,
+    )
+
+
+def _repeated_semantic_tool_call_observation(
+    request: ToolInvocationRequest,
+    *,
+    tool_plan: Any,
+    handler_id: str,
+    operation_gate: dict[str, Any] | None = None,
+) -> ToolObservation | None:
+    """Block a tool call whose semantic identity already completed this turn.
+
+    invocation_id is derived from action_request_ref, which is fresh for every
+    model tool call, so the lifecycle guard above can only catch a replayed
+    invocation. A model that keeps re-issuing the same read with the same
+    arguments produces a new invocation_id each time and would otherwise loop
+    until the iteration cap. The semantic key is tool name plus canonical
+    arguments, scoped to the turn.
+    """
+    polling_policy = _validated_polling_policy(request)
+    if polling_policy:
+        # A valid polling session is intentionally allowed to observe the same
+        # idempotent operation again. Its deadline and poll identity are
+        # enforced by the execution policy rather than the ordinary duplicate
+        # call guard.
         return None
-    payload = dict(getattr(started, "payload", {}) or {})
+    semantic_key = _semantic_tool_call_key(request)
+    if not semantic_key:
+        return None
+    runtime_host = _runtime_host(request)
+    runtime_gateway = getattr(runtime_host, "runtime_gateway", None) if runtime_host is not None else None
+    signal_by_id = getattr(runtime_gateway, "signal_by_id", None)
+    if not callable(signal_by_id):
+        return None
+    run_id = _tool_lifecycle_run_id(request)
+    if not run_id:
+        return None
+    signal_id = f"toolexec:semantic:{semantic_key}:completed"
+    try:
+        signal = signal_by_id(run_id, signal_id=signal_id)
+    except Exception:
+        return None
+    if signal is None or str(getattr(signal, "signal_type", "") or "") != "tool.execution.completed":
+        return None
+    payload = dict(getattr(signal, "payload", {}) or {})
     return _observation(
         request,
         status="error",
-        text="tool_lifecycle_duplicate_invocation_in_progress",
+        text="tool_semantic_duplicate_call_completed",
         operation_gate=dict(operation_gate or {}),
         diagnostics={
-            "stage": "tool_lifecycle_duplicate_invocation_in_progress",
+            "stage": "tool_semantic_duplicate_call_completed",
             "handler_id": str(handler_id or ""),
             "tool_plan_ref": str(getattr(tool_plan, "plan_id", "") or ""),
-            "started_signal_ref": str(getattr(started, "signal_id", "") or ""),
-            "started_directive_ref": str(payload.get("directive_ref") or ""),
-            "started_handler_id": str(payload.get("handler_id") or ""),
-            "requires_new_invocation_id": True,
+            "semantic_tool_call_key": semantic_key,
+            "completed_signal_ref": str(getattr(signal, "signal_id", "") or ""),
+            "completed_observation_ref": str(payload.get("observation_ref") or ""),
+            "completed_result_ref": str(payload.get("result_ref") or ""),
+            "repair_instruction": (
+                "This exact tool call already completed in this turn. Reuse the existing "
+                "observation instead of calling it again with the same arguments."
+            ),
             "authority": "runtime.tool_runtime.tool_control_plane",
         },
     )
+
+
+def _semantic_tool_call_key(request: ToolInvocationRequest) -> str:
+    tool_name = str(getattr(request, "tool_name", "") or "").strip()
+    if not tool_name:
+        return ""
+    tool_args = dict(getattr(request, "tool_args", {}) or {})
+    # Guard keys stay argument-only on purpose. Recovery from a stale read
+    # window must never be blocked, so the guard reports and never gates.
+    raw = json.dumps(
+        {"tool_name": tool_name, "tool_args": tool_args},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _semantic_tool_call_premise(*, tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any]:
+    """Return the observable state a tool call depends on.
+
+    Only file-mutating and file-reading tools carry a premise. When the target
+    file cannot be resolved the premise stays empty, which keeps the previous
+    argument-only behaviour instead of inventing a state.
+    """
+    if tool_name not in _SEMANTIC_PREMISE_TOOL_NAMES:
+        return {}
+    raw_path = str(tool_args.get("path") or "").strip()
+    if not raw_path:
+        return {}
+    try:
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
+        if not candidate.exists() or not candidate.is_file():
+            return {}
+        stat = candidate.stat()
+    except OSError:
+        return {}
+    return {"mtime_ns": int(stat.st_mtime_ns), "size_bytes": int(stat.st_size)}
+
+
+_SEMANTIC_PREMISE_TOOL_NAMES = {
+    "workspace_read",
+    "workspace_edit",
+    "workspace_search",
+}
 
 
 def _tool_lifecycle_start_lock_lost_observation(
@@ -960,12 +1115,14 @@ def _tool_lifecycle_start_lock_lost_observation(
 
 def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: Any) -> dict[str, Any]:
     tool_args = dict(request.tool_args or {})
-    return {
+    polling_policy = _validated_polling_policy(request)
+    payload = {
         "event_family": "tool_lifecycle",
         "tool_invocation_id": str(request.invocation_id or ""),
         "tool_call_id": str(request.tool_call_id or ""),
         "tool_name": str(request.tool_name or ""),
         "operation_id": _request_operation_id(request),
+        "action_kind": action_kind_for_surface_tool(request.tool_name, tool_args),
         "target": _tool_lifecycle_public_target(str(request.tool_name or ""), tool_args),
         "arguments_preview": _tool_lifecycle_arguments_preview(tool_args),
         "action_request_ref": str(request.action_request_ref or ""),
@@ -981,6 +1138,36 @@ def _tool_lifecycle_base_payload(request: ToolInvocationRequest, *, tool_plan: A
         "turn_id": str(request.turn_id or ""),
         "permission_mode": str(request.permission_mode or ""),
         "authority": "runtime.tool_runtime.tool_control_plane",
+    }
+    if polling_policy:
+        payload["polling"] = polling_policy
+    return payload
+
+
+def _validated_polling_policy(request: ToolInvocationRequest) -> dict[str, Any]:
+    raw = dict(getattr(request, "requested_constraints", {}) or {}).get("execution_policy")
+    if not isinstance(raw, dict) or str(raw.get("mode") or "").strip().lower() != "poll":
+        return {}
+    definition = _definition(request)
+    tags = {str(item).strip().lower() for item in getattr(definition, "capability_tags", ()) or ()}
+    if "polling_capable" not in tags or "idempotent" not in tags:
+        return {}
+    poll_id = str(raw.get("poll_id") or "").strip()
+    try:
+        interval_ms = int(raw.get("interval_ms"))
+        timeout_ms = int(raw.get("timeout_ms"))
+    except (TypeError, ValueError):
+        return {}
+    if not poll_id or interval_ms <= 0 or timeout_ms <= 0:
+        return {}
+    if interval_ms > timeout_ms:
+        return {}
+    return {
+        "mode": "poll",
+        "poll_id": poll_id,
+        "interval_ms": interval_ms,
+        "timeout_ms": timeout_ms,
+        "success_condition": str(raw.get("success_condition") or "").strip(),
     }
 
 
@@ -999,6 +1186,7 @@ def _tool_lifecycle_arguments_preview(args: dict[str, Any]) -> str:
     if not args:
         return ""
     priority = (
+        "action",
         "path",
         "file",
         "file_path",
@@ -1045,8 +1233,8 @@ def _is_command_tool(tool_name: str) -> bool:
         "bash",
         "cmd",
         "command",
+        "local_execution",
         "powershell",
-        "python_repl",
         "shell",
         "terminal",
     }
@@ -1176,11 +1364,32 @@ def _tool_lifecycle_unavailable_observation(
     )
 
 
-def _canonical_operation_id(*, tool_name: str, operation_id: str) -> str:
-    reserved_operation_id = _SUBAGENT_OPERATION_BY_TOOL_NAME.get(str(tool_name or "").strip())
-    if reserved_operation_id:
-        return reserved_operation_id
+def _canonical_operation_id(
+    *,
+    tool_name: str,
+    operation_id: str,
+    tool_args: dict[str, Any] | None = None,
+    definition: Any | None = None,
+) -> str:
+    normalized_tool = str(tool_name or "").strip()
+    normalized_args = dict(tool_args or {})
+    if normalized_tool == "subagent":
+        reserved_operation_id = _SUBAGENT_OPERATION_BY_ACTION.get(str(normalized_args.get("action") or "").strip())
+        if reserved_operation_id:
+            return reserved_operation_id
+    action_operation_id = _definition_action_operation_id(definition, normalized_args)
+    if action_operation_id:
+        return action_operation_id
     return str(operation_id or "").strip()
+
+
+def _definition_action_operation_id(definition: Any | None, tool_args: dict[str, Any]) -> str:
+    if definition is None:
+        return ""
+    action = str(dict(tool_args or {}).get("action") or "").strip()
+    if not action:
+        return ""
+    return str(dict(getattr(definition, "action_operation_ids", {}) or {}).get(action) or "").strip()
 
 
 def _observation(
@@ -1204,6 +1413,7 @@ def _observation(
         diagnostics=dict(diagnostics or {}),
         operation_gate=dict(operation_gate or {}),
     )
+    permit_refs = _action_permit_observation_refs(request)
     receipt = {
         **dict(execution_receipt or {}),
         "agent_run_id": str(request.agent_run_id or ""),
@@ -1212,6 +1422,7 @@ def _observation(
         "caller_kind": str(request.caller_kind or ""),
         "caller_ref": str(request.caller_ref or ""),
         "tool_invocation_id": str(request.invocation_id or ""),
+        **permit_refs,
     }
     envelope = dict(result_envelope or {})
     if not envelope:
@@ -1291,8 +1502,25 @@ def _observation(
                 if recovery_instruction
                 else {}
             ),
+            **permit_refs,
         },
     )
+
+
+def _action_permit_observation_refs(request: ToolInvocationRequest) -> dict[str, Any]:
+    permit = dict(request.action_permit or {}) if isinstance(request.action_permit, dict) else {}
+    if not permit:
+        return {}
+    return {
+        "action_permit_ref": str(permit.get("permit_id") or ""),
+        "action_permit_authority": str(permit.get("authority") or ""),
+        "control_output_line_ref": str(permit.get("control_output_line_ref") or ""),
+        "control_output_line_authority": str(permit.get("control_output_line_authority") or ""),
+        "observation_contract": str(
+            dict(permit.get("control_output_line_contract") or {}).get("observation_contract")
+            or ""
+        ),
+    }
 
 
 def _tool_boundary_repair_instruction(
@@ -1356,6 +1584,8 @@ def _execution_contracts(request: ToolInvocationRequest, *, tool_plan: Any) -> t
     operation_id = _canonical_operation_id(
         tool_name=request.tool_name,
         operation_id=str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name),
+        tool_args=dict(request.tool_args or {}),
+        definition=definition,
     )
     directive = RuntimeDirective(
         directive_id=str(_requested_constraints(request).get("directive_ref") or f"runtime-directive:{request.caller_ref}:tool:{request.action_request_ref or request.tool_call_id}"),
@@ -1444,6 +1674,8 @@ def _agent_turn_execution_contracts(request: ToolInvocationRequest, *, tool_plan
     operation_id = _canonical_operation_id(
         tool_name=request.tool_name,
         operation_id=str(request.operation_id or getattr(definition, "operation_id", "") or request.tool_name),
+        tool_args=dict(request.tool_args or {}),
+        definition=definition,
     )
     directive = _ToolPermissionDirective(
         directive_id=str(_requested_constraints(request).get("directive_ref") or f"tool-permit:{request.caller_ref}:{request.tool_call_id}"),
@@ -1722,7 +1954,9 @@ def _observation_from_core_result(
 def _execution_receipt(record: Any | None, *, error: str = "") -> dict[str, Any]:
     if record is None:
         return {}
-    return {
+    started_at = _positive_receipt_time(getattr(record, "started_at", 0.0))
+    completed_at = _positive_receipt_time(getattr(record, "completed_at", 0.0))
+    receipt = {
         "execution_id": str(getattr(record, "execution_id", "") or ""),
         "request_ref": str(getattr(record, "request_ref", "") or ""),
         "status": str(getattr(record, "status", "") or ""),
@@ -1731,6 +1965,21 @@ def _execution_receipt(record: Any | None, *, error: str = "") -> dict[str, Any]
         "error": str(error or ""),
         "authority": "runtime.execution_receipt",
     }
+    if started_at is not None:
+        receipt["started_at"] = started_at
+    if completed_at is not None:
+        receipt["completed_at"] = completed_at
+    if started_at is not None and completed_at is not None and completed_at >= started_at:
+        receipt["duration_ms"] = int(round((completed_at - started_at) * 1000))
+    return receipt
+
+
+def _positive_receipt_time(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _approval_state_from_request(request: ToolInvocationRequest) -> ApprovalState | None:

@@ -404,7 +404,7 @@ def test_stream_chat_records_orphaned_runtime_interruption_without_terminal_even
             assert run_payload["status"] == "orphaned"
             assert run_payload["terminal_event"] == ""
             assert run_payload["diagnostics"]["runtime_interruption_code"] == "missing_terminal_event"
-            assert run_payload["diagnostics"]["semantic_terminal"] is False
+            assert run_payload["diagnostics"]["agent_decision_terminal"] is False
             assert "输出流没有正常收口" not in replay_text
         finally:
             runtime.harness_runtime.astream = original_astream  # type: ignore[method-assign]
@@ -459,7 +459,7 @@ def test_session_truncate_does_not_block_health_while_reset_waits() -> None:
             ],
         )
         ledger = runtime.harness_runtime.single_agent_runtime_host.prompt_accounting_ledger
-        original_reset = ledger.reset_prompt_cache_baseline
+        original_reset = ledger.reset_prefix_state
         reset_started = threading.Event()
         release_reset = threading.Event()
         truncate_result: dict[str, object] = {}
@@ -479,7 +479,7 @@ def test_session_truncate_does_not_block_health_while_reset_waits() -> None:
         def get_health() -> None:
             health_result["response"] = client.get("/health")
 
-        ledger.reset_prompt_cache_baseline = waiting_reset
+        ledger.reset_prefix_state = waiting_reset
         truncate_thread = threading.Thread(target=post_truncate)
         health_thread = threading.Thread(target=get_health)
         try:
@@ -492,7 +492,7 @@ def test_session_truncate_does_not_block_health_while_reset_waits() -> None:
             release_reset.set()
             truncate_thread.join(2.0)
             health_thread.join(2.0)
-            ledger.reset_prompt_cache_baseline = original_reset
+            ledger.reset_prefix_state = original_reset
 
         health_response = health_result.get("response")
         truncate_response = truncate_result.get("response")

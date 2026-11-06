@@ -9,6 +9,7 @@ from runtime.request_signals.frame_access import (
     explicit_task_selected,
     material_kinds,
 )
+from task_system.contracts.task_run_signal import task_run_contract_signal_from_context
 
 @dataclass(frozen=True, slots=True)
 class TaskDefinition:
@@ -79,7 +80,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Read task-relevant local material.",
             completion_criteria=("Only task-relevant local material is used.",),
-            default_operation_requirements=("op.read_file", "op.search_files"),
+            default_operation_requirements=("op.workspace_read", "op.workspace_search"),
             default_prompt_role="analyst",
         ),
         TaskDefinition(
@@ -89,7 +90,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Synthesize read material into a structured answer.",
             completion_criteria=("Summary is grounded in supplied material.",),
-            default_operation_requirements=("op.search_text",),
+            default_operation_requirements=("op.workspace_search",),
             default_prompt_role="structure_first",
         ),
         TaskDefinition(
@@ -109,7 +110,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Prepare and execute a bounded change plan.",
             completion_criteria=("Changes are scoped.", "Side effects are gated."),
-            default_operation_requirements=("op.read_file", "op.search_text", "op.edit_file"),
+            default_operation_requirements=("op.workspace_read", "op.workspace_search", "op.workspace_edit"),
             default_prompt_role="implementer",
             review_policy="required",
         ),
@@ -120,7 +121,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Inspect a proposed or completed change for conflicts and risks.",
             completion_criteria=("Risks are listed.", "Contradictions are identified."),
-            default_operation_requirements=("op.read_file", "op.search_text"),
+            default_operation_requirements=("op.workspace_read", "op.workspace_search"),
             default_prompt_role="risk_reviewer",
             review_policy="required",
         ),
@@ -141,6 +142,7 @@ def select_runtime_task_definitions(
     user_goal: str,
     *,
     query_understanding: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
 ) -> list[TaskDefinition]:
     """Select task definitions from cognition signals and contracts.
 
@@ -150,21 +152,19 @@ def select_runtime_task_definitions(
     definitions = default_task_definitions()
     understanding = dict(query_understanding or {})
     action_request = dict(understanding.get("agent_turn_action_request") or {})
-    task_contract_seed = dict(
-        understanding.get("task_contract_seed")
-        or action_request.get("task_contract_seed")
-        or dict(understanding.get("model_turn_decision") or {}).get("task_contract_seed")
-        or {}
+    task_run_signal = task_run_contract_signal_from_context(
+        current_turn_context=current_turn_context,
+        query_understanding=understanding,
     )
     task_goal_type = str(
-        task_contract_seed.get("task_goal_type")
+        task_run_signal.get("task_goal_type")
         or dict(understanding.get("task_requirement_contract") or {}).get("task_goal_type")
         or ""
     ).strip()
     needs = capability_needs(understanding)
     kinds = material_kinds(understanding)
     binding = context_binding(understanding)
-    if explicit_task_selected(understanding) or str(binding.get("kind") or "") == "explicit_task_contract":
+    if explicit_task_selected(understanding) or str(binding.get("kind") or "") == "explicit_task_run_contract":
         return [definitions["task.final_response"]]
 
     action_type = str(action_request.get("action_type") or "").strip()
@@ -173,14 +173,14 @@ def select_runtime_task_definitions(
     if action_type and action_type != "request_task_run":
         return [definitions["task.final_response"]]
 
-    working_scope = dict(task_contract_seed.get("working_scope") or {})
-    capability_intent = dict(task_contract_seed.get("capability_intent") or {})
+    working_scope = dict(task_run_signal.get("working_scope") or {})
+    capability_intent = dict(task_run_signal.get("capability_intent") or {})
     capability_groups = {
         str(item).strip()
         for item in list(capability_intent.get("needed_capability_groups") or [])
         if str(item).strip()
     }
-    has_write_contract = bool(list(task_contract_seed.get("required_artifacts") or []))
+    has_write_contract = bool(list(task_run_signal.get("required_artifacts") or []))
     has_read_contract = bool(list(working_scope.get("target_objects") or []) or list(working_scope.get("source_refs") or []))
 
     if task_goal_type in {"external_research"}:
@@ -207,6 +207,4 @@ def select_runtime_task_definitions(
     if "knowledge_lookup" in needs:
         return [definitions["task.knowledge_retrieval"]]
     return [definitions["task.task_execution"], definitions["task.inspection_and_correction"]]
-
-
 

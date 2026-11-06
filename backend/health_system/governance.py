@@ -3,7 +3,15 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from runtime.prompt_accounting import ModelTokenUsageRecord, PromptCacheRecord, TokenCounterRegistry
+from runtime.prompt_accounting import (
+    ModelTokenUsageRecord,
+    CachePlanRecord,
+    ProviderCacheBusRecord,
+    TokenCounterRegistry,
+    build_provider_cache_log_view,
+    list_provider_cache_log_records,
+    provider_cache_log_row,
+)
 from runtime.prompt_accounting.ledger import summarize_usage_records
 
 from .artifact_governance_view import HealthArtifactGovernanceViewBuilder
@@ -215,11 +223,11 @@ class HealthGovernanceBuilder:
             return []
         if not usage_records:
             return []
-        list_cache = getattr(ledger, "list_prompt_cache", None)
+        list_cache = getattr(ledger, "list_cache_plans", None)
         try:
-            cache_records = list(list_cache()) if callable(list_cache) else []
+            cache_plans = list(list_cache()) if callable(list_cache) else []
         except Exception:
-            cache_records = []
+            cache_plans = []
         task_by_id = {
             str(getattr(task_run, "task_run_id", "") or ""): task_run
             for task_run in list(task_runs or [])
@@ -231,7 +239,7 @@ class HealthGovernanceBuilder:
             if key:
                 usage_by_run.setdefault(key, []).append(record)
         cache_by_run: dict[str, list[Any]] = {}
-        for record in cache_records:
+        for record in cache_plans:
             key = self._ledger_run_key(record)
             if key:
                 cache_by_run.setdefault(key, []).append(record)
@@ -245,7 +253,7 @@ class HealthGovernanceBuilder:
             records = sorted(usage_by_run.get(key) or [], key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
             if not records:
                 continue
-            summary = summarize_usage_records(records, cache_records=cache_by_run.get(key) or [])
+            summary = summarize_usage_records(records, cache_plans=cache_by_run.get(key) or [])
             if int(summary.get("record_count") or 0) <= 0:
                 continue
             first = records[0]
@@ -262,7 +270,7 @@ class HealthGovernanceBuilder:
                 "task_run_id": task_run_id or run_id or key,
                 "run_id": run_id,
                 "session_id": session_id,
-                "task_contract_ref": str(getattr(task_run, "task_contract_ref", "") or "") if task_run is not None else "",
+                "task_run_contract_ref": str(getattr(task_run, "task_run_contract_ref", "") or "") if task_run is not None else "",
                 "title": self._ledger_run_title(
                     key=key,
                     run_id=run_id,
@@ -338,7 +346,7 @@ class HealthGovernanceBuilder:
                 "task_run_id": task_run_id or run_id or key,
                 "run_id": run_id,
                 "session_id": session_id,
-                "task_contract_ref": str(getattr(task_run, "task_contract_ref", "") or "") if task_run is not None else "",
+                "task_run_contract_ref": str(getattr(task_run, "task_run_contract_ref", "") or "") if task_run is not None else "",
                 "title": self._ledger_run_title(
                     key=key,
                     run_id=run_id,
@@ -435,6 +443,80 @@ class HealthGovernanceBuilder:
             return "warning"
         return "normal"
 
+    def _provider_cache_bus_view(self, *, limit: int = 100) -> dict[str, Any]:
+        records = self._provider_cache_bus_records(limit=max(1, min(int(limit or 100), 200)))
+        turn_memory_sources = self._turn_memory_sources_for_provider_cache_plans(records, limit=12)
+        view = build_provider_cache_log_view(
+            self.prompt_accounting_ledger,
+            limit=max(1, min(int(limit or 100), 200)),
+            authority="health_system.governance.provider_cache_bus",
+        )
+        summary = dict(view.get("summary") or {})
+        summary["turn_memory_session_count"] = len(turn_memory_sources)
+        return {
+            **view,
+            "turn_memory_source": "runtime.turn_memory.session_projection",
+            "summary": summary,
+            "turn_memory_sessions": turn_memory_sources,
+            "updated_at": self.now,
+        }
+
+    def _provider_cache_bus_records(self, *, limit: int = 100, task_run_id: str = "") -> list[ProviderCacheBusRecord]:
+        ledger = self.prompt_accounting_ledger
+        if ledger is None:
+            return []
+        return list_provider_cache_log_records(
+            ledger,
+            task_run_id=task_run_id,
+            limit=max(1, min(int(limit or 100), 200)),
+        )
+
+    @staticmethod
+    def _provider_cache_bus_row(record: ProviderCacheBusRecord) -> dict[str, Any]:
+        return provider_cache_log_row(record)
+
+    def _turn_memory_sources_for_provider_cache_plans(
+        self,
+        records: list[ProviderCacheBusRecord],
+        *,
+        limit: int = 12,
+    ) -> list[dict[str, Any]]:
+        store = getattr(self.runtime_host, "turn_memory_store", None)
+        projector = getattr(store, "session_projection", None)
+        if not callable(projector):
+            return []
+        session_ids: list[str] = []
+        for record in records:
+            session_id = str(getattr(record, "session_id", "") or "").strip()
+            if session_id and session_id not in session_ids:
+                session_ids.append(session_id)
+            if len(session_ids) >= max(1, min(int(limit or 12), 50)):
+                break
+        projections: list[dict[str, Any]] = []
+        for session_id in session_ids:
+            try:
+                projection = dict(projector(session_id, limit=8) or {})
+            except Exception:
+                continue
+            if not projection:
+                continue
+            projections.append(
+                {
+                    "session_id": session_id,
+                    "available": bool(projection.get("available", False)),
+                    "turn_count": int(projection.get("turn_count") or 0),
+                    "active_or_pending_turns": list(projection.get("active_or_pending_turns") or []),
+                    "latest_turn": dict(projection.get("latest_turn") or {}),
+                    "latest_physical_prefix_frame_id": str(projection.get("latest_physical_prefix_frame_id") or ""),
+                    "latest_provider_request_refs": list(projection.get("latest_provider_request_refs") or []),
+                    "latest_commit_state": str(projection.get("latest_commit_state") or ""),
+                    "latest_current_append_hash": str(projection.get("latest_current_append_hash") or ""),
+                    "latest_checkpoint_hash": str(projection.get("latest_checkpoint_hash") or ""),
+                    "authority": "runtime.turn_memory.session_projection",
+                }
+            )
+        return projections
+
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
         scan_limit = max(120, min(max(int(limit or 100) * 6, 160), 500))
         scanned_task_runs = self._recent_task_runs(limit=scan_limit)
@@ -477,7 +559,9 @@ class HealthGovernanceBuilder:
             key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0.0),
             reverse=True,
         )[: max(1, min(int(limit or 100), 100))]
-        return self._token_usage(combined)
+        payload = self._token_usage(combined)
+        payload["provider_cache_bus"] = self._provider_cache_bus_view(limit=max(1, min(int(limit or 100), 100)))
+        return payload
 
     def build_efficiency(self, *, limit: int = 100) -> dict[str, Any]:
         return self._efficiency(self.build_tasks(limit=limit)["tasks"])
@@ -678,7 +762,7 @@ class HealthGovernanceBuilder:
         return {
             "task_run_id": task_run_id,
             "session_id": str(task_run.session_id or ""),
-            "task_contract_ref": str(task_run.task_contract_ref or ""),
+            "task_run_contract_ref": str(task_run.task_run_contract_ref or ""),
             "title": str(
                 dict(task_run.diagnostics or {}).get("title")
                 or dict(task_run.diagnostics or {}).get("task_graph_title")
@@ -721,7 +805,7 @@ class HealthGovernanceBuilder:
             "monitor_ref": f"run_monitor:{task_run_id}",
             "record_refs": {
                 "task_run": task_run_id,
-                "task_contract": str(task_run.task_contract_ref or ""),
+                "task_run_contract": str(task_run.task_run_contract_ref or ""),
                 "session": str(task_run.session_id or ""),
             },
         }
@@ -1122,21 +1206,21 @@ class HealthGovernanceBuilder:
         timeline = self._ledger_token_timeline_records()
         if timeline is None:
             return None
-        usage_records, cache_records = timeline
+        usage_records, cache_plans = timeline
         return self._token_record_buckets(
             usage_records,
-            cache_records=cache_records,
+            cache_plans=cache_plans,
             bucket_seconds=bucket_seconds,
             bucket_count=bucket_count,
             label_mode=label_mode,
         )
 
-    def _ledger_token_timeline_records(self) -> tuple[list[ModelTokenUsageRecord], list[PromptCacheRecord]] | None:
+    def _ledger_token_timeline_records(self) -> tuple[list[ModelTokenUsageRecord], list[CachePlanRecord]] | None:
         ledger = self.prompt_accounting_ledger
         if ledger is None:
             return None
         usage_records: list[ModelTokenUsageRecord] = []
-        cache_records: list[PromptCacheRecord] = []
+        cache_plans: list[CachePlanRecord] = []
         list_payloads = getattr(ledger, "list_run_summary_payloads", None)
         if callable(list_payloads):
             try:
@@ -1146,16 +1230,16 @@ class HealthGovernanceBuilder:
                         for item in dict(payload.get("usage_records") or {}).values()
                         if isinstance(item, dict)
                     )
-                    cache_records.extend(
-                        PromptCacheRecord.from_dict(dict(item))
-                        for item in dict(payload.get("cache_records") or {}).values()
+                    cache_plans.extend(
+                        CachePlanRecord.from_dict(dict(item))
+                        for item in dict(payload.get("cache_plans") or {}).values()
                         if isinstance(item, dict)
                     )
             except Exception:
                 usage_records = []
-                cache_records = []
-        if usage_records or cache_records:
-            return usage_records, cache_records
+                cache_plans = []
+        if usage_records or cache_plans:
+            return usage_records, cache_plans
         reads_are_expensive = getattr(ledger, "scoped_reads_are_expensive", None)
         if callable(reads_are_expensive):
             try:
@@ -1170,18 +1254,18 @@ class HealthGovernanceBuilder:
             usage_records = list(list_usage())
         except Exception:
             return None
-        list_cache = getattr(ledger, "list_prompt_cache", None)
+        list_cache = getattr(ledger, "list_cache_plans", None)
         try:
-            cache_records = list(list_cache()) if callable(list_cache) else []
+            cache_plans = list(list_cache()) if callable(list_cache) else []
         except Exception:
-            cache_records = []
-        return usage_records, cache_records
+            cache_plans = []
+        return usage_records, cache_plans
 
     def _token_record_buckets(
         self,
         usage_records: list[ModelTokenUsageRecord],
         *,
-        cache_records: list[PromptCacheRecord],
+        cache_plans: list[CachePlanRecord],
         bucket_seconds: int,
         bucket_count: int,
         label_mode: str,
@@ -1199,6 +1283,7 @@ class HealthGovernanceBuilder:
                 "exact_tokens": 0,
                 "predicted_tokens": 0,
                 "trace_estimate_tokens": 0,
+                "cached_tokens": 0,
                 "cache_savings_tokens": 0,
                 "records": 0,
                 "effective_records": 0,
@@ -1216,6 +1301,7 @@ class HealthGovernanceBuilder:
                     source = str(record.source or "")
                     if source == "provider_usage":
                         bucket["exact_tokens"] = int(bucket["exact_tokens"]) + int(record.total_tokens or 0)
+                        bucket["cached_tokens"] = int(bucket["cached_tokens"]) + int(record.cached_tokens or 0)
                     elif source == "local_prediction":
                         bucket["predicted_tokens"] = int(bucket["predicted_tokens"]) + int(record.total_tokens or 0)
                     elif source == "trace_estimate":
@@ -1244,7 +1330,7 @@ class HealthGovernanceBuilder:
             bucket["effective_records"] = int(bucket["effective_records"]) + 1
             if record.session_id:
                 bucket["sessions"].add(str(record.session_id))
-        for record in list(cache_records or []):
+        for record in list(cache_plans or []):
             created_at = float(record.created_at or 0.0)
             if not (range_start <= created_at < range_end):
                 continue
@@ -1269,6 +1355,7 @@ class HealthGovernanceBuilder:
             "exact_tokens",
             "predicted_tokens",
             "trace_estimate_tokens",
+            "cached_tokens",
             "cache_savings_tokens",
             "records",
             "effective_records",
@@ -1294,6 +1381,7 @@ class HealthGovernanceBuilder:
             exact_tokens = 0
             predicted_tokens = 0
             trace_tokens = 0
+            cached_tokens = 0
             cache_savings_tokens = 0
             records = 0
             sessions: set[str] = set()
@@ -1304,6 +1392,7 @@ class HealthGovernanceBuilder:
                     exact_tokens += int(task.get("exact_token_total") or 0)
                     predicted_tokens += int(task.get("predicted_token_total") or 0)
                     trace_tokens += int(task.get("trace_estimate_token_total") or 0)
+                    cached_tokens += int(task.get("cached_tokens") or 0)
                     cache_savings_tokens += int(task.get("cache_savings_tokens") or 0)
                     records += 1
                     session_id = str(task.get("session_id") or "")
@@ -1318,6 +1407,7 @@ class HealthGovernanceBuilder:
                     "exact_tokens": exact_tokens,
                     "predicted_tokens": predicted_tokens,
                     "trace_estimate_tokens": trace_tokens,
+                    "cached_tokens": cached_tokens,
                     "cache_savings_tokens": cache_savings_tokens,
                     "records": records,
                     "sessions": len(sessions),
@@ -1498,23 +1588,28 @@ class HealthGovernanceBuilder:
                 "authority": "health_system.governance.prompt_accounting_detail",
                 "task_run_id": task_run_id,
                 "available": False,
-                "segment_maps": [],
+                "prompt_manifests": [],
                 "usage_records": [],
-                "cache_records": [],
+                "cache_plans": [],
+                "provider_cache_bus": [],
                 "summary": {},
             }
         try:
-            segment_maps = list(getattr(ledger, "list_segment_maps")(task_run_id=task_run_id))[-5:]
+            prompt_manifests = list(getattr(ledger, "list_prompt_manifests")(task_run_id=task_run_id))[-5:]
         except Exception:
-            segment_maps = []
+            prompt_manifests = []
         try:
             usage_records = [item.to_dict() for item in ledger.list_token_usage(task_run_id=task_run_id)[-20:]]
         except Exception:
             usage_records = []
         try:
-            cache_records = [item.to_dict() for item in ledger.list_prompt_cache(task_run_id=task_run_id)[-20:]]
+            cache_plans = [item.to_dict() for item in ledger.list_cache_plans(task_run_id=task_run_id)[-20:]]
         except Exception:
-            cache_records = []
+            cache_plans = []
+        provider_cache_bus = [
+            self._provider_cache_bus_row(record)
+            for record in self._provider_cache_bus_records(limit=20, task_run_id=task_run_id)
+        ]
         try:
             summary = dict(ledger.summarize_task(task_run_id) or {})
         except Exception:
@@ -1522,10 +1617,11 @@ class HealthGovernanceBuilder:
         return {
             "authority": "health_system.governance.prompt_accounting_detail",
             "task_run_id": task_run_id,
-            "available": bool(segment_maps or usage_records or cache_records),
-            "segment_maps": segment_maps,
+            "available": bool(prompt_manifests or usage_records or cache_plans or provider_cache_bus),
+            "prompt_manifests": prompt_manifests,
             "usage_records": usage_records,
-            "cache_records": cache_records,
+            "cache_plans": cache_plans,
+            "provider_cache_bus": provider_cache_bus,
             "summary": summary,
         }
 
@@ -1711,5 +1807,3 @@ def _safe_object_id(value: str) -> str:
     raw = str(value or "")
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw).strip("_")
     return safe[:180] or "work_rollout"
-
-

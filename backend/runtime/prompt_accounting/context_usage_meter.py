@@ -6,6 +6,11 @@ from typing import Any, Literal
 from context_system.budget.presets import match_context_budget_preset_for_model
 
 from .models import ModelTokenUsageRecord
+from .provider_lane import (
+    PROVIDER_LANE_AGENT_CONTROL_NO_TOOL,
+    PROVIDER_LANE_AGENT_TOOL_LOOP,
+    normalize_provider_lane,
+)
 from .token_counter import TokenCounterRegistry
 
 
@@ -114,7 +119,7 @@ class ContextUsageMeter:
             else self._list_token_usage(session_id=session_id, run_id=run_id, task_run_id=task_run_id)
         )
         candidate_records = self._context_meter_candidate_records(records)
-        candidate_scope = "agent_runtime" if len(candidate_records) != len(records) else "all_session_usage"
+        candidate_scope = "explicit_agent_provider_lane" if len(candidate_records) != len(records) else "all_session_usage"
         provider_records = [record for record in candidate_records if record.source == "provider_usage"]
         local_records = [record for record in candidate_records if record.source == "local_prediction"]
         anchor = provider_records[-1] if provider_records else None
@@ -184,7 +189,7 @@ class ContextUsageMeter:
             str(session_pressure_source or "runtime.context_management.session_pressure")
             if session_pressure_is_current_source
             else (
-                "runtime.prompt_accounting.model_request_accounting"
+                "runtime.prompt_accounting.provider_request_accounting"
                 if accounting_observation_available
                 else "runtime.prompt_accounting.provided_model_messages"
             )
@@ -284,6 +289,10 @@ class ContextUsageMeter:
         return runtime_records or records
 
     def _provider_context_tokens(self, record: ModelTokenUsageRecord) -> int:
+        diagnostics = dict(getattr(record, "diagnostics", {}) or {})
+        preserved_pressure = int(diagnostics.get("context_pressure_tokens") or 0)
+        if preserved_pressure > 0:
+            return preserved_pressure
         prompt = int(record.prompt_tokens or 0)
         if prompt > 0:
             return prompt
@@ -294,16 +303,9 @@ class ContextUsageMeter:
         return 0
 
     def _is_agent_runtime_record(self, record: ModelTokenUsageRecord) -> bool:
-        request_id = str(getattr(record, "request_id", "") or "")
-        if not request_id.startswith("modelreq:"):
-            return False
         diagnostics = dict(getattr(record, "diagnostics", {}) or {})
-        cache_metric_scope = str(diagnostics.get("cache_metric_scope") or "")
-        if cache_metric_scope == "agent_runtime" or cache_metric_scope.startswith("agent_runtime."):
-            return True
-        if str(diagnostics.get("packet_ref") or "").startswith("rtpacket:"):
-            return True
-        return "rtpacket:" in request_id
+        provider_lane = normalize_provider_lane(diagnostics.get("provider_lane"))
+        return provider_lane in {PROVIDER_LANE_AGENT_TOOL_LOOP, PROVIDER_LANE_AGENT_CONTROL_NO_TOOL}
 
     def _record_newer(self, candidate: ModelTokenUsageRecord | None, baseline: ModelTokenUsageRecord | None) -> bool:
         if candidate is None:

@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from harness.loop.task_run_execution_control import ExecutorControlSignal, request_executor_control_signal
+from harness.loop.runtime_cell_control import RuntimeCellControlSignal, request_runtime_cell_control_signal
 from harness.loop.work_rollout import append_work_rollout_item
 from harness.task_run_status import runtime_control_state_from_task_run
 from harness.runtime.dynamic_context.manager import dynamic_context_storage_root
@@ -21,7 +21,6 @@ RETENTION_STOP_REASONS = {"blocked_expired", "runtime_retention_expired", "appro
 WAITING_STATUSES = {"blocked", "waiting_executor", "waiting_approval"}
 PAUSED_CONTROL_STATES = {"pause_requested", "paused"}
 STOP_CONTROL_STATES = {"stop_requested", "stopped"}
-RECOVERY_ACTIONS = {"resume_task_run", "rerun_task_executor"}
 DEFAULT_BLOCKED_TTL_SECONDS = 2 * 60 * 60
 DEFAULT_WAITING_EXECUTOR_TTL_SECONDS = 2 * 60 * 60
 DEFAULT_WAITING_APPROVAL_TTL_SECONDS = 24 * 60 * 60
@@ -92,10 +91,14 @@ class TaskRunLifecycleRetention:
             "terminal_update_count": len(terminal_updates),
             "stop_request_count": len(stop_requests),
             "stop_request_failure_count": len(stop_request_failures),
+            "runtime_cell_stop_request_count": len(stop_requests),
+            "runtime_cell_stop_request_failure_count": len(stop_request_failures),
             "expired_task_run_ids": [str(item.get("task_run_id") or "") for item in results if str(item.get("task_run_id") or "")],
             "terminal_updates": terminal_updates,
             "stop_requests": stop_requests,
             "stop_request_failures": stop_request_failures,
+            "runtime_cell_stop_requests": stop_requests,
+            "runtime_cell_stop_request_failures": stop_request_failures,
             "skipped_reasons": skipped[:80],
             "updated_at": current_time,
         }
@@ -176,7 +179,7 @@ class TaskRunLifecycleRetention:
     def _request_retention_stop(self, task_run: Any, *, now: float, decision: dict[str, Any]) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "").strip()
         reason = str(decision.get("reason") or "runtime_retention_expired")
-        control_signal = request_executor_control_signal(
+        control_signal = request_runtime_cell_control_signal(
             self.runtime_host,
             task_run_id=task_run_id,
             kind="stop",
@@ -189,7 +192,7 @@ class TaskRunLifecycleRetention:
                 "task_run_id": task_run_id,
                 "reason": reason,
                 "stop_requested": False,
-                "executor_signal_requested": False,
+                "runtime_cell_signal_requested": False,
                 "error": "runtime_gateway_control_signal_unavailable",
                 "retryable": True,
                 "task_run": _to_dict(task_run),
@@ -206,7 +209,7 @@ class TaskRunLifecycleRetention:
             "task_run_id": task_run_id,
             "reason": reason,
             "stop_requested": True,
-            "executor_signal_requested": True,
+            "runtime_cell_signal_requested": True,
             "runtime_control_signal_ref": str(getattr(control_signal, "signal_id", "") or ""),
             "runtime_control_event_ref": str(getattr(control_signal, "control_event_ref", "") or ""),
             "task_run": _to_dict(updated),
@@ -227,7 +230,6 @@ class TaskRunLifecycleRetention:
             updated = self._record_latest_event_offset(task_run_id=task_run_id, event_offset=event_offset) or updated
         lifecycle_ref = self._sync_lifecycle_object(updated, terminal_reason=terminal_reason, now=now)
         rollout = self._append_rollout(updated, terminal_reason=terminal_reason, event_offset=event_offset)
-        active_turn = self._complete_active_turn(updated, terminal_reason=terminal_reason)
         cell_cancel = self._cancel_active_cell(task_run=updated, reason=terminal_reason)
         release = EphemeralRuntimeCacheReleaser(runtime_host=self.runtime_host).release_task_run(
             task_run_id=task_run_id,
@@ -242,7 +244,6 @@ class TaskRunLifecycleRetention:
             "event": _to_dict(event),
             "lifecycle_ref": lifecycle_ref,
             "work_rollout": _to_dict(rollout),
-            "active_turn": _to_dict(active_turn),
             "cell_cancel": cell_cancel,
             "released_cache_effects": release,
         }
@@ -254,7 +255,7 @@ class TaskRunLifecycleRetention:
         now: float,
         reason: str,
         terminal: bool,
-        control_signal: ExecutorControlSignal | None = None,
+        control_signal: RuntimeCellControlSignal | None = None,
     ) -> Any | None:
         state_index = self.runtime_host.state_index
 
@@ -312,7 +313,7 @@ class TaskRunLifecycleRetention:
         payload = {
             **payload,
             "task_run_id": task_run_id,
-            "contract_ref": str(payload.get("contract_ref") or getattr(task_run, "task_contract_ref", "") or ""),
+            "contract_ref": str(payload.get("contract_ref") or getattr(task_run, "task_run_contract_ref", "") or ""),
             "status": "aborted",
             "created_at": float(payload.get("created_at") or getattr(task_run, "created_at", 0.0) or now),
             "updated_at": now,
@@ -336,20 +337,6 @@ class TaskRunLifecycleRetention:
                 event_offset=event_offset,
                 refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
                 payload={"terminal_reason": terminal_reason, "model_visible": False},
-            )
-        except Exception:
-            return {}
-
-    def _complete_active_turn(self, task_run: Any, *, terminal_reason: str) -> Any:
-        active_turn_registry = getattr(self.runtime_host, "active_turn_registry", None)
-        complete = getattr(active_turn_registry, "complete_bound_task", None)
-        if not callable(complete):
-            return {}
-        try:
-            return complete(
-                session_id=str(getattr(task_run, "session_id", "") or ""),
-                task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
-                terminal_reason=terminal_reason,
             )
         except Exception:
             return {}
@@ -382,10 +369,14 @@ class TaskRunLifecycleRetention:
             "terminal_update_count": 0,
             "stop_request_count": 0,
             "stop_request_failure_count": 0,
+            "runtime_cell_stop_request_count": 0,
+            "runtime_cell_stop_request_failure_count": 0,
             "expired_task_run_ids": [],
             "terminal_updates": [],
             "stop_requests": [],
             "stop_request_failures": [],
+            "runtime_cell_stop_requests": [],
+            "runtime_cell_stop_request_failures": [],
             "skipped_reasons": [{"reason": reason}],
             "updated_at": time.time(),
         }
@@ -514,7 +505,7 @@ class EphemeralRuntimeCacheReleaser:
         return result
 
 
-def _control_signal_trace_payload(signal: ExecutorControlSignal | None) -> dict[str, str]:
+def _control_signal_trace_payload(signal: RuntimeCellControlSignal | None) -> dict[str, str]:
     if signal is None:
         return {}
     signal_ref = str(getattr(signal, "signal_id", "") or "").strip()
@@ -533,7 +524,7 @@ def _retention_diagnostics(
     now: float,
     reason: str,
     terminal: bool,
-    control_signal: ExecutorControlSignal | None = None,
+    control_signal: RuntimeCellControlSignal | None = None,
 ) -> dict[str, Any]:
     diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
     control = {
@@ -671,4 +662,3 @@ def _positive_float(value: Any, default: float) -> float:
     except (TypeError, ValueError):
         parsed = float(default)
     return max(1.0, parsed)
-

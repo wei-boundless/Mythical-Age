@@ -3,11 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
-
-from runtime.memory.file_evidence_scope import session_file_evidence_scope, task_run_file_evidence_scope
-from runtime.memory.file_state_store import FileStateAuthorityStore
 
 
 HANDOFF_KIND = "turn_to_task_context_handoff"
@@ -16,7 +12,6 @@ _MAX_OBSERVATIONS = 24
 _MAX_OBSERVATION_TEXT_CHARS = 12000
 _MAX_MEMORY_SECTION_ITEMS = 12
 _MAX_MEMORY_ITEM_CHARS = 2000
-_MAX_FILE_STATE_ITEMS = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +19,6 @@ class RecordedTurnToTaskContextHandoff:
     handoff_id: str
     handoff_ref: str
     payload: dict[str, Any]
-    materialization: dict[str, Any]
     event: Any | None = None
 
 
@@ -43,18 +37,12 @@ def build_turn_to_task_context_handoff_seed(
     session_payload = dict(session_context or {})
     memory_context = _memory_context_for_handoff(session_payload.get("memory_context"))
     observations = _inherited_observations(tool_observation_payloads)
-    file_evidence_scope = session_file_evidence_scope(session_id)
-    file_state_snapshot = _session_file_state_snapshot(
-        runtime_host,
-        file_evidence_scope=file_evidence_scope,
-    )
     turn_input_facts = _bounded_mapping(
         session_payload.get("turn_input_facts"),
         allowed_keys=(
             "user_intent",
             "environment_binding",
             "expected_active_turn_id",
-            "expected_task_run_id",
             "active_turn_input_policy",
             "recovery_input_policy",
             "editor_context",
@@ -84,8 +72,6 @@ def build_turn_to_task_context_handoff_seed(
                 for item in observations
                 if str(item.get("observation_id") or item.get("observation_ref") or "")
             ],
-            "inherited_file_evidence_scope": file_evidence_scope,
-            "inherited_file_state_snapshot": file_state_snapshot,
             "inherited_memory_context": memory_context,
             "inherited_memory_context_refs": _memory_context_refs(memory_context),
             "inherited_turn_input_facts": turn_input_facts,
@@ -127,16 +113,6 @@ def record_turn_to_task_context_handoff(
             "authority": HANDOFF_AUTHORITY,
         }
     )
-    materialization = materialize_handoff_file_state_to_task_scope(
-        runtime_host,
-        task_run_id=task_run_id,
-        session_id=session_id,
-        handoff=payload,
-    )
-    payload = {
-        **payload,
-        "file_state_materialization": dict(materialization),
-    }
     handoff_ref = runtime_host.runtime_objects.put_object(HANDOFF_KIND, handoff_id, payload)
     payload = {
         **payload,
@@ -148,7 +124,6 @@ def record_turn_to_task_context_handoff(
         "turn_to_task_context_handoff_recorded",
         payload={
             "handoff": handoff_summary(payload),
-            "file_state_materialization": dict(materialization),
         },
         refs={
             "turn_ref": str(payload.get("turn_id") or turn_id or ""),
@@ -163,7 +138,6 @@ def record_turn_to_task_context_handoff(
         handoff_id=handoff_id,
         handoff_ref=handoff_ref,
         payload=payload,
-        materialization=materialization,
         event=event,
     )
 
@@ -189,7 +163,6 @@ def load_turn_to_task_context_handoff(runtime_host: Any, task_run: Any) -> dict[
 def handoff_summary(handoff: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(handoff or {})
     memory_context = dict(payload.get("inherited_memory_context") or {})
-    file_state = [dict(item) for item in list(payload.get("inherited_file_state_snapshot") or []) if isinstance(item, dict)]
     observations = [dict(item) for item in list(payload.get("inherited_observations") or []) if isinstance(item, dict)]
     attachments = [dict(item) for item in list(payload.get("inherited_attachments") or []) if isinstance(item, dict)]
     return _drop_empty(
@@ -203,7 +176,6 @@ def handoff_summary(handoff: dict[str, Any] | None) -> dict[str, Any]:
             "source_packet_ref": str(payload.get("source_packet_ref") or ""),
             "inherited_observation_refs": list(payload.get("inherited_observation_refs") or [])[:_MAX_OBSERVATIONS],
             "inherited_observation_count": len(observations),
-            "inherited_file_state_count": len(file_state),
             "inherited_attachment_count": len(attachments),
             "inherited_memory_context_refs": _memory_context_refs(memory_context),
             "selected_memory_sections": list(memory_context.get("selected_sections") or []),
@@ -238,12 +210,6 @@ def inherited_start_context_for_model(handoff: dict[str, Any] | None) -> dict[st
             "memory_context_refs": dict(payload.get("inherited_memory_context_refs") or {}),
             "observation_refs": list(payload.get("inherited_observation_refs") or [])[:_MAX_OBSERVATIONS],
             "observations": inherited_observations_for_packet(payload),
-            "file_evidence_scope": dict(payload.get("inherited_file_evidence_scope") or {}),
-            "file_state": [
-                dict(item)
-                for item in list(payload.get("inherited_file_state_snapshot") or [])[:_MAX_FILE_STATE_ITEMS]
-                if isinstance(item, dict)
-            ],
             "turn_input_facts": dict(payload.get("inherited_turn_input_facts") or {}),
             "editor_context": dict(payload.get("inherited_editor_context") or {}),
             "attachments": [
@@ -260,78 +226,6 @@ def inherited_start_context_for_model(handoff: dict[str, Any] | None) -> dict[st
             "authority": HANDOFF_AUTHORITY,
         }
     )
-
-
-def materialize_handoff_file_state_to_task_scope(
-    runtime_host: Any,
-    *,
-    task_run_id: str,
-    session_id: str,
-    handoff: dict[str, Any],
-) -> dict[str, Any]:
-    task_ref = str(task_run_id or "").strip()
-    if not task_ref:
-        return {"status": "skipped", "reason": "missing_task_run_id", "authority": f"{HANDOFF_AUTHORITY}.file_state_materialization"}
-    store = _file_state_store(runtime_host)
-    if store is None:
-        return {"status": "skipped", "reason": "file_state_store_unavailable", "authority": f"{HANDOFF_AUTHORITY}.file_state_materialization"}
-    target_scope = task_run_file_evidence_scope(task_ref, session_id=session_id)
-    inherited_observations = inherited_observations_for_packet(handoff)
-    applied_observation_count = 0
-    for observation in inherited_observations:
-        try:
-            store.apply_observation_scope(target_scope, observation)
-            applied_observation_count += 1
-        except Exception:
-            continue
-    snapshot_events = _file_state_snapshot_events(
-        handoff.get("inherited_file_state_snapshot"),
-        handoff_id=str(handoff.get("handoff_id") or ""),
-    )
-    applied_snapshot_event_count = 0
-    if snapshot_events:
-        try:
-            store.apply_events_scope(
-                target_scope,
-                snapshot_events,
-                observation_ref=f"handoff:{handoff.get('handoff_id') or task_ref}:file_state_snapshot",
-                tool_call_id="turn_to_task_context_handoff",
-            )
-            applied_snapshot_event_count = len(snapshot_events)
-        except Exception:
-            applied_snapshot_event_count = 0
-    return {
-        "status": "recorded" if applied_observation_count or applied_snapshot_event_count else "empty",
-        "task_file_evidence_scope": target_scope,
-        "source_file_evidence_scope": dict(handoff.get("inherited_file_evidence_scope") or {}),
-        "applied_observation_count": applied_observation_count,
-        "applied_snapshot_event_count": applied_snapshot_event_count,
-        "authority": f"{HANDOFF_AUTHORITY}.file_state_materialization",
-    }
-
-
-def _session_file_state_snapshot(runtime_host: Any, *, file_evidence_scope: dict[str, Any]) -> list[dict[str, Any]]:
-    store = _file_state_store(runtime_host)
-    snapshot = getattr(store, "snapshot_scope", None) if store is not None else None
-    if not callable(snapshot):
-        return []
-    try:
-        return [dict(item) for item in list(snapshot(file_evidence_scope, limit=_MAX_FILE_STATE_ITEMS) or []) if isinstance(item, dict)]
-    except Exception:
-        return []
-
-
-def _file_state_store(runtime_host: Any) -> Any | None:
-    store = getattr(runtime_host, "file_state_store", None)
-    if store is not None:
-        return store
-    root_dir = getattr(runtime_host, "root_dir", None)
-    if root_dir is None:
-        return None
-    try:
-        return FileStateAuthorityStore(Path(root_dir))
-    except Exception:
-        return None
 
 
 def _memory_context_for_handoff(value: Any) -> dict[str, Any]:
@@ -456,83 +350,6 @@ def _sanitized_tool_observation(raw: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _file_state_snapshot_events(value: Any, *, handoff_id: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for file_state in [dict(item) for item in list(value or []) if isinstance(item, dict)]:
-        path = str(file_state.get("path") or "").replace("\\", "/").strip().strip("/")
-        if not path:
-            continue
-        for read_range in [dict(item) for item in list(file_state.get("read_ranges") or []) if isinstance(item, dict)]:
-            events.append(
-                _drop_empty(
-                    {
-                        "event_type": "read",
-                        "path": path,
-                        "start_line": read_range.get("start_line"),
-                        "end_line": read_range.get("end_line"),
-                        "total_lines": file_state.get("total_lines"),
-                        "content_sha256": read_range.get("content_sha256") or file_state.get("content_sha256"),
-                        "mtime_ns": read_range.get("mtime_ns") or file_state.get("mtime_ns"),
-                        "read_intent": read_range.get("read_intent"),
-                        "reusable_result_ref": read_range.get("reusable_result_ref"),
-                        "exact_artifact_ref": read_range.get("exact_artifact_ref"),
-                        "artifact_ref_status": read_range.get("artifact_ref_status"),
-                        "visible_exact": read_range.get("visible_exact"),
-                        "text_sha256": read_range.get("text_sha256"),
-                        "next_start_line": read_range.get("next_start_line"),
-                        "has_more": read_range.get("has_more"),
-                        "source_scope": "session",
-                        "handoff_id": handoff_id,
-                    }
-                )
-            )
-        search_hits_by_query: dict[str, list[dict[str, Any]]] = {}
-        for hit in [dict(item) for item in list(file_state.get("search_hits") or []) if isinstance(item, dict)]:
-            query = str(hit.get("query") or "")
-            search_hits_by_query.setdefault(query, []).append(
-                _drop_empty({"line": hit.get("line"), "preview": hit.get("preview")})
-            )
-        for query, matches in search_hits_by_query.items():
-            events.append(
-                _drop_empty(
-                    {
-                        "event_type": "search",
-                        "path": path,
-                        "query": query,
-                        "matches": matches,
-                        "source_scope": "session",
-                        "handoff_id": handoff_id,
-                    }
-                )
-            )
-        for write in [dict(item) for item in list(file_state.get("write_events") or []) if isinstance(item, dict)]:
-            operation = str(write.get("operation") or "").strip()
-            if operation not in {"write", "edit"}:
-                continue
-            events.append(
-                _drop_empty(
-                    {
-                        "event_type": operation,
-                        "path": path,
-                        "content_sha256": write.get("content_sha256_after") or file_state.get("content_sha256"),
-                        "source_scope": "session",
-                        "handoff_id": handoff_id,
-                    }
-                )
-            )
-        if file_state.get("exists") is False:
-            events.append(
-                {
-                    "event_type": "exists",
-                    "path": path,
-                    "exists": False,
-                    "source_scope": "session",
-                    "handoff_id": handoff_id,
-                }
-            )
-    return events
-
-
 def _memory_context_refs(memory_context: dict[str, Any]) -> dict[str, Any]:
     payload = dict(memory_context or {})
     return _drop_empty(
@@ -563,7 +380,6 @@ def _empty_handoff_reason(seed: dict[str, Any]) -> str:
     if (
         seed.get("inherited_observations")
         or seed.get("inherited_memory_context")
-        or seed.get("inherited_file_state_snapshot")
         or seed.get("inherited_turn_input_facts")
         or seed.get("inherited_editor_context")
         or seed.get("inherited_attachments")

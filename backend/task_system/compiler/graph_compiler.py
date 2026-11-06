@@ -7,7 +7,11 @@ from graph_system.models import safe_id, stable_hash
 from .configurator_write_contracts import build_configurator_write_contract, configuration_prototype_catalog
 from .edge_contract_models import build_edge_contract_index
 from .models import GraphCompilationUnit, GraphCompileIssue, compile_report
-from .node_contract_models import build_node_contract_index
+from .node_contract_models import (
+    build_node_agent_binding_index,
+    build_node_contract_index,
+    build_node_task_contract_index,
+)
 from .resource_contract_models import build_resource_contract_index
 from .system_node_contracts import build_maintenance_contract, build_system_node_contract_index
 
@@ -51,6 +55,8 @@ def build_graph_compilation_unit(
         graph_tools=tools,
         node_protocol_index=node_protocol_index,
     )
+    node_task_contract_index = build_node_task_contract_index(node_contract_index=node_contract_index)
+    node_agent_binding_index = build_node_agent_binding_index(node_contract_index=node_contract_index)
     resource_contract_index = build_resource_contract_index(
         resource_nodes=resource_nodes,
         graph_environment=environment,
@@ -76,6 +82,8 @@ def build_graph_compilation_unit(
             nodes=nodes,
             edges=edges,
             node_contract_index=node_contract_index,
+            node_task_contract_index=node_task_contract_index,
+            node_agent_binding_index=node_agent_binding_index,
             resource_contract_index=resource_contract_index,
             edge_contract_index=edge_contract_index,
             graph_binding_contract=graph_binding_contract,
@@ -87,6 +95,8 @@ def build_graph_compilation_unit(
         graph_title=graph_title,
         graph_binding_contract=graph_binding_contract,
         node_contract_index=node_contract_index,
+        node_task_contract_index=node_task_contract_index,
+        node_agent_binding_index=node_agent_binding_index,
         resource_contract_index=resource_contract_index,
         edge_contract_index=edge_contract_index,
         report=report.to_dict(),
@@ -95,6 +105,8 @@ def build_graph_compilation_unit(
         "graph_id": graph_id,
         "compiler_version": GRAPH_COMPILER_VERSION,
         "node_contract_index": node_contract_index,
+        "node_task_contract_index": node_task_contract_index,
+        "node_agent_binding_index": node_agent_binding_index,
         "resource_contract_index": resource_contract_index,
         "edge_contract_index": edge_contract_index,
         "graph_binding_contract": graph_binding_contract,
@@ -105,6 +117,8 @@ def build_graph_compilation_unit(
         graph_id=graph_id,
         compiler_version=GRAPH_COMPILER_VERSION,
         node_contract_index=node_contract_index,
+        node_task_contract_index=node_task_contract_index,
+        node_agent_binding_index=node_agent_binding_index,
         resource_contract_index=resource_contract_index,
         edge_contract_index=edge_contract_index,
         configurator_write_contract=build_configurator_write_contract(graph_id=graph_id),
@@ -206,6 +220,8 @@ def _compile_report_summary(
     nodes: list[dict[str, Any]],
     edges: list[dict[str, Any]],
     node_contract_index: dict[str, dict[str, Any]],
+    node_task_contract_index: dict[str, dict[str, Any]],
+    node_agent_binding_index: dict[str, dict[str, Any]],
     resource_contract_index: dict[str, dict[str, Any]],
     edge_contract_index: dict[str, dict[str, Any]],
     graph_binding_contract: dict[str, Any],
@@ -217,6 +233,8 @@ def _compile_report_summary(
         "resource_contract_count": len(resource_contract_index),
         "edge_contract_count": len(edge_contract_index),
         "node_contract_count": len(node_contract_index),
+        "node_task_contract_count": len(node_task_contract_index),
+        "node_agent_binding_count": len(node_agent_binding_index),
         "node_interaction_contract_enabled": False,
         "graph_binding": dict(graph_binding_contract),
         "prototype_catalog": configuration_prototype_catalog(),
@@ -332,26 +350,30 @@ def _deployment_package(
     graph_title: str,
     graph_binding_contract: dict[str, Any],
     node_contract_index: dict[str, Any],
+    node_task_contract_index: dict[str, Any],
+    node_agent_binding_index: dict[str, Any],
     resource_contract_index: dict[str, Any],
     edge_contract_index: dict[str, Any],
     report: dict[str, Any],
 ) -> dict[str, Any]:
     required_environments = sorted(
         {
-            str(dict(contract.get("environment_lock") or {}).get("task_environment_id") or "")
-            for contract in node_contract_index.values()
-            if isinstance(contract, dict)
+            str(dict(binding.get("environment_lock") or {}).get("task_environment_id") or "")
+            for binding in node_agent_binding_index.values()
+            if isinstance(binding, dict)
         }
         - {""}
     )
     return {
-        "package_id": f"gdeploy:{safe_id(graph_id)}:{stable_hash([graph_id, node_contract_index, edge_contract_index])[:12]}",
+        "package_id": f"gdeploy:{safe_id(graph_id)}:{stable_hash([graph_id, node_task_contract_index, node_agent_binding_index, edge_contract_index])[:12]}",
         "graph_id": graph_id,
         "graph_title": graph_title,
         "binding": dict(graph_binding_contract),
         "required_environments": required_environments,
         "required_resources": sorted(resource_contract_index.keys()),
         "edge_contract_count": len(edge_contract_index),
+        "node_task_contract_count": len(node_task_contract_index),
+        "node_agent_binding_count": len(node_agent_binding_index),
         "launch_contract": {
             "required_inputs": [],
             "optional_inputs": ["project_id", "runtime_scope"],

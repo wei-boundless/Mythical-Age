@@ -21,7 +21,8 @@ import type {
   WorkspaceContext,
   CodeEnvironmentWorkspaceTree,
   ProjectWorkspaceSummary,
-  ChatAttachment
+  ChatAttachment,
+  ProviderCacheLog
 } from "@/lib/api";
 import type {
   ChronologicalProjectionLedger,
@@ -40,6 +41,7 @@ export type Message = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   runtimeProgress?: RuntimeProgressEntry[];
+  /** @deprecated Store messages only keep projectionKeyString; render views from activeProjectionsByKey. */
   projectionView?: ChronologicalProjectionView;
   projectionKeyString?: string;
   closeoutSummary?: string;
@@ -67,38 +69,6 @@ export type Message = {
     caption?: string;
   } | null;
   attachments?: ChatAttachment[];
-};
-
-export type AssistantTextStreamState = {
-  messageId: string;
-  messageRef: string;
-  streamRef: string;
-  latestSequence: number;
-  canonicalContent: string;
-  canonicalContentSha256: string;
-  accumulatedUtf8Bytes: number;
-  finalReceived: boolean;
-  terminal: boolean;
-  repairState: "none" | "pending" | "applied" | "failed";
-  displayHintsBySequence: Record<number, Record<string, unknown>>;
-  orderedSegmentIds?: string[];
-  segmentsById?: Record<string, AssistantTextSegmentState>;
-};
-
-export type AssistantTextSegmentState = {
-  segmentId: string;
-  messageRef: string;
-  streamRef: string;
-  bodySequence: number;
-  segmentRole: string;
-  latestSequence: number;
-  canonicalContent: string;
-  canonicalContentSha256: string;
-  accumulatedUtf8Bytes: number;
-  finalReceived: boolean;
-  terminal: boolean;
-  repairState: "none" | "pending" | "applied" | "failed";
-  displayHintsBySequence: Record<number, Record<string, unknown>>;
 };
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
@@ -204,7 +174,7 @@ export type TokenStats = {
     present?: boolean;
     fresh?: boolean;
     source?: string;
-    schema_version?: string;
+    package_schema_id?: string;
     covered_message_count?: number;
     covered_event_run_id?: string;
     covered_event_offset_end?: number | null;
@@ -226,8 +196,9 @@ export type TokenStats = {
     context_recovery_package_fresh?: boolean;
     context_recovery_package_source?: string;
   };
-  cumulative_transcript_tokens?: number;
-  cumulative_transcript_message_count?: number;
+  provider_cache_log?: ProviderCacheLog;
+  provider_protocol_timeline_tokens?: number;
+  provider_protocol_timeline_message_count?: number;
   compression_saved_tokens?: number;
   compression_ratio?: number;
   raw_history_tokens: number;
@@ -293,7 +264,7 @@ export type AgentSystemInspectorTarget = {
   turnIndex?: number;
   artifactPath?: string;
   reason?: string;
-  agentSystemLayer?: "registry" | "groups" | "runtime" | "permissions" | "model_runtime" | "context" | "eligibility";
+  agentSystemLayer?: "registry" | "groups" | "runtime" | "permissions" | "prompt_wiring" | "model_runtime" | "context" | "eligibility";
   agentId?: string;
   agentProfileId?: string;
   graphId?: string;
@@ -370,6 +341,7 @@ export type ActiveTurnState =
 export type ActiveTurnSnapshot = {
   turn_id: string;
   turn_run_id?: string;
+  stream_run_id?: string;
   task_run_id?: string;
   state?: ActiveTurnState;
   updated_at?: number;
@@ -477,7 +449,6 @@ export type StoreState = {
   workspaceInitializing: boolean;
   messages: Message[];
   activeProjectionsByKey: Record<string, ActiveProjectionState>;
-  assistantTextStreamsByMessageId: Record<string, AssistantTextStreamState>;
   isStreaming: boolean;
   activeStreamSessionIds: string[];
   chatStreamConnectionStatus: ChatStreamConnectionStatus;
@@ -551,12 +522,10 @@ export type StoreActions = {
   selectSession: (ref: SessionRef) => Promise<void>;
   sendMessage: (value: string, options?: { files?: File[]; queuedUserMessageId?: string }) => Promise<void>;
   stopCurrentStream: () => void;
-  pauseActiveTaskRun: () => Promise<void>;
-  resumeActiveTaskRun: () => Promise<void>;
-  stopActiveTaskRun: () => Promise<void>;
   resendEditedMessage: (messageId: string, value: string) => Promise<void>;
   setPermissionMode: (mode: PermissionMode) => Promise<void>;
   setSelectedChatModel: (selectionId: string) => void;
+  refreshModelProviderConfig: () => Promise<void>;
   setSelectedChatMode: (mode: ChatMode) => void;
   setChatThinkingMode: (mode: ChatThinkingMode) => void;
   setThinkingProjectionEnabled: (enabled: boolean) => void;
@@ -605,5 +574,3 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
-
-

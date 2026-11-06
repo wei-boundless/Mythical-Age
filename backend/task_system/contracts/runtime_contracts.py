@@ -199,7 +199,7 @@ def _preferred_capability_group(
         *(item.lower() for item in required_operations),
         str(preferred_route or "").strip().lower(),
     }
-    if {"browser", "browser_control", "web_automation", "op.browser_control"}.intersection(tokens):
+    if {"browser", "web_automation", "op.browser_control"}.intersection(tokens):
         return "browser_use"
     if {"web_research", "deep_search", "source_verification", "op.web_search", "op.fetch_url"}.intersection(tokens):
         return "web_research"
@@ -207,7 +207,7 @@ def _preferred_capability_group(
         return "artifact_generation"
     if {"subagent", "subagent_delegation", "op.subagent_spawn"}.intersection(tokens):
         return "subagent_delegation"
-    if {"file_work", "code", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"}.intersection(tokens):
+    if {"file_work", "code", "op.workspace_read", "op.workspace_search", "op.workspace_write", "op.workspace_edit"}.intersection(tokens):
         return "file_work"
     return "general_task"
 

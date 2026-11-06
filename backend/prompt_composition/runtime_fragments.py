@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from harness.runtime.agent_visible_projection.sanitizer import (
+    sanitize_agent_visible_kind,
+    sanitize_agent_visible_payload,
+    sanitize_agent_visible_title,
+)
+
 from .context_envelope import CONTEXT_FRAGMENT_PROTOCOL, render_context_fragment
 from .message_specs import build_model_message_spec
 
@@ -24,6 +30,8 @@ class PromptCompositionRuntimeFragment:
     authority: str = "prompt_composition.runtime_fragment"
 
     def render_content(self) -> str:
+        if self.kind == "current_turn_user_context" and self.role == "user":
+            return _render_current_user_message(self)
         return _join_prompt_fragments(
             self.preamble,
             render_runtime_payload_fragment(
@@ -39,7 +47,6 @@ class PromptCompositionRuntimeFragment:
                 metadata=self.metadata,
             ),
         )
-
     def to_message_spec(self) -> dict[str, Any]:
         metadata = {
             **dict(self.metadata),
@@ -64,6 +71,24 @@ class PromptCompositionRuntimeFragment:
         )
 
 
+def _render_current_user_message(fragment: PromptCompositionRuntimeFragment) -> str:
+    """Keep the inbound text native while retaining the runtime envelope marker."""
+    user_message = str(dict(fragment.payload or {}).get("user_message") or "")
+    envelope = render_runtime_payload_fragment(
+        fragment.title,
+        {**dict(fragment.payload or {}), "message_type": "user_message"},
+        role=fragment.role,
+        kind=fragment.kind,
+        visible_kind=fragment.visible_kind,
+        source_ref=fragment.source_ref,
+        cache_scope=fragment.cache_scope,
+        cache_role=fragment.cache_role,
+        compression_role=fragment.compression_role,
+        metadata=fragment.metadata,
+    )
+    return _join_prompt_fragments(user_message, envelope)
+
+
 def render_runtime_payload_fragment(
     title: str,
     payload: dict[str, Any],
@@ -77,10 +102,11 @@ def render_runtime_payload_fragment(
     compression_role: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> str:
+    visible_kind_value = _agent_visible_kind(visible_kind or kind or "context_payload")
     return render_context_fragment(
-        kind=visible_kind or kind or "runtime_payload",
-        title=title,
-        payload=dict(payload or {}),
+        kind=visible_kind_value,
+        title=sanitize_agent_visible_title(title),
+        payload=sanitize_agent_visible_payload(payload),
         role=role,
         source_ref=source_ref,
         cache_scope=cache_scope,
@@ -122,6 +148,10 @@ def build_runtime_payload_message_spec(
     ).to_message_spec()
 
 
+def _agent_visible_kind(value: str) -> str:
+    return sanitize_agent_visible_kind(value)
+
+
 def _join_prompt_fragments(*fragments: str) -> str:
     return "\n".join(str(fragment or "").strip() for fragment in fragments if str(fragment or "").strip()) + "\n"
 
@@ -134,8 +164,6 @@ def _prefix_tier(*, cache_scope: str, cache_role: str) -> str:
     if normalized_role == "session_stable":
         if normalized_scope == "global":
             return "provider_global"
-        if normalized_scope == "task":
-            return "task"
         return "session"
     if normalized_role == "volatile":
         return "volatile"

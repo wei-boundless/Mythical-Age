@@ -43,7 +43,7 @@ EXCLUDED_RELATIVE_PATHS = {
     "storage/modality_artifacts",
     "storage/runtime_cache",
     "storage/runtime_state",
-    "storage/session_memory",
+    "storage/conversation_continuity",
     "storage/sessions",
     "storage/task_durable_memory",
     "storage/working_memory",

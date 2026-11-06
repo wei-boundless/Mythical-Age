@@ -9,6 +9,17 @@ from typing import Any, AsyncIterator
 import httpx
 
 
+_PROVIDER_CHAT_MESSAGE_KEYS = {
+    "role",
+    "content",
+    "name",
+    "tool_call_id",
+    "reasoning_content",
+    "prefix",
+    "tool_calls",
+}
+
+
 @dataclass(slots=True)
 class LightweightChatMessage:
     content: Any = ""
@@ -398,23 +409,21 @@ def _provider_payload_passthrough(item: dict[str, Any]) -> dict[str, Any] | None
     tool_calls = item.get("tool_calls")
     if tool_calls and not _provider_shaped_tool_calls(tool_calls):
         return None
-    payload: dict[str, Any] = {
-        "role": role,
-        "content": _serializable_content(item.get("content")),
-    }
-    for key in ("name", "tool_call_id"):
-        value = str(item.get(key) or "").strip()
-        if value:
-            payload[key] = value
-    if role == "assistant":
-        reasoning_content = _first_text_preserving_whitespace(item.get("reasoning_content"))
-        if reasoning_content:
-            payload["reasoning_content"] = reasoning_content
-        if item.get("prefix") is True or str(item.get("prefix") or "").strip().lower() == "true":
-            payload["prefix"] = True
-        if tool_calls:
-            payload["tool_calls"] = [copy.deepcopy(dict(call)) for call in tool_calls if isinstance(call, dict)]
-    return payload
+    if _provider_payload_keys_are_provider_only(item) and _provider_payload_content_is_provider_shaped(item.get("content")):
+        return copy.deepcopy(item)
+    return None
+
+
+def _provider_payload_keys_are_provider_only(item: dict[str, Any]) -> bool:
+    return set(str(key or "") for key in dict(item or {})) <= _PROVIDER_CHAT_MESSAGE_KEYS
+
+
+def _provider_payload_content_is_provider_shaped(value: Any) -> bool:
+    if value is None or isinstance(value, str):
+        return True
+    if isinstance(value, list):
+        return all(isinstance(item, dict) for item in value)
+    return False
 
 
 def _provider_shaped_tool_calls(value: Any) -> bool:
@@ -547,10 +556,21 @@ def _schema_from_schema_source(schema_source: Any) -> dict[str, Any]:
     return {}
 
 
+_INPUT_TYPE_OVERRIDES = {
+    # Parameters whose schema type is not plain string. Registering the type here
+    # keeps the generated schema honest: a boolean switch is advertised as a
+    # boolean, so the model does not have to guess how to encode it.
+    "include_text": "boolean",
+}
+
+
 def _schema_from_contract(*, required_inputs: list[Any], optional_inputs: list[Any]) -> dict[str, Any]:
     required = [str(item).strip() for item in required_inputs if str(item).strip()]
     optional = [str(item).strip() for item in optional_inputs if str(item).strip()]
-    properties = {name: {"type": "string"} for name in [*required, *optional]}
+    properties = {
+        name: {"type": _INPUT_TYPE_OVERRIDES.get(name, "string")}
+        for name in [*required, *optional]
+    }
     return {
         "type": "object",
         "properties": properties,

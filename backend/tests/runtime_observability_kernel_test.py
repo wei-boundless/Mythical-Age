@@ -8,11 +8,11 @@ def test_runtime_observability_kernel_records_trace_and_runtime_event_without_du
     host = SingleAgentRuntimeHost(tmp_path)
 
     root = host.observability.start_run(
-        run_kind="task_executor",
+        run_kind="task_run",
         root_run_id="taskrun:obs",
         scope={"session_id": "session:obs", "task_run_id": "taskrun:obs"},
         refs={"task_run_id": "taskrun:obs"},
-        idempotency_key="task-executor:taskrun:obs:1",
+        idempotency_key="task-run:taskrun:obs:1",
     )
     assert isinstance(root, ObservabilityContext)
     assert root.trace_id

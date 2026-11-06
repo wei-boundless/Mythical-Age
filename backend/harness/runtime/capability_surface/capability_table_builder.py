@@ -18,16 +18,10 @@ from .capability_table import (
 
 
 FILE_OPERATION_ACTIONS = {
-    "op.read_file": ("read",),
-    "op.read_structured_file": ("read",),
-    "op.search_files": ("search",),
-    "op.search_text": ("search",),
-    "op.list_dir": ("read",),
-    "op.stat_path": ("read",),
-    "op.path_exists": ("read",),
-    "op.glob_paths": ("search",),
-    "op.write_file": ("write",),
-    "op.edit_file": ("edit",),
+    "op.workspace_read": ("read",),
+    "op.workspace_search": ("search",),
+    "op.workspace_write": ("write",),
+    "op.workspace_edit": ("edit",),
 }
 PROMPT_VISIBLE_TOOL_POLICIES = {"schema_only", "schema_plus_guidance"}
 
@@ -83,15 +77,22 @@ def build_tool_capability_table(
 ) -> ToolCapabilityTable:
     registry = operation_registry or build_default_operation_registry()
     tools = list(tool_definitions or get_tool_definitions())
-    by_operation = {registry.normalize_id(tool.operation_id): tool for tool in tools}
+    by_operation: dict[str, ToolDefinition] = {}
+    for tool in tools:
+        for operation_id in _tool_operation_ids(tool, registry=registry):
+            by_operation[operation_id] = tool
 
     task_required = {registry.normalize_id(item) for item in request.task_required_operations}
     task_optional = {registry.normalize_id(item) for item in request.task_optional_operations}
     task_denied = {registry.normalize_id(item) for item in request.task_denied_operations}
     agent_allowed = {registry.normalize_id(item) for item in request.agent_profile_allowed_operations}
     runtime_available = {registry.normalize_id(item) for item in request.runtime_available_operations}
-    dispatch_requested = task_required | task_optional
-    audit_requested = dispatch_requested | task_denied | agent_allowed | runtime_available
+    dispatch_allowed = set(task_required | task_optional)
+    if agent_allowed:
+        dispatch_allowed.update(agent_allowed)
+    if runtime_available:
+        dispatch_allowed.update(runtime_available)
+    audit_requested = dispatch_allowed | task_denied | agent_allowed | runtime_available
 
     capabilities: list[ToolCapability] = []
     filtered: list[ToolCapabilityFilterIssue] = []
@@ -111,7 +112,7 @@ def build_tool_capability_table(
         if tool is None:
             filtered.append(_issue(operation_id, "", "no registered tool for operation", "tool_registry"))
             continue
-        if operation_id not in dispatch_requested:
+        if operation_id not in dispatch_allowed:
             continue
 
         file_gate = _file_gate(operation_id, request.file_access_tables)
@@ -145,6 +146,8 @@ def build_tool_capability_table(
                     "read_only": tool.is_read_only,
                     "destructive": tool.is_destructive,
                     "capability_tags": list(tool.capability_tags),
+                    "task_requested": operation_id in task_required or operation_id in task_optional,
+                    "task_required": operation_id in task_required,
                 },
             )
         )
@@ -156,8 +159,9 @@ def build_tool_capability_table(
         filtered=tuple(filtered),
         source_trace=(
             ToolCapabilitySourceTrace(source="environment_package", detail=request.environment.environment_id),
-            ToolCapabilitySourceTrace(source="specific_task", detail="tool requirements"),
+            ToolCapabilitySourceTrace(source="specific_task", detail="tool requirements as trace, not dispatch gate"),
             ToolCapabilitySourceTrace(source="agent_profile", detail="operation ceiling"),
+            ToolCapabilitySourceTrace(source="runtime_authorization", detail="agent/runtime allowed operations"),
             ToolCapabilitySourceTrace(source="file_access_table", detail="file grants"),
             ToolCapabilitySourceTrace(
                 source="specific_task_assembly_policy",
@@ -221,3 +225,21 @@ def _issue(
         metadata=dict(metadata or {}),
     )
 
+
+def _tool_operation_ids(tool: ToolDefinition, *, registry: OperationRegistry) -> tuple[str, ...]:
+    operation_ids: list[str] = []
+    primary = registry.normalize_id(str(tool.operation_id or "").strip())
+    if primary:
+        operation_ids.append(primary)
+    for operation_id in dict(getattr(tool, "action_operation_ids", {}) or {}).values():
+        value = registry.normalize_id(str(operation_id or "").strip())
+        if value:
+            operation_ids.append(value)
+    result: list[str] = []
+    seen: set[str] = set()
+    for operation_id in operation_ids:
+        if operation_id in seen:
+            continue
+        seen.add(operation_id)
+        result.append(operation_id)
+    return tuple(result)

@@ -194,7 +194,7 @@ class ManagedFileService:
                 resolved.repository_id,
                 resolved.logical_path,
                 resolved.gateway_context,
-                operation_id="op.read_file",
+                operation_id="op.workspace_read",
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="File not found") from exc
@@ -235,7 +235,7 @@ class ManagedFileService:
                 resolved.logical_path,
                 content,
                 resolved.gateway_context,
-                operation_id="op.write_file",
+                operation_id="op.workspace_write",
                 approval_fingerprint=self._approval_fingerprint(
                     resolved=resolved,
                     source=source,
@@ -261,7 +261,7 @@ class ManagedFileService:
         self,
         target: ManagedFileTarget,
         *,
-        old_text: str,
+        edit_target: dict[str, Any],
         new_text: str,
         expected_sha256: str = "",
         source: str = "agent_ui",
@@ -274,18 +274,19 @@ class ManagedFileService:
         before = self._read_before(resolved)
         self._assert_expected_hash(before_content=before, expected_sha256=expected_sha256, force=force)
         try:
-            result = resolved.gateway.edit_text(
+            result = resolved.gateway.edit_target_text(
                 resolved.repository_id,
                 resolved.logical_path,
-                old_text,
+                edit_target,
                 new_text,
                 resolved.gateway_context,
-                operation_id="op.edit_file",
+                operation_id="op.workspace_edit",
                 approval_fingerprint=self._approval_fingerprint(
                     resolved=resolved,
                     source=source,
                     reason=reason,
                     expected_sha256=expected_sha256,
+                    edit_target=edit_target,
                 ),
             )
         except FileGatewayApprovalRequired as exc:
@@ -400,7 +401,7 @@ class ManagedFileService:
                 resolved.repository_id,
                 resolved.logical_path,
                 resolved.gateway_context,
-                operation_id="op.read_file",
+                operation_id="op.workspace_read",
             )
             return payload.content
         except FileNotFoundError:
@@ -484,7 +485,7 @@ class ManagedFileService:
         except Exception as exc:
             return {"status": "error", "error": str(exc), "authority": "file_management.service.change_record_error"}
 
-    def _approval_fingerprint(self, *, resolved: "_ResolvedManagedFile", source: str, reason: str, expected_sha256: str) -> str:
+    def _approval_fingerprint(self, *, resolved: "_ResolvedManagedFile", source: str, reason: str, expected_sha256: str, edit_target: dict[str, Any] | None = None) -> str:
         payload = "|".join(
             (
                 str(source or "agent_ui"),
@@ -492,6 +493,7 @@ class ManagedFileService:
                 resolved.repository_id,
                 resolved.logical_path,
                 _normalize_sha256(expected_sha256),
+                hashlib.sha256(str(edit_target or {}).encode("utf-8")).hexdigest(),
                 resolved.context.session_id,
                 str(time.time_ns()),
             )
@@ -595,4 +597,3 @@ def _normalize_sha256(value: str) -> str:
 
 def _sha256_text(value: str) -> str:
     return stable_content_hash(str(value or ""))
-

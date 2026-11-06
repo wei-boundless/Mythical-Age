@@ -5,9 +5,12 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .context_segment_policy import (
+from context_system.segments.policy import (
     CONTEXT_APPEND,
+    CONTEXT_MEMORY_PREFIX,
     CURRENT_CONTROL_TAIL_KINDS,
+    context_segment_policy_for_spec,
+    context_segment_policy_is_provider_visible_sealable,
 )
 
 
@@ -87,6 +90,11 @@ class ContextCommitCandidate:
     validity_scope: str = ""
     compaction_generation: str = ""
     cache_spine_hash: str = ""
+    provider_tool_protocol: dict[str, Any] = field(default_factory=dict)
+    fact_slot_key: str = ""
+    fact_content_hash: str = ""
+    fact_change_class: str = ""
+    fact_supersession_policy: str = ""
     candidate_id: str = ""
     fork_anchor_delta: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.context_management.context_commit_candidate"
@@ -95,14 +103,14 @@ class ContextCommitCandidate:
     def from_provider_payload_segment(cls, segment: dict[str, Any]) -> "ContextCommitCandidate | None":
         payload = dict(segment or {})
         metadata = dict(payload.get("metadata") or {})
-        if str(metadata.get("provider_visible_context_ledger_commit_stage") or "") != "provider_success_required":
+        if str(metadata.get("provider_visible_append_commit_stage") or "") != "provider_success_required":
             return None
         if not _provider_payload_segment_commit_eligible(payload, metadata=metadata):
             return None
-        scope = str(metadata.get("provider_visible_context_ledger_scope") or "").strip()
-        item_key = str(metadata.get("provider_visible_context_ledger_item_key") or "").strip()
+        scope = str(metadata.get("provider_visible_append_ledger_scope") or "").strip()
+        item_key = str(metadata.get("provider_visible_append_item_key") or "").strip()
         provider_hash = str(metadata.get("provider_visible_hash") or "").strip()
-        provider_message = dict(metadata.get("provider_visible_context_candidate_message") or {})
+        provider_message = dict(metadata.get("provider_visible_append_candidate_message") or {})
         if not scope or not item_key or not provider_hash or not provider_message:
             return None
         seed = {
@@ -117,22 +125,33 @@ class ContextCommitCandidate:
             provider_visible_hash=provider_hash,
             adapter_contract=str(metadata.get("provider_adapter_contract") or ""),
             scope=scope,
-            storage_root=str(metadata.get("provider_visible_context_ledger_storage_root") or "").strip(),
-            kind=str(metadata.get("provider_visible_context_candidate_kind") or "").strip(),
-            semantic_commit_class=str(metadata.get("provider_visible_context_candidate_semantic_commit_class") or "").strip(),
-            source_ref=str(metadata.get("provider_visible_context_candidate_source_ref") or "").strip(),
-            provider=str(metadata.get("provider_visible_context_candidate_provider") or "").strip(),
-            model=str(metadata.get("provider_visible_context_candidate_model") or "").strip(),
+            storage_root=str(metadata.get("provider_visible_append_ledger_storage_root") or "").strip(),
+            kind=str(metadata.get("provider_visible_append_candidate_kind") or "").strip(),
+            semantic_commit_class=str(metadata.get("provider_visible_append_candidate_semantic_commit_class") or "").strip(),
+            source_ref=str(metadata.get("provider_visible_append_candidate_source_ref") or "").strip(),
+            provider=str(metadata.get("provider_visible_append_candidate_provider") or "").strip(),
+            model=str(metadata.get("provider_visible_append_candidate_model") or "").strip(),
             physical_lane_before_commit=str(metadata.get("physical_prefix_lane") or "").strip(),
             semantic_visibility=str(metadata.get("semantic_visibility") or "").strip(),
             validity_scope=str(metadata.get("validity_scope") or "").strip(),
             compaction_generation=str(metadata.get("compaction_generation") or "").strip(),
             cache_spine_hash=str(metadata.get("cache_spine_hash") or "").strip(),
+            provider_tool_protocol=dict(metadata.get("provider_tool_protocol") or {}),
+            fact_slot_key=str(metadata.get("provider_visible_append_fact_slot_key") or metadata.get("fact_slot_key") or "").strip(),
+            fact_content_hash=str(
+                metadata.get("provider_visible_append_fact_content_hash")
+                or metadata.get("fact_content_hash")
+                or metadata.get("append_only_content_hash")
+                or ""
+            ).strip(),
+            fact_change_class=str(metadata.get("fact_change_class") or "").strip(),
+            fact_supersession_policy=str(metadata.get("fact_supersession_policy") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["provider_message"] = dict(self.provider_message)
+        payload["provider_tool_protocol"] = dict(self.provider_tool_protocol)
         payload["fork_anchor_delta"] = dict(self.fork_anchor_delta)
         return payload
 
@@ -143,7 +162,7 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
     kind = str(payload.get("kind") or metadata.get("canonical_kind") or "").strip()
     source_ref = str(payload.get("source_ref") or metadata.get("source_ref") or "").strip()
     content = str(payload.get("content") or "")
-    content_hash = str(metadata.get("provider_visible_hash") or metadata.get("content_hash") or "")
+    content_hash = str(metadata.get("content_version_hash") or metadata.get("content_hash") or "")
     if not content_hash:
         content_hash = "sha256:" + hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
     seed = {
@@ -160,7 +179,14 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
         semantic_title=title,
         source_route=str(metadata.get("source_route") or metadata.get("content_source") or ""),
         source_ref=source_ref,
-        identity=str(metadata.get("context_identity") or metadata.get("tool_call_id") or source_ref or content_hash),
+        identity=str(
+            metadata.get("context_identity")
+            or metadata.get("context_origin_ref")
+            or metadata.get("origin_ref")
+            or metadata.get("tool_call_id")
+            or source_ref
+            or content_hash
+        ),
         payload={},
         content_ref=str(metadata.get("content_ref") or metadata.get("reusable_result_ref") or ""),
         content_hash=content_hash,
@@ -174,8 +200,10 @@ def context_candidate_from_message_spec(spec: dict[str, Any]) -> ContextCandidat
 
 
 def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metadata: dict[str, Any]) -> bool:
+    if not context_segment_policy_is_provider_visible_sealable(context_segment_policy_for_spec(payload)):
+        return False
     kind = str(
-        metadata.get("provider_visible_context_candidate_kind")
+        metadata.get("provider_visible_append_candidate_kind")
         or payload.get("kind")
         or metadata.get("kind")
         or ""
@@ -184,7 +212,7 @@ def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metada
         return False
 
     section = str(metadata.get("context_cache_section") or metadata.get("context_policy_section") or "").strip()
-    if section != CONTEXT_APPEND:
+    if section not in {CONTEXT_MEMORY_PREFIX, CONTEXT_APPEND}:
         return False
 
     if str(metadata.get("context_commit_policy") or "").strip() != "append_then_seal":
@@ -206,7 +234,7 @@ def _provider_payload_segment_commit_eligible(payload: dict[str, Any], *, metada
         return False
 
     semantic_commit_class = str(
-        metadata.get("provider_visible_context_candidate_semantic_commit_class")
+        metadata.get("provider_visible_append_candidate_semantic_commit_class")
         or metadata.get("semantic_commit_class")
         or ""
     ).strip()

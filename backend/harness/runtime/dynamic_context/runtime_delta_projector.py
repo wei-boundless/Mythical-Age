@@ -261,9 +261,9 @@ def _operation_groups(operation_ids: list[str] | tuple[str, ...]) -> list[str]:
             continue
         if item.startswith("op.git_"):
             groups.add("git")
-        elif item in {"op.shell", "op.python_repl"}:
+        elif item in {"op.shell", "op.shell"}:
             groups.add("command_execution")
-        elif item in {"op.write_file", "op.edit_file"}:
+        elif item in {"op.workspace_write", "op.workspace_edit"}:
             groups.add("file_write")
         elif item in {"op.web_search", "op.fetch_url"}:
             groups.add("network")
@@ -275,7 +275,7 @@ def _operation_groups(operation_ids: list[str] | tuple[str, ...]) -> list[str]:
             groups.add("image_generation")
         elif item.startswith("op.mcp_"):
             groups.add("mcp")
-        elif item in {"op.read_file", "op.search_files", "op.search_text", "op.list_dir", "op.glob_paths", "op.stat_path", "op.path_exists"}:
+        elif item in {"op.workspace_read", "op.workspace_search", "op.workspace_search", "op.workspace_read", "op.workspace_search", "op.workspace_read", "op.workspace_read"}:
             groups.add("file_read")
         else:
             groups.add("other")

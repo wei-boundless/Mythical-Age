@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from harness.receipt_payload import receipt_payload
+
 
 CURRENT_WORK_BOUNDARY_RECEIPT_AUTHORITY = "harness.entrypoint.current_work_boundary_receipt"
 CURRENT_WORK_CONTROL_REQUIRED_DECISION = "current_work_control_required"
@@ -16,7 +18,7 @@ class CurrentWorkControlAvailability:
     receipt_id: str = ""
     decision_id: str = ""
     boundary_decision: str = ""
-    task_run_ref: str = ""
+    task_environment_ref: str = ""
     active_turn_ref: str = ""
     authority: str = ""
 
@@ -28,7 +30,7 @@ class CurrentWorkControlAvailability:
             "receipt_id": self.receipt_id,
             "decision_id": self.decision_id,
             "boundary_decision": self.boundary_decision,
-            "task_run_ref": self.task_run_ref,
+            "task_environment_ref": self.task_environment_ref,
             "active_turn_ref": self.active_turn_ref,
             "authority": self.authority,
         }
@@ -37,7 +39,7 @@ class CurrentWorkControlAvailability:
 def current_work_control_availability_from_receipt(
     receipt: dict[str, Any] | Any | None,
 ) -> CurrentWorkControlAvailability:
-    payload = _payload_from_receipt(receipt)
+    payload = receipt_payload(receipt)
     operations = dict(payload.get("operation_availability") or {})
     observed = "active_work_control" in operations
     requested_available = operations.get("active_work_control") is True
@@ -46,7 +48,11 @@ def current_work_control_availability_from_receipt(
     decision_id = str(payload.get("decision_id") or "").strip()
     boundary_decision = str(payload.get("boundary_decision") or "").strip()
     authority = str(payload.get("authority") or "").strip()
-    task_run_ref = str(payload.get("task_run_ref") or refs.get("task_run_id") or "").strip()
+    task_environment_ref = str(
+        payload.get("task_environment_ref")
+        or refs.get("task_environment_id")
+        or ""
+    ).strip()
     active_turn_ref = str(
         payload.get("actual_active_turn_id")
         or refs.get("actual_active_turn_id")
@@ -66,8 +72,8 @@ def current_work_control_availability_from_receipt(
         reason = "current_work_receipt_id_missing"
     elif not decision_id:
         reason = "current_work_receipt_decision_id_missing"
-    elif not task_run_ref:
-        reason = "current_work_receipt_task_run_ref_missing"
+    elif not task_environment_ref:
+        reason = "current_work_receipt_task_environment_ref_missing"
     elif not active_turn_ref:
         reason = "current_work_receipt_active_turn_ref_missing"
     else:
@@ -79,7 +85,7 @@ def current_work_control_availability_from_receipt(
         receipt_id=receipt_id,
         decision_id=decision_id,
         boundary_decision=boundary_decision,
-        task_run_ref=task_run_ref,
+        task_environment_ref=task_environment_ref,
         active_turn_ref=active_turn_ref,
         authority=authority,
     )
@@ -94,18 +100,8 @@ def current_work_boundary_receipt_allows_active_work_control(
 def current_work_operation_availability_from_receipt(
     receipt: dict[str, Any] | Any | None,
 ) -> dict[str, Any]:
-    payload = _payload_from_receipt(receipt)
+    payload = receipt_payload(receipt)
     operations = dict(payload.get("operation_availability") or {})
     if "active_work_control" in operations:
         operations["active_work_control"] = current_work_boundary_receipt_allows_active_work_control(payload)
     return operations
-
-
-def _payload_from_receipt(receipt: dict[str, Any] | Any | None) -> dict[str, Any]:
-    if receipt is None:
-        return {}
-    if hasattr(receipt, "to_dict"):
-        return dict(receipt.to_dict())
-    if isinstance(receipt, dict):
-        return dict(receipt)
-    return {}

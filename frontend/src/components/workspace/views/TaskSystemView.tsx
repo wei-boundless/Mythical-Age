@@ -33,6 +33,7 @@ import {
   deleteTaskSystemNodeConfiguration,
   getAgentSystemAgents,
   getAgentSystemCapabilityItems,
+  getTaskSystemEnvironmentOverview,
   getTaskSystemOverview,
   previewTaskSystemNodeConfigurationRuntime,
   upsertTaskSystemContract,
@@ -52,6 +53,7 @@ import { useAppStore } from "@/lib/store";
 type TaskSystemDomain = "environments" | "contracts" | "nodes" | "runs";
 type ContractSubpage = "catalog" | "detail" | "usage";
 type NodeSubpage = "catalog" | "detail" | "capability" | "preview";
+type OverviewLoadScope = "environment" | "full";
 
 type LayerNavItem<T extends string> = {
   value: T;
@@ -74,7 +76,6 @@ function taskEnvironmentItem(environmentId: string, overview?: TaskSystemOvervie
 export function TaskSystemView() {
   const confirm = useConfirmDialog();
   const {
-    activeWorkspaceView,
     chatTaskEnvironmentBinding,
     clearChatTaskEnvironmentBinding,
     setChatTaskEnvironmentBinding,
@@ -92,11 +93,17 @@ export function TaskSystemView() {
   const [nodeSubpage, setNodeSubpage] = useState<NodeSubpage>("catalog");
   const [runSubpage, setRunSubpage] = useState<RunManagementSubpage>("queue");
   const [environmentDraft, setEnvironmentDraft] = useState<EnvironmentDraft>(() => defaultEnvironmentDraft());
-  const loadInFlightRef = useRef<Promise<void> | null>(null);
+  const [overviewScope, setOverviewScope] = useState<OverviewLoadScope | "none">("none");
+  const overviewScopeRef = useRef<OverviewLoadScope | "none">("none");
+  const loadInFlightRef = useRef<{ scope: OverviewLoadScope; promise: Promise<void> } | null>(null);
   const nodeRuntimeCatalogLoadRef = useRef<Promise<void> | null>(null);
-  const taskSystemActive = activeWorkspaceView === "task-system";
 
-  const applyOverview = useCallback((overview: TaskSystemOverview) => {
+  const applyOverview = useCallback((overview: TaskSystemOverview, scope: OverviewLoadScope = "full") => {
+    if (scope === "environment" && overviewScopeRef.current === "full") {
+      return;
+    }
+    overviewScopeRef.current = scope;
+    setOverviewScope(scope);
     setConsolePayload(overview);
     const environmentRecords = overview.task_environment_management?.records ?? [];
     setSelectedEnvironmentId((current) => current && environmentRecords.some((item) => item.environment_id === current)
@@ -109,7 +116,7 @@ export function TaskSystemView() {
     const run = (async () => {
       try {
         const [catalog, capabilityItems] = await Promise.all([
-          getAgentSystemAgents(),
+          getAgentSystemAgents({ includeOptions: false }),
           getAgentSystemCapabilityItems().catch(() => ({ capability_items: [] })),
         ]);
         setNodeRuntimeCatalog({
@@ -129,15 +136,24 @@ export function TaskSystemView() {
     return run;
   }, []);
 
-  const load = useCallback(async () => {
-    if (loadInFlightRef.current) return loadInFlightRef.current;
+  const load = useCallback(async (scope: OverviewLoadScope = "environment") => {
+    if (scope === "environment" && overviewScopeRef.current === "full") {
+      return;
+    }
+    const inFlight = loadInFlightRef.current;
+    if (inFlight) {
+      if (inFlight.scope === "full" || scope === "environment") return inFlight.promise;
+      await inFlight.promise.catch(() => undefined);
+      if (overviewScopeRef.current === "full") return;
+    }
     const run = (async () => {
       setLoading(true);
       setError("");
       try {
-        const overview = await getTaskSystemOverview();
-        applyOverview(overview);
-        void loadNodeRuntimeCatalog();
+        const overview = scope === "full"
+          ? await getTaskSystemOverview()
+          : await getTaskSystemEnvironmentOverview();
+        applyOverview(overview, scope);
       } catch (exc) {
         setError(exc instanceof Error ? exc.message : "任务系统加载失败");
       } finally {
@@ -145,14 +161,26 @@ export function TaskSystemView() {
         loadInFlightRef.current = null;
       }
     })();
-    loadInFlightRef.current = run;
+    loadInFlightRef.current = { scope, promise: run };
     return run;
-  }, [applyOverview, loadNodeRuntimeCatalog]);
+  }, [applyOverview]);
 
   useEffect(() => {
-    if (!taskSystemActive) return;
-    void load();
-  }, [load, taskSystemActive]);
+    void load("environment");
+  }, [load]);
+
+  useEffect(() => {
+    if (activeDomain === "environments" && environmentSubpage === "tasks") {
+      void load("full");
+    }
+    if (activeDomain === "contracts") {
+      void load("full");
+    }
+    if (activeDomain === "nodes") {
+      void load("full");
+      void loadNodeRuntimeCatalog();
+    }
+  }, [activeDomain, environmentSubpage, load, loadNodeRuntimeCatalog]);
 
   const contractManagement = useMemo(() => consolePayload?.contract_management ?? null, [consolePayload]);
   const contractSpecs = useMemo(() => contractManagement?.contract_specs ?? [], [contractManagement]);
@@ -211,7 +239,7 @@ export function TaskSystemView() {
         );
       }
       const payload = await upsertTaskSystemEnvironment(environmentId, environmentPayloadFromDraft(environmentDraft));
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setSelectedEnvironmentId(environmentId);
       setNotice("任务环境已保存并可被 runtime 装配。");
     } catch (exc) {
@@ -236,7 +264,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await deleteTaskSystemEnvironment(environmentId);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       const nextId = payload.task_environment_management?.records?.[0]?.environment_id || "";
       setSelectedEnvironmentId(nextId);
       setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(nextId, payload)));
@@ -255,7 +283,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await upsertTaskSystemEnvironmentKindTemplate(template.kind_id, template);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(`环境类型「${template.title || template.kind_id}」已保存。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存环境类型失败");
@@ -279,7 +307,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await deleteTaskSystemEnvironmentKindTemplate(kindId);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(`环境类型「${kindId}」已删除。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "删除环境类型失败");
@@ -297,7 +325,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await upsertTaskSystemTaskAssignment(taskId, taskAssignmentPayloadFromRecord(record, environmentId));
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(environmentId ? `任务「${taskId}」已归属到 ${environmentId}。` : `任务「${taskId}」已取消环境归属。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存任务归属失败");
@@ -313,7 +341,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await upsertTaskSystemContract(spec.contract_id, spec);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(`契约“${contractSpecTitle(spec)}”已保存。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存契约失败");
@@ -329,7 +357,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await deleteTaskSystemContract(contractId);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(`契约“${contractId}”已删除。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "删除契约失败");
@@ -345,7 +373,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await upsertTaskSystemNodeConfiguration(spec.node_config_id, spec);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(`节点配置「${spec.title || spec.node_config_id}」已保存。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存节点配置失败");
@@ -361,7 +389,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const payload = await deleteTaskSystemNodeConfiguration(nodeConfigId);
-      setConsolePayload(payload);
+      applyOverview(payload, "full");
       setNotice(`节点配置「${nodeConfigId}」已删除。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "删除节点配置失败");
@@ -378,6 +406,10 @@ export function TaskSystemView() {
   const selectedEnvironmentLabel = selectedEnvironmentItem
     ? taskEnvironmentDisplayTitle(selectedEnvironmentItem)
     : environmentDraft.title || selectedEnvironmentId || "未选择任务环境";
+  const fullOverviewLoaded = overviewScope === "full";
+  const contractCount = Number(contractManagement?.summary?.contract_spec_count ?? contractSpecs.length) || 0;
+  const contractUsageCount = Number(consolePayload?.contract_usage_index?.summary?.usage_count ?? 0) || 0;
+  const nodeConfigurationCount = consolePayload?.node_configuration_management?.summary?.node_configuration_count;
   const domainItems: Array<LayerNavItem<TaskSystemDomain>> = [
     {
       value: "environments",
@@ -388,13 +420,13 @@ export function TaskSystemView() {
     {
       value: "contracts",
       label: "契约库",
-      meta: `${contractSpecs.length} 个契约`,
+      meta: `${contractCount} 个契约`,
       detail: "可复用输入输出、产物、验收和运行策略",
     },
     {
       value: "nodes",
       label: "节点配置",
-      meta: `${consolePayload?.node_configuration_management?.summary?.node_configuration_count ?? 0} 个配置`,
+      meta: nodeConfigurationCount === undefined ? "进入后加载" : `${nodeConfigurationCount} 个配置`,
       detail: "节点角色、执行者引用、契约绑定和装配预览",
     },
     {
@@ -411,12 +443,12 @@ export function TaskSystemView() {
     { value: "tasks", label: "环境内任务", meta: `${consolePayload?.environment_task_inventory?.summary?.task_inventory_count ?? 0} 项任务`, detail: "任务归属和默认执行链路" },
   ];
   const contractPages: Array<LayerNavItem<ContractSubpage>> = [
-    { value: "catalog", label: "契约目录", meta: `${contractSpecs.length} 个契约`, detail: "筛选、搜索和定位契约" },
+    { value: "catalog", label: "契约目录", meta: fullOverviewLoaded ? `${contractSpecs.length} 个契约` : `${contractCount} 个契约`, detail: "筛选、搜索和定位契约" },
     { value: "detail", label: "契约详情", meta: "详情", detail: "输入输出、产物、验收和策略" },
-    { value: "usage", label: "使用影响", meta: `${consolePayload?.contract_usage_index?.summary?.usage_count ?? 0} 处引用`, detail: "任务、图、节点和边引用" },
+    { value: "usage", label: "使用影响", meta: fullOverviewLoaded ? `${contractUsageCount} 处引用` : "进入后加载", detail: "任务、图、节点和边引用" },
   ];
   const nodePages: Array<LayerNavItem<NodeSubpage>> = [
-    { value: "catalog", label: "节点目录", meta: `${consolePayload?.node_configuration_management?.summary?.node_configuration_count ?? 0} 个配置`, detail: "按环境、执行者和问题筛选" },
+    { value: "catalog", label: "节点目录", meta: nodeConfigurationCount === undefined ? "进入后加载" : `${nodeConfigurationCount} 个配置`, detail: "按环境、执行者和问题筛选" },
     { value: "detail", label: "节点详情", meta: "角色说明", detail: "角色、职责、边界和执行者引用" },
     { value: "capability", label: "能力与权限", meta: `${nodeRuntimeCatalog?.options?.capability_items?.length ?? 0} 项能力`, detail: "工具、记忆、产物和失败边界" },
     { value: "preview", label: "装配预览", meta: "可见输入", detail: "Agent 实际会拿到的运行输入" },
@@ -424,6 +456,7 @@ export function TaskSystemView() {
   const runPages: Array<LayerNavItem<RunManagementSubpage>> = [
     { value: "queue", label: "工作队列", meta: "当前运行", detail: "运行、等待、停滞和失败任务" },
     { value: "records", label: "历史记录", meta: "已完成/已清出", detail: "查看最近完成和隐藏记录" },
+    { value: "tasks", label: "任务事实", meta: "TaskCommand", detail: "任务环境、命令账本、产物和检查点" },
     { value: "cleanup", label: "清理预览", meta: "后端保护", detail: "预览可删除记录和保护原因" },
   ];
 
@@ -454,6 +487,27 @@ export function TaskSystemView() {
         ? nodeSubpage
         : runSubpage;
 
+  function selectDomain(layer: TaskSystemDomain) {
+    setActiveDomain(layer);
+    if (layer === "contracts") {
+      void load("full");
+    }
+    if (layer === "nodes") {
+      void load("full");
+      void loadNodeRuntimeCatalog();
+    }
+  }
+
+  function refreshCurrentOverview() {
+    const scope: OverviewLoadScope = overviewScope === "full"
+      || activeDomain === "contracts"
+      || activeDomain === "nodes"
+      || (activeDomain === "environments" && environmentSubpage === "tasks")
+      ? "full"
+      : "environment";
+    void load(scope);
+  }
+
   const managementLayerSlot = (
     <div className="task-system-layer-groups" aria-label="任务系统配置层级">
       <section className="task-system-layer-group">
@@ -469,7 +523,7 @@ export function TaskSystemView() {
                 aria-current={active ? "page" : undefined}
                 className={active ? "task-system-object-row task-system-object-row--active" : "task-system-object-row"}
                 key={item.value}
-                onClick={() => setActiveDomain(item.value)}
+                onClick={() => selectDomain(item.value)}
                 type="button"
               >
                 <strong><span className="task-system-object-row__scope">配置域</span>{item.label}</strong>
@@ -530,10 +584,9 @@ export function TaskSystemView() {
       layerSlot={managementLayerSlot}
       navItems={domainItems}
       notice={notice || (loading ? "任务系统正在加载..." : "")}
-      onRefresh={() => void load()}
+      onRefresh={refreshCurrentOverview}
       onSelectLayer={(layer) => {
-        void load();
-        setActiveDomain(layer);
+        selectDomain(layer);
       }}
       path={path}
       title="任务系统"
@@ -606,4 +659,3 @@ export function TaskSystemView() {
     </TaskSystemShell>
   );
 }
-

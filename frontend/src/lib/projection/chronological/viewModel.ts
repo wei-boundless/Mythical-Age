@@ -25,11 +25,16 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
       target: tool.target,
       commandLine: tool.commandLine,
       output: tool.output,
+      contentWindow: tool.contentWindow,
       toolCallId: tool.toolCallId,
       toolLifecycleId: tool.toolLifecycleId,
       toolName: tool.toolName,
       actionKind: tool.actionKind,
       argumentsPreview: tool.argumentsPreview,
+      polling: tool.polling,
+      startedAt: tool.startedAt,
+      updatedAt: tool.updatedAt,
+      completedAt: tool.completedAt,
       sourceItemId: tool.sourceItemId,
       sourceEventType: tool.sourceEventType,
       sourceEventId: tool.sourceEventId,
@@ -73,6 +78,9 @@ export function projectionViewFromLedger(ledger: ChronologicalProjectionLedger |
   const bodyBlocks = ledger.bodySegments.map((segment): BodyProjectionBlock => ({
     kind: "body_segment" as const,
     id: segment.id,
+    bodyRef: segment.bodyRef,
+    messageRef: segment.messageRef,
+    contentSha256: segment.contentSha256,
     text: segment.text,
     firstOffset: segment.firstOffset,
     lastOffset: segment.lastOffset,
@@ -172,7 +180,7 @@ function archiveDetail(blocks: ActivityArchiveChildBlock[]) {
 function archiveState(blocks: ActivityArchiveChildBlock[]) {
   const states = blocks.map((block) => String(block.state ?? "").toLowerCase());
   if (states.some((state) => ["failed", "error", "blocked"].includes(state))) return "failed";
-  if (states.some((state) => ["stopped", "aborted", "cancelled", "canceled"].includes(state))) return "stopped";
+  if (states.some((state) => ["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(state))) return "stopped";
   if (states.some((state) => ["waiting", "queued", "paused", "waiting_executor", "waiting_approval", "waiting_safe_boundary"].includes(state))) return "waiting";
   return "done";
 }

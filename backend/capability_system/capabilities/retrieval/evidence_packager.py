@@ -3,6 +3,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+_EVIDENCE_LINEAGE_KEYS = (
+    "source_path",
+    "source_type",
+    "document_kernel_version",
+    "document_bundle_id",
+    "detected_family",
+    "detected_container",
+    "detected_extension",
+    "source_parser_backend",
+    "source_parser_route",
+    "document_processing_route",
+    "ir_part_id",
+    "ir_block_id",
+    "ir_table_id",
+    "anchor_id",
+    "source_object_id",
+    "block_id",
+    "object_ref_id",
+    "block_type",
+    "section_path",
+    "unit_view",
+    "page",
+    "title",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class EvidenceItem:
@@ -81,6 +106,7 @@ def _evidence_item(row: dict[str, Any]) -> EvidenceItem:
         retrieval_reason=_retrieval_reason(row, metadata),
         confidence=_confidence(score),
         metadata={
+            **_lineage_metadata(metadata),
             "score": score,
             "collection": row.get("collection"),
             "result_granularity": row.get("result_granularity") or metadata.get("result_granularity"),
@@ -89,6 +115,14 @@ def _evidence_item(row: dict[str, Any]) -> EvidenceItem:
             "candidate_graph_bucket_kind": metadata.get("candidate_graph_bucket_kind"),
         },
     )
+
+
+def _lineage_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: metadata[key]
+        for key in _EVIDENCE_LINEAGE_KEYS
+        if key in metadata and metadata[key] not in (None, "")
+    }
 
 
 def _retrieval_reason(row: dict[str, Any], metadata: dict[str, Any]) -> str:

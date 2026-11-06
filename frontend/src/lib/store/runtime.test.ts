@@ -23,14 +23,12 @@ const api = vi.hoisted(() => ({
   getHarnessTaskRunLiveMonitor: vi.fn(),
   getHarnessSessionLiveMonitor: vi.fn(),
   getAgentSystemRuntimeOptions: vi.fn(),
-  approveHarnessTaskRunToolCall: vi.fn(),
-  pauseHarnessTaskRun: vi.fn(),
   pauseGraphRun: vi.fn(),
   clearChatStreamCursor: vi.fn(),
   getPermissionMode: vi.fn(),
   readChatStreamCursor: vi.fn(),
-  resumeHarnessTaskRun: vi.fn(),
   resumeGraphRun: vi.fn(),
+  stopGraphRun: vi.fn(),
   submitGraphRunUntilIdle: vi.fn(),
   setSessionActiveTaskEnvironment: vi.fn(),
   setSessionChatModelSelection: vi.fn(),
@@ -60,7 +58,6 @@ const api = vi.hoisted(() => ({
   saveFileForSession: vi.fn(),
   createProjectWorkspaceSession: vi.fn(),
   selectProjectWorkspaceDirectory: vi.fn(),
-  stopHarnessTaskRun: vi.fn(),
   streamExistingChatRun: vi.fn(),
   streamChat: vi.fn(),
   truncateSessionMessages: vi.fn(),
@@ -91,14 +88,12 @@ vi.mock("@/lib/api", () => ({
   getHarnessTaskRunLiveMonitor: api.getHarnessTaskRunLiveMonitor,
   getHarnessSessionLiveMonitor: api.getHarnessSessionLiveMonitor,
   getAgentSystemRuntimeOptions: api.getAgentSystemRuntimeOptions,
-  approveHarnessTaskRunToolCall: api.approveHarnessTaskRunToolCall,
-  pauseHarnessTaskRun: api.pauseHarnessTaskRun,
   pauseGraphRun: api.pauseGraphRun,
   clearChatStreamCursor: api.clearChatStreamCursor,
   getPermissionMode: api.getPermissionMode,
   readChatStreamCursor: api.readChatStreamCursor,
-  resumeHarnessTaskRun: api.resumeHarnessTaskRun,
   resumeGraphRun: api.resumeGraphRun,
+  stopGraphRun: api.stopGraphRun,
   setSessionActiveTaskEnvironment: api.setSessionActiveTaskEnvironment,
   setSessionChatModelSelection: api.setSessionChatModelSelection,
   setSessionPermissionMode: api.setSessionPermissionMode,
@@ -126,8 +121,6 @@ vi.mock("@/lib/api", () => ({
   saveFileForSession: api.saveFileForSession,
   createProjectWorkspaceSession: api.createProjectWorkspaceSession,
   selectProjectWorkspaceDirectory: api.selectProjectWorkspaceDirectory,
-  stopHarnessTaskRun: api.stopHarnessTaskRun,
-  stopHarnessTaskRun: vi.fn(),
   streamExistingChatRun: api.streamExistingChatRun,
   streamChat: api.streamChat,
   truncateSessionMessages: api.truncateSessionMessages,
@@ -183,7 +176,7 @@ function taskProjectionForTest(taskRunId: string, patch: Record<string, unknown>
   const updatedAt = Number(patch.updated_at ?? 1) || 1;
   const currentAction = recordValue(patch.current_action);
   return {
-    authority: "harness.runtime.single_agent_task_projection.v1",
+    authority: "harness.runtime.single_agent_task_projection",
     projection_id: text(patch.projection_id) || `projection:${taskRunId}:${updatedAt}`,
     task_run_id: taskRunId,
     task_id: text(patch.task_id) || "task:turn:session:test:1",
@@ -595,6 +588,8 @@ function requireStreamHandlers(value: StreamEventHandlers | null) {
 
 function publicBodyFrame(patch: Record<string, unknown> = {}) {
   projectionFrameOffset += 1;
+  const bodyRef = `body:runtime-test:${projectionFrameOffset}`;
+  const messageRef = "assistant:runtime-test:1";
   return {
     authority: "harness.public_projection",
     contract_revision: "20260614-dual-channel-v1",
@@ -612,7 +607,10 @@ function publicBodyFrame(patch: Record<string, unknown> = {}) {
       turn_id: "turn:runtime-test:1",
       turn_run_id: "turnrun:runtime-test:1",
       run_id: "turnrun:runtime-test:1",
+      message_id: messageRef,
     },
+    body_ref: bodyRef,
+    message_ref: messageRef,
     ...patch,
   };
 }
@@ -664,7 +662,7 @@ function runtimeProjectionAttachmentForTest(options: {
     },
     projection_slices: [{
       slice_id: `projection-slice:${options.streamRunId}`,
-      schema_version: "chronological_projection",
+      projection_schema_id: "chronological_projection",
       event_log_id: `chatrun:${options.streamRunId}`,
       start_offset: 10,
       end_offset: 10,
@@ -703,7 +701,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getLatestSessionContinuation.mockResolvedValue({
       session_id: "",
       available: false,
-      reason: "no_recoverable_work",
+      reason: "no_task_recovery",
       authority: "session.continuation.latest",
     });
     api.getRunMonitor.mockReset();
@@ -771,21 +769,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getHarnessTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
     api.getChatRun.mockReset();
     api.getChatRun.mockRejectedValue(new Error("no chat run"));
-    api.pauseHarnessTaskRun.mockReset();
-    api.pauseHarnessTaskRun.mockResolvedValue({ ok: true });
     api.pauseGraphRun.mockReset();
     api.pauseGraphRun.mockResolvedValue({ ok: true, accepted: true });
-    api.approveHarnessTaskRunToolCall.mockReset();
-    api.approveHarnessTaskRunToolCall.mockResolvedValue({ ok: true });
     api.clearChatStreamCursor.mockReset();
-    api.resumeHarnessTaskRun.mockReset();
-    api.resumeHarnessTaskRun.mockResolvedValue({ ok: true });
     api.resumeGraphRun.mockReset();
     api.resumeGraphRun.mockResolvedValue({ ok: true, accepted: true });
+    api.stopGraphRun.mockReset();
+    api.stopGraphRun.mockResolvedValue({ ok: true, accepted: true });
     api.submitGraphRunUntilIdle.mockReset();
     api.submitGraphRunUntilIdle.mockResolvedValue({ accepted: true, background_started: true });
-    api.stopHarnessTaskRun.mockReset();
-    api.stopHarnessTaskRun.mockResolvedValue({ ok: true });
     api.getSessionHistory.mockReset();
     api.getSessionHistory.mockResolvedValue({ messages: [] });
     api.getSessionRuntimeProjection.mockReset();
@@ -2285,7 +2277,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskGraphMonitorError).toBe("");
   });
 
-  it("stops a bound GraphRun through its owning TaskRun", async () => {
+  it("stops a bound GraphRun through graph run control", async () => {
     const store = createStore<StoreState>({
       ...getDefaultState(),
       taskGraphMonitorBinding: {
@@ -2308,7 +2300,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.stopBoundTaskGraphRun();
 
-    expect(api.stopHarnessTaskRun).toHaveBeenCalledWith("taskrun:graph-master", "user_stop_graph_run", "");
+    expect(api.stopGraphRun).toHaveBeenCalledWith("grun:graph-master", {
+      graph_config_id: "ghcfg:graph-master",
+      session_scope: undefined,
+      reason: "user_stop_graph_run",
+    });
     expect(store.getState().taskGraphMonitorActionLoading).toBe(false);
   });
 
@@ -2770,7 +2766,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         created_at: 10,
         payload: {
           task_run_id: taskRunId,
-          step: "task_executor_started",
+          step: "agent_runtime_started",
           status: "running",
           summary: "已接上当前工作，正在整理上下文。",
           public_progress_note: "我正在整理任务上下文。",
@@ -3005,7 +3001,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         created_at: 9,
         payload: {
           task_run_id: taskRunId,
-          step: "task_executor_started",
+          step: "agent_runtime_started",
           status: "running",
           public_progress_note: "旧事件不应投影。",
         },
@@ -3202,7 +3198,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
         refs: {},
         authority: "runtime.runtime_event",
-        public_projection_authority: "public_stream.public_projection.v1",
+        public_projection_authority: "public_stream.public_projection",
         public_event_type: "model_action_admission",
         public_projection_envelope: anchoredStatusProjectionEnvelope({
           projectionId: "publicproj:public-delta",
@@ -3339,8 +3335,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           run_id: "turnrun:test",
           created_at: 2,
           payload: {
-            status: "task_executor_scheduled",
-            terminal_reason: "task_executor_scheduled",
+            status: "waiting_executor",
+            terminal_reason: "waiting_executor",
             task_run: {
               task_run_id: "taskrun:background",
               status: "running",
@@ -3351,7 +3347,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("done", {
         content: "任务已进入后台执行。",
         answer_channel: "task_control",
-        terminal_reason: "task_executor_scheduled",
+        terminal_reason: "waiting_executor",
         runtime_task_run_id: "taskrun:background",
         active_turn_id: "turn:session:background:1",
       });
@@ -3394,7 +3390,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("done", {
         content: "任务已进入后台执行。",
         answer_channel: "task_control",
-        terminal_reason: "task_executor_scheduled",
+        terminal_reason: "waiting_executor",
         runtime_task_run_id: "taskrun:background",
         active_turn_id: "turn:session:background:1",
       });
@@ -3425,7 +3421,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     transition = reduceStreamEvent(transition.state, transition.session, "done", {
       content: "任务已进入后台执行。",
       answer_channel: "task_control",
-      terminal_reason: "task_executor_scheduled",
+      terminal_reason: "waiting_executor",
       runtime_task_run_id: "taskrun:background",
       active_turn_id: "turn:session:background:1",
     });
@@ -3644,7 +3640,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       handlers.onEvent("done", {
         content: "任务已进入后台执行。",
         answer_channel: "task_control",
-        terminal_reason: "task_executor_scheduled",
+        terminal_reason: "waiting_executor",
         runtime_task_run_id: "taskrun:background",
         active_turn_id: "turn:session:background:1",
       });
@@ -3674,7 +3670,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       active_task_run_id: taskRunId,
       active_turn_snapshot: {
         turn_id: "turn:session-monitor-recover:1",
-        bound_task_run_id: taskRunId,
+        task_run_id: taskRunId,
         state: "running_task",
       },
       monitor: {
@@ -3779,7 +3775,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       expected_active_turn_id: "",
       active_turn_input_policy: "auto",
     });
-    expect(payload?.expected_task_run_id).toBeUndefined();
     expect(payload?.expected_continuation_id).toBeUndefined();
     expect(payload?.recovery_input_policy).toBeUndefined();
   });
@@ -3902,7 +3897,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: taskRunId,
       },
       latest_event_offset: 0,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:detached-steer/events/replay",
       live_ws_url: "/api/chat/sessions/session-detached-steer/live",
     });
@@ -3997,7 +3992,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         active_turn_input_policy: "steer",
       },
       latest_event_offset: 0,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:queued-dispatch/events/replay",
       live_ws_url: "/api/chat/sessions/session-auto-active-stream/live",
     });
@@ -4107,7 +4102,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           handlers.onEvent("done", {
             content: "任务已进入后台执行。",
             answer_channel: "task_control",
-            terminal_reason: "task_executor_scheduled",
+            terminal_reason: "waiting_executor",
             runtime_task_run_id: taskRunId,
             active_turn_id: "turn:session-stream-queue:1",
           });
@@ -4127,7 +4122,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       active_task_run_id: taskRunId,
       active_turn_snapshot: {
         turn_id: "turn:session-stream-queue:1",
-        bound_task_run_id: taskRunId,
+        task_run_id: taskRunId,
         state: "running_task",
       },
       monitor: {
@@ -4175,236 +4170,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.enqueueQueuedChatInput).toHaveBeenCalledTimes(1);
     expect(store.getState().messages.filter((message) => message.content === "补充一个限制条件")).toHaveLength(1);
-  });
-
-  it("controls the active session task run from chat actions", async () => {
-    const taskRunId = "taskrun:turn:session-control:1:abc";
-    const store = createStore<StoreState>({
-      ...getDefaultState(),
-      currentSessionId: "session-control",
-      activeTurnSnapshot: {
-        turn_id: "turn:session-control:1",
-        task_run_id: taskRunId,
-      },
-      taskGraphLiveMonitor: {
-        authority: "single_agent_run_monitor.item",
-        task_run_id: taskRunId,
-        session_id: "session-control",
-      task_id: "task:turn:session-control:1",
-      execution_runtime_kind: "single_agent_task",
-      task_run: { task_run_id: taskRunId },
-        loop_state: {},
-        has_graph_run: false,
-        status: "running",
-        terminal_reason: "",
-        updated_at: 1,
-      },
-    });
-    api.getHarnessSessionLiveMonitor.mockResolvedValue({
-      active_task_run_id: taskRunId,
-      monitor: {
-        task_run_id: taskRunId,
-        session_id: "session-control",
-        status: "waiting_executor",
-        execution_runtime_kind: "single_agent_task",
-        terminal_reason: "waiting_executor",
-        runtime_control: { state: "paused" },
-        control_state: "paused",
-        latest_step: {},
-        loop_state: {},
-        has_graph_run: false,
-        task_run: { task_run_id: taskRunId },
-      },
-      task_runs: [],
-    });
-    const runtime = new WorkspaceRuntime(store);
-
-    await runtime.actions.pauseActiveTaskRun();
-    await runtime.actions.resumeActiveTaskRun();
-    await runtime.actions.stopActiveTaskRun();
-
-    expect(api.pauseHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat", "turn:session-control:1");
-    expect(api.resumeHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12, "turn:session-control:1");
-    expect(api.stopHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat", "turn:session-control:1");
-    expect(store.getState().sessionActivity.title).toBe("已暂停");
-  });
-
-  it("treats pause as a hard local stream boundary and ignores late assistant output", async () => {
-    const sessionId = "session-control-pause-boundary";
-    const taskRunId = "taskrun:turn:session-control-pause-boundary:1:abc";
-    const turnId = "turn:session-control-pause-boundary:1";
-    let handlers: StreamEventHandlers | null = null;
-    let streamSignal: AbortSignal | null = null;
-    api.streamChat.mockImplementationOnce(async (_payload, streamHandlers, options) => {
-      handlers = streamHandlers;
-      streamSignal = options?.signal ?? null;
-      streamHandlers.onEvent("assistant_text_delta", {
-        sequence: 1,
-        content: "暂停前",
-        event_offset: 1,
-        runtime_task_run_id: taskRunId,
-        active_turn_id: turnId,
-        public_projection_frame: publicBodyFrame({
-          text: "暂停前",
-          event_offset: 1,
-          anchor: {
-            session_id: sessionId,
-            turn_id: turnId,
-            task_run_id: taskRunId,
-            stream_run_id: "strun:pause-boundary",
-          },
-        }),
-      });
-      await new Promise<void>(() => undefined);
-      return { terminalEvent: "turn_completed", terminalStatus: "completed" };
-    });
-    api.getHarnessSessionLiveMonitor.mockResolvedValue({
-      active_task_run_id: taskRunId,
-      monitor: {
-        task_run_id: taskRunId,
-        session_id: sessionId,
-        status: "waiting_executor",
-        execution_runtime_kind: "single_agent_task",
-        terminal_reason: "waiting_executor",
-        runtime_control: { state: "paused" },
-        control_state: "paused",
-        latest_step: {},
-        loop_state: {},
-        has_graph_run: false,
-        task_run: { task_run_id: taskRunId },
-      },
-      task_runs: [],
-    });
-    const store = createStore<StoreState>({
-      ...getDefaultState(),
-      currentSessionId: sessionId,
-      sessions: [{
-        id: sessionId,
-        title: "Pause boundary",
-        created_at: 1,
-        updated_at: 1,
-        message_count: 0,
-      }],
-    });
-    const runtime = new WorkspaceRuntime(store);
-
-    void runtime.actions.sendMessage("开始一个会被暂停的任务").catch(() => undefined);
-    await flushPromises();
-    store.setState((prev) => ({
-      ...prev,
-      activeTurnSnapshot: { turn_id: turnId, task_run_id: taskRunId },
-    }));
-
-    await runtime.actions.pauseActiveTaskRun();
-
-    const pausedStreamSignal = streamSignal as AbortSignal | null;
-    expect(pausedStreamSignal?.aborted).toBe(true);
-    expect(store.getState().activeStreamSessionIds).toEqual([]);
-    expect(store.getState().chatStreamConnectionStatus).toMatchObject({
-      state: "paused",
-      reason: "user_paused",
-    });
-    requireStreamHandlers(handlers).onEvent("assistant_text_delta", {
-      sequence: 2,
-      content: "迟到重复输出",
-      event_offset: 2,
-      runtime_task_run_id: taskRunId,
-      active_turn_id: turnId,
-      public_projection_frame: publicBodyFrame({
-        text: "迟到重复输出",
-        event_offset: 2,
-        anchor: {
-          session_id: sessionId,
-          turn_id: turnId,
-          task_run_id: taskRunId,
-          stream_run_id: "strun:pause-boundary",
-        },
-      }),
-    });
-
-    expect(JSON.stringify(store.getState().messages)).not.toContain("迟到重复输出");
-    expect(api.pauseHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat", turnId);
-  });
-
-  it("surfaces active task control failures without throwing from chat actions", async () => {
-    const taskRunId = "taskrun:turn:session-control-error:1:abc";
-    api.pauseHarnessTaskRun.mockRejectedValue(new Error("active_turn_mismatch"));
-    const store = createStore<StoreState>({
-      ...getDefaultState(),
-      currentSessionId: "session-control-error",
-      activeTurnSnapshot: {
-        turn_id: "turn:session-control-error:1",
-        task_run_id: taskRunId,
-      },
-      taskGraphLiveMonitor: {
-        authority: "single_agent_run_monitor.item",
-        task_run_id: taskRunId,
-        session_id: "session-control-error",
-        task_id: "task:turn:session-control-error:1",
-        execution_runtime_kind: "single_agent_task",
-        task_run: { task_run_id: taskRunId },
-        loop_state: {},
-        has_graph_run: false,
-        status: "running",
-        terminal_reason: "",
-        updated_at: 1,
-      },
-    });
-    const runtime = new WorkspaceRuntime(store);
-
-    await expect(runtime.actions.pauseActiveTaskRun()).resolves.toBeUndefined();
-
-    expect(store.getState().sessionActivity).toMatchObject({
-      level: "error",
-      title: "暂停失败",
-      detail: "active_turn_mismatch",
-      event: "active_task_pause_failed",
-    });
-    expect(store.getState().sessionActivitiesById["session-control-error"]).toMatchObject({
-      level: "error",
-      title: "暂停失败",
-    });
-  });
-
-  it("approves a waiting tool approval before resuming the active task run", async () => {
-    const taskRunId = "taskrun:turn:session-approval:1:abc";
-    const store = createStore<StoreState>({
-      ...getDefaultState(),
-      currentSessionId: "session-approval",
-      activeTurnSnapshot: {
-        turn_id: "turn:session-approval:1",
-        task_run_id: taskRunId,
-      },
-      taskGraphLiveMonitor: {
-        authority: "single_agent_run_monitor.item",
-        task_run_id: taskRunId,
-        session_id: "session-approval",
-        task_id: "task:turn:session-approval:1",
-        execution_runtime_kind: "single_agent_task",
-        task_run: { task_run_id: taskRunId, status: "waiting_approval" },
-        loop_state: { terminal_reason: "waiting_approval" },
-        has_graph_run: false,
-        status: "waiting_approval",
-        terminal_reason: "waiting_approval",
-        updated_at: 1,
-      },
-    });
-    api.getHarnessSessionLiveMonitor.mockResolvedValue({
-      active_task_run_id: taskRunId,
-      monitor: null,
-      task_runs: [],
-    });
-    const runtime = new WorkspaceRuntime(store);
-
-    await runtime.actions.resumeActiveTaskRun();
-
-    expect(api.approveHarnessTaskRunToolCall).toHaveBeenCalledWith(
-      taskRunId,
-      "user_approve_tool_from_chat",
-      12,
-      "turn:session-approval:1",
-    );
-    expect(api.resumeHarnessTaskRun).not.toHaveBeenCalled();
   });
 
   it("does not surface transient run monitor aborts as user-visible errors", async () => {
@@ -5607,11 +5372,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(firstStreamSignals[0]?.aborted).toBe(true);
     expect(store.getState().activeStreamSessionIds).toEqual([]);
     expect(store.getState().activeTurnSnapshot).toBeNull();
-    expect(api.stopHarnessTaskRun).toHaveBeenCalledWith(
-      taskRunId,
-      "user_stop_from_chat_stream",
-      activeTurnId,
-    );
 
     await runtime.actions.sendMessage("停止后的新要求");
 
@@ -6276,21 +6036,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           sourceIndex: 1,
         },
       ],
-      assistantTextStreamsByMessageId: {
-        [assistantId]: {
-          messageId: assistantId,
-          messageRef: "turn:session:live-refresh:assistant",
-          streamRef: "modelreq:live-refresh",
-          latestSequence: 1,
-          canonicalContent: "遇到",
-          canonicalContentSha256: "sha256:first",
-          accumulatedUtf8Bytes: 6,
-          finalReceived: false,
-          terminal: false,
-          repairState: "none",
-          displayHintsBySequence: {},
-        },
-      },
     });
     const runtime = new WorkspaceRuntime(store) as unknown as {
       refreshSessionDetails: (sessionId: string) => Promise<void>;
@@ -6317,7 +6062,6 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     expect(store.getState().messages.at(-1)?.id).toBe(assistantId);
     expect(store.getState().messages.at(-1)?.content).toBe("遇到");
-    expect(store.getState().assistantTextStreamsByMessageId[assistantId]?.canonicalContent).toBe("遇到");
   });
 
   it("reattaches a persisted chat run during initialization without starting a new run", async () => {
@@ -6348,7 +6092,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: "taskrun:session:existing:7",
       },
       latest_event_offset: 3,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:resume/events/replay",
       live_ws_url: "/api/chat/sessions/session:existing/live",
     });
@@ -6454,7 +6198,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         runtime_task_run_id: "taskrun:wait",
       },
       latest_event_offset: 1,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:wait/events/replay",
       live_ws_url: "/api/chat/sessions/session:wait/live",
     });
@@ -6505,7 +6249,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       status: "running",
       diagnostics: {},
       latest_event_offset: 1,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:visible-recovery/events/replay",
       live_ws_url: "/api/chat/sessions/session:visible-recovery/live",
     });
@@ -6639,7 +6383,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       root_request_ref: "chatreq:latest",
       status: "running",
       latest_event_offset: 3,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:latest/events/replay",
       live_ws_url: "/api/chat/sessions/session:latest/live",
     });
@@ -6703,7 +6447,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       root_request_ref: "chatreq:latest-after-stale",
       status: "running",
       latest_event_offset: 1,
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:latest-after-stale/events/replay",
       live_ws_url: "/api/chat/sessions/session:latest-after-stale/live",
     });
@@ -6766,7 +6510,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       status: "completed",
       latest_event_offset: 9,
       terminal_event: "turn_completed",
-      is_reconnectable: true,
+      live_reconnectable: true,
       replay_url: "/api/chat/runs/strun:terminal/events/replay",
       live_ws_url: "/api/chat/sessions/session:terminal/live",
     });
@@ -7949,8 +7693,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         run_id: "turnrun:abc",
         created_at: 3,
         payload: {
-          status: "task_executor_scheduled",
-          terminal_reason: "task_executor_scheduled",
+          status: "waiting_executor",
+          terminal_reason: "waiting_executor",
           task_run: {
             task_run_id: "taskrun:abc",
             status: "running",
@@ -8201,8 +7945,3 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 });
-
-
-
-
-

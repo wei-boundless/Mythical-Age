@@ -17,14 +17,14 @@ import React, { useMemo, useState } from "react";
 
 import type { HarnessTaskRunLiveMonitor, PublicTodoItem } from "@/lib/api";
 import type { ProjectionRenderBlock, TodoPlanProjectionBlock } from "@/lib/projection/chronological";
-import type { Message } from "@/lib/store/types";
+import type { ProjectedMessage } from "@/components/chat/projectedMessages";
 
 type TaskModeKind = "goal" | "plan" | "todo";
 type TodoStatusTone = "active" | "blocked" | "done" | "pending";
 
 type TaskModePanelProps = {
   active?: boolean;
-  messages: Message[];
+  messages: ProjectedMessage[];
   monitor?: HarnessTaskRunLiveMonitor | null;
   onCancelTask: () => Promise<void> | void;
   onContinueTask: () => Promise<void> | void;
@@ -337,7 +337,7 @@ function taskModeContextFromMonitor(monitor: HarnessTaskRunLiveMonitor | null | 
   };
 }
 
-function latestTodoSnapshotFromMessages(messages: Message[]): TodoPanelSnapshot {
+function latestTodoSnapshotFromMessages(messages: ProjectedMessage[]): TodoPanelSnapshot {
   const block = latestTodoPlanFromMessages(messages);
   return todoSnapshotFromItems(block?.items ?? [], block);
 }
@@ -385,7 +385,7 @@ function todoSnapshotFromItems(itemsInput: PublicTodoItem[], block: TodoPlanProj
   };
 }
 
-function latestTodoPlanFromMessages(messages: Message[]): TodoPlanProjectionBlock | null {
+function latestTodoPlanFromMessages(messages: ProjectedMessage[]): TodoPlanProjectionBlock | null {
   let latestBlock: TodoPlanProjectionBlock | null = null;
   let latestMessageIndex = -1;
   messages.forEach((message, messageIndex) => {

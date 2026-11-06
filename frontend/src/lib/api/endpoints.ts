@@ -3,6 +3,7 @@ export * from "./workspace";
 export * from "./config";
 export * from "./memory";
 export * from "./agentSystem";
+export * from "./agentNetwork";
 export * from "./harness";
 export * from "./graph";
 export * from "./capability";

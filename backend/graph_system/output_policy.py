@@ -24,7 +24,10 @@ class OutputPolicyResolver:
         artifact_binding = dict(bindings.get("artifact") or {})
         node_artifact_policy = dict(work_order.artifact_view_request.get("node_artifact_policy") or {})
         output_policy = _merge_dicts(
-            _legacy_artifact_output_policy(artifact_binding=artifact_binding, node_artifact_policy=node_artifact_policy),
+            _artifact_output_policy_from_contract_bindings(
+                artifact_binding=artifact_binding,
+                node_artifact_policy=node_artifact_policy,
+            ),
             dict(slot_output.get("output_policy") or {}),
             output_binding,
         )
@@ -72,7 +75,7 @@ def resolve_output_policy(*, graph_config: ExecutableGraphConfig, work_order: Gr
     return OutputPolicyResolver().resolve(graph_config=graph_config, work_order=work_order)
 
 
-def _legacy_artifact_output_policy(*, artifact_binding: dict[str, Any], node_artifact_policy: dict[str, Any]) -> dict[str, Any]:
+def _artifact_output_policy_from_contract_bindings(*, artifact_binding: dict[str, Any], node_artifact_policy: dict[str, Any]) -> dict[str, Any]:
     artifact_policy = dict(artifact_binding.get("artifact_policy") or artifact_binding or node_artifact_policy or {})
     targets = _dict_list(artifact_policy.get("artifacts") or artifact_policy.get("artifact_targets"))
     if not artifact_policy and not targets:

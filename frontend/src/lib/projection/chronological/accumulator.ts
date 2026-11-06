@@ -1,4 +1,5 @@
 import type { PublicProjectionFrame } from "@/lib/api";
+import { displayToolActionName, isCommandToolName, toolInvocationTitle } from "@/lib/toolDisplay";
 
 import { normalizeProjectionFrame, text } from "./normalize";
 import type {
@@ -79,13 +80,42 @@ function applyBodyAppend(ledger: ChronologicalProjectionLedger, normalized: Norm
   const body = rawText(normalized.frame.text);
   if (!body) return ledger;
   const semanticKey = bodySemanticKey(normalized);
-  if (semanticKey && bodySegmentsHaveSource(ledger.bodySegments, semanticKey)) {
+  if (semanticKey && replaceBodySegmentBySource(ledger, normalized, semanticKey, body)) {
     return ledger;
   }
   ledger.bodyText += body;
   ledger.bodyState = "streaming";
   appendBodySegment(ledger, normalized, body, "streaming");
   return ledger;
+}
+
+function replaceBodySegmentBySource(
+  ledger: ChronologicalProjectionLedger,
+  normalized: NormalizedProjectionFrame,
+  sourceKey: string,
+  body: string,
+) {
+  const index = ledger.bodySegments.findIndex((segment) => segment.sourceKeys.includes(sourceKey));
+  if (index < 0) return false;
+  const previous = ledger.bodySegments[index];
+  ledger.bodySegments[index] = {
+    ...previous,
+    id: text(normalized.frame.body_ref || normalized.frame.item_id) || previous.id,
+    bodyRef: text(normalized.frame.body_ref) || previous.bodyRef,
+    messageRef: text(normalized.frame.message_ref) || previous.messageRef,
+    contentSha256: text(normalized.frame.content_sha256) || previous.contentSha256,
+    text: body,
+    lastOffset: normalized.offset,
+    state: "streaming",
+    sourceEventType: normalized.sourceEventType,
+    retention: normalized.retention,
+    mainVisibility: normalized.mainVisibility,
+    sourceKeys: uniqueStrings([...previous.sourceKeys, normalized.identity.key, sourceKey]),
+  };
+  ledger.bodyText = ledger.bodySegments.map((segment) => segment.text).join("");
+  ledger.bodyState = "streaming";
+  ledger.displayCursor = { kind: "body" };
+  return true;
 }
 
 function applyBodyFinalize(ledger: ChronologicalProjectionLedger, normalized: NormalizedProjectionFrame) {
@@ -192,7 +222,10 @@ function appendBodySegment(
       : previous.sourceKeys;
   } else {
     ledger.bodySegments.push({
-      id: text(normalized.frame.item_id) || `body:${normalized.keyString}:${normalized.offset}`,
+      id: text(normalized.frame.body_ref || normalized.frame.item_id) || `body:${normalized.keyString}:${normalized.offset}`,
+      bodyRef: text(normalized.frame.body_ref),
+      messageRef: text(normalized.frame.message_ref),
+      contentSha256: text(normalized.frame.content_sha256),
       text: body,
       firstOffset: normalized.offset,
       lastOffset: normalized.offset,
@@ -277,7 +310,7 @@ function statusEventFromFrame(normalized: NormalizedProjectionFrame): StatusProj
   const statusSubkind = text(frame.status_subkind || frame.status_kind);
   const diagnostics = record(frame.diagnostics);
   const stableReasoningId = statusSubkind === "reasoning_projection_state"
-    ? text(frameRecord.model_request_id || frame.anchor?.turn_run_id || frame.anchor?.task_run_id || frame.anchor?.turn_id || normalized.keyString)
+    ? text(frameRecord.provider_request_id || frame.anchor?.turn_run_id || frame.anchor?.task_run_id || frame.anchor?.turn_id || normalized.keyString)
     : "";
   const id = text(frame.item_id || frame.source_item_id || frame.frame_id || frame.projection_id)
     || (stableReasoningId ? `reasoning:${stableReasoningId}` : `${statusKind}:${normalized.offset}`);
@@ -335,23 +368,44 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
   const id = toolCallId || toolLifecycleId;
   if (!id) return null;
   const state = text(frame.state) || stateForToolEvent(normalized.sourceEventType);
+  const eventCreatedAt = numericValue(frame.created_at);
+  const durationMs = numericValue(frame.duration_ms);
+  const durationSeconds = durationMs !== undefined ? Math.max(0, durationMs / 1000) : undefined;
+  const inferredStartedAt = normalized.sourceEventType === "tool_item_completed" && eventCreatedAt && durationSeconds !== undefined
+    ? Math.max(0, eventCreatedAt - durationSeconds)
+    : eventCreatedAt;
   const target = text(frame.target || frame.subject_label);
   const argumentsPreview = text(frame.arguments_preview);
+  const polling = frame.polling && typeof frame.polling === "object" && !Array.isArray(frame.polling)
+    ? frame.polling as Record<string, unknown>
+    : {};
   const toolName = text(frame.tool_name);
-  const title = text(frame.title || frame.text) || toolTitle(toolName, target);
+  const actionKind = text(frame.action_kind);
+  const title = text(frame.title || frame.text) || toolTitle(toolName, actionKind, target);
   return {
     id,
     toolCallId,
     toolLifecycleId,
     toolName,
-    actionKind: text(frame.action_kind),
+    actionKind,
     title,
     detail: text(frame.detail),
     target,
     argumentsPreview,
-    commandLine: toolCommandLine(toolName, target, argumentsPreview),
+    polling: polling.mode === "poll" ? {
+      mode: "poll",
+      poll_id: text(polling.poll_id),
+      interval_ms: numericValue(polling.interval_ms),
+      timeout_ms: numericValue(polling.timeout_ms),
+      success_condition: text(polling.success_condition),
+    } : undefined,
+    commandLine: toolCommandLine(toolName, actionKind, target, argumentsPreview),
     output: toolOutput(normalized, state),
+    contentWindow: toolContentWindowFromFrame(frame.content_window),
     state,
+    startedAt: inferredStartedAt,
+    updatedAt: eventCreatedAt,
+    completedAt: isTerminalToolState(state) ? eventCreatedAt : undefined,
     sourceItemId: text(frame.source_item_id),
     sourceEventType: normalized.sourceEventType,
     sourceEventId: text(frame.source_event_id),
@@ -363,6 +417,35 @@ function toolLifecycleFromFrame(normalized: NormalizedProjectionFrame): ToolLife
   };
 }
 
+function toolContentWindowFromFrame(value: unknown) {
+  const payload = record(value);
+  const textValue = rawText(payload.text);
+  const kind = text(payload.kind);
+  if (!textValue || !["read_file", "read_file_reuse", "text_file"].includes(kind)) return undefined;
+  return {
+    authority: text(payload.authority),
+    content_available: typeof payload.content_available === "boolean" ? payload.content_available : undefined,
+    kind,
+    path: text(payload.path),
+    status: text(payload.status),
+    text: textValue,
+    start_line: numericValue(payload.start_line),
+    end_line: numericValue(payload.end_line),
+    returned_lines: numericValue(payload.returned_lines),
+    line_count: numericValue(payload.line_count),
+    total_lines: numericValue(payload.total_lines),
+    has_more: payload.has_more === true,
+    next_start_line: numericValue(payload.next_start_line),
+    truncated: payload.truncated === true,
+    preview_lines: numericValue(payload.preview_lines),
+    preview_truncated: payload.preview_truncated === true,
+    content_sha256: text(payload.content_sha256),
+    exact_artifact_ref: text(payload.exact_artifact_ref),
+    reused_observation_ref: text(payload.reused_observation_ref),
+    reusable_result_ref: text(payload.reusable_result_ref),
+  };
+}
+
 function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecycle {
   const incomingIsOlder = incoming.lastOffset < existing.lastOffset;
   const merged = {
@@ -370,10 +453,29 @@ function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecy
     ...(incomingIsOlder ? {} : withoutEmpty(incoming)),
     firstOffset: Math.min(existing.firstOffset, incoming.firstOffset),
     lastOffset: Math.max(existing.lastOffset, incoming.lastOffset),
+    startedAt: minPositiveNumber(existing.startedAt, incoming.startedAt),
+    updatedAt: maxPositiveNumber(existing.updatedAt, incoming.updatedAt),
+    completedAt: maxPositiveNumber(existing.completedAt, incoming.completedAt),
     visible: existing.visible || incoming.visible,
     pinned: existing.pinned || incoming.pinned,
     state: mergeLifecycleState(existing.state, incoming.state, incomingIsOlder),
   };
+  if (!incomingIsOlder) {
+    // A lifecycle may receive a later control frame containing only an action
+    // marker (for example `action=command`). It is metadata, not a command,
+    // and must never replace a previously resolved target or preview.
+    if (isCommandToolName(merged.toolName)) {
+      if (!hasUsableCommand(merged.target) && hasUsableCommand(existing.target)) {
+        merged.target = existing.target;
+      }
+      if (isActionOnlyPreview(merged.argumentsPreview) && !isActionOnlyPreview(existing.argumentsPreview)) {
+        merged.argumentsPreview = existing.argumentsPreview;
+      }
+      if (isGenericToolCommand(merged.commandLine) && !isGenericToolCommand(existing.commandLine)) {
+        merged.commandLine = existing.commandLine;
+      }
+    }
+  }
   if (
     !incomingIsOlder
     && isGenericToolName(incoming.toolName)
@@ -382,7 +484,7 @@ function mergeTool(existing: ToolLifecycle, incoming: ToolLifecycle): ToolLifecy
   ) {
     merged.toolName = existing.toolName;
     if (isGenericToolCommand(incoming.commandLine) || !merged.commandLine) {
-      merged.commandLine = toolCommandLine(merged.toolName, merged.target, merged.argumentsPreview);
+      merged.commandLine = toolCommandLine(merged.toolName, merged.actionKind, merged.target, merged.argumentsPreview);
     }
   }
   const incomingCommandIsOnlyToolName = sameCompactText(incoming.commandLine, incoming.toolName);
@@ -490,10 +592,6 @@ function recordRejectedFrame(ledger: ChronologicalProjectionLedger, normalized: 
   return ledger;
 }
 
-function bodySegmentsHaveSource(segments: BodySegment[], key: string) {
-  return segments.some((segment) => segment.sourceKeys.includes(key));
-}
-
 function bodySemanticKey(normalized: NormalizedProjectionFrame) {
   const frame = normalized.frame;
   if (normalized.sourceAuthority !== "model" || normalized.slot !== "body") return "";
@@ -515,23 +613,33 @@ function stateForToolEvent(sourceEventType: string) {
   return "";
 }
 
-function toolTitle(toolName: string, target: string) {
-  return [toolLabel(toolName) || toolName || "工具", target].filter(Boolean).join(" ");
+function toolTitle(toolName: string, actionKind: string, target: string) {
+  return toolInvocationTitle({ toolName, actionKind, target });
 }
 
-function toolCommandLine(toolName: string, target: string, argumentsPreview: string) {
+function toolCommandLine(toolName: string, actionKind: string, target: string, argumentsPreview: string) {
   if (isCommandToolName(toolName)) {
     return commandTextFromProjection(target, argumentsPreview) || toolName || "command";
   }
-  return [toolName || "tool", target ? quote(target) : "", argumentsPreview && argumentsPreview !== target ? argumentsPreview : ""]
+  const action = displayToolActionName({ toolName, actionKind });
+  return [action || "工具操作", target ? quote(target) : "", argumentsPreview && argumentsPreview !== target ? argumentsPreview : ""]
     .filter(Boolean)
     .join(" ");
 }
 
 function commandTextFromProjection(target: string, argumentsPreview: string) {
   const direct = text(target);
-  if (direct && !isCommandToolName(direct)) return direct;
+  if (hasUsableCommand(direct)) return direct;
   return previewArgumentValue(argumentsPreview, ["command", "cmd", "script", "code"]);
+}
+
+function hasUsableCommand(value: string) {
+  const normalized = text(value);
+  return Boolean(normalized) && !isCommandToolName(normalized) && !/^action\s*=\s*command$/i.test(normalized);
+}
+
+function isActionOnlyPreview(value: string) {
+  return /^action\s*=\s*(?:command|run|verify)\s*$/i.test(text(value));
 }
 
 function previewArgumentValue(preview: string, keys: string[]) {
@@ -559,10 +667,6 @@ function stripWrappingQuotes(value: string) {
   return trimmed;
 }
 
-function isCommandToolName(value: string) {
-  return COMMAND_TOOL_NAMES.has(text(value).toLowerCase());
-}
-
 function isGenericToolName(value: string) {
   const normalized = compactText(value);
   return !normalized || normalized === "tool" || normalized === "工具";
@@ -585,14 +689,14 @@ function toolOutput(normalized: NormalizedProjectionFrame, state: string) {
 
 const GENERIC_TOOL_DONE_OUTPUT = "工具调用已完成。";
 
-function completedToolOutput(tool: Pick<ToolLifecycle, "target" | "toolName">) {
+function completedToolOutput(tool: Pick<ToolLifecycle, "actionKind" | "target" | "toolName">) {
   const target = text(tool.target);
   if (!target) return "";
-  const label = toolLabel(tool.toolName) || "工具";
-  if (["读取文件", "检查路径", "列出目录", "搜索文件", "搜索文本", "匹配路径"].includes(label)) {
+  const label = displayToolActionName({ actionKind: tool.actionKind, toolName: tool.toolName }) || "工具";
+  if (["读取文件", "检查路径", "列出目录", "搜索文件", "搜索文本", "搜索工作区", "匹配路径", "查找符号"].includes(label)) {
     return `${label}完成：${target}`;
   }
-  if (["写入文件", "更新文件", "编辑文件", "批量编辑文件", "应用补丁"].includes(label)) {
+  if (["写入文件", "更新文件", "编辑文件", "批量编辑文件", "应用补丁", "编辑文档"].includes(label)) {
     return `${label}完成：${target}`;
   }
   return `${label}完成：${target}`;
@@ -609,10 +713,14 @@ function lifecycleStateRank(state: string) {
   const normalized = state.toLowerCase();
   if (["failed", "error", "blocked"].includes(normalized)) return 5;
   if (["done", "complete", "completed", "success", "passed"].includes(normalized)) return 4;
-  if (["stopped", "aborted", "cancelled", "canceled"].includes(normalized)) return 3;
+  if (["stopped", "aborted", "interrupted", "cancelled", "canceled"].includes(normalized)) return 3;
   if (["waiting", "queued", "paused"].includes(normalized)) return 2;
   if (["running"].includes(normalized)) return 1;
   return 0;
+}
+
+function isTerminalToolState(state: string) {
+  return lifecycleStateRank(state) >= 3;
 }
 
 function defaultStatusTitle(kind: StatusProjectionEvent["kind"]) {
@@ -648,35 +756,6 @@ function defaultStatusState(kind: StatusProjectionEvent["kind"]) {
   return "failed";
 }
 
-function toolLabel(toolName: string) {
-  const labels: Record<string, string> = {
-    bash: "运行命令",
-    cmd: "运行命令",
-    command: "运行命令",
-    glob_paths: "匹配路径",
-    list_dir: "列出目录",
-    path_exists: "检查路径",
-    powershell: "运行命令",
-    python_repl: "运行命令",
-    read_file: "读取文件",
-    read_files: "读取文件",
-    read_path: "读取文件",
-    search_files: "搜索文件",
-    search_text: "搜索文本",
-    shell: "运行命令",
-    stat_path: "检查路径",
-    terminal: "运行命令",
-    write_file: "写入文件",
-    edit_file: "更新文件",
-    batch_edit_file: "批量编辑文件",
-    apply_patch: "更新文件",
-    attachment_extract_text: "提取附件文字",
-  };
-  return labels[toolName.toLowerCase()] || toolName;
-}
-
-const COMMAND_TOOL_NAMES = new Set(["bash", "cmd", "command", "powershell", "python_repl", "shell", "terminal"]);
-
 function commitKey(frame: PublicProjectionFrame) {
   const commit = (frame.commit ?? {}) as Record<string, unknown>;
   return [
@@ -707,6 +786,16 @@ function rawText(value: unknown) {
 function numericValue(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function minPositiveNumber(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return numbers.length ? Math.min(...numbers) : undefined;
+}
+
+function maxPositiveNumber(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return numbers.length ? Math.max(...numbers) : undefined;
 }
 
 function record(value: unknown): Record<string, unknown> {

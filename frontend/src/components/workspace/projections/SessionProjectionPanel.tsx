@@ -4,6 +4,7 @@ import { AlertTriangle, Loader2, MessageSquare, RefreshCw, X } from "lucide-reac
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { messagesWithActiveProjectionViews } from "@/components/chat/projectedMessages";
 import { getSessionHistory, getSessionRuntimeProjection, type SessionScope } from "@/lib/api";
 import { hydrateSessionRuntimeProjection } from "@/lib/store/runtime/projectionHydration";
 import type { Message, StoreState } from "@/lib/store/types";
@@ -228,21 +229,6 @@ export function SessionProjectionPanel({
       </div>
     </section>
   );
-}
-
-function messagesWithActiveProjectionViews(
-  messages: Message[],
-  activeProjectionsByKey: StoreState["activeProjectionsByKey"],
-) {
-  return messages.map((message) => {
-    const key = message.projectionKeyString ?? "";
-    const projection = key ? activeProjectionsByKey[key] : undefined;
-    const projectionView = projection?.view ?? message.projectionView;
-    if (!projectionView || projectionView === message.projectionView) {
-      return message;
-    }
-    return { ...message, projectionView };
-  });
 }
 
 function stableScopeKey(scope?: Partial<SessionScope>) {

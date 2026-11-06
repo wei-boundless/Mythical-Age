@@ -47,10 +47,10 @@ def test_chat_run_schedule_precommits_initial_user_message_before_execution(tmp_
         "client_message_id": "user:client:initial",
         "created_at": "<time>",
     }
-    api_messages = session_manager.load_session_for_api(session_id)
-    assert len(api_messages) == 1
-    assert api_messages[0]["created_at"] > 0
-    assert api_messages[0] | {"created_at": "<time>"} == {
+    provider_protocol_messages = session_manager.load_provider_protocol_timeline(session_id)
+    assert len(provider_protocol_messages) == 1
+    assert provider_protocol_messages[0]["created_at"] > 0
+    assert provider_protocol_messages[0] | {"created_at": "<time>"} == {
         "role": "user",
         "content": "刷新后还在",
         "turn_id": turn_id,
@@ -109,14 +109,14 @@ def test_runtime_user_commit_is_idempotent_for_precommitted_initial_input(tmp_pa
     facade._commit_user_message(
         session_id=session_id,
         content="不要重复写入",
-        api_content="不要重复写入",
+        provider_protocol_content="不要重复写入",
         turn_id=turn_id,
         message_id="user:client:dedupe",
         client_message_id="user:client:dedupe",
     )
 
     assert len(session_manager.load_session(session_id)) == 1
-    assert len(session_manager.load_session_for_api(session_id)) == 1
+    assert len(session_manager.load_provider_protocol_timeline(session_id)) == 1
 
 
 def test_precommitted_initial_input_is_excluded_from_model_history(tmp_path) -> None:
@@ -141,7 +141,7 @@ def test_precommitted_initial_input_is_excluded_from_model_history(tmp_path) -> 
         user_message="当前这条不要进历史",
     ) == []
     assert _history_without_current_user_request(
-        session_manager.load_session_for_api(session_id),
+        session_manager.load_provider_protocol_timeline(session_id),
         turn_id=turn_id,
         user_message="当前这条不要进历史",
     ) == []

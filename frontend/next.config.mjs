@@ -7,6 +7,8 @@ const apiProxyTarget = (
 
 const nextConfig = {
   reactStrictMode: true,
+  // 桌面分发包以 standalone 产物随 Electron 一起安装，运行时不依赖 node_modules。
+  output: "standalone",
   allowedDevOrigins: [
     "127.0.0.1",
     "localhost",

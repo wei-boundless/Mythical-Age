@@ -138,8 +138,8 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:accounted:local_prediction",
-            request_id="modelreq:accounted",
+            usage_id="tokuse:providerreq:accounted:local_prediction",
+            request_id="providerreq:accounted",
             task_run_id="taskrun:accounted",
             session_id="session:accounted",
             source="local_prediction",
@@ -150,8 +150,8 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:accounted:provider_usage",
-            request_id="modelreq:accounted",
+            usage_id="tokuse:providerreq:accounted:provider_usage",
+            request_id="providerreq:accounted",
             task_run_id="taskrun:accounted",
             session_id="session:accounted",
             source="provider_usage",
@@ -199,8 +199,8 @@ def test_health_token_usage_daily_trend_uses_record_dates_not_task_update_date(t
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:multi-day:one:local_prediction",
-            request_id="modelreq:multi-day:one",
+            usage_id="tokuse:providerreq:multi-day:one:local_prediction",
+            request_id="providerreq:multi-day:one",
             task_run_id="taskrun:multi-day",
             session_id="session:multi-day",
             source="local_prediction",
@@ -211,8 +211,8 @@ def test_health_token_usage_daily_trend_uses_record_dates_not_task_update_date(t
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:multi-day:one:provider_usage",
-            request_id="modelreq:multi-day:one",
+            usage_id="tokuse:providerreq:multi-day:one:provider_usage",
+            request_id="providerreq:multi-day:one",
             task_run_id="taskrun:multi-day",
             session_id="session:multi-day",
             source="provider_usage",
@@ -224,8 +224,8 @@ def test_health_token_usage_daily_trend_uses_record_dates_not_task_update_date(t
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:multi-day:two:local_prediction",
-            request_id="modelreq:multi-day:two",
+            usage_id="tokuse:providerreq:multi-day:two:local_prediction",
+            request_id="providerreq:multi-day:two",
             task_run_id="taskrun:multi-day",
             session_id="session:multi-day",
             source="local_prediction",
@@ -236,8 +236,8 @@ def test_health_token_usage_daily_trend_uses_record_dates_not_task_update_date(t
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:multi-day:two:provider_usage",
-            request_id="modelreq:multi-day:two",
+            usage_id="tokuse:providerreq:multi-day:two:provider_usage",
+            request_id="providerreq:multi-day:two",
             task_run_id="taskrun:multi-day",
             session_id="session:multi-day",
             source="provider_usage",
@@ -279,8 +279,8 @@ def test_health_token_usage_reads_prompt_accounting_summary_index_for_large_ledg
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:indexed:local_prediction",
-            request_id="modelreq:indexed",
+            usage_id="tokuse:providerreq:indexed:local_prediction",
+            request_id="providerreq:indexed",
             task_run_id="taskrun:indexed",
             session_id="session:indexed",
             source="local_prediction",
@@ -291,8 +291,8 @@ def test_health_token_usage_reads_prompt_accounting_summary_index_for_large_ledg
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:indexed:provider_usage",
-            request_id="modelreq:indexed",
+            usage_id="tokuse:providerreq:indexed:provider_usage",
+            request_id="providerreq:indexed",
             task_run_id="taskrun:indexed",
             session_id="session:indexed",
             source="provider_usage",
@@ -325,8 +325,8 @@ def test_health_token_usage_includes_turn_runs_without_task_run_id(tmp_path) -> 
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:turn:local_prediction",
-            request_id="modelreq:turn",
+            usage_id="tokuse:providerreq:turn:local_prediction",
+            request_id="providerreq:turn",
             run_id="turnrun:turn:session-main:3",
             session_id="session-main",
             source="local_prediction",
@@ -337,8 +337,8 @@ def test_health_token_usage_includes_turn_runs_without_task_run_id(tmp_path) -> 
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:turn:provider_usage",
-            request_id="modelreq:turn",
+            usage_id="tokuse:providerreq:turn:provider_usage",
+            request_id="providerreq:turn",
             run_id="turnrun:turn:session-main:3",
             session_id="session-main",
             source="provider_usage",
@@ -376,9 +376,9 @@ def test_health_token_usage_summary_counts_records_without_session_id(tmp_path) 
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:unscoped:provider_usage",
-            request_id="modelreq:unscoped",
-            run_id="modelreq:unscoped",
+            usage_id="tokuse:providerreq:unscoped:provider_usage",
+            request_id="providerreq:unscoped",
+            run_id="providerreq:unscoped",
             source="provider_usage",
             prompt_tokens=100,
             completion_tokens=20,
@@ -412,8 +412,8 @@ def test_health_token_usage_reads_retained_token_stats_after_detail_compaction(t
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:retained:local_prediction",
-            request_id="modelreq:retained",
+            usage_id="tokuse:providerreq:retained:local_prediction",
+            request_id="providerreq:retained",
             task_run_id="taskrun:retained",
             session_id="session:retained",
             source="local_prediction",
@@ -424,8 +424,8 @@ def test_health_token_usage_reads_retained_token_stats_after_detail_compaction(t
     )
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:retained:provider_usage",
-            request_id="modelreq:retained",
+            usage_id="tokuse:providerreq:retained:provider_usage",
+            request_id="providerreq:retained",
             task_run_id="taskrun:retained",
             session_id="session:retained",
             source="provider_usage",
@@ -469,8 +469,8 @@ def test_health_overview_uses_prompt_accounting_token_usage_not_visible_task_fal
     ledger = PromptAccountingLedger(tmp_path)
     ledger.record_token_usage(
         ModelTokenUsageRecord(
-            usage_id="tokuse:modelreq:ledger:provider_usage",
-            request_id="modelreq:ledger",
+            usage_id="tokuse:providerreq:ledger:provider_usage",
+            request_id="providerreq:ledger",
             run_id="turnrun:ledger",
             session_id="session:ledger",
             source="provider_usage",
@@ -751,7 +751,7 @@ def test_health_governance_does_not_treat_waiting_executor_as_resumable_without_
         updated_at=now - 1600,
         diagnostics={
             "recoverable_error": {"retryable": True},
-            "recovery_action": "rerun_task_executor",
+            "recovery_action": "resume_task_run",
         },
     )
     state_index = StateIndexStub([stopped_terminal, missing_rollout, failed_terminal])

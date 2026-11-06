@@ -33,7 +33,7 @@ def test_task_execution_projects_plan_and_todo_as_separate_task_mode_tail_contex
         session_id="session:task-plan-context",
         task_run={"task_run_id": "taskrun:task-plan-context", "diagnostics": {"executor_status": "running"}},
         contract={
-            "contract_version": "task_run_contract_v1",
+            "contract_id": "task_run_contract",
             "container_contract": {
                 "entry_reason": "The work needs durable plan and todo modes.",
                 "primary_work_mode_ref": "work-mode:plan:primary",
@@ -128,8 +128,8 @@ def test_task_execution_projects_plan_and_todo_as_separate_task_mode_tail_contex
     assert "task_plan_context" not in current_state_payload
     assert "task_todo_context" not in current_state_payload
     assert "todos" not in dict(current_state_payload["task_state"].get("task_progress_facts") or {})
-    cache_record = _cache_record_for_packet(result.packet)
-    assert cache_record.diagnostics["task_mode_tail_context_predicted_tokens"] > 0
+    cache_plan = _cache_plan_for_packet(result.packet)
+    assert cache_plan.diagnostics["task_mode_tail_context_predicted_tokens"] > 0
 
 
 def test_task_execution_projects_plan_mode_without_todo_tail_context() -> None:
@@ -137,7 +137,7 @@ def test_task_execution_projects_plan_mode_without_todo_tail_context() -> None:
         session_id="session:task-plan-without-todo",
         task_run={"task_run_id": "taskrun:task-plan-without-todo", "diagnostics": {"executor_status": "running"}},
         contract={
-            "contract_version": "task_run_contract_v1",
+            "contract_id": "task_run_contract",
             "container_contract": {
                 "entry_reason": "The work needs a durable plan mode.",
                 "primary_work_mode_ref": "work-mode:plan:primary",
@@ -348,9 +348,9 @@ def _segment_by_kind(packet, kind: str) -> dict[str, object]:
     raise AssertionError(f"missing segment kind: {kind}")
 
 
-def _cache_record_for_packet(packet):
+def _cache_plan_for_packet(packet):
     segment_map = CanonicalPromptSerializer().build_segment_map(
-        request_id="modelreq:task-plan-context",
+        request_id="providerreq:task-plan-context",
         messages=packet.model_messages,
         provider="deepseek",
         model="deepseek-v4-pro",

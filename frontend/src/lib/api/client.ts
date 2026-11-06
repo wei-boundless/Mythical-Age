@@ -64,6 +64,7 @@ function requestTimeoutMs(path: string) {
   }
   if (
     path === "/tasks/overview"
+    || path.startsWith("/tasks/overview?")
     || path.startsWith("/agent-system/")
     || path.startsWith("/graph-system/")
     || path.startsWith("/harness/")

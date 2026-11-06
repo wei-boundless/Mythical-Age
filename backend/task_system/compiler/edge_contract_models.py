@@ -76,7 +76,6 @@ def build_edge_contract(
                     "direction": "bidirectional" if protocol_kind == "a2a_session" else "unidirectional",
                     "interaction_pattern": _interaction_pattern(protocol_kind),
                     "produces_flow_packet": produces_flow_packet,
-                    "legacy_edge_type": str(edge_protocol.get("edge_type") or edge.get("edge_type") or ""),
                 }
             ),
             "scheduler": _drop_empty(
@@ -134,7 +133,6 @@ def build_edge_contract(
                 "receipt_required": True,
                 "checkpoint_policy": "edge_packet_replayable" if produces_flow_packet else "edge_state_only",
             },
-            "legacy_protocol_projection": dict(edge_protocol),
             "authority": "task_system.compiled_edge_contract",
         }
     )

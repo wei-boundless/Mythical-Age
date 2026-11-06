@@ -51,7 +51,6 @@ export function buildHealthSystemViewModel(
   const overallTokenTotal = numberValue(tokenSummary.overall_total_tokens ?? tokenSummary.total_tokens);
   const predictedTokenTotal = numberValue(tokenSummary.predicted_total_tokens);
   const traceTokenTotal = numberValue(tokenSummary.trace_estimate_total_tokens);
-  const cacheSavingsTotal = numberValue(tokenSummary.cache_savings_tokens);
   const cachedTokenTotal = numberValue(tokenSummary.cached_tokens);
   const providerUsageTaskCount = numberValue(tokenSummary.provider_usage_task_count);
   const predictionOnlyTaskCount = numberValue(tokenSummary.prediction_only_task_count);
@@ -67,9 +66,6 @@ export function buildHealthSystemViewModel(
     : "暂无可核算运行记录";
   const predictionDelta = exactTokenTotal > 0 ? predictedTokenTotal - exactTokenTotal : 0;
   const predictionDeltaRatio = exactTokenTotal > 0 ? Math.abs(predictionDelta) / exactTokenTotal : 0;
-  const cacheSavingsRatio = exactTokenTotal + cacheSavingsTotal > 0
-    ? cacheSavingsTotal / (exactTokenTotal + cacheSavingsTotal)
-    : 0;
   const sourceStructureTotal = Math.max(
     1,
     providerUsageTaskCount + predictionOnlyTaskCount + traceEstimateTaskCount + missingTokenTaskCount,
@@ -90,8 +86,6 @@ export function buildHealthSystemViewModel(
 
   return {
     activeTokenBuckets,
-    cacheSavingsRatio,
-    cacheSavingsTotal,
     cachedTokenTotal,
     dailyTokenBuckets,
     efficiencyTasks,

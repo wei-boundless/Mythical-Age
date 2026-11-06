@@ -11,6 +11,13 @@ class MemoryEnvironmentContext:
     project_id: str = ""
     turn_id: str = ""
     task_run_id: str = ""
+    execution_scope_kind: str = ""
+    task_instance_id: str = ""
+    episode_id: str = ""
+    graph_run_id: str = ""
+    node_id: str = ""
+    work_order_id: str = ""
+    context_package_id: str = ""
     source: str = ""
     authority: str = "memory_system.environment_context"
 
@@ -36,6 +43,13 @@ def resolve_memory_environment_context(
         "project_id": "",
         "turn_id": _text(turn_id),
         "task_run_id": _text(task_run_id),
+        "execution_scope_kind": "",
+        "task_instance_id": "",
+        "episode_id": "",
+        "graph_run_id": "",
+        "node_id": "",
+        "work_order_id": "",
+        "context_package_id": "",
         "source": "",
     }
 
@@ -58,6 +72,13 @@ def resolve_memory_environment_context(
         _fill(resolved, "project_id", candidate.get("project_id"))
         _fill(resolved, "turn_id", candidate.get("turn_id"))
         _fill(resolved, "task_run_id", candidate.get("task_run_id"))
+        _fill(resolved, "execution_scope_kind", candidate.get("execution_scope_kind"))
+        _fill(resolved, "task_instance_id", candidate.get("task_instance_id"))
+        _fill(resolved, "episode_id", candidate.get("episode_id"))
+        _fill(resolved, "graph_run_id", candidate.get("graph_run_id"))
+        _fill(resolved, "node_id", candidate.get("node_id"))
+        _fill(resolved, "work_order_id", candidate.get("work_order_id"))
+        _fill(resolved, "context_package_id", candidate.get("context_package_id"))
         if not resolved["source"] and any(candidate.get(key) for key in ("task_environment_id", "environment_kind", "project_id")):
             resolved["source"] = source
 
@@ -90,7 +111,11 @@ def _candidate_sources(
         ("recent_work_outcome", _dict_payload(recent_work_outcome)),
         (
             "session_record.turn_environment_snapshot",
-            latest_turn_environment_snapshot(record, turn_id=turn_id, task_run_id=task_run_id),
+            latest_turn_environment_snapshot(
+                record,
+                turn_id=turn_id,
+                allow_latest_fallback=not bool(_text(task_run_id)),
+            ),
         ),
         (
             "session_record.active_task_environment",
@@ -106,21 +131,17 @@ def latest_turn_environment_snapshot(
     session_record: dict[str, Any] | None,
     *,
     turn_id: str = "",
-    task_run_id: str = "",
+    allow_latest_fallback: bool = True,
 ) -> dict[str, Any]:
     messages = [item for item in list(dict(session_record or {}).get("messages") or []) if isinstance(item, dict)]
     normalized_turn = _text(turn_id)
-    normalized_task_run = _text(task_run_id)
     if normalized_turn:
         for item in reversed(messages):
             snapshot = item.get("turn_environment_snapshot")
             if str(item.get("turn_id") or "").strip() == normalized_turn and isinstance(snapshot, dict):
                 return dict(snapshot)
-    if normalized_task_run:
-        for item in reversed(messages):
-            snapshot = item.get("turn_environment_snapshot")
-            if isinstance(snapshot, dict) and _text(snapshot.get("task_run_id")) == normalized_task_run:
-                return dict(snapshot)
+    if not allow_latest_fallback:
+        return {}
     for item in reversed(messages):
         snapshot = item.get("turn_environment_snapshot")
         if isinstance(snapshot, dict) and _text(snapshot.get("task_environment_id") or snapshot.get("environment_id")):
@@ -144,6 +165,13 @@ def _environment_payload(payload: Any) -> dict[str, str]:
         "project_id": _text(payload.get("project_id")),
         "turn_id": _text(payload.get("turn_id")),
         "task_run_id": _text(payload.get("task_run_id")),
+        "execution_scope_kind": _text(payload.get("execution_scope_kind") or payload.get("scope_kind")),
+        "task_instance_id": _text(payload.get("task_instance_id")),
+        "episode_id": _text(payload.get("episode_id")),
+        "graph_run_id": _text(payload.get("graph_run_id")),
+        "node_id": _text(payload.get("node_id")),
+        "work_order_id": _text(payload.get("work_order_id")),
+        "context_package_id": _text(payload.get("context_package_id")),
     }
 
 

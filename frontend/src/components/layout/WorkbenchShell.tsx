@@ -19,6 +19,7 @@ import {
 import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { FileChangesPanel } from "@/components/layout/FileChangesPanel";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { RunMonitorPanel } from "@/components/layout/RunMonitorPanel";
 import type { CodeEnvironmentTreeNode, SessionSummary } from "@/lib/api";
 import { sessionSummaryIsRunning, sessionSummaryTask, sessionTaskActivityKind, sessionTaskStatusLabel } from "@/lib/sessionTaskPresentation";
@@ -169,7 +170,7 @@ function isLegacyInternalEditablePath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
   return [
     "durable_memory/",
-    "session-memory/",
+    "conversation-continuity/",
     "sessions/",
     "knowledge/",
     "capability_system/skills/builtin/",
@@ -372,6 +373,7 @@ function WorkspaceManagerPanel({
 }: {
   onOpenFile: (path: string) => void;
 }) {
+  const confirm = useConfirmDialog();
   const {
     activeProjectKey,
     activeProjectRoot,
@@ -598,7 +600,17 @@ function WorkspaceManagerPanel({
                   aria-label={`删除 ${session.title}`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    void removeSession({ sessionId: session.id, scope: session.scope, poolKey: "main-chat" });
+                    void (async () => {
+                      const approved = await confirm({
+                        title: "删除会话",
+                        body: `会话“${sessionDisplayTitle(session)}”及其历史记录将被永久删除。`,
+                        confirmLabel: "删除会话",
+                        tone: "danger",
+                      });
+                      if (approved) {
+                        await removeSession({ sessionId: session.id, scope: session.scope, poolKey: "main-chat" });
+                      }
+                    })();
                   }}
                   type="button"
                 >

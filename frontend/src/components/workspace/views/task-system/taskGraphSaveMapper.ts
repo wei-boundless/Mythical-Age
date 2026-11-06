@@ -93,7 +93,7 @@ export function buildTaskGraphUpsertPayload({
   publish_state,
 }: BuildTaskGraphUpsertPayloadInput): TaskGraphRecord {
   const metadata = withoutGraphEnvironmentFields(asRecord(taskGraphDraft.metadata));
-  const coordinatorAgentId = String(taskGraphDraft.runtime_policy.coordinator_agent_id ?? "agent:0").trim() || "agent:0";
+  const coordinatorAgentId = String(taskGraphDraft.runtime_policy.coordinator_agent_id ?? "").trim();
   const explicitParticipants = stringListOf(taskGraphDraft.runtime_policy.participant_agent_ids);
   const draftNodes = taskGraphDraft.nodes.map(normalizeNodeContractBindings);
   const draftEdges = taskGraphDraft.edges.map(normalizeEdgeContractBindings);

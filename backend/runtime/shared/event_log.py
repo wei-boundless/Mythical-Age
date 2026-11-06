@@ -208,10 +208,17 @@ class RuntimeEventLog:
             subscriptions = list(self._subscriptions)
         if not subscriptions:
             return
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
         for subscription in subscriptions:
             if subscription.run_id and subscription.run_id != event.run_id:
                 continue
             if subscription.loop is not None and subscription.loop.is_running():
+                if subscription.loop is current_loop:
+                    _put_event_drop_oldest(subscription.queue, event)
+                    continue
                 subscription.loop.call_soon_threadsafe(_put_event_drop_oldest, subscription.queue, event)
                 continue
             _put_event_drop_oldest(subscription.queue, event)
@@ -278,6 +285,7 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "agent_turn_closing",
     "agent_turn_completed",
     "agent_turn_failed",
+    "assistant_public_feedback",
     "approval_resumed",
     "approval_waiting",
     "bounded_observation_recorded",
@@ -307,9 +315,6 @@ _RUNTIME_EVENT_FACT_TYPES = {
     "session_output_commit_failed",
     "session_output_commit_skipped",
     "task_origin_bound",
-    "task_run_executor_claimed",
-    "task_run_executor_failed",
-    "task_run_executor_scheduled",
     "task_run_launched",
     "task_run_lifecycle_finished",
     "task_run_lifecycle_started",
@@ -480,5 +485,3 @@ def _first_non_empty(*values: Any) -> str:
         if text:
             return text
     return ""
-
-

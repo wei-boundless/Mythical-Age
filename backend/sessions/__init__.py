@@ -53,18 +53,36 @@ class SessionProjectBindingMissing(ValueError):
     pass
 
 
+class SessionUserMessageConflict(ValueError):
+    """A client identity was reused with different user message content."""
+
+    def __init__(self, *, session_id: str, identity: str, turn_id: str = "") -> None:
+        self.session_id = str(session_id or "").strip()
+        self.identity = str(identity or "").strip()
+        self.turn_id = str(turn_id or "").strip()
+        super().__init__(f"user message identity conflict: {self.identity}")
+
+
 DEFAULT_SESSION_PERMISSION_MODE = "full_access"
+SESSION_SUMMARY_INDEX_SCHEMA = 1
+SESSION_SUMMARY_INDEX_FILENAME = "session_summary_index.json"
 
 
 class SessionManager:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
-        self.sessions_dir = ProjectLayout.from_backend_dir(self.base_dir).sessions_dir
+        layout = ProjectLayout.from_backend_dir(self.base_dir)
+        self.sessions_dir = layout.sessions_dir
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        self.summary_index_path = layout.runtime_cache_dir / SESSION_SUMMARY_INDEX_FILENAME
+        self.summary_index_path.parent.mkdir(parents=True, exist_ok=True)
         self._locks_guard = threading.Lock()
         self._session_locks: dict[str, threading.RLock] = {}
         self._summary_cache_guard = threading.Lock()
         self._summary_cache: dict[str, tuple[int, int, dict[str, Any]]] = {}
+        self._summary_index_loaded = False
+        self._summary_index_dirty = False
+        self._summary_index: dict[str, tuple[int, int, dict[str, Any]]] = {}
 
     def list_sessions(
         self,
@@ -72,10 +90,14 @@ class SessionManager:
         workspace_view: str | None = None,
         task_environment_id: str | None = None,
         project_id: str | None = None,
+        main_chat_only: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         sessions = [
             item
             for item in self._list_session_summaries()
+            if not main_chat_only or _is_main_chat_session_summary(item)
             if _scope_matches(
                 item,
                 workspace_view=workspace_view,
@@ -83,7 +105,12 @@ class SessionManager:
                 project_id=project_id,
             )
         ]
-        return sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
+        sorted_sessions = sorted(sessions, key=lambda item: float(item.get("updated_at") or 0), reverse=True)
+        start = max(0, int(offset or 0))
+        if limit is None:
+            return sorted_sessions[start:]
+        count = max(1, int(limit or 1))
+        return sorted_sessions[start:start + count]
 
     def get_session_summary(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
@@ -121,7 +148,7 @@ class SessionManager:
             "created_at": now,
             "updated_at": now,
             "messages": [],
-            "api_transcript": [],
+            "provider_protocol_timeline": [],
             "compressed_context": "",
             "provider_protocol_compaction_created_at": 0.0,
             "compaction_generation": "0",
@@ -149,12 +176,12 @@ class SessionManager:
             child_path = self._session_path(child_id)
             if child_path.exists():
                 raise ValueError("fork target session already exists")
-            provider_anchor = self._latest_provider_visible_anchor(parent_id)
+            provider_append_anchor = self._latest_provider_visible_append_anchor(parent_id)
             provider_request_commit = self._latest_provider_request_context_commit(parent_id)
             context_commit = self._create_context_commit_record(
                 parent_id,
                 parent_payload,
-                provider_anchor=provider_anchor,
+                provider_append_anchor=provider_append_anchor,
             )
             fork_id = f"fork-{uuid.uuid4().hex[:16]}"
             provider_cache_scope_id = _fork_provider_cache_scope_id(parent_payload, parent_session_id=parent_id)
@@ -187,13 +214,13 @@ class SessionManager:
                 "fork_point_context_commit_id": str(context_commit.get("record_id") or ""),
                 "fork_point_turn_id": str(context_commit.get("turn_id") or ""),
                 "fork_point_public_message_count": len(list(parent_payload.get("messages") or [])),
-                "fork_point_api_transcript_count": len(list(parent_payload.get("api_transcript") or [])),
-                "fork_point_provider_visible_ledger_anchor": provider_anchor,
+                "fork_point_provider_protocol_message_count": len(list(parent_payload.get("provider_protocol_timeline") or [])),
+                "fork_point_provider_visible_append_anchor": provider_append_anchor,
                 "fork_point_cache_spine_hash": str(context_commit.get("cache_spine_hash") or ""),
                 "fork_point_provider_request_commit_id": str(provider_request_commit.get("record_id") or ""),
                 "fork_point_provider_request_cache_spine_hash": str(provider_request_commit.get("cache_spine_hash") or ""),
                 "fork_point_provider_payload_prefix_hash": str(provider_request_commit.get("provider_payload_prefix_hash") or ""),
-                "fork_point_provider_payload_message_prefix_hash": str(provider_request_commit.get("provider_payload_message_prefix_hash") or ""),
+                "fork_point_physical_cache_spine_message_subtotal_hash": str(provider_request_commit.get("physical_cache_spine_message_subtotal_hash") or ""),
                 "fork_point_provider_payload_messages_hash": str(provider_request_commit.get("provider_payload_messages_hash") or ""),
                 "fork_point_transport_contract_hash": str(provider_request_commit.get("transport_contract_hash") or ""),
                 "fork_point_cache_sensitive_params_hash": str(provider_request_commit.get("cache_sensitive_params_hash") or ""),
@@ -227,7 +254,7 @@ class SessionManager:
             child_payload["parent_session_id"] = parent_id
             child_payload["forked_from"] = forked_from
             child_payload["messages"] = _rewrite_message_session_refs(list(child_payload.get("messages") or []), parent_id=parent_id, child_id=child_id)
-            child_payload["api_transcript"] = _rewrite_message_session_refs(list(child_payload.get("api_transcript") or []), parent_id=parent_id, child_id=child_id)
+            child_payload["provider_protocol_timeline"] = _rewrite_message_session_refs(list(child_payload.get("provider_protocol_timeline") or []), parent_id=parent_id, child_id=child_id)
             child_payload["task_binding"] = copy.deepcopy(dict(parent_payload.get("task_binding") or {}))
             child_payload["scope"] = _normalize_scope(dict(parent_payload.get("scope") or {}))
             child_payload["conversation_state"] = _normalize_conversation_state(dict(parent_payload.get("conversation_state") or {}))
@@ -294,17 +321,14 @@ class SessionManager:
         ]
         return [item for item in messages if item is not None]
 
-    def load_session_for_api(self, session_id: str) -> list[dict[str, Any]]:
+    def load_provider_protocol_timeline(self, session_id: str) -> list[dict[str, Any]]:
         payload = self._read_payload(session_id)
-        transcript = [
-            _api_message(item)
-            for item in list(payload.get("api_transcript") or [])
+        timeline = [
+            _provider_protocol_message(item)
+            for item in list(payload.get("provider_protocol_timeline") or [])
             if isinstance(item, dict)
         ]
-        transcript = [item for item in transcript if item is not None]
-        if transcript:
-            return transcript
-        return self.load_session_for_agent(session_id)
+        return [item for item in timeline if item is not None]
 
     def get_history(self, session_id: str) -> dict[str, Any]:
         payload = self._read_payload(session_id)
@@ -546,22 +570,173 @@ class SessionManager:
             self._write_payload(session_id, payload)
             return existing
 
-    def append_api_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def reserve_user_message(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        turn_id: str = "",
+        turn_allocator: Any | None = None,
+        message_id: str = "",
+        client_message_id: str = "",
+        attachments: list[dict[str, Any]] | None = None,
+        provider_protocol_content: str | None = None,
+        source: str = "harness.entrypoint.chat_run_schedule",
+    ) -> dict[str, Any]:
+        """Atomically reserve one logical user turn and both history records.
+
+        The lock covers identity lookup, turn allocation supplied by the caller,
+        and both public/provider writes. Callers must pass a turn id allocated
+        from the freshly loaded payload while holding this session lock through
+        this operation; this method deliberately never performs a second
+        check-and-append sequence.
+        """
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_id = str(turn_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        normalized_client_message_id = str(client_message_id or "").strip()
+        normalized_content = str(content or "")
+        if not normalized_session_id:
+            raise ValueError("session_id is required")
+        with self._session_lock(normalized_session_id):
+            payload = self._read_payload(normalized_session_id)
+            if not normalized_turn_id:
+                allocator = turn_allocator
+                if not callable(allocator):
+                    raise ValueError("turn_id or turn_allocator is required")
+                normalized_turn_id = str(allocator(payload) or "").strip()
+                if not normalized_turn_id:
+                    raise ValueError("turn_allocator returned an empty turn_id")
+            matched_public: dict[str, Any] | None = None
+            matched_provider: dict[str, Any] | None = None
+            public_messages = list(payload.get("messages") or [])
+            provider_messages = list(payload.get("provider_protocol_timeline") or [])
+            identity_candidates = {
+                value for value in (normalized_message_id, normalized_client_message_id) if value
+            }
+            for collection, is_public in ((public_messages, True), (provider_messages, False)):
+                for item in collection:
+                    if not isinstance(item, dict) or str(item.get("role") or "").strip() != "user":
+                        continue
+                    item_id = str(item.get("id") or item.get("message_id") or "").strip()
+                    item_client_id = str(item.get("client_message_id") or "").strip()
+                    same_identity = bool(identity_candidates.intersection({item_id, item_client_id}))
+                    same_turn = str(item.get("turn_id") or "").strip() == normalized_turn_id
+                    if same_identity or same_turn:
+                        item_content = str(item.get("content") or "")
+                        if item_content.strip() != normalized_content.strip():
+                            raise SessionUserMessageConflict(
+                                session_id=normalized_session_id,
+                                identity=next(iter(identity_candidates), normalized_turn_id),
+                                turn_id=normalized_turn_id,
+                            )
+                        if is_public:
+                            matched_public = item
+                            normalized_turn_id = str(item.get("turn_id") or normalized_turn_id).strip()
+                        else:
+                            matched_provider = item
+            if matched_public is not None or matched_provider is not None:
+                canonical_id = str(
+                    (matched_public or matched_provider or {}).get("id")
+                    or (matched_public or matched_provider or {}).get("message_id")
+                    or normalized_message_id
+                    or normalized_client_message_id
+                ).strip()
+                canonical_turn_id = str(
+                    (matched_public or matched_provider or {}).get("turn_id") or normalized_turn_id
+                ).strip()
+                canonical_client_id = str(
+                    (matched_public or matched_provider or {}).get("client_message_id")
+                    or normalized_client_message_id
+                ).strip()
+                changed = False
+                if matched_public is None:
+                    repaired_public = {
+                        "role": "user",
+                        "content": normalized_content,
+                        "turn_id": canonical_turn_id,
+                        "attachments": [dict(item) for item in list(attachments or []) if isinstance(item, dict)],
+                        "source": str(source or "").strip(),
+                    }
+                    if canonical_id:
+                        repaired_public["id"] = canonical_id
+                        repaired_public["message_id"] = canonical_id
+                    if canonical_client_id:
+                        repaired_public["client_message_id"] = canonical_client_id
+                    public_messages.append(repaired_public)
+                    changed = True
+                if matched_provider is None:
+                    provider_messages.append({
+                        "role": "user",
+                        "content": str(provider_protocol_content if provider_protocol_content is not None else normalized_content),
+                        "turn_id": canonical_turn_id,
+                        "source": str(source or "").strip(),
+                    })
+                    changed = True
+                if changed:
+                    payload["messages"] = public_messages
+                    payload["provider_protocol_timeline"] = provider_messages
+                    payload["updated_at"] = time.time()
+                    self._write_payload(normalized_session_id, payload)
+                return {
+                    "state": "already_committed",
+                    "session_id": normalized_session_id,
+                    "turn_id": canonical_turn_id,
+                    "message_id": canonical_id,
+                    "client_message_id": canonical_client_id,
+                }
+            public_payload: dict[str, Any] = {
+                "role": "user",
+                "content": normalized_content,
+                "turn_id": normalized_turn_id,
+                "attachments": [dict(item) for item in list(attachments or []) if isinstance(item, dict)],
+                "source": str(source or "").strip(),
+            }
+            canonical_id = normalized_message_id or normalized_client_message_id
+            if canonical_id:
+                public_payload["id"] = canonical_id
+                public_payload["message_id"] = canonical_id
+            if normalized_client_message_id:
+                public_payload["client_message_id"] = normalized_client_message_id
+            provider_payload: dict[str, Any] = {
+                "role": "user",
+                "content": str(provider_protocol_content if provider_protocol_content is not None else normalized_content),
+                "turn_id": normalized_turn_id,
+                "source": str(source or "").strip(),
+            }
+            now = time.time()
+            public_payload["created_at"] = now
+            provider_payload["created_at"] = now
+            public_messages.append(public_payload)
+            provider_messages.append(provider_payload)
+            payload["messages"] = public_messages
+            payload["provider_protocol_timeline"] = provider_messages
+            payload["updated_at"] = now
+            self._write_payload(normalized_session_id, payload)
+            return {
+                "state": "committed",
+                "session_id": normalized_session_id,
+                "turn_id": normalized_turn_id,
+                "message_id": canonical_id,
+                "client_message_id": normalized_client_message_id,
+            }
+
+    def append_provider_protocol_messages(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
-            existing = list(payload.get("api_transcript") or [])
+            existing = list(payload.get("provider_protocol_timeline") or [])
             now = time.time()
             if str(payload.get("compressed_context") or "").strip() and _float(payload.get("provider_protocol_compaction_created_at")) <= 0:
                 payload["provider_protocol_compaction_created_at"] = now
             for item in messages:
                 if not isinstance(item, dict):
                     continue
-                message = _api_message(item)
+                message = _provider_protocol_message(item)
                 if message is not None:
                     if not message.get("created_at"):
                         message["created_at"] = now
                     existing.append(message)
-            payload["api_transcript"] = existing
+            payload["provider_protocol_timeline"] = existing
             payload["updated_at"] = time.time()
             self._write_payload(session_id, payload)
             return existing
@@ -576,10 +751,10 @@ class SessionManager:
     ) -> dict[str, Any]:
         with self._session_lock(session_id):
             payload = self._read_payload(session_id)
-            if not list(payload.get("api_transcript") or []):
-                payload["api_transcript"] = [
+            if not list(payload.get("provider_protocol_timeline") or []):
+                payload["provider_protocol_timeline"] = [
                     item
-                    for item in (_api_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
+                    for item in (_provider_protocol_message(message) for message in list(payload.get("messages") or []) if isinstance(message, dict))
                     if item is not None
                 ]
             normalized_messages: list[dict[str, Any]] = []
@@ -617,8 +792,8 @@ class SessionManager:
             kept_raw_messages = messages[:raw_cutoff]
             kept_public_messages = _public_messages(kept_raw_messages)
             payload["messages"] = kept_public_messages
-            payload["api_transcript"] = _truncated_api_transcript(
-                list(payload.get("api_transcript") or []),
+            payload["provider_protocol_timeline"] = _truncate_provider_protocol_timeline(
+                list(payload.get("provider_protocol_timeline") or []),
                 kept_messages=kept_public_messages,
             )
             payload["updated_at"] = time.time()
@@ -640,7 +815,11 @@ class SessionManager:
         return rows
 
     def _list_session_summaries(self) -> list[dict[str, Any]]:
-        return [self._summary_from_path(path) for path in self.sessions_dir.glob("*.json")]
+        paths = list(self.sessions_dir.glob("*.json"))
+        summaries = [self._summary_from_path(path) for path in paths]
+        self._drop_missing_summary_index_entries({path.name for path in paths})
+        self._flush_summary_index_if_dirty()
+        return summaries
 
     def _summary_from_path(self, path: Path) -> dict[str, Any]:
         session_id = path.stem
@@ -735,7 +914,14 @@ class SessionManager:
                     handle.flush()
                     os.fsync(handle.fileno())
                 _replace_file_atomically(tmp_path, path)
-                self._invalidate_summary_cache(session_id)
+                stat = path.stat()
+                self._store_cached_summary(
+                    path.name,
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                    summary=self._summary_from_payload(payload),
+                    persist=True,
+                )
             except OSError as exc:
                 if tmp_path is not None:
                     try:
@@ -766,17 +952,43 @@ class SessionManager:
     def _cached_summary(self, cache_key: str, *, mtime_ns: int, size: int) -> dict[str, Any] | None:
         with self._summary_cache_guard:
             cached = self._summary_cache.get(cache_key)
-            if cached is None:
-                return None
-            cached_mtime_ns, cached_size, summary = cached
-            if cached_mtime_ns != int(mtime_ns) or cached_size != int(size):
+            if cached is not None:
+                cached_mtime_ns, cached_size, summary = cached
+                if cached_mtime_ns == int(mtime_ns) and cached_size == int(size):
+                    return _clone_summary(summary)
                 self._summary_cache.pop(cache_key, None)
+            self._ensure_summary_index_loaded_locked()
+            indexed = self._summary_index.get(cache_key)
+            if indexed is None:
                 return None
+            indexed_mtime_ns, indexed_size, summary = indexed
+            if indexed_mtime_ns != int(mtime_ns) or indexed_size != int(size):
+                self._summary_index.pop(cache_key, None)
+                self._summary_index_dirty = True
+                return None
+            self._summary_cache[cache_key] = (indexed_mtime_ns, indexed_size, _clone_summary(summary))
             return _clone_summary(summary)
 
-    def _store_cached_summary(self, cache_key: str, *, mtime_ns: int, size: int, summary: dict[str, Any]) -> None:
+    def _store_cached_summary(
+        self,
+        cache_key: str,
+        *,
+        mtime_ns: int,
+        size: int,
+        summary: dict[str, Any],
+        persist: bool = False,
+    ) -> None:
         with self._summary_cache_guard:
-            self._summary_cache[cache_key] = (int(mtime_ns), int(size), _clone_summary(summary))
+            normalized = _clone_summary(summary)
+            record = (int(mtime_ns), int(size), normalized)
+            self._summary_cache[cache_key] = record
+            self._ensure_summary_index_loaded_locked()
+            current = self._summary_index.get(cache_key)
+            if current != record:
+                self._summary_index[cache_key] = (int(mtime_ns), int(size), _clone_summary(summary))
+                self._summary_index_dirty = True
+            if persist:
+                self._flush_summary_index_locked()
 
     def _invalidate_summary_cache(self, session_id: str) -> None:
         try:
@@ -785,14 +997,112 @@ class SessionManager:
             return
         with self._summary_cache_guard:
             self._summary_cache.pop(cache_key, None)
+            self._ensure_summary_index_loaded_locked()
+            if cache_key in self._summary_index:
+                self._summary_index.pop(cache_key, None)
+                self._summary_index_dirty = True
+                self._flush_summary_index_locked()
 
-    def _latest_provider_visible_anchor(self, session_id: str) -> dict[str, Any]:
+    def _drop_missing_summary_index_entries(self, existing_cache_keys: set[str]) -> None:
+        with self._summary_cache_guard:
+            self._ensure_summary_index_loaded_locked()
+            stale = [key for key in self._summary_index if key not in existing_cache_keys]
+            if not stale:
+                return
+            for key in stale:
+                self._summary_index.pop(key, None)
+                self._summary_cache.pop(key, None)
+            self._summary_index_dirty = True
+
+    def _ensure_summary_index_loaded_locked(self) -> None:
+        if self._summary_index_loaded:
+            return
+        self._summary_index_loaded = True
+        path = self.summary_index_path
+        if not path.exists():
+            return
         try:
-            from runtime.context_management.provider_visible_context_ledger import latest_provider_visible_context_success_anchor
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            self._summary_index_dirty = True
+            return
+        if not isinstance(payload, dict) or int(payload.get("schema") or 0) != SESSION_SUMMARY_INDEX_SCHEMA:
+            self._summary_index_dirty = True
+            return
+        sessions = payload.get("sessions")
+        if not isinstance(sessions, dict):
+            self._summary_index_dirty = True
+            return
+        loaded: dict[str, tuple[int, int, dict[str, Any]]] = {}
+        for key, record in sessions.items():
+            if not isinstance(record, dict):
+                continue
+            summary = record.get("summary")
+            if not isinstance(summary, dict):
+                continue
+            cache_key = str(key or "").strip()
+            if not cache_key.endswith(".json"):
+                continue
+            loaded[cache_key] = (
+                int(record.get("mtime_ns") or 0),
+                int(record.get("size") or 0),
+                _clone_summary(summary),
+            )
+        self._summary_index = loaded
 
-            return latest_provider_visible_context_success_anchor(storage_root=self.base_dir, scope=session_id)
+    def _flush_summary_index_if_dirty(self) -> None:
+        with self._summary_cache_guard:
+            self._flush_summary_index_locked()
+
+    def _flush_summary_index_locked(self) -> None:
+        if not self._summary_index_dirty:
+            return
+        payload = {
+            "schema": SESSION_SUMMARY_INDEX_SCHEMA,
+            "authority": "sessions.summary_index",
+            "updated_at": time.time(),
+            "sessions": {
+                key: {
+                    "mtime_ns": mtime_ns,
+                    "size": size,
+                    "summary": _clone_summary(summary),
+                }
+                for key, (mtime_ns, size, summary) in sorted(self._summary_index.items())
+            },
+        }
+        self.summary_index_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self.summary_index_path.parent,
+                prefix=f".{self.summary_index_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                tmp_path = Path(handle.name)
+                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self.summary_index_path)
+            self._summary_index_dirty = False
+        except OSError:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist session summary index: %s", self.summary_index_path, exc_info=True)
+
+    def _latest_provider_visible_append_anchor(self, session_id: str) -> dict[str, Any]:
+        try:
+            from runtime.context_management.provider_visible_append_ledger import latest_provider_visible_append_success_anchor
+
+            return latest_provider_visible_append_success_anchor(storage_root=self.base_dir, scope=session_id)
         except Exception:
-            logger.exception("Failed to load provider-visible context anchor for fork: %s", session_id)
+            logger.exception("Failed to load provider-visible append anchor for fork: %s", session_id)
             return {}
 
     def _latest_provider_request_context_commit(self, session_id: str) -> dict[str, Any]:
@@ -813,7 +1123,7 @@ class SessionManager:
         session_id: str,
         payload: dict[str, Any],
         *,
-        provider_anchor: dict[str, Any],
+        provider_append_anchor: dict[str, Any],
     ) -> dict[str, Any]:
         try:
             from runtime.context_management.context_commit_record import create_session_context_commit_record
@@ -822,7 +1132,7 @@ class SessionManager:
                 storage_root=self.base_dir,
                 session_id=session_id,
                 session_payload=dict(payload or {}),
-                provider_visible_anchor=dict(provider_anchor or {}),
+                provider_visible_append_anchor=dict(provider_append_anchor or {}),
                 reason="session_fork_point",
             )
         except Exception:
@@ -995,7 +1305,7 @@ def _fork_content_replacement_state(
             dict(provider_request_commit or {}).get("tool_context_projection"),
             dict(provider_request_commit or {}).get("provider_payload_segments"),
             dict(provider_request_commit or {}).get("provider_payload_cache_boundary"),
-            list(dict(parent_payload or {}).get("api_transcript") or [])[-24:],
+            list(dict(parent_payload or {}).get("provider_protocol_timeline") or [])[-24:],
         ],
         limit=80,
     )
@@ -1293,7 +1603,14 @@ def _normalize_turn_environment_snapshot(payload: dict[str, Any] | None) -> dict
     ]
     return {
         "turn_id": str(raw.get("turn_id") or "").strip(),
+        "execution_scope_kind": str(raw.get("execution_scope_kind") or raw.get("scope_kind") or "").strip(),
         "task_environment_id": environment_id,
+        "task_instance_id": str(raw.get("task_instance_id") or "").strip(),
+        "episode_id": str(raw.get("episode_id") or "").strip(),
+        "graph_run_id": str(raw.get("graph_run_id") or "").strip(),
+        "node_id": str(raw.get("node_id") or "").strip(),
+        "work_order_id": str(raw.get("work_order_id") or "").strip(),
+        "context_package_id": str(raw.get("context_package_id") or "").strip(),
         "environment_kind": str(raw.get("environment_kind") or "").strip(),
         "environment_prompt_refs": prompt_refs,
         "runtime_assembly_id": str(raw.get("runtime_assembly_id") or raw.get("assembly_id") or "").strip(),
@@ -1315,6 +1632,16 @@ def _scope_matches(
     if task_environment_id is not None and scope["task_environment_id"] != str(task_environment_id or "").strip():
         return False
     if project_id is not None and scope["project_id"] != str(project_id or "").strip():
+        return False
+    return True
+
+
+def _is_main_chat_session_summary(payload: dict[str, Any]) -> bool:
+    scope = _normalize_scope(dict(payload.get("scope") or {}))
+    if scope["workspace_view"] not in {"", "chat"}:
+        return False
+    task_binding = _normalize_task_binding(dict(payload.get("task_binding") or {}))
+    if str(task_binding.get("kind") or "").strip() == "task_graph":
         return False
     return True
 
@@ -1402,7 +1729,7 @@ def _agent_message(payload: dict[str, Any]) -> dict[str, str] | None:
     return {"role": role, "content": content}
 
 
-def _api_message(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _provider_protocol_message(payload: dict[str, Any]) -> dict[str, Any] | None:
     role = str(payload.get("role") or payload.get("type") or "").strip()
     if role not in {"user", "assistant", "tool"}:
         return None
@@ -1438,7 +1765,7 @@ def _explicit_provider_text(value: Any) -> str:
     return text if text != "" else ""
 
 
-def _truncated_api_transcript(
+def _truncate_provider_protocol_timeline(
     transcript: list[Any],
     *,
     kept_messages: list[dict[str, Any]],
@@ -1451,14 +1778,14 @@ def _truncated_api_transcript(
     if not kept_turn_ids:
         return [
             item
-            for item in (_api_message(message) for message in kept_messages if isinstance(message, dict))
+            for item in (_provider_protocol_message(message) for message in kept_messages if isinstance(message, dict))
             if item is not None
         ]
     result: list[dict[str, Any]] = []
     for item in transcript:
         if not isinstance(item, dict):
             continue
-        message = _api_message(item)
+        message = _provider_protocol_message(item)
         if message is None:
             continue
         turn_id = str(message.get("turn_id") or "").strip()

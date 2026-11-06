@@ -24,6 +24,9 @@ router = APIRouter()
 class GraphTaskInstanceCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
+    graph_task_instance_id: str = Field(default="", max_length=240)
+    project_path: str = Field(default="", max_length=1000)
+    artifact_root: str = Field(default="", max_length=1000)
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
     run_config: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -130,8 +133,15 @@ async def create_graph_task_instance(graph_id: str, payload: GraphTaskInstanceCr
     if graph is None:
         raise HTTPException(status_code=404, detail="TaskGraph not found")
     repo = GraphTaskInstanceRepository(runtime.base_dir)
-    instance_id = repo.next_id(graph_id)
+    instance_id = _safe_instance_id(payload.graph_task_instance_id) or repo.next_id(graph_id)
+    if repo.get(instance_id) is not None:
+        raise HTTPException(status_code=409, detail=f"GraphTaskInstance already exists: {instance_id}")
     scope = _instance_scope(instance_id)
+    configured_initial_inputs = dict(payload.initial_inputs or {})
+    if str(payload.project_path or "").strip():
+        configured_initial_inputs["project_path"] = _normalize_logical_root(payload.project_path)
+    if str(payload.artifact_root or "").strip():
+        configured_initial_inputs["artifact_root"] = _normalize_logical_root(payload.artifact_root)
     root_session = runtime.session_manager.create_session(
         title=f"{payload.title} - 图任务项目",
         scope=scope,
@@ -141,7 +151,7 @@ async def create_graph_task_instance(graph_id: str, payload: GraphTaskInstanceCr
         graph_title=graph.title,
         title=payload.title,
         description=payload.description,
-        initial_inputs=payload.initial_inputs,
+        initial_inputs=configured_initial_inputs,
         run_config=payload.run_config,
         metadata=payload.metadata,
     )
@@ -231,17 +241,7 @@ async def start_graph_task_instance_run(instance_id: str, payload: GraphTaskInst
             runtime_settings_patch=dict(payload.runtime_settings_patch or {}),
         ),
     )
-    graph_run_id = str(start.get("graph_run_id") or "")
-    updated = repo.record_run(
-        instance.graph_task_instance_id,
-        graph_run_id=graph_run_id,
-        status=_status_from_start(start),
-        metadata={
-            "latest_task_run_id": str(start.get("task_run_id") or ""),
-            "latest_graph_config_id": str(start.get("graph_config_id") or ""),
-            "latest_graph_session_id": str(start.get("graph_session_id") or ""),
-        },
-    )
+    updated = repo.require(instance.graph_task_instance_id)
     return {
         "authority": "api.graph_task_instances.start_run",
         "instance": updated.to_dict(),
@@ -469,8 +469,9 @@ def _instance_create_metadata(
     writing_project = dict(payload.get("writing_project") or {})
     if configured_inputs:
         writing_project = {**writing_project, **_writing_project_fields_from_inputs(configured_inputs)}
-    if str(description or "").strip() and not str(writing_project.get("project_brief") or "").strip():
-        writing_project["project_brief"] = str(description or "").strip()
+    if str(description or "").strip() and not str(writing_project.get("user_creative_seed") or "").strip():
+        writing_project["user_creative_seed"] = str(description or "").strip()
+        writing_project.setdefault("user_input_kind", "raw_creative_paragraph")
     if str(title or "").strip() and not str(writing_project.get("project_title") or "").strip():
         writing_project["project_title"] = str(title or "").strip()
     if writing_project:
@@ -491,8 +492,9 @@ def _instance_config_initial_inputs(instance: Any) -> dict[str, Any]:
         description = str(getattr(instance, "description", "") or "").strip()
         payload.setdefault("project_title", title)
         payload.setdefault("title", title)
-        if description and not str(payload.get("project_brief") or "").strip():
-            payload["project_brief"] = description
+        if description and not str(payload.get("user_creative_seed") or "").strip():
+            payload["user_creative_seed"] = description
+            payload.setdefault("user_input_kind", "raw_creative_paragraph")
         if payload:
             payload.setdefault("source", "graph_task_instance_config")
     return payload
@@ -500,7 +502,8 @@ def _instance_config_initial_inputs(instance: Any) -> dict[str, Any]:
 
 def _writing_project_fields_from_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     allowed = {
-        "project_brief",
+        "user_creative_seed",
+        "user_input_kind",
         "project_title",
         "title",
         "reference_works",
@@ -509,6 +512,10 @@ def _writing_project_fields_from_inputs(inputs: dict[str, Any]) -> dict[str, Any
         "genre",
         "style",
         "target_audience",
+        "graph_task_instance_id",
+        "project_path",
+        "artifact_root",
+        "source_project_id",
     }
     return {
         key: value
@@ -520,14 +527,14 @@ def _writing_project_fields_from_inputs(inputs: dict[str, Any]) -> dict[str, Any
 def _validate_instance_run_inputs(instance: Any, initial_inputs: dict[str, Any]) -> None:
     if not _is_modular_novel_graph(getattr(instance, "graph_id", "")):
         return
-    if str(initial_inputs.get("project_brief") or "").strip():
+    if str(initial_inputs.get("user_creative_seed") or "").strip():
         return
     raise HTTPException(
         status_code=409,
         detail={
-            "message": "写作图任务实例缺少项目启动包，请先在项目配置中填写 project_brief。",
+            "message": "写作图任务实例缺少用户原始创意段落。",
             "graph_task_instance_id": getattr(instance, "graph_task_instance_id", ""),
-            "required_input": "project_brief",
+            "required_input": "user_creative_seed",
         },
     )
 
@@ -764,13 +771,6 @@ def _looks_like_chapter_path(path: str) -> bool:
     return normalized.lower().startswith("chapters/") or name.lower().startswith("chapter")
 
 
-def _status_from_start(start: dict[str, Any]) -> str:
-    graph_run = dict(start.get("graph_run") or {})
-    task_run = dict(start.get("task_run") or {})
-    status = str(graph_run.get("status") or task_run.get("status") or "running").strip()
-    return status or "running"
-
-
 def _instance_monitor_summary(
     instance: dict[str, Any],
     graph_monitor: dict[str, Any] | None,
@@ -796,6 +796,19 @@ def _instance_monitor_summary(
 def _safe_session_fragment(value: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in str(value or "").strip())
     return safe.strip(".-") or "graph-task-instance"
+
+
+def _safe_instance_id(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_", ".", ":"} else "." for ch in str(value or "").strip())
+    safe = ".".join(part for part in safe.strip(".:").split(".") if part)
+    return safe or ""
+
+
+def _normalize_logical_root(value: str) -> str:
+    normalized = str(value or "").replace("\\", "/").strip().strip("'\"`").strip("/")
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    return normalized
 
 
 def _query_int(value: Any, *, default: int) -> int:

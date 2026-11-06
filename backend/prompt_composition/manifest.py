@@ -9,8 +9,8 @@ from .models import (
     PromptCompositionManifest,
     PromptCompositionMessageProjection,
     PromptCompositionPlan,
-    PromptCompositionSlot,
-    RuntimePromptSlotPlan,
+    PromptManifestBinding,
+    RuntimeLoadSegmentPlan,
 )
 from .runtime_slot_plan import composition_slots_from_runtime_slot_plan
 from .tracing import bind_segments_to_slots
@@ -20,7 +20,7 @@ def build_runtime_slot_prompt_composition_manifest(
     *,
     invocation_kind: str,
     packet_id: str,
-    runtime_slot_plan: RuntimePromptSlotPlan,
+    runtime_slot_plan: RuntimeLoadSegmentPlan,
     segment_plan: dict[str, Any],
     dynamic_fragment_refs: tuple[str, ...] = (),
     volatile_state_refs: tuple[str, ...] = (),
@@ -47,6 +47,7 @@ def build_runtime_slot_prompt_composition_manifest(
     message_projection = _message_projection(segments=segments, bindings=bindings)
     coverage = _coverage(plan=plan, bindings=bindings)
     cache_boundary = _cache_boundary_diagnostics(plan=plan, segments=segments)
+    prompt_source_audit = _prompt_source_audit(plan)
     seed = {
         "invocation_kind": invocation_kind,
         "packet_id": packet_id,
@@ -80,6 +81,7 @@ def build_runtime_slot_prompt_composition_manifest(
             "segment_plan_ref": str(segment_plan.get("segment_plan_id") or ""),
             "runtime_slot_plan_ref": str(runtime_slot_plan.plan_id or ""),
             "cache_boundary": cache_boundary,
+            "prompt_source_audit": prompt_source_audit,
             "provider_request_content_changed": False,
             "authority": "prompt_composition.runtime_slot_manifest_builder",
         },
@@ -133,10 +135,10 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         and str(binding.cache_role or "") in {"cacheable_prefix", "session_stable"}
         and str(binding.prefix_tier or "") not in {"volatile", "none"}
     ]
-    legacy_runtime_bindings = [
+    unregistered_static_bindings = [
         binding
         for binding in stable_unregistered_bindings
-        if str(binding.binding_status or "") == "legacy_runtime_text"
+        if str(binding.binding_status or "") == "runtime_unregistered_static_text"
     ]
     return {
         "slot_count": len(plan.slots),
@@ -148,8 +150,8 @@ def _coverage(*, plan: PromptCompositionPlan, bindings: tuple[Any, ...]) -> dict
         "all_segments_explained": len(bindings) == sum(status_counts.values()),
         "stable_unregistered_segment_count": len(stable_unregistered_bindings),
         "stable_unregistered_segment_samples": _binding_samples(stable_unregistered_bindings),
-        "legacy_runtime_text_count": status_counts.get("legacy_runtime_text", 0),
-        "legacy_runtime_text_samples": _binding_samples(legacy_runtime_bindings),
+        "runtime_unregistered_static_text_count": status_counts.get("runtime_unregistered_static_text", 0),
+        "runtime_unregistered_static_text_samples": _binding_samples(unregistered_static_bindings),
         "dynamic_context_fragment_count": status_counts.get("dynamic_context_fragment", 0),
         "runtime_action_schema_count": status_counts.get("runtime_action_schema", 0),
         "runtime_artifact_scope_count": status_counts.get("runtime_artifact_scope", 0),
@@ -179,68 +181,140 @@ def _binding_samples(bindings: list[Any], *, limit: int = 5) -> list[dict[str, A
     ]
 
 
+def _prompt_source_audit(plan: PromptCompositionPlan) -> list[dict[str, Any]]:
+    audit: list[dict[str, Any]] = []
+    for slot in tuple(plan.slots or ()):
+        metadata = dict(slot.metadata or {})
+        prompt_audit = dict(metadata.get("prompt_source_audit") or {})
+        if not prompt_audit:
+            prompt_audit = {
+                "prompt_ref": str(slot.prompt_ref or slot.source_ref or ""),
+                "source_ref": str(slot.source_ref or ""),
+                "content_hash": str(slot.content_hash or ""),
+            }
+        prompt_audit.update(
+            {
+                "manifest_binding_id": slot.slot_id,
+                "slot_kind": slot.slot_kind,
+                "layer": slot.layer,
+                "cache_role": slot.cache_role,
+                "prefix_tier": slot.prefix_tier,
+                "order": int(slot.order or 0),
+            }
+        )
+        audit.append(prompt_audit)
+    return audit
+
+
 _PREFIX_TIER_ORDER = {
     "provider_global": 1,
     "session": 2,
-    "task": 3,
     "volatile": 4,
     "none": 5,
 }
 
 _LAYER_CACHE_POLICY = {
-    "global_static": {
+    "provider_global_stable": {
         "allowed_prefix_tiers": {"provider_global"},
         "allowed_cache_roles": {"cacheable_prefix"},
     },
-    "environment_stable": {
+    "session_stable_environment": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
     },
-    "file_evidence_policy_stable": {
+    "session_stable_file_evidence": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "lifecycle_stable": {
+    "session_stable_turn_state": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"cacheable_prefix", "session_stable"},
     },
-    "project_stable": {
+    "session_stable_project": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "personality_stable": {
+    "session_stable_personality": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "agent_stable": {
+    "session_stable_agent": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "capability_stable": {
-        "allowed_prefix_tiers": {"session", "task"},
+    "session_stable_capability": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "artifact_scope_stable": {
-        "allowed_prefix_tiers": {"task"},
+    "task_capability_context": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "task_contract_stable": {
-        "allowed_prefix_tiers": {"task"},
+    "task_scope_context": {
+        "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "append_only_task_evidence": {
-        "allowed_prefix_tiers": {"session", "task", "volatile", "none"},
+    "task_run_contract_context": {
+        "allowed_prefix_tiers": {"session"},
+        "allowed_cache_roles": {"session_stable"},
+    },
+    "append_only_runtime_evidence": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
         "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
-    "task_runtime_boundary_stable": {
-        "allowed_prefix_tiers": {"task"},
-        "allowed_cache_roles": {"session_stable"},
+    "context_memory_append": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
     },
-    "runtime_protocol_stable": {
+    "session_stable_protocol": {
         "allowed_prefix_tiers": {"session"},
         "allowed_cache_roles": {"session_stable"},
     },
-    "runtime_dynamic": {
+    "runtime_cursor_prefix": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "runtime_delta_tail": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "dynamic_context_tail": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "current_exact_evidence": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "current_turn_user_context": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "evidence_index_cursor": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "attachment_context_index": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "editor_context_index": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "file_evidence_cursor": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "runtime_memory_context": {
+        "allowed_prefix_tiers": {"session", "volatile", "none"},
+        "allowed_cache_roles": {"session_stable", "volatile", "never_cache"},
+    },
+    "assistant_completion_prefix": {
+        "allowed_prefix_tiers": {"volatile", "none"},
+        "allowed_cache_roles": {"volatile", "never_cache"},
+    },
+    "volatile": {
         "allowed_prefix_tiers": {"volatile", "none"},
         "allowed_cache_roles": {"volatile", "never_cache"},
     },
@@ -283,7 +357,7 @@ def _cache_boundary_diagnostics(
     }
 
 
-def _layer_cache_policy_violations(slots: tuple[PromptCompositionSlot, ...]) -> list[dict[str, Any]]:
+def _layer_cache_policy_violations(slots: tuple[PromptManifestBinding, ...]) -> list[dict[str, Any]]:
     violations: list[dict[str, Any]] = []
     for slot in slots:
         policy = _LAYER_CACHE_POLICY.get(str(slot.layer or ""))

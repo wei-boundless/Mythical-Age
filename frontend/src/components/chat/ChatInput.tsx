@@ -1,7 +1,8 @@
 "use client";
 
 import { ArrowUp, ChevronDown, ChevronUp, Eye, EyeOff, FileText, ImagePlus, ListChecks, Plus, Square, Target, X } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 import type { ModelProviderConfig, ImageAssetConfig } from "@/lib/api";
 import type { ChatThinkingMode } from "@/lib/store/types";
@@ -13,6 +14,14 @@ import {
   type LongTextDraftIntent,
   type LongTextCompactionMode,
 } from "./longTextCompact";
+
+type QuickMenuPosition = {
+  left: number;
+  bottom: number;
+};
+
+const QUICK_MENU_PORTAL_WIDTH = 304;
+const QUICK_MENU_PORTAL_MARGIN = 12;
 
 export function ChatInput({
   disabled,
@@ -52,12 +61,18 @@ export function ChatInput({
   const [submitting, setSubmitting] = useState(false);
   const [draftMode, setDraftMode] = useState<LongTextCompactionMode>("expanded");
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+  const [quickMenuPosition, setQuickMenuPosition] = useState<QuickMenuPosition | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const quickMenuRef = useRef<HTMLDivElement | null>(null);
+  const quickMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const quickMenuPanelRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingDraftIntentRef = useRef<LongTextDraftIntent | null>(null);
   const focusExpandedDraftRef = useRef(false);
-  const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, imageAssetConfig), [modelProviderConfig, imageAssetConfig]);
+  const modelOptions = useMemo(
+    () => buildChatModelOptions(modelProviderConfig, imageAssetConfig, selectedChatModelId),
+    [modelProviderConfig, imageAssetConfig, selectedChatModelId],
+  );
   const inputDisabled = disabled || (submitting && !streaming);
   const trimmedValue = value.trim();
   const draftCompaction = useMemo(
@@ -81,7 +96,9 @@ export function ChatInput({
   const thinkingModeTitle = activeModelSupportsReasoning
     ? "选择本轮思考模式"
     : "当前模型不支持思考模式";
-  const quickMenuDisabled = inputDisabled || streaming;
+  const quickMenuTriggerDisabled = inputDisabled;
+  const quickMenuActionDisabled = inputDisabled || streaming;
+  const attachmentActionDisabled = disabled || submitting || streaming;
   const permissionOptions = useMemo(
     () => buildPermissionModeOptions(supportedPermissionModes),
     [supportedPermissionModes]
@@ -94,17 +111,52 @@ export function ChatInput({
     streaming ? "chat-input-panel--streaming" : "",
     draftCompacted ? "chat-input-panel--draft-compact" : "",
   ].filter(Boolean).join(" ");
-  const primaryAction = streaming ? "stop_stream" : "send";
+  const primaryAction = streaming && trimmedValue ? "send_steer" : (streaming ? "stop_stream" : "send");
   const primaryDisabled = primaryAction === "stop_stream"
     ? false
     : inputDisabled || (!trimmedValue && !hasSelectedFiles);
   const primaryLabel = primaryAction === "stop_stream"
     ? "停止本轮生成"
+    : primaryAction === "send_steer"
+      ? "发送到当前回合"
     : "发送";
   const primaryButtonClassName = [
     "chat-send-button",
     primaryAction === "stop_stream" ? "chat-stop-button chat-send-button--stop" : "",
   ].filter(Boolean).join(" ");
+  const quickMenuPortalStyle = {
+    "--chat-quick-menu-left": `${quickMenuPosition?.left ?? QUICK_MENU_PORTAL_MARGIN}px`,
+    "--chat-quick-menu-bottom": `${quickMenuPosition?.bottom ?? 88}px`,
+  } as CSSProperties;
+
+  const positionQuickMenuFromElement = (element: HTMLElement | null) => {
+    if (!element || typeof window === "undefined") {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    const maxLeft = Math.max(
+      QUICK_MENU_PORTAL_MARGIN,
+      window.innerWidth - QUICK_MENU_PORTAL_WIDTH - QUICK_MENU_PORTAL_MARGIN,
+    );
+    const left = Math.min(Math.max(QUICK_MENU_PORTAL_MARGIN, rect.left), maxLeft);
+    const bottom = Math.max(QUICK_MENU_PORTAL_MARGIN, window.innerHeight - rect.top + 10);
+    setQuickMenuPosition({
+      left: Math.round(left),
+      bottom: Math.round(bottom),
+    });
+  };
+
+  const toggleQuickMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (quickMenuTriggerDisabled) {
+      return;
+    }
+    if (quickMenuOpen) {
+      setQuickMenuOpen(false);
+      return;
+    }
+    positionQuickMenuFromElement(event.currentTarget);
+    setQuickMenuOpen(true);
+  };
 
   useEffect(() => {
     if (!activeModelSupportsReasoning && chatThinkingMode !== "normal") {
@@ -136,8 +188,13 @@ export function ChatInput({
       return;
     }
     const handlePointerDown = (event: PointerEvent) => {
-      const menu = quickMenuRef.current;
-      if (!menu || !(event.target instanceof Node) || menu.contains(event.target)) {
+      const trigger = quickMenuRef.current;
+      const panel = quickMenuPanelRef.current;
+      if (
+        !(event.target instanceof Node)
+        || trigger?.contains(event.target)
+        || panel?.contains(event.target)
+      ) {
         return;
       }
       setQuickMenuOpen(false);
@@ -156,10 +213,24 @@ export function ChatInput({
   }, [quickMenuOpen]);
 
   useEffect(() => {
-    if (quickMenuOpen && quickMenuDisabled) {
+    if (quickMenuOpen && quickMenuTriggerDisabled) {
       setQuickMenuOpen(false);
     }
-  }, [quickMenuDisabled, quickMenuOpen]);
+  }, [quickMenuTriggerDisabled, quickMenuOpen]);
+
+  useEffect(() => {
+    if (!quickMenuOpen || typeof window === "undefined") {
+      return;
+    }
+    const updateMenuPosition = () => positionQuickMenuFromElement(quickMenuButtonRef.current);
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [quickMenuOpen]);
 
   const submit = async () => {
     const nextValue = value.trim();
@@ -226,7 +297,7 @@ export function ChatInput({
   };
 
   const runTaskModeShortcut = async (mode: TaskModeShortcut) => {
-    if (inputDisabled || streaming) {
+    if (quickMenuActionDisabled) {
       return;
     }
     setQuickMenuOpen(false);
@@ -361,7 +432,7 @@ export function ChatInput({
             accept=".png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif,image/png,image/jpeg,image/webp,image/bmp,image/tiff"
             aria-label="选择图片"
             className="chat-attachment-input"
-            disabled={disabled || submitting || streaming}
+            disabled={attachmentActionDisabled}
             multiple
             onChange={(event) => {
               const files = Array.from(event.currentTarget.files ?? []);
@@ -377,26 +448,42 @@ export function ChatInput({
               aria-haspopup="menu"
               aria-label="打开附加操作"
               className="chat-more-actions__trigger"
-              disabled={quickMenuDisabled}
-              onClick={() => setQuickMenuOpen((open) => !open)}
+              disabled={quickMenuTriggerDisabled}
+              onClick={toggleQuickMenu}
+              ref={quickMenuButtonRef}
               title="命令与附件"
               type="button"
             >
               <Plus size={17} />
             </button>
-            {quickMenuOpen ? (
-              <div className="chat-more-actions__menu" role="menu" aria-label="附加操作">
+            {quickMenuOpen && typeof document !== "undefined" ? createPortal(
+              <div
+                aria-label="命令与附件"
+                className={`chat-more-actions__menu chat-more-actions__menu--portal${streaming ? " chat-more-actions__menu--busy" : ""}`}
+                ref={quickMenuPanelRef}
+                role="menu"
+                style={quickMenuPortalStyle}
+              >
+                <div className="chat-more-actions__header">
+                  <strong>命令与附件</strong>
+                  <span>{streaming ? "当前回合运行中" : "选择本轮入口"}</span>
+                </div>
+                {streaming ? (
+                  <div className="chat-more-actions__notice" role="status">
+                    运行中可查看入口，命令和图片会在本轮结束后恢复。
+                  </div>
+                ) : null}
                 <div className="chat-more-actions__section">
                   <span className="chat-more-actions__section-label">任务命令</span>
                   {TASK_MODE_SHORTCUTS.map((item) => (
                     <button
-                      aria-label={`开启 ${item.label} Mode`}
+                      aria-label={`开启 ${item.label}`}
                       className="chat-more-actions__item"
-                      disabled={quickMenuDisabled}
+                      disabled={quickMenuActionDisabled}
                       key={item.mode}
                       onClick={() => void runTaskModeShortcut(item.mode)}
                       role="menuitem"
-                      title={item.title}
+                      title={streaming ? "本轮运行结束后可开启命令" : item.title}
                       type="button"
                     >
                       <item.icon aria-hidden="true" size={15} />
@@ -404,6 +491,7 @@ export function ChatInput({
                         <strong>{item.label}</strong>
                         <small>{item.description}</small>
                       </span>
+                      <kbd>{item.command}</kbd>
                     </button>
                   ))}
                 </div>
@@ -412,7 +500,7 @@ export function ChatInput({
                   <button
                     aria-label="上传图片"
                     className="chat-more-actions__item"
-                    disabled={disabled || submitting || streaming}
+                    disabled={attachmentActionDisabled}
                     onClick={() => {
                       setQuickMenuOpen(false);
                       fileInputRef.current?.click();
@@ -424,11 +512,12 @@ export function ChatInput({
                     <ImagePlus aria-hidden="true" size={15} />
                     <span>
                       <strong>添加图片</strong>
-                      <small>支持截图、照片和粘贴图片</small>
+                      <small>{streaming ? "本轮结束后可上传" : "支持截图、照片和粘贴图片"}</small>
                     </span>
                   </button>
                 </div>
-              </div>
+              </div>,
+              document.body,
             ) : null}
           </div>
           <div
@@ -502,6 +591,17 @@ export function ChatInput({
           </div>
         </div>
         <div className="chat-input-panel__actions">
+          {streaming && primaryAction !== "stop_stream" ? (
+            <button
+              aria-label="停止本轮生成"
+              className="chat-send-button chat-stop-button chat-send-button--stop disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onStop}
+              title="停止本轮生成"
+              type="button"
+            >
+              <Square size={15} />
+            </button>
+          ) : null}
           <button
             aria-label={primaryLabel}
             className={`${primaryButtonClassName} disabled:cursor-not-allowed disabled:opacity-50`}
@@ -529,11 +629,12 @@ const TASK_MODE_SHORTCUTS: Array<{
   label: string;
   title: string;
   description: string;
+  command: string;
   icon: typeof Target;
 }> = [
-  { mode: "goal", label: "Goal", title: "通过 /task goal 开启 Goal Mode", description: "建立持续目标", icon: Target },
-  { mode: "plan", label: "Plan", title: "通过 /task plan 开启 Plan Mode", description: "进入计划审阅", icon: FileText },
-  { mode: "todo", label: "Todo", title: "通过 /task todo 开启 Todo Mode", description: "生成任务清单", icon: ListChecks },
+  { mode: "goal", label: "目标模式", title: "通过 /task goal 开启 Goal Mode", description: "建立持续目标", command: "/task goal", icon: Target },
+  { mode: "plan", label: "计划模式", title: "通过 /task plan 开启 Plan Mode", description: "进入计划审阅", command: "/task plan", icon: FileText },
+  { mode: "todo", label: "待办模式", title: "通过 /task todo 开启 Todo Mode", description: "生成任务清单", command: "/task todo", icon: ListChecks },
 ];
 
 function taskModeSlashCommand(mode: TaskModeShortcut, body: string) {
@@ -635,7 +736,11 @@ function permissionModeTitle(mode: string) {
   }
 }
 
-function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: ImageAssetConfig | null) {
+function buildChatModelOptions(
+  config: ModelProviderConfig | null,
+  imageConfig: ImageAssetConfig | null,
+  selectedModelId = "system-default",
+) {
   const systemLabel = config?.provider && config?.model
     ? config.model
     : "系统默认";
@@ -644,7 +749,11 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
     const provider = String(config.provider || "").trim().toLowerCase();
     const activeModel = String(config.model || "").trim();
     const providerOption = providerCatalogOption(config, provider);
-    const presets = providerOption?.model_presets || [];
+    const registered = (config.registered_models || [])
+      .filter((item) => String(item.provider || "").trim().toLowerCase() === provider)
+      .map((item) => String(item.model || "").trim())
+      .filter(Boolean);
+    const presets = registered.length ? registered : (providerOption?.model_presets || []);
     presets.forEach((model) => {
       const modelId = String(model || "").trim();
       if (!modelId || modelId === activeModel) {
@@ -656,6 +765,15 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
         baseUrl: config.base_url || providerOption?.default_base_url,
       });
     });
+    const [selectedProvider, ...selectedModelParts] = String(selectedModelId || "").split("::");
+    const selectedModel = selectedModelParts.join("::").trim();
+    if (selectedProvider.trim().toLowerCase() === provider && selectedModel && selectedModel !== activeModel) {
+      addConfiguredModelOption(options, {
+        id: `${provider}::${selectedModel}`,
+        label: selectedModel,
+        baseUrl: config.base_url || providerOption?.default_base_url,
+      });
+    }
   }
   addConfiguredModelOption(options, {
     id: config?.fallback_provider && config?.fallback_model ? `${config.fallback_provider}::${config.fallback_model}` : "",

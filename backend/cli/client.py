@@ -67,8 +67,11 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid session list.")
         return [dict(item) for item in payload if isinstance(item, dict)]
 
-    def create_session(self, title: str = "CLI Session") -> dict[str, Any]:
-        payload = self._json_request("POST", "/sessions", {"title": title})
+    def create_session(self, title: str = "CLI Session", *, scope: dict[str, Any] | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"title": title}
+        if scope:
+            body["scope"] = dict(scope)
+        payload = self._json_request("POST", "/sessions", body)
         if not isinstance(payload, dict):
             raise AgentCliClientError("Backend returned an invalid session.")
         return dict(payload)
@@ -97,6 +100,15 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid TaskRun monitor payload.")
         return dict(payload)
 
+    def get_turn_run_monitor(self, turn_run_id: str) -> dict[str, Any]:
+        payload = self._json_request(
+            "GET",
+            f"/harness/run-monitor/turn-runs/{_quote_path(turn_run_id)}",
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid TurnRun monitor payload.")
+        return dict(payload)
+
     def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False) -> dict[str, Any]:
         suffix = "?include_payloads=true" if include_payloads else ""
         payload = self._json_request(
@@ -107,50 +119,70 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid TaskRun trace payload.")
         return dict(payload)
 
-    def execute_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
+    def get_published_graph_config(self, graph_id: str) -> dict[str, Any]:
         payload = self._json_request(
-            "POST",
-            f"/harness/task-runs/{_quote_path(task_run_id)}/execute",
-            {"max_steps": max_steps},
+            "GET",
+            f"/graph-system/task-graphs/{_quote_path(graph_id)}/published-config",
         )
         if not isinstance(payload, dict):
-            raise AgentCliClientError("Backend returned an invalid task execution payload.")
+            raise AgentCliClientError("Backend returned an invalid graph config payload.")
         return dict(payload)
 
-    def pause_task_run(self, task_run_id: str, *, reason: str = "") -> dict[str, Any]:
-        return self._task_run_control_request(task_run_id, "pause", reason=reason)
-
-    def resume_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
+    def start_task_graph_run(
+        self,
+        graph_id: str,
+        *,
+        session_id: str,
+        task_id: str = "",
+        session_scope: dict[str, Any] | None = None,
+        initial_inputs: dict[str, Any] | None = None,
+        include_trace: bool = True,
+        include_graph_config: bool = False,
+        dispatch_ready: bool = True,
+        run_mode: str = "dispatch_only",
+        wait_for_completion: bool = False,
+        runner_budget: dict[str, Any] | None = None,
+        runtime_overrides: dict[str, Any] | None = None,
+        runtime_settings_patch: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         payload = self._json_request(
             "POST",
-            f"/harness/task-runs/{_quote_path(task_run_id)}/resume",
-            {"max_steps": max_steps},
+            f"/graph-system/task-graphs/{_quote_path(graph_id)}/start",
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "session_scope": dict(session_scope or {}),
+                "initial_inputs": dict(initial_inputs or {}),
+                "include_trace": include_trace,
+                "include_graph_config": include_graph_config,
+                "dispatch_ready": dispatch_ready,
+                "run_mode": run_mode,
+                "wait_for_completion": wait_for_completion,
+                "runner_budget": dict(runner_budget or {}),
+                "runtime_overrides": dict(runtime_overrides or {}),
+                "runtime_settings_patch": dict(runtime_settings_patch or {}),
+            },
         )
         if not isinstance(payload, dict):
-            raise AgentCliClientError("Backend returned an invalid task resume payload.")
+            raise AgentCliClientError("Backend returned an invalid graph run start payload.")
         return dict(payload)
 
-    def approve_launch_task_run(self, task_run_id: str, *, reason: str = "", max_steps: int = 12) -> dict[str, Any]:
+    def get_graph_run_monitor(
+        self,
+        graph_run_id: str,
+        *,
+        graph_config_id: str = "",
+        event_limit: int = 80,
+    ) -> dict[str, Any]:
+        suffix = f"?event_limit={max(1, int(event_limit or 80))}"
+        if graph_config_id:
+            suffix += f"&graph_config_id={_quote_path(graph_config_id)}"
         payload = self._json_request(
-            "POST",
-            f"/harness/task-runs/{_quote_path(task_run_id)}/approve-launch",
-            {"reason": reason, "max_steps": max_steps},
+            "GET",
+            f"/graph-system/graph-runs/{_quote_path(graph_run_id)}/monitor{suffix}",
         )
         if not isinstance(payload, dict):
-            raise AgentCliClientError("Backend returned an invalid launch approval payload.")
-        return dict(payload)
-
-    def stop_task_run(self, task_run_id: str, *, reason: str = "") -> dict[str, Any]:
-        return self._task_run_control_request(task_run_id, "stop", reason=reason)
-
-    def _task_run_control_request(self, task_run_id: str, action: str, *, reason: str = "") -> dict[str, Any]:
-        payload = self._json_request(
-            "POST",
-            f"/harness/task-runs/{_quote_path(task_run_id)}/{action}",
-            {"reason": reason},
-        )
-        if not isinstance(payload, dict):
-            raise AgentCliClientError(f"Backend returned an invalid task {action} payload.")
+            raise AgentCliClientError("Backend returned an invalid graph monitor payload.")
         return dict(payload)
 
     def get_config(self) -> dict[str, Any]:
@@ -279,5 +311,3 @@ def _merge_model_selection(default_selection: dict[str, Any], override_selection
     if default_policy or override_policy:
         selection["stream_policy"] = {**default_policy, **override_policy}
     return selection
-
-

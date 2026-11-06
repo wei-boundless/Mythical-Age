@@ -11,8 +11,8 @@ from harness.runtime.tool_catalog_manifest import build_tool_catalog_manifest
 from harness.runtime.tool_plan import build_runtime_tool_plan
 from prompt_library.environment_lifecycle_prompts import list_builtin_environment_lifecycle_prompt_resources
 from prompt_library.tool_prompts import _TOOL_GUIDANCE_REFS_BY_NAME, list_builtin_tool_prompt_resources
-from runtime.model_gateway.model_request import ModelRequestBuilder
-from runtime.prompt_accounting import ModelTokenUsageRecord, PromptCacheBreakDetector, PromptCachePlanner
+from runtime.model_gateway.provider_request import ProviderRequestBuilder
+from runtime.prompt_accounting import ModelTokenUsageRecord, CacheAnomalyDetector, PromptCachePlanner
 from runtime.prompt_accounting.serializer import CanonicalPromptSerializer
 
 _TOOL_GUIDANCE_DEFAULTS = {key: key for refs in _TOOL_GUIDANCE_REFS_BY_NAME.values() for key in refs}
@@ -284,7 +284,7 @@ def test_task_execution_tool_index_uses_tool_catalog_manifest_payload() -> None:
     task_contract_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
-        if dict(segment).get("kind") == "task_contract_stable"
+        if dict(segment).get("kind") == "task_run_contract_stable"
     )
 
     assert tool_index_payload == expected
@@ -326,7 +326,7 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     stable_segment = next(
         segment
         for segment in list(packet.segment_plan.get("segments") or [])
-        if dict(segment).get("kind") == "task_stable"
+        if dict(segment).get("kind") == "runtime_stable_contract"
     )
 
     assert "tool_catalog_hash" not in stable_payload
@@ -338,7 +338,7 @@ def test_observation_followup_stable_contract_uses_tool_catalog_manifest_payload
     assert dict(packet.diagnostics["prompt_manifest"])["tool_catalog_manifest"] == packet.tool_catalog_manifest
 
 
-def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_breaks() -> None:
+def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_anomalies() -> None:
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
         session_id="session:tool-catalog-cache-coverage",
         task_run={"task_run_id": "taskrun:tool-catalog-cache-coverage", "diagnostics": {"executor_status": "running"}},
@@ -354,8 +354,8 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
         },
     )
     packet = result.packet
-    model_request = ModelRequestBuilder().build(
-        request_id="modelreq:tool-catalog-cache-coverage",
+    provider_request = ProviderRequestBuilder().build(
+        request_id="providerreq:tool-catalog-cache-coverage",
         messages=packet.model_messages,
         tools=_provider_tools(),
         provider="deepseek",
@@ -364,22 +364,22 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
         metadata={"prompt_manifest": dict(packet.diagnostics["prompt_manifest"])},
     )
     segment_map = CanonicalPromptSerializer().build_segment_map(
-        request_id="modelreq:tool-catalog-cache-coverage",
+        request_id="providerreq:tool-catalog-cache-coverage",
         messages=packet.model_messages,
         tools=_provider_tools(),
         provider="deepseek",
         model="deepseek-v4-pro",
         segment_plan=packet.segment_plan,
-        model_request=model_request,
+        provider_request=provider_request,
     )
     planner = PromptCachePlanner()
-    cache_record = planner.plan(segment_map, provider="deepseek", model="deepseek-v4-pro", model_request=model_request)
+    cache_plan = planner.plan(segment_map, provider="deepseek", model="deepseek-v4-pro", provider_request=provider_request)
     provider_prompt_tokens = 24000
     required_boundaries = {
         str(item.get("kind") or ""): dict(item)
-        for item in list(dict(cache_record.diagnostics or {}).get("provider_cache_read_required_segment_boundaries") or [])
+        for item in list(dict(cache_plan.diagnostics or {}).get("provider_cache_read_required_segment_boundaries") or [])
     }
-    predicted_total = int(dict(cache_record.diagnostics or {}).get("target_warm_cache_read_rate_total_tokens") or 1)
+    predicted_total = int(dict(cache_plan.diagnostics or {}).get("target_warm_cache_read_rate_total_tokens") or 1)
     action_schema_boundary = math.ceil(
         int(required_boundaries["action_schema_static"]["cumulative_predicted_tokens"]) * provider_prompt_tokens / predicted_total
     )
@@ -390,7 +390,7 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
     assert cached_tokens < tool_index_boundary
     usage = ModelTokenUsageRecord(
         usage_id="tokuse:tool-catalog-cache-coverage",
-        request_id=cache_record.request_id,
+        request_id=cache_plan.request_id,
         provider="deepseek",
         model="deepseek-v4-pro",
         source="provider_usage",
@@ -400,17 +400,17 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
         total_tokens=provider_prompt_tokens,
     )
 
-    updated = planner.with_provider_usage(cache_record, usage)
+    updated = planner.with_provider_usage(cache_plan, usage)
     diagnostics = dict(updated.diagnostics or {})
     coverage_by_kind = {
         str(item.get("kind") or ""): dict(item)
         for item in list(diagnostics.get("provider_cache_read_required_segment_coverage") or [])
     }
-    previous = replace(cache_record, request_id="modelreq:tool-catalog-cache-coverage:previous")
-    break_record = PromptCacheBreakDetector().detect(
-        cache_record=updated,
+    previous = replace(cache_plan, request_id="providerreq:tool-catalog-cache-coverage:previous")
+    anomaly_record = CacheAnomalyDetector().detect(
+        cache_plan=updated,
         provider_usage=usage,
-        previous_cache_records=[previous],
+        previous_cache_plans=[previous],
         created_at=123.0,
     )
 
@@ -420,10 +420,10 @@ def test_provider_usage_keeps_estimated_required_stable_under_read_out_of_cache_
     assert coverage_by_kind["tool_index_stable"]["covered_by_provider_scaled_boundary"] is False
     assert coverage_by_kind["tool_index_stable"]["coverage_evidence"] == "estimated_from_local_token_scale"
     assert "tool_index_stable" in diagnostics["provider_cache_read_uncovered_required_segments"]
-    assert break_record is None
+    assert anomaly_record is None
 
 
-def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cache_break() -> None:
+def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cache_anomaly() -> None:
     result = RuntimeCompiler(base_dir=_backend_dir()).compile_task_execution_packet(
         session_id="session:tool-catalog-stable-prefix-coverage",
         task_run={"task_run_id": "taskrun:tool-catalog-stable-prefix-coverage", "diagnostics": {"executor_status": "running"}},
@@ -439,8 +439,8 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
         },
     )
     packet = result.packet
-    model_request = ModelRequestBuilder().build(
-        request_id="modelreq:tool-catalog-stable-prefix-coverage",
+    provider_request = ProviderRequestBuilder().build(
+        request_id="providerreq:tool-catalog-stable-prefix-coverage",
         messages=packet.model_messages,
         tools=_provider_tools(),
         provider="deepseek",
@@ -449,32 +449,32 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
         metadata={"prompt_manifest": dict(packet.diagnostics["prompt_manifest"])},
     )
     segment_map = CanonicalPromptSerializer().build_segment_map(
-        request_id="modelreq:tool-catalog-stable-prefix-coverage",
+        request_id="providerreq:tool-catalog-stable-prefix-coverage",
         messages=packet.model_messages,
         tools=_provider_tools(),
         provider="deepseek",
         model="deepseek-v4-pro",
         segment_plan=packet.segment_plan,
-        model_request=model_request,
+        provider_request=provider_request,
     )
     planner = PromptCachePlanner()
-    cache_record = planner.plan(segment_map, provider="deepseek", model="deepseek-v4-pro", model_request=model_request)
+    cache_plan = planner.plan(segment_map, provider="deepseek", model="deepseek-v4-pro", provider_request=provider_request)
     provider_prompt_tokens = 24000
     required_boundaries = {
         str(item.get("kind") or ""): dict(item)
-        for item in list(dict(cache_record.diagnostics or {}).get("provider_cache_read_required_segment_boundaries") or [])
+        for item in list(dict(cache_plan.diagnostics or {}).get("provider_cache_read_required_segment_boundaries") or [])
     }
-    predicted_total = int(dict(cache_record.diagnostics or {}).get("target_warm_cache_read_rate_total_tokens") or 1)
+    predicted_total = int(dict(cache_plan.diagnostics or {}).get("target_warm_cache_read_rate_total_tokens") or 1)
     task_contract_boundary = math.ceil(
-        int(required_boundaries["task_contract_stable"]["cumulative_predicted_tokens"]) * provider_prompt_tokens / predicted_total
+        int(required_boundaries["task_run_contract_stable"]["cumulative_predicted_tokens"]) * provider_prompt_tokens / predicted_total
     )
-    stable_prefix_boundary = int(dict(cache_record.diagnostics or {}).get("target_warm_cache_read_rate_prefix_tokens") or 0)
+    stable_prefix_boundary = int(dict(cache_plan.diagnostics or {}).get("target_warm_cache_read_rate_prefix_tokens") or 0)
     stable_prefix_scaled = math.ceil(stable_prefix_boundary * provider_prompt_tokens / predicted_total)
     cached_tokens = task_contract_boundary + 1
     assert cached_tokens < stable_prefix_scaled
     usage = ModelTokenUsageRecord(
         usage_id="tokuse:tool-catalog-stable-prefix-coverage",
-        request_id=cache_record.request_id,
+        request_id=cache_plan.request_id,
         provider="deepseek",
         model="deepseek-v4-pro",
         source="provider_usage",
@@ -484,12 +484,12 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
         total_tokens=provider_prompt_tokens,
     )
 
-    updated = planner.with_provider_usage(cache_record, usage)
-    previous = replace(cache_record, request_id="modelreq:tool-catalog-stable-prefix-coverage:previous")
-    break_record = PromptCacheBreakDetector().detect(
-        cache_record=updated,
+    updated = planner.with_provider_usage(cache_plan, usage)
+    previous = replace(cache_plan, request_id="providerreq:tool-catalog-stable-prefix-coverage:previous")
+    anomaly_record = CacheAnomalyDetector().detect(
+        cache_plan=updated,
         provider_usage=usage,
-        previous_cache_records=[previous],
+        previous_cache_plans=[previous],
         created_at=123.0,
     )
 
@@ -497,6 +497,4 @@ def test_provider_usage_does_not_mark_estimated_stable_prefix_under_read_as_cach
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_estimated_covered"] is False
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_covered"] is None
     assert dict(updated.diagnostics or {})["provider_cache_read_stable_prefix_coverage_evidence"] == "unmeasured_by_provider_usage"
-    assert break_record is None
-
-
+    assert anomaly_record is None

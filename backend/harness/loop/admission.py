@@ -4,13 +4,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from harness.current_work_receipt import current_work_control_availability_from_receipt
+from harness.runtime.control_action_schema import control_output_line_binding
 
 from .model_action_protocol import AnyModelActionRequest
 
 
 AdmissionDecisionValue = Literal["allow", "deny", "ask_approval", "invalid", "needs_contract", "needs_task_run", "operation_unavailable"]
 _TASK_RUNTIME_OWNER_SCOPES = {"task_memory"}
-_TASK_RUNTIME_TOOL_NAMES = {"agent_todo"}
+_TASK_RUNTIME_TOOL_NAMES = {"agent_state"}
 _TASK_RUNTIME_OPERATION_IDS = {"op.agent_todo"}
 
 
@@ -28,6 +29,9 @@ class AdmissionDecision:
     issue_category: str = ""
     issue_code: str = ""
     action_issue: dict[str, Any] = field(default_factory=dict)
+    control_output_line_ref: str = ""
+    control_output_line_authority: str = ""
+    control_output_line_contract: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.admission"
 
     def __post_init__(self) -> None:
@@ -40,6 +44,7 @@ class AdmissionDecision:
         payload["resource_errors"] = list(self.resource_errors)
         payload["permission_delta"] = dict(self.permission_delta or {})
         payload["action_issue"] = dict(self.action_issue or {})
+        payload["control_output_line_contract"] = dict(self.control_output_line_contract or {})
         return payload
 
 
@@ -52,7 +57,6 @@ def admit_model_action(
     allowed_tool_names: set[str] | None = None,
     runtime_profile: dict[str, Any] | None = None,
     permission_mode: str = "default",
-    side_effect_policy: Literal["requires_task_run", "runtime_authorized"] = "requires_task_run",
     current_work_boundary_receipt: dict[str, Any] | None = None,
 ) -> AdmissionDecision:
     allowed_actions = {str(item or "").strip() for item in tuple(packet_allowed_action_types or ()) if str(item or "").strip()}
@@ -68,7 +72,8 @@ def admit_model_action(
                 "invocation_kind": str(invocation_kind or ""),
             },
         )
-        return AdmissionDecision(
+        return _admission_decision(
+            action_request,
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="deny",
@@ -99,9 +104,10 @@ def admit_model_action(
                 code="tool_not_in_runtime_service_surface",
                 requested_tool_name=tool_name,
                 user_visible_summary="请求的工具没有在本次运行时服务面中开放。",
-                repair_instruction="请改用当前可见工具，或在任务需要该服务时请求进入正确任务环境/持续任务。",
+                repair_instruction="请改用当前可见工具，或在目标确需该服务时申请长任务资源和对应执行边界。",
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
@@ -121,7 +127,8 @@ def admit_model_action(
                 user_visible_summary="请求的工具当前没有可执行定义。",
                 repair_instruction="请改用当前服务面中已有工具，或说明能力投影缺口。",
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
@@ -133,7 +140,12 @@ def admit_model_action(
                 action_issue=issue,
             )
         owner_scope = _tool_owner_scope(definition)
-        operation_id = str(getattr(definition, "operation_id", "") or tool_name)
+        operation_identity = resolve_tool_call_operation_identity(
+            definition,
+            tool_args,
+            fallback_tool_name=tool_name,
+        )
+        operation_id = str(operation_identity.get("operation_id") or tool_name).strip()
         if invocation_kind in {"single_agent_turn", "agent_turn"} and (
             owner_scope in _TASK_RUNTIME_OWNER_SCOPES
             or tool_name in _TASK_RUNTIME_TOOL_NAMES
@@ -144,24 +156,26 @@ def admit_model_action(
                 category="requires_task_run",
                 code="task_scoped_tool_requires_task_run",
                 requested_tool_name=tool_name,
-                user_visible_summary="该工具属于任务运行态服务，需要先进入持续任务。",
-                repair_instruction="如果当前目标需要该工具，请提交 request_task_run；若合同信息不足，请 ask_user 补齐。",
+                user_visible_summary="该工具属于长任务资源作用域，需要先绑定资源。",
+                repair_instruction="如果当前目标需要该资源作用域，请提交 request_task_run；若资源申请信息不足，请 ask_user 补齐。",
                 extra={
                     "operation_id": operation_id,
                     "owner_scope": owner_scope,
                     "required_action": "request_task_run",
                 },
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="needs_task_run",
-                user_visible_reason="这个工具属于任务运行作用域，需要先进入持续任务。",
+                user_visible_reason="这个工具属于长任务资源作用域，需要先绑定资源。",
                 system_reason="task_scoped_tool_requires_task_run",
                 resource_errors=(f"task_scoped_tool_requires_task_run:{tool_name}",),
                 permission_delta={
                     "tool_name": tool_name,
                     "operation_id": operation_id,
+                    **operation_identity,
                     "owner_scope": owner_scope,
                     "required_action": "request_task_run",
                     "invocation_kind": str(invocation_kind or ""),
@@ -180,7 +194,8 @@ def admit_model_action(
                 repair_instruction="请继续只读探索、整理计划、ask_user，或在计划获批后进入执行。",
                 extra={"permission_mode": str(permission_mode or "default")},
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
@@ -196,33 +211,15 @@ def admit_model_action(
                 issue_code="plan_mode_blocks_side_effect_tool",
                 action_issue=issue,
             )
-        if not bool(getattr(definition, "is_read_only", False)) and side_effect_policy != "runtime_authorized":
-            issue = _action_issue(
-                action_request,
-                category="requires_task_run",
-                code="side_effect_tool_requires_task_run",
-                requested_tool_name=tool_name,
-                user_visible_summary="该动作会改变环境，需要先形成任务合同和执行边界。",
-                repair_instruction="请先提交 request_task_run 或 ask_user 补齐目标、范围和验收标准。",
-            )
-            return AdmissionDecision(
-                admission_id=f"admission:{action_request.request_id}",
-                action_request_ref=action_request.request_id,
-                decision="needs_contract",
-                user_visible_reason="这个动作会改变环境，需要先确认处理目标和安全边界。",
-                system_reason="side_effect_tool_requires_task_run",
-                resource_errors=(f"tool_requires_task_run:{tool_name}",),
-                issue_category="requires_task_run",
-                issue_code="side_effect_tool_requires_task_run",
-                action_issue=issue,
-            )
-        return AdmissionDecision(
+        return _admission_decision(
+            action_request,
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="allow",
             permission_delta={
                 "tool_name": tool_name,
                 "operation_id": operation_id,
+                **operation_identity,
                 "read_only": bool(getattr(definition, "is_read_only", False)),
                 "gate_stage": "deferred_to_tool_control_plane",
                 "permission_mode": str(permission_mode or "default"),
@@ -235,14 +232,15 @@ def admit_model_action(
                 action_request,
                 category="runtime_unavailable",
                 code="task_lifecycle_disabled_by_runtime_profile",
-                user_visible_summary="当前运行模式未开放持续任务生命周期。",
-                repair_instruction="请改用 ask_user、respond 或 block 说明持续任务生命周期未挂载；不要假装已经进入持续任务。",
+                user_visible_summary="当前运行模式未开放长任务资源申请。",
+                repair_instruction="请改用 ask_user、respond 或 block 说明长任务资源未挂载；不要假装已经绑定资源。",
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
-                user_visible_reason="当前运行模式没有挂载持续任务生命周期。",
+                user_visible_reason="当前运行模式没有挂载长任务资源申请。",
                 system_reason="task_lifecycle_disabled_by_runtime_profile",
                 contract_errors=("task_lifecycle_disabled_by_runtime_profile",),
                 issue_category="runtime_unavailable",
@@ -254,14 +252,15 @@ def admit_model_action(
             action_request,
             category="contract_gap",
             code="task_run_contract_seed_missing",
-            user_visible_summary="持续任务缺少任务运行合同。",
-            repair_instruction="请 ask_user 补齐进入原因、primary Work Mode、下一步和验收模式，或重新提交完整 request_task_run。",
+            user_visible_summary="长任务资源申请缺少 TaskStartIntent。",
+            repair_instruction="请 ask_user 补齐 primary_mode、task_shape、下一步、范围和验收模式，或重新提交完整 request_task_run。",
         )
-        return AdmissionDecision(
+        return _admission_decision(
+            action_request,
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="needs_contract",
-            user_visible_reason="需要先补充任务运行合同和 primary Work Mode，才能开始持续处理。",
+            user_visible_reason="需要先补充长任务资源申请意图和主工作契约，才能绑定资源。",
             system_reason="task_run_contract_seed_missing",
             contract_errors=("task_run_contract_seed_missing",),
             issue_category="contract_gap",
@@ -284,7 +283,8 @@ def admit_model_action(
                     "availability_reason": active_work_availability.reason,
                 },
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="operation_unavailable",
@@ -309,7 +309,8 @@ def admit_model_action(
                 user_visible_summary="当前运行模式未开放 active work 控制。",
                 repair_instruction="请改用 respond、ask_user 或 block 说明 active work 控制未挂载；不要假装已控制当前工作。",
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
@@ -333,7 +334,8 @@ def admit_model_action(
                 user_visible_summary="当前运行边界不能执行任务暂停动作。",
                 repair_instruction="只有 task_execution 且本轮动作合同开放 pause_for_user_steer 时，才能提交该动作。",
             )
-            return AdmissionDecision(
+            return _admission_decision(
+                action_request,
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
@@ -353,7 +355,8 @@ def admit_model_action(
             missing.append("pause_request.checkpoint_summary_required")
         if missing:
             return _invalid(action_request, ",".join(missing))
-        return AdmissionDecision(
+        return _admission_decision(
+            action_request,
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             permission_delta={
@@ -373,7 +376,8 @@ def admit_model_action(
             },
             decision="allow",
         )
-    return AdmissionDecision(
+    return _admission_decision(
+        action_request,
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,
         permission_delta={
@@ -385,6 +389,36 @@ def admit_model_action(
     )
 
 
+def resolve_tool_call_operation_identity(
+    definition: Any,
+    tool_args: dict[str, Any] | None,
+    *,
+    fallback_tool_name: str = "",
+) -> dict[str, str]:
+    primary_operation_id = str(getattr(definition, "operation_id", "") or fallback_tool_name or "").strip()
+    args = dict(tool_args or {}) if isinstance(tool_args, dict) else {}
+    tool_action = str(args.get("action") or "").strip()
+    action_operation_id = ""
+    if tool_action:
+        action_operation_id = str(
+            dict(getattr(definition, "action_operation_ids", {}) or {}).get(tool_action) or ""
+        ).strip()
+    operation_id = action_operation_id or primary_operation_id
+    if action_operation_id:
+        source = "tool_definition.action_operation_ids"
+    elif primary_operation_id and primary_operation_id != str(fallback_tool_name or "").strip():
+        source = "tool_definition.operation_id"
+    else:
+        source = "tool_name_fallback"
+    return {
+        "operation_id": operation_id,
+        "primary_operation_id": primary_operation_id,
+        "tool_action": tool_action,
+        "action_operation_id": action_operation_id,
+        "operation_resolution_source": source,
+    }
+
+
 def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDecision:
     issue = _action_issue(
         action_request,
@@ -393,7 +427,8 @@ def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDec
         user_visible_summary="模型动作格式不完整，运行时未执行。",
         repair_instruction="请按本轮动作协议重新提交一个合法 action。",
     )
-    return AdmissionDecision(
+    return _admission_decision(
+        action_request,
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,
         decision="invalid",
@@ -404,6 +439,26 @@ def _invalid(action_request: AnyModelActionRequest, reason: str) -> AdmissionDec
         issue_code=reason,
         action_issue=issue,
     )
+
+
+def _admission_decision(action_request: AnyModelActionRequest, **kwargs: Any) -> AdmissionDecision:
+    line_binding = control_output_line_binding(str(getattr(action_request, "action_type", "") or ""))
+    permission_delta = {
+        **dict(kwargs.get("permission_delta") or {}),
+        **_line_permission_delta(line_binding),
+    }
+    action_issue = dict(kwargs.get("action_issue") or {})
+    if action_issue and line_binding:
+        action_issue = {
+            **action_issue,
+            **_line_issue_refs(line_binding),
+        }
+    kwargs["permission_delta"] = permission_delta
+    kwargs["action_issue"] = action_issue
+    kwargs["control_output_line_ref"] = str(line_binding.get("control_output_line_ref") or "")
+    kwargs["control_output_line_authority"] = str(line_binding.get("control_output_line_authority") or "")
+    kwargs["control_output_line_contract"] = line_binding
+    return AdmissionDecision(**kwargs)
 
 
 def _action_issue(
@@ -426,9 +481,39 @@ def _action_issue(
         "repair_instruction": str(repair_instruction or ""),
         "user_visible_summary": str(user_visible_summary or ""),
     }
+    line_binding = control_output_line_binding(str(getattr(action_request, "action_type", "") or ""))
+    if line_binding:
+        payload.update(_line_issue_refs(line_binding))
     if extra:
         payload.update(dict(extra))
     return payload
+
+
+def _line_permission_delta(line_binding: dict[str, Any]) -> dict[str, Any]:
+    if not line_binding:
+        return {}
+    return {
+        "control_output_line_ref": str(line_binding.get("control_output_line_ref") or ""),
+        "control_output_line_id": str(line_binding.get("control_output_line_id") or ""),
+        "control_output_line_authority": str(line_binding.get("control_output_line_authority") or ""),
+        "control_output_line_action_type": str(line_binding.get("control_output_line_action_type") or ""),
+        "permit_policy_ref": str(line_binding.get("permit_policy_ref") or ""),
+        "executor_ref": str(line_binding.get("executor_ref") or ""),
+        "observation_contract": str(line_binding.get("observation_contract") or ""),
+        "public_projection_policy": str(line_binding.get("public_projection_policy") or ""),
+        "commit_policy": str(line_binding.get("commit_policy") or ""),
+        "terminal_policy": str(line_binding.get("terminal_policy") or ""),
+        "failure_feedback_policy": str(line_binding.get("failure_feedback_policy") or ""),
+    }
+
+
+def _line_issue_refs(line_binding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "control_output_line_ref": str(line_binding.get("control_output_line_ref") or ""),
+        "control_output_line_authority": str(line_binding.get("control_output_line_authority") or ""),
+        "observation_contract": str(line_binding.get("observation_contract") or ""),
+        "failure_feedback_policy": str(line_binding.get("failure_feedback_policy") or ""),
+    }
 
 
 def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
@@ -437,19 +522,18 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
     operation_id = str(getattr(definition, "operation_id", "") or tool_name).strip()
     read_only_operations = {
         "op.model_response",
-        "op.read_file",
-        "op.read_structured_file",
-        "op.list_dir",
-        "op.stat_path",
-        "op.path_exists",
-        "op.glob_paths",
-        "op.search_files",
-        "op.search_text",
-        "op.git_status",
-        "op.git_diff",
-        "op.git_log",
-        "op.git_show",
-        "op.git_branch_list",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_read",
+        "op.workspace_search",
+        "op.workspace_search",
+        "op.workspace_search",
+        "op.git_read",
+        "op.git_read",
+        "op.git_read",
+        "op.git_read",
+        "op.git_read",
         "op.web_search",
         "op.fetch_url",
         "op.codebase_search",
@@ -459,21 +543,13 @@ def _tool_allowed_in_plan_mode(definition: Any, tool_name: str) -> bool:
         "op.mcp_structured_data",
     }
     return operation_id in read_only_operations or str(tool_name or "").strip() in {
-        "read_file",
-        "read_structured_file",
-        "list_dir",
-        "stat_path",
-        "path_exists",
-        "glob_paths",
-        "search_files",
-        "search_text",
-        "git_status",
-        "git_diff",
-        "git_log",
-        "git_show",
-        "git_branch_list",
-        "web_search",
-        "fetch_url",
+        "workspace_read",
+        "workspace_search",
+        "code_structure",
+        "git",
+        "web",
+        "memory",
+        "project_network",
     }
 
 

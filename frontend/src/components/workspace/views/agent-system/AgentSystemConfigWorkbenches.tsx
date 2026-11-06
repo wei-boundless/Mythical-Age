@@ -56,6 +56,8 @@ type RuntimeDraftLike = {
     capability_tags?: string[];
     metadata?: Record<string, unknown>;
   };
+  prompt_set_refs?: string[];
+  prompt_bindings?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
 
@@ -340,6 +342,81 @@ function runtimeTemplateIssue(config: GenericRuntimeConfig) {
   if (config.runtime_kind !== expectedKind) return `模板要求 Runtime Kind 为 ${expectedKind}`;
   if (!runtimeTemplateStrategies(config.template_id).includes(config.execution_strategy)) return `模板不支持执行策略 ${config.execution_strategy}`;
   return "";
+}
+
+export function AgentSystemPromptWiringWorkbench({
+  runtimeDraft,
+  patchRuntimeDraft,
+  runtimeSaveBlocked,
+  saveRuntimeProfile,
+  saving,
+}: {
+  runtimeDraft: RuntimeDraftLike;
+  patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
+  runtimeSaveBlocked: boolean;
+  saveRuntimeProfile: () => Promise<void>;
+  saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
+}) {
+  const promptSetRefs = dedupe(runtimeDraft.prompt_set_refs ?? []);
+  const promptBindings = runtimeDraft.prompt_bindings ?? {};
+  const [bindingsText, setBindingsText] = useState(() => JSON.stringify(promptBindings, null, 2));
+  const [bindingsError, setBindingsError] = useState("");
+
+  useEffect(() => {
+    setBindingsText(JSON.stringify(runtimeDraft.prompt_bindings ?? {}, null, 2));
+    setBindingsError("");
+  }, [runtimeDraft.prompt_bindings]);
+
+  function applyBindingsText() {
+    try {
+      const parsed = JSON.parse(bindingsText || "{}");
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+        setBindingsError("prompt_bindings 必须是 JSON object。");
+        return;
+      }
+      patchRuntimeDraft({ prompt_bindings: parsed as Record<string, unknown> });
+      setBindingsError("");
+    } catch (exc) {
+      setBindingsError(exc instanceof Error ? exc.message : "JSON 解析失败");
+    }
+  }
+
+  return (
+    <section className="boundary-layer-grid boundary-layer-grid--wide">
+      <div className="boundary-card">
+        <header>
+          <strong>Prompt Wiring</strong>
+          <AgentSystemBadge>{promptSetRefs.length ? `${promptSetRefs.length} refs` : "default"}</AgentSystemBadge>
+        </header>
+        <div className="agent-system-identity-note">
+          <span>配置落点：AgentRuntimeProfile.prompt_set_refs / prompt_bindings。</span>
+          <strong>提示词正文由后端 owner 域保存；这里只保存当前 Agent 的接线引用。</strong>
+        </div>
+        <div className="boundary-form">
+          <AgentSystemField label="PromptSet Refs" wide>
+            <textarea
+              rows={7}
+              value={promptSetRefs.join("\n")}
+              onChange={(event) => patchRuntimeDraft({ prompt_set_refs: dedupe(event.target.value.split(/[\n,，]/)) })}
+            />
+          </AgentSystemField>
+          <AgentSystemField label="Prompt Bindings" wide>
+            <textarea rows={12} value={bindingsText} onChange={(event) => setBindingsText(event.target.value)} />
+          </AgentSystemField>
+        </div>
+        {bindingsError ? <Notice icon={<AlertTriangle size={16} />} tone="error">{bindingsError}</Notice> : null}
+        <div className="boundary-actions">
+          <button onClick={applyBindingsText} type="button">应用 Bindings</button>
+          <button disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} type="button">
+            <Save size={15} /> 保存运行档案
+          </button>
+        </div>
+      </div>
+      <AgentSystemReadinessCard label="PromptSet" ready={promptSetRefs.length > 0} value={promptSetRefs.length ? `${promptSetRefs.length} 个` : "默认推导"} />
+      <AgentSystemReadinessCard label="Bindings" ready={Object.keys(promptBindings).length > 0} value={Object.keys(promptBindings).length ? `${Object.keys(promptBindings).length} 项` : "未覆盖"} />
+      <AgentSystemReadinessCard label="Owner" ready value="backend" />
+    </section>
+  );
 }
 
 function nextSearchSources(config: SearchRuntimeConfig) {
@@ -1016,7 +1093,7 @@ export function AgentSystemContextMemoryWorkbench({
   const selectedContextSectionSet = new Set(selectedContextSections);
   const hasConversationReadonly = selectedMemoryScopeSet.has("conversation_readonly");
   const hasStateReadonly = selectedMemoryScopeSet.has("state_readonly");
-  const hasSessionMaintenance = selectedMemoryScopes.includes("session_memory_write_candidate");
+  const hasContinuityMaintenance = selectedMemoryScopes.includes("conversation_continuity_write_candidate");
   const hasDurableCandidate = selectedMemoryScopes.includes("durable_memory_write_candidate") || selectedMemoryScopes.includes("long_term_candidate");
   const hasRuntimeView = selectedContextSections.includes("memory_runtime_view");
 
@@ -1037,7 +1114,7 @@ export function AgentSystemContextMemoryWorkbench({
         "conversation_readonly",
         "state_readonly",
         "long_term_candidate",
-        "session_memory_write_candidate",
+        "conversation_continuity_write_candidate",
         "durable_memory_write_candidate",
       ]),
       allowed_context_sections: mergeContextSections(["task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts"]),
@@ -1095,9 +1172,9 @@ export function AgentSystemContextMemoryWorkbench({
         </header>
         <div className="boundary-readiness-list boundary-readiness-list--grid agent-system-memory-readiness-grid">
           <AgentSystemReadinessCard
-            label="Session Memory"
-            ready={hasSessionMaintenance}
-            value={hasSessionMaintenance ? "候选写入" : "不可写"}
+            label="对话连续性摘要"
+            ready={hasContinuityMaintenance}
+            value={hasContinuityMaintenance ? "候选写入" : "不可写"}
           />
           <AgentSystemReadinessCard
             label="Durable Memory"
@@ -1122,8 +1199,8 @@ export function AgentSystemContextMemoryWorkbench({
               <small>连接 process_state.json、ContextSlots、恢复候选与活动状态上下文。</small>
             </article>
             <article className="agent-system-memory-lane">
-              <span><Database size={15} />Session Memory</span>
-              <strong>{hasSessionMaintenance ? "记忆管理 Agent 维护候选" : hasConversationReadonly ? "只读连续性" : "未接入"}</strong>
+              <span><Database size={15} />对话连续性摘要</span>
+              <strong>{hasContinuityMaintenance ? "记忆管理 Agent 维护候选" : hasConversationReadonly ? "只读连续性" : "未接入"}</strong>
               <small>普通回答不读取热摘要；压缩和恢复流程读取压缩视图。</small>
             </article>
             <article className="agent-system-memory-lane">
@@ -1147,7 +1224,7 @@ export function AgentSystemContextMemoryWorkbench({
           <p><span>记忆</span><strong>{memorySummary}</strong></p>
           <p><span>上下文</span><strong>{contextSummary}</strong></p>
           <p><span>系统组</span><strong>{systemGroupSummary}</strong></p>
-          <p><span>写入治理</span><strong>{hasSessionMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
+          <p><span>写入治理</span><strong>{hasContinuityMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
         </div>
       </aside>
     </section>
@@ -1698,9 +1775,6 @@ export function AgentSystemDiagnosticsWorkbench({
     </section>
   );
 }
-
-
-
 
 
 

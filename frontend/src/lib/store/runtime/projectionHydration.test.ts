@@ -54,6 +54,8 @@ function frame(patch: Partial<PublicProjectionFrame> & { frame_id: string; event
     main_visibility: "visible_live",
     retention: "final",
     anchor,
+    body_ref: `body:${patch.frame_id}`,
+    message_ref: anchor.message_id,
     ...patch,
   };
 }
@@ -86,7 +88,7 @@ function committedAttachment(frames: PublicProjectionFrame[], patch: Partial<Pro
     },
     projection_slices: [{
       slice_id: "projection-slice:chatrun:projection-hydration:1",
-      schema_version: "chronological_projection",
+      projection_schema_id: "chronological_projection",
       event_log_id: "chatrun:projection-hydration:1",
       start_offset: frames[0]?.event_offset ?? 0,
       end_offset: frames.at(-1)?.event_offset ?? 0,

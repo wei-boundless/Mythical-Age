@@ -13,6 +13,7 @@ import type {
   AgentSystemCapabilityItem,
   TaskNodeConfigurationSpec,
 } from "@/lib/api";
+import { displayToolActionName } from "@/lib/toolDisplay";
 
 import { capabilityLabel } from "./nodeConfigurationModel";
 
@@ -271,7 +272,7 @@ export function NodeCapabilityTab({
                 type="button"
               >
                 <strong>{capabilityLabel(item)}</strong>
-                <span>{item.operation_ids?.join(", ") || item.source_label}</span>
+                <span>{capabilityOperationSummary(item)}</span>
               </button>
             );
           })}
@@ -291,6 +292,17 @@ export function NodeCapabilityTab({
       </section>
     </div>
   );
+}
+
+function capabilityOperationSummary(item: AgentSystemCapabilityItem) {
+  const operations = item.operation_ids ?? [];
+  if (!operations.length) return item.source_label;
+  return operations
+    .map((operationId) => {
+      const label = displayToolActionName({ operationId });
+      return label && label !== operationId ? `${label} · ${operationId}` : operationId;
+    })
+    .join(", ");
 }
 
 export function NodePreviewTab({
@@ -350,5 +362,4 @@ export function NodePreviewTab({
     </div>
   );
 }
-
 

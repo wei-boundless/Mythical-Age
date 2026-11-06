@@ -4,6 +4,8 @@ const MODEL_ACTION_TYPES = new Set([
   "tool_call",
   "request_task_run",
   "active_work_control",
+  "resume_task_recovery",
+  "pause_for_user_steer",
   "block",
 ]);
 
@@ -25,6 +27,8 @@ const INTERNAL_CONTRACT_MARKERS = [
   "final_answer",
   "tool_calls",
   "closeout_lifecycle",
+  "task_run_contract_seed",
+  "task_recovery_resume",
   "authority 必须",
   "只输出一个合法 JSON",
   "不能输出 Markdown 代码块",
@@ -92,6 +96,8 @@ function containsInternalControlProtocolObject(value: unknown): boolean {
     || record.user_question
     || record.blocking_reason
     || record.tool_calls
+    || record.task_run_contract_seed
+    || record.task_recovery_resume
     || record.task_contract_seed
     || record.active_work_control
   );
@@ -99,8 +105,8 @@ function containsInternalControlProtocolObject(value: unknown): boolean {
 
 function looksLikeEmbeddedModelActionProtocol(value: string) {
   return /"authority"\s*:\s*"harness\.loop\.model_action_request"/i.test(value)
-    || /"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|block)"/i.test(value)
-    && /"(?:public_action_state|task_contract_seed|tool_call|final_answer|user_question|blocking_reason|active_work_control)"\s*:/i.test(value);
+    || /"action_type"\s*:\s*"(?:respond|ask_user|tool_call|request_task_run|active_work_control|resume_task_recovery|pause_for_user_steer|block)"/i.test(value)
+    && /"(?:public_action_state|task_run_contract_seed|task_recovery_resume|pause_request|task_contract_seed|tool_call|final_answer|user_question|blocking_reason|active_work_control)"\s*:/i.test(value);
 }
 
 function looksLikeWholeInternalContractPrompt(value: string) {

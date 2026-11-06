@@ -17,24 +17,29 @@ class TaskRegistryOverviewBuilder:
         self.registry = registry
 
     def build_binding_for_flow(self, flow: TaskFlowDefinition) -> TaskAgentBinding:
-        agent = self.registry.agent_registry.get_agent(flow.default_agent_id)
-        profile = self.registry.agent_runtime_registry.get_profile(flow.default_agent_id)
+        agent_ref = str(flow.default_agent_id or "").strip()
+        agent = self.registry.agent_registry.get_agent(agent_ref) if agent_ref else None
+        profile = self.registry.agent_runtime_registry.get_profile(agent_ref) if agent_ref else None
         diagnostics: dict[str, Any] = {}
         failures: list[str] = []
-        if agent is None:
+        if not agent_ref:
+            failures.append("agent_ref_missing")
+        elif agent is None:
             failures.append("agent_missing")
         elif agent.lifecycle_state not in {"enabled", "system_builtin"}:
             failures.append("agent_not_enabled")
-        if profile is None:
+        if not agent_ref:
+            failures.append("runtime_profile_ref_missing")
+        elif profile is None:
             failures.append("runtime_profile_missing")
         else:
             _validate_contains(failures, diagnostics, "memory_scope", flow.default_memory_scope, profile.allowed_memory_scopes)
         self._validate_workflow_ref(failures, diagnostics, flow.default_workflow_id)
         return TaskAgentBinding(
-            binding_id=f"binding:{flow.flow_id}:{flow.default_agent_id}",
+            binding_id=f"binding:{flow.flow_id}:{agent_ref or 'missing_agent'}",
             task_id=str(flow.metadata.get("task_id") or flow.metadata.get("task_assignment_id") or f"task.{flow.flow_id.removeprefix('flow.')}"),
             flow_id=flow.flow_id,
-            agent_id=flow.default_agent_id,
+            agent_id=agent_ref,
             agent_profile_id=profile.agent_profile_id if profile is not None else "",
             workflow_id=flow.default_workflow_id,
             memory_scope=flow.default_memory_scope,
@@ -317,8 +322,6 @@ class TaskRegistryOverviewBuilder:
             failures.append("general_workflow_missing")
         if any(item.workflow_id and item.workflow_id not in workflow_ids for item in assignments):
             failures.append("specific_workflow_missing")
-        if agent_id == "agent:0" and not general_profiles:
-            failures.append("main_agent_without_general_task")
         return tuple(dict.fromkeys(failures))
 
     def _append_ref_issue(

@@ -12,7 +12,7 @@ backend/memory_system/
 ├── contracts.py                 # 数据契约与安全边界
 ├── bundle_service.py            # 记忆供应链编排
 ├── continuity.py                # 前台连续性状态 + 消息过滤适配
-├── conversation_memory.py       # 会话记忆适配器
+├── conversation_memory.py       # 对话连续性摘要适配器
 ├── state_memory.py              # 状态记忆适配器
 ├── session_emphasis.py          # 用户强调偏好管理
 ├── durable.py                   # 持久记忆层 + AI 召回选择器
@@ -49,7 +49,7 @@ backend/memory_system/
 
 | 层级 | 核心模块 | 职责 |
 |------|----------|------|
-| **会话记忆** | `conversation_memory.py` | 从 SessionMemoryManager 提取对话摘要、关键请求、决策与结果 |
+| **对话连续性摘要** | `conversation_memory.py` | 从 ConversationContinuityManager 提取对话摘要、关键请求、决策与结果 |
 | **状态记忆** | `state_memory.py` | 保存任务/流程的上下文快照（active goal, flow_state, result_refs） |
 | **工作记忆** | `working_memory_service.py` | 图节点级别的工作项，带策略管控的生命周期 |
 | **正式记忆** | `formal_memory_service.py` | 已审核/已接受的正式任务记忆，带版本管理 |
@@ -63,7 +63,7 @@ backend/memory_system/
 
 系统统一入口，构造并串联所有子组件：
 
-- `SessionMemoryLayer` — 会话层
+- `ConversationContinuityLayer` — 会话层
 - `ForegroundContinuityStateStore` — 前台连续性持久化
 - `SessionEmphasisStore` — 用户强调/偏好管理
 - `DurableMemoryLayer` — 持久层
@@ -106,7 +106,7 @@ memory/
 ├── durable/
 │   ├── global_common/       # 全局持久记忆
 │   └── environments/        # 环境级持久记忆
-├── session/                 # 会话记忆
+├── session/                 # 对话连续性摘要
 ├── working/                 # 工作记忆
 ├── formal/                  # 正式记忆
 └── runtime/
@@ -186,7 +186,7 @@ facade.enqueue_memory_maintenance_after_commit(
 
 ```
 用户请求 → MemoryFacade
-              ├── SessionMemoryLayer（会话）
+              ├── ConversationContinuityLayer（会话）
               ├── ConversationMemoryStoreAdapter（对话摘要）
               ├── StateMemoryStoreAdapter（状态快照）
               ├── WorkingMemoryService（工作项）

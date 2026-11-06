@@ -13,7 +13,7 @@ class DynamicContextInput:
     turn_id: str = ""
     task_run_id: str = ""
     task_run: dict[str, Any] = field(default_factory=dict)
-    task_contract: dict[str, Any] = field(default_factory=dict)
+    task_run_contract: dict[str, Any] = field(default_factory=dict)
     history: tuple[dict[str, Any], ...] = ()
     observations: tuple[dict[str, Any], ...] = ()
     tool_results: tuple[dict[str, Any], ...] = ()
@@ -25,6 +25,8 @@ class DynamicContextInput:
     inherited_start_context: dict[str, Any] = field(default_factory=dict)
     runtime_assembly: dict[str, Any] = field(default_factory=dict)
     runtime_envelope: dict[str, Any] = field(default_factory=dict)
+    project_semantic_space: dict[str, Any] = field(default_factory=dict)
+    project_network_control: dict[str, Any] = field(default_factory=dict)
     current_user_message: str = ""
     editor_context: dict[str, Any] = field(default_factory=dict)
     projection_policy: dict[str, Any] = field(default_factory=dict)
@@ -61,6 +63,8 @@ class DynamicContextProjection:
     stable_runtime_baseline_refs: dict[str, Any] = field(default_factory=dict)
     dynamic_runtime_delta: dict[str, Any] = field(default_factory=dict)
     dynamic_runtime_projection: dict[str, Any] = field(default_factory=dict)
+    project_semantic_space_projection: dict[str, Any] = field(default_factory=dict)
+    project_network_control_projection: dict[str, Any] = field(default_factory=dict)
     inherited_start_context_projection: dict[str, Any] = field(default_factory=dict)
     task_state_replay_entries: tuple[dict[str, Any], ...] = ()
     volatile_request_projection: dict[str, Any] = field(default_factory=dict)
@@ -80,6 +84,8 @@ class DynamicContextProjection:
                 "authority": self.authority,
                 "stable_runtime_baseline_refs": dict(self.stable_runtime_baseline_refs),
                 "dynamic_runtime_delta": dict(self.dynamic_runtime_delta),
+                "project_semantic_space": dict(self.project_semantic_space_projection),
+                "project_network_control": dict(self.project_network_control_projection),
                 "inherited_start_context": dict(self.inherited_start_context_projection),
                 "task_state_replay_entry_count": len(self.task_state_replay_entries),
                 "task_state_replay_entry_refs": [

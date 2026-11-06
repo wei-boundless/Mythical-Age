@@ -11,6 +11,8 @@ let frameOffset = 0;
 function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectionFrame {
   frameOffset += 1;
   const eventFamily = patch.event_family ?? inferEventFamily(patch);
+  const bodyRef = `body:projection:${frameOffset}`;
+  const messageRef = "assistant:projection:1";
   return {
     authority: "harness.public_projection",
     contract_revision: "20260614-dual-channel-v1",
@@ -24,12 +26,15 @@ function projectionFrame(patch: Partial<PublicProjectionFrame>): PublicProjectio
       stream_run_id: "strun:projection:1",
       turn_run_id: "turnrun:projection:1",
       run_id: "turnrun:projection:1",
+      message_id: messageRef,
     },
     op: "item_upsert",
     slot: "status",
     source_authority: "runtime",
     main_visibility: "hidden",
     retention: "trace",
+    body_ref: eventFamily === "assistant_body" ? bodyRef : undefined,
+    message_ref: eventFamily === "assistant_body" ? messageRef : undefined,
     ...patch,
   };
 }
@@ -178,11 +183,11 @@ describe("chronological projection frame reducer contract", () => {
     transition = project(transition, {
       source_event_type: "tool_item_started",
       op: "item_upsert",
-      slot: "trace",
+      slot: "current_action",
       source_authority: "tool",
-      main_visibility: "trace_only",
-      retention: "trace",
-      item_id: "toolinv:search:1",
+      main_visibility: "visible_live",
+      retention: "transient",
+      item_id: "call:search",
       tool_call_id: "call:search",
       tool_lifecycle_id: "toolinv:search:1",
       tool_name: "search_files",
@@ -396,7 +401,7 @@ describe("chronological projection frame reducer contract", () => {
       main_visibility: "hidden",
       retention: "trace",
       item_id: "diagnostic:raw-tool-start",
-      title: "tool_item_started_without_model_request",
+      title: "tool_item_started_without_tool_call_request",
       state: "running",
     });
 
@@ -629,10 +634,10 @@ describe("chronological projection frame reducer contract", () => {
       source_event_type: "tool_item_started",
       event_offset: 20,
       op: "item_upsert",
-      slot: "trace",
+      slot: "current_action",
       source_authority: "tool",
-      main_visibility: "trace_only",
-      retention: "trace",
+      main_visibility: "visible_live",
+      retention: "transient",
       item_id: "tool:read",
       tool_call_id: "call:read",
       tool_lifecycle_id: "call:read",

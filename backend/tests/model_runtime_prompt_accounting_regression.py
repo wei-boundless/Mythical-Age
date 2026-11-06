@@ -9,10 +9,9 @@ class _ExpensivePromptAccountingLedger:
     def __init__(self) -> None:
         self.segment_maps: list[object] = []
         self.token_usage: list[object] = []
-        self.prompt_cache: list[object] = []
-        self.prompt_cache_breaks: list[object] = []
-        self.prompt_stability: list[object] = []
-        self.prompt_cache_baselines: list[object] = []
+        self.cache_plans: list[object] = []
+        self.cache_anomalies: list[object] = []
+        self.prefix_state: list[object] = []
 
     def scoped_reads_are_expensive(self) -> bool:
         return True
@@ -23,23 +22,26 @@ class _ExpensivePromptAccountingLedger:
     def record_token_usage(self, record: object) -> None:
         self.token_usage.append(record)
 
-    def record_prompt_cache(self, record: object) -> None:
-        self.prompt_cache.append(record)
+    def record_context_usage_snapshot(self, *_args, **_kwargs) -> None:
+        return None
 
-    def record_prompt_cache_break(self, record: object) -> None:
-        self.prompt_cache_breaks.append(record)
+    def record_cache_plan(self, record: object) -> None:
+        self.cache_plans.append(record)
 
-    def record_prompt_stability(self, record: object) -> None:
-        self.prompt_stability.append(record)
+    def record_cache_anomaly(self, record: object) -> None:
+        self.cache_anomalies.append(record)
 
-    def record_prompt_cache_baseline(self, record: object) -> None:
-        self.prompt_cache_baselines.append(record)
+    def record_prefix_state(self, record: object) -> None:
+        self.prefix_state.append(record)
 
-    def list_prompt_stability(self, **_kwargs):
-        raise AssertionError("model hot path must not scan prompt stability history")
+    def list_recent_prefix_state(self, **_kwargs):
+        return []
 
-    def list_prompt_cache_baselines(self, **_kwargs):
-        raise AssertionError("model hot path must not scan prompt cache baseline history")
+    def list_prefix_state(self, **_kwargs):
+        raise AssertionError("model hot path must not scan prefix state ledger when reads are expensive")
+
+    def list_cache_plans(self, **_kwargs):
+        raise AssertionError("model hot path must not scan cache plan ledger when reads are expensive")
 
 
 def test_prompt_accounting_skips_history_scans_when_ledger_reads_are_expensive() -> None:
@@ -59,7 +61,7 @@ def test_prompt_accounting_skips_history_scans_when_ledger_reads_are_expensive()
             base_url="https://api.deepseek.com",
         ),
         accounting_context={
-            "request_id": "modelreq:expensive-ledger",
+            "request_id": "providerreq:expensive-ledger",
             "run_id": "turnrun:expensive-ledger",
             "session_id": "session:expensive-ledger",
             "source": "turn_action",
@@ -68,12 +70,11 @@ def test_prompt_accounting_skips_history_scans_when_ledger_reads_are_expensive()
         call_kind="turn_action",
     )
 
-    assert accounting["request_id"] == "modelreq:expensive-ledger"
+    assert accounting["request_id"] == "providerreq:expensive-ledger"
     assert len(ledger.segment_maps) == 1
     assert len(ledger.token_usage) == 1
-    assert len(ledger.prompt_cache) == 1
-    assert len(ledger.prompt_stability) == 1
-    assert len(ledger.prompt_cache_baselines) == 1
+    assert len(ledger.cache_plans) == 1
+    assert len(ledger.prefix_state) == 1
 
 
 def test_model_runtime_maps_provider_402_balance_error_as_non_retryable() -> None:

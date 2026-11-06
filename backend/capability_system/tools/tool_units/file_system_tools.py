@@ -8,6 +8,7 @@ from capability_system.tools.base_tool import AsyncCallbackManagerForToolRun, Ba
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from capability_system.tools.workspace_file_service import WorkspaceFileService
+from capability_system.tools.workspace_search_service import WorkspaceSearchService
 
 
 class _WorkspacePathMixin:
@@ -125,7 +126,7 @@ class PathExistsTool(_WorkspacePathMixin, BaseTool):
 class GlobPathsInput(BaseModel):
     pattern: str = Field(
         ...,
-        description="Explicit wildcard path pattern relative to the project root, such as *.html, **/*.py, or docs/**/*.md; for filename keywords use search_files, for content use search_text",
+        description="Explicit wildcard path pattern relative to the project root, such as *.html, **/*.py, or docs/**/*.md",
     )
     max_results: int = Field(default=80, ge=1, le=300, description="Maximum matched paths to return")
 
@@ -133,8 +134,7 @@ class GlobPathsInput(BaseModel):
 class GlobPathsTool(_WorkspacePathMixin, BaseTool):
     name: str = "glob_paths"
     description: str = (
-        "Find workspace paths by an explicit wildcard glob pattern such as *.html or backend/**/*.py. "
-        "Use search_files for filename/path keywords and search_text for file contents."
+        "Find workspace paths by an explicit wildcard glob pattern such as *.html or backend/**/*.py."
     )
     args_schema: Type[BaseModel] = GlobPathsInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -145,11 +145,17 @@ class GlobPathsTool(_WorkspacePathMixin, BaseTool):
         self._files = WorkspaceFileService(root_dir)
 
     def _run(self, pattern: str, max_results: int = 80, run_manager: CallbackManagerForToolRun | None = None) -> str:
-        try:
-            unique = self._files.glob_paths(pattern, max_results=max_results)
-        except ValueError:
-            return "Glob failed: invalid pattern."
-        return "\n".join(unique) or "No paths matched."
+        service = WorkspaceSearchService(self._files.root_dir, file_service=self._files)
+        result = service.glob_paths(pattern=pattern, limit=max_results)
+        meta = dict(result.get("search_meta") or {})
+        if str(meta.get("status") or "") == "error":
+            return f"Glob failed: {meta.get('error') or 'invalid pattern'}"
+        paths = [
+            str(item.get("path") or "")
+            for item in list(result.get("matches") or [])
+            if isinstance(item, dict) and str(item.get("path") or "")
+        ]
+        return "\n".join(paths) or "No paths matched."
 
     async def _arun(self, pattern: str, max_results: int = 80, run_manager: AsyncCallbackManagerForToolRun | None = None) -> str:
         return await asyncio.to_thread(self._run, pattern, max_results, None)

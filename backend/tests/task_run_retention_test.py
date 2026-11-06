@@ -23,18 +23,6 @@ from runtime_objects.tool_result_storage import ToolResultStore
 
 
 class _ActiveTurnRegistry:
-    def __init__(self) -> None:
-        self.completed: list[dict[str, str]] = []
-
-    def complete_bound_task(self, *, session_id: str, task_run_id: str, terminal_reason: str):
-        record = {
-            "session_id": session_id,
-            "task_run_id": task_run_id,
-            "terminal_reason": terminal_reason,
-        }
-        self.completed.append(record)
-        return record
-
     def resolve_current(self, session_id: str):
         del session_id
         return None
@@ -187,7 +175,7 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
         task_run_id=task_run_id,
         content={"task_run_id": task_run_id, "summary": "temporary"},
         projection_policy={},
-        projector_version="test",
+        projector_id="test",
         projection={"task_run_id": task_run_id, "summary": "temporary"},
     )
     ToolResultStore(host.root_dir, run_id=task_run_id).apply_budget(
@@ -233,7 +221,7 @@ def test_retention_stops_old_blocked_and_releases_ephemeral_state(tmp_path: Path
     assert not (host.root_dir / "dynamic_context" / "replacements").exists() or not any((host.root_dir / "dynamic_context" / "replacements").glob("*.json"))
     assert not (host.root_dir / "tool_results" / "taskrun-blocked-old").exists()
     assert registry.record("toolinv:blocked-old").status == "cancelled"
-    assert host.active_turn_registry.completed[-1]["terminal_reason"] == "blocked_expired"
+    assert host.active_turn_registry.resolve_current(f"session:{task_run_id}") is None
 
 
 def test_retention_active_claim_stop_preserves_gateway_signal_identity(tmp_path: Path) -> None:

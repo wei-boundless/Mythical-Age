@@ -77,12 +77,12 @@ def test_task_system_storage_raises_on_corrupt_payload(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     backend_dir.mkdir()
     storage = TaskSystemStorage(backend_dir)
-    path = storage.path("task_graphs.json")
+    path = storage.path("task_domains.json")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{bad-json", encoding="utf-8")
 
     with pytest.raises(TaskSystemStoragePayloadCorrupt):
-        storage.read_object("task_graphs.json", {"task_graphs": []})
+        storage.read_object("task_domains.json", {"task_domains": []})
 
     assert storage.read_object("missing.json", {"ok": True}) == {"ok": True}
 

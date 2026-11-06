@@ -223,7 +223,7 @@ class RuntimeMemoryContextProvider:
                 memory_request_profile=memory_request_profile,
                 note_limit=note_limit,
             )
-            context_result = await bundle_service.abuild_memory_context_package_result(
+            context_result = await bundle_service.abuild_turn_memory_context_package_result(
                 session_id=session_id,
                 query=query,
                 memory_intent=memory_intent,
@@ -395,7 +395,18 @@ def _runtime_memory_main_context(
         "turn_input": _compact_mapping(turn_input_facts, keys=("user_intent", "environment_binding", "expected_active_turn_id")),
         "active_work": _compact_mapping(
             active_work_context or {},
-            keys=("task_run_id", "task_id", "status", "current_step", "summary"),
+            keys=(
+                "task_environment_id",
+                "task_instance_id",
+                "session_binding_id",
+                "environment_kind",
+                "status",
+                "current_step",
+                "latest_step_name",
+                "latest_progress",
+                "user_visible_goal",
+                "summary",
+            ),
         ),
         "recent_work_outcome": _compact_mapping(
             recent_work_outcome or {},
@@ -623,7 +634,7 @@ def _runtime_memory_context_payload(context_result: Any, memory_view: Any) -> di
     memory_view_payload = memory_view.to_dict() if hasattr(memory_view, "to_dict") else dict(memory_view or {})
     diagnostics = dict(memory_view_payload.get("diagnostics") or {})
     read_plan = dict(diagnostics.get("read_plan") or {})
-    sealed_receipt = dict(package.get("sealed_receipt") or result_payload.get("sealed_receipt") or {})
+    selection_receipt = dict(package.get("selection_receipt") or result_payload.get("selection_receipt") or {})
     selected_sections = [
         str(item)
         for item in list(package.get("selected_sections") or visible_sections.keys())
@@ -637,7 +648,7 @@ def _runtime_memory_context_payload(context_result: Any, memory_view: Any) -> di
     return {
         "authority": "memory_system.runtime_memory_context",
         "memory_runtime_view_ref": str(memory_view_payload.get("view_id") or ""),
-        "context_package_ref": str(sealed_receipt.get("receipt_id") or ""),
+        "context_package_ref": str(selection_receipt.get("receipt_id") or ""),
         "selected_sections": selected_sections,
         "model_visible_sections": visible_sections,
         "memory_context_status": status,

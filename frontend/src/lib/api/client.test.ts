@@ -467,7 +467,7 @@ function jsonResponse(payload: unknown) {
 function eventEnvelope(event: string, offset: number, data: Record<string, unknown>, terminal = false) {
   return {
     type: "event",
-    protocol: "agent-live.v1",
+    protocol: "agent-live",
     stream_run_id: "strun:test",
     event_log_id: "chatrun:test",
     event_id: `strun:test:chatrun:test:${offset}`,

@@ -67,10 +67,10 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
             resource_id="resource.task_graphs",
             title="Task Graphs",
             authority_layer="L4_task_graph_resource",
-            path=str(layout.tasks_dir / "task_graphs.json"),
+            path=str(layout.tasks_dir / "task_graphs"),
             runtime_consumer="graph_system.scheduler",
             can_authorize_side_effects=False,
-            notes="Graph resources compile into runtime obligations and state transitions.",
+            notes="Graph resources are stored per graph directory and compile into runtime obligations and state transitions.",
         ),
         RuntimeResourceInventoryItem(
             resource_id="resource.agent_system_agents",
@@ -92,6 +92,5 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
         ),
     )
     return RuntimeResourceInventory(inventory_id="runtime-resource-inventory:default", items=items)
-
 
 

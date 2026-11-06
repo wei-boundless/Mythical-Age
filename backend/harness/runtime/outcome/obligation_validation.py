@@ -62,7 +62,6 @@ def validate_obligations(
     subagent_lifecycle_enabled: bool = False,
     subagent_lifecycle_observation_count: int = 0,
     write_budget_reserved: bool = False,
-    tool_budget_exhausted: bool = False,
     contract_gate_blocked: bool = False,
     protocol_leak_detected: bool = False,
 ) -> ObligationValidation:
@@ -256,7 +255,6 @@ def validate_obligations(
             "artifact_observation_count": len(_refs_for(tool_observation_ledger, "write_output")),
             "verification_command_count": len(_refs_for(tool_observation_ledger, "verify_command")),
             "write_budget_reserved": bool(write_budget_reserved),
-            "tool_budget_exhausted": bool(tool_budget_exhausted),
             "contract_gate_blocked": bool(contract_gate_blocked),
             "contract_passed": bool(not missing_actions and not missing_response_terms and not protocol_leak),
             "evidence_backed_partial": evidence_backed_partial,
@@ -358,5 +356,4 @@ def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
 
